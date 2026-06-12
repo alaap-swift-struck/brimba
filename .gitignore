@@ -1,0 +1,10 @@
+# Machine output — never committed (unanchored: applies in every folder)
+node_modules/
+.next/
+out/
+
+# Local secrets + OS noise
+.env*
+.DS_Store
+*.log
+*.tsbuildinfo

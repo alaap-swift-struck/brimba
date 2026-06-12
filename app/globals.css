@@ -1,0 +1,358 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/* The component library is installed from GitHub into node_modules — tell
+ * Tailwind to scan it for class names so its styles are generated.
+ *
+ * NOTE: everything below this line is a copy of the library's theme (MASTER:
+ * swift-struck-ui repo, www/app/globals.css). Don't hand-edit here — update
+ * the master and re-copy. (Planned library improvement: ship this as an
+ * importable file so apps never carry a copy.) */
+@source "../node_modules/@swift-struck/ui/registry";
+
+/* ---------------------------------------------------------------------------
+ * LAYER 0 — DESIGN TOKENS (the single source of truth)
+ *
+ * Every color, radius, and surface in Swift Struck UI resolves to a variable defined
+ * here. Primitives and collections reference these tokens (e.g. `bg-background`,
+ * `text-foreground`, `rounded-lg`) and NEVER hardcode a hex value or pixel size.
+ * Re-theming any project — including future native skins — is a matter of
+ * editing this block alone. See registry/tokens/README.md and ARCHITECTURE.md.
+ *
+ * Current preset: "Teal" brand + "Amber" chart accent, medium radius.
+ * Swapping the brand is the ~4 lines marked PRIMARY / RING below.
+ * ------------------------------------------------------------------------- */
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --radius: 0.75rem;
+
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+
+  /* PRIMARY (brand) */
+  --primary: oklch(0.58 0.1 185);
+  --primary-foreground: oklch(0.985 0 0);
+
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+
+  --accent: oklch(0.96 0.02 185);
+  --accent-foreground: oklch(0.3 0.06 185);
+
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.985 0 0);
+
+  --success: oklch(0.627 0.17 149);
+  --success-foreground: oklch(0.985 0 0);
+
+  --warning: oklch(0.795 0.16 86);
+  --warning-foreground: oklch(0.205 0 0);
+
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.58 0.1 185); /* RING follows PRIMARY */
+
+  /* Chart palette — chart-2 (amber) is the accent in the demo dashboard. */
+  --chart-1: oklch(0.58 0.1 185);
+  --chart-2: oklch(0.77 0.16 70);
+  --chart-3: oklch(0.6 0.13 250);
+  --chart-4: oklch(0.65 0.18 320);
+  --chart-5: oklch(0.7 0.15 145);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+
+  /* PRIMARY (brand) */
+  --primary: oklch(0.62 0.11 185);
+  --primary-foreground: oklch(0.985 0 0);
+
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+
+  --accent: oklch(0.3 0.04 185);
+  --accent-foreground: oklch(0.95 0.02 185);
+
+  --destructive: oklch(0.704 0.191 22.216);
+  --destructive-foreground: oklch(0.985 0 0);
+
+  --success: oklch(0.696 0.17 149);
+  --success-foreground: oklch(0.205 0 0);
+
+  --warning: oklch(0.828 0.16 86);
+  --warning-foreground: oklch(0.205 0 0);
+
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.62 0.11 185); /* RING follows PRIMARY */
+
+  --chart-1: oklch(0.65 0.12 185);
+  --chart-2: oklch(0.79 0.16 70);
+  --chart-3: oklch(0.65 0.14 250);
+  --chart-4: oklch(0.7 0.18 320);
+  --chart-5: oklch(0.72 0.15 145);
+}
+
+/* Expose the tokens to Tailwind's utility engine so `bg-background`,
+ * `text-muted-foreground`, `rounded-lg`, `bg-chart-2`, etc. all resolve from
+ * the block above. */
+@theme inline {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+
+  /* Type scale — the floor is raised one notch (xs 12→13, sm 14→15) so the
+   * smallest text in the UI reads larger everywhere. Override here only. */
+  --text-xs: 0.8125rem; /* 13px */
+  --text-xs--line-height: 1.125rem;
+  --text-sm: 0.9375rem; /* 15px */
+  --text-sm--line-height: 1.375rem;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    /* Faint, fixed brand-tinted glow in two corners — gives the page depth and
+     * gives glass surfaces something to refract. Token-driven, very subtle. */
+    background-image:
+      radial-gradient(
+        48rem 48rem at 100% -8%,
+        color-mix(in oklch, var(--primary) 10%, transparent),
+        transparent 60%
+      ),
+      radial-gradient(
+        42rem 42rem at -8% 8%,
+        color-mix(in oklch, var(--chart-3) 9%, transparent),
+        transparent 55%
+      );
+    background-attachment: fixed;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * MOTION & SURFACE UTILITIES — the shared "alive" layer.
+ *
+ * A tiny, reusable vocabulary applied via className on existing components, so
+ * the whole library inherits the feel from one place. No per-component CSS.
+ *   .glass        frosted translucent surface (pairs with the body glow above)
+ *   .animate-rise gentle staggered entrance (respects reduced-motion)
+ *   .hover-lift   subtle lift + brand glow on hover for interactive cards
+ * ------------------------------------------------------------------------- */
+@layer components {
+  /* Frosted glass: a translucent pane that blurs (refracts) what's behind it,
+   * with a single hairline top-edge highlight. The realism comes from the
+   * blur — NOT a painted gradient sheen. Central: every card/dialog/popover/
+   * menu/toast inherits it. */
+  .glass {
+    background-color: color-mix(in oklch, var(--card) 72%, transparent);
+    backdrop-filter: blur(16px) saturate(1.4);
+    -webkit-backdrop-filter: blur(16px) saturate(1.4);
+    box-shadow: inset 0 1px 0 0 color-mix(in oklch, white 7%, transparent);
+  }
+  .hover-lift {
+    transition:
+      transform 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+      box-shadow 0.3s ease,
+      border-color 0.3s ease;
+  }
+  .hover-lift:hover {
+    transform: translateY(-2px);
+    border-color: color-mix(in oklch, var(--primary) 40%, var(--border));
+    box-shadow: 0 12px 30px -12px
+      color-mix(in oklch, var(--primary) 35%, transparent);
+  }
+  /* opt a nested/static surface out of the lift (keeps the glass) */
+  .hover-lift-none:hover {
+    transform: none;
+    box-shadow: none;
+  }
+  .animate-rise {
+    opacity: 0;
+    animation: ss-rise 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+
+  /* Ambient interactive background — drifting token-colored "smoke" that
+   * blooms softly toward the pointer. Very low opacity on purpose; it exists
+   * to make the glass finish pop. Driven by <AmbientBackground />. */
+  .ambient::before {
+    content: "";
+    position: absolute;
+    inset: -25%;
+    background:
+      radial-gradient(
+        26% 26% at 18% 28%,
+        color-mix(in oklch, var(--chart-3) 16%, transparent),
+        transparent 60%
+      ),
+      radial-gradient(
+        24% 24% at 82% 68%,
+        color-mix(in oklch, var(--chart-4) 14%, transparent),
+        transparent 60%
+      ),
+      radial-gradient(
+        22% 22% at 62% 16%,
+        color-mix(in oklch, var(--chart-2) 12%, transparent),
+        transparent 60%
+      );
+    filter: blur(72px) saturate(1.25);
+    opacity: 0.5;
+    animation: ambient-drift 26s ease-in-out infinite;
+  }
+  /* the pointer-following bloom (faint on move, brighter on tap) */
+  .ambient::after {
+    content: "";
+    position: absolute;
+    inset: -25%;
+    background: radial-gradient(
+      22% 22% at var(--mx, 50%) var(--my, 38%),
+      color-mix(in oklch, var(--primary) 36%, transparent),
+      transparent 55%
+    );
+    filter: blur(64px);
+    opacity: calc(0.12 + 0.5 * var(--bloom, 0));
+  }
+}
+
+@keyframes ss-rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes ambient-drift {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(2%, -2%, 0) scale(1.08);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * REQUIRED-FIELD RING — a thin teal gradient that slowly runs around a field,
+ * signalling "this is required" (paired with the red asterisk). Wrap the input
+ * in <div class="required-ring">. Global rule for forms/edit containers.
+ * ------------------------------------------------------------------------- */
+@property --ss-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+
+@layer components {
+  .required-ring {
+    position: relative;
+    border-radius: var(--radius-md);
+  }
+  .required-ring::before {
+    content: "";
+    position: absolute;
+    inset: -1.5px;
+    border-radius: inherit;
+    padding: 1.5px;
+    background: conic-gradient(
+      from var(--ss-angle),
+      transparent 0deg,
+      color-mix(in oklch, var(--primary) 90%, transparent) 70deg,
+      transparent 150deg,
+      transparent 360deg
+    );
+    /* mask so only the 1.5px padding shows = a ring, not a filled box */
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    mask-composite: exclude;
+    animation: ss-rotate 3.5s linear infinite;
+    pointer-events: none;
+  }
+}
+
+@keyframes ss-rotate {
+  to {
+    --ss-angle: 360deg;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-rise {
+    animation: none;
+    opacity: 1;
+  }
+  .hover-lift {
+    transition: none;
+  }
+  .ambient::before {
+    animation: none;
+  }
+  .required-ring::before {
+    animation: none;
+  }
+}
