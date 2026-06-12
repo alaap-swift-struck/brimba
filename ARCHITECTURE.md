@@ -35,7 +35,7 @@ Five domain workers, each small enough for an AI agent to hold fully in its head
 
 | Worker | Owns |
 |---|---|
-| **auth** | Google OAuth (direct — NO Clerk), 6-digit email login codes via Resend, sessions, email-change flow (code to the NEW email) |
+| **auth** | Strict email-OTP login — 6-digit codes via Resend (NO Clerk, NO Google; parked 2026-06-12), sessions, email-change flow (code to the NEW email) |
 | **tenancy** | teams, team members, roles & permissions, invites |
 | **content** | learning, help + help threads, selectable data (+ types) |
 | **data-ops** | import sessions, export, the AI import agent (Workers AI, behind ONE swappable interface so the brain can change in one config edit) |
@@ -67,7 +67,7 @@ Five domain workers, each small enough for an AI agent to hold fully in its head
 
 ## 5 · Users, onboarding, invites (LOCKED)
 
-- Sign-in: Google or email + 6-digit code (Resend sends ALL email). All user
+- Sign-in: email + 6-digit code ONLY (strict OTP; Resend sends ALL email). Google login is parked. All user
   data lives in OUR database — no auth vendor holds anything.
 - Onboarding: first name, last name, optional photo.
 - Invites are by email, with a shelf life. At onboarding, **all active invites

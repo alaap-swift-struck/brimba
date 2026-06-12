@@ -17,7 +17,7 @@ How this project ships. /ship-staging and /ship-production read the config below
 | Worker | Staging name | Production name | What it is |
 |---|---|---|---|
 | gateway (`workers/gateway`) | brimba-staging | brimba | The front door: serves web/out + routes /api/* via service bindings |
-| auth (`workers/auth`) | brimba-auth-staging | brimba-auth | Login (email codes + Google), sessions, users |
+| auth (`workers/auth`) | brimba-auth-staging | brimba-auth | Login (strict email codes only), sessions, users |
 
 | D1 database | Bound to | Migrations |
 |---|---|---|
@@ -30,7 +30,7 @@ New migrations must be applied to BOTH databases before deploying workers that n
 ## Secrets (set once per env, never in git)
 
 - `cd workers/auth && npx wrangler secret put RESEND_API_KEY --env staging` (and again without `--env` for production)
-- Same for `GOOGLE_CLIENT_SECRET`. `GOOGLE_CLIENT_ID` is a plain var in workers/auth/wrangler.jsonc.
+- `CF_D1_TOKEN` (Account→D1→Edit) on brimba-tenancy + brimba-tenancy-staging — SET 2026-06-12 (team creation live). `ADMIN_KEY` (migrate-teams endpoint) — set when first needed.
 - Until RESEND_API_KEY is set: staging echoes login codes in the API response (DEV_ECHO_CODES=1); production refuses email login.
 
 ## Verify before shipping

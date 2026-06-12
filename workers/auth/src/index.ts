@@ -3,8 +3,6 @@
 //
 //   POST /api/auth/email/start    { email }        -> sends a 6-digit code
 //   POST /api/auth/email/verify   { email, code }  -> logs in (sets cookie)
-//   GET  /api/auth/google/start                    -> bounce to Google
-//   GET  /api/auth/google/callback                 -> back from Google, logs in
 //   GET  /api/auth/me                              -> who am I?
 //   POST /api/auth/logout                          -> forget me
 //   GET  /api/auth/health                          -> is this worker alive?
@@ -14,21 +12,14 @@ import type { Env } from "./env"
 import { randomCode, sha256Hex } from "./lib/crypto"
 import { isValidEmail, normalizeEmail, sendLoginCode } from "./lib/email"
 import {
-  buildGoogleStart,
-  exchangeGoogleCode,
-  OAUTH_COOKIE,
-} from "./lib/google"
-import {
   createSession,
   destroySession,
   getSessionUser,
-  readCookie,
 } from "./lib/sessions"
 import { ulid } from "../../../shared/workers/id"
 import { updateProfile, type ProfileInput } from "./lib/profile"
 import {
   findOrCreateUserByEmail,
-  findOrCreateUserFromGoogle,
   toSessionUser,
 } from "./lib/users"
 
@@ -56,10 +47,6 @@ export default {
           return await emailStart(request, env)
         case "POST /api/auth/email/verify":
           return await emailVerify(request, env)
-        case "GET /api/auth/google/start":
-          return await googleStart(env)
-        case "GET /api/auth/google/callback":
-          return await googleCallback(request, env)
         case "GET /api/auth/me":
           return await me(request, env)
         case "POST /api/auth/profile":
@@ -166,58 +153,6 @@ async function emailVerify(request: Request, env: Env): Promise<Response> {
 
   const { setCookie } = await createSession(env, user.id)
   return json({ user: toSessionUser(user), isNew }, 200, { "Set-Cookie": setCookie })
-}
-
-/** Bounce the browser to Google's account picker. */
-async function googleStart(env: Env): Promise<Response> {
-  if (!env.GOOGLE_CLIENT_ID) {
-    return Response.redirect(`${env.APP_ORIGIN}/login?error=google_not_ready`, 302)
-  }
-  const { url, setCookie } = await buildGoogleStart(env)
-  return new Response(null, {
-    status: 302,
-    headers: { Location: url, "Set-Cookie": setCookie },
-  })
-}
-
-/** Google sends the browser back here; finish the handshake and log in. */
-async function googleCallback(request: Request, env: Env): Promise<Response> {
-  const back = (reason: string) =>
-    new Response(null, {
-      status: 302,
-      headers: {
-        Location: `${env.APP_ORIGIN}/login?error=${reason}`,
-        // always clear the one-shot OAuth cookie
-        "Set-Cookie": `${OAUTH_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Secure; Max-Age=0`,
-      },
-    })
-
-  const url = new URL(request.url)
-  const code = url.searchParams.get("code")
-  const state = url.searchParams.get("state")
-  const cookie = readCookie(request, OAUTH_COOKIE)
-  if (!code || !state || !cookie) return back("google_failed")
-
-  const [cookieState, verifier] = cookie.split(".")
-  if (state !== cookieState || !verifier) return back("google_failed")
-
-  try {
-    const identity = await exchangeGoogleCode(env, code, verifier)
-    const { user } = await findOrCreateUserFromGoogle(env, identity)
-    if (user.deactivated_at !== null) return back("deactivated")
-
-    const { setCookie } = await createSession(env, user.id)
-    const headers = new Headers({ Location: `${env.APP_ORIGIN}/` })
-    headers.append("Set-Cookie", setCookie)
-    headers.append(
-      "Set-Cookie",
-      `${OAUTH_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Secure; Max-Age=0`
-    )
-    return new Response(null, { status: 302, headers })
-  } catch (e) {
-    console.error("google callback failed:", e)
-    return back("google_failed")
-  }
 }
 
 /** Who is the cookie attached to this request? */

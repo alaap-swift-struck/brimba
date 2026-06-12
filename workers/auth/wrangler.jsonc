@@ -1,8 +1,7 @@
-// The AUTH worker — Brimba's front-door brain: email-code login, Google login,
+// The AUTH worker — Brimba's front-door brain: email-code login (strict OTP — no Google, no Clerk),
 // sessions. Top-level config = PRODUCTION; the staging variant is under env.
 // Secrets (set via `wrangler secret put`, never in this file):
 //   RESEND_API_KEY        — lets us actually send code emails
-//   GOOGLE_CLIENT_SECRET  — pairs with GOOGLE_CLIENT_ID for Google login
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "brimba-auth",
@@ -21,8 +20,7 @@
   "vars": {
     "APP_ORIGIN": "https://brimba.swift-struck.workers.dev",
     "EMAIL_FROM": "Brimba <onboarding@resend.dev>",
-    "DEV_ECHO_CODES": "0",
-    "GOOGLE_CLIENT_ID": ""
+    "DEV_ECHO_CODES": "0"
   },
   "env": {
     "staging": {
@@ -42,8 +40,7 @@
       "vars": {
         "APP_ORIGIN": "https://brimba-staging.swift-struck.workers.dev",
         "EMAIL_FROM": "Brimba <onboarding@resend.dev>",
-        "DEV_ECHO_CODES": "1",
-        "GOOGLE_CLIENT_ID": ""
+        "DEV_ECHO_CODES": "1"
       }
     }
   }
