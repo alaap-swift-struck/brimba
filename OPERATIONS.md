@@ -12,7 +12,7 @@ How this project ships. /ship-staging and /ship-production read the config below
 - production_branch: main
 - staging_url: https://staging.brimba.pages.dev
 - production_url: https://brimba.pages.dev
-- github_remote: origin (pending — set on first push)
+- github_remote: origin (https://github.com/alaap-swift-struck/brimba)
 
 ## Verify before shipping
 
