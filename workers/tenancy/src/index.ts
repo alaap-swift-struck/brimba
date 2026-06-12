@@ -5,9 +5,14 @@
 //   GET  /api/tenancy/teams                -> my teams (for switcher + home)
 //   POST /api/tenancy/admin/migrate-teams  -> roll new team-schema migrations
 //                                             to EVERY team DB (x-admin-key)
+//   GET  /api/tenancy/admin/db-sizes       -> size every team DB + open alarms
+//   POST /api/tenancy/admin/move-module    -> relocate a heavy module to its
+//                                             own database (the mover)
 //   GET  /api/tenancy/health
+//   cron (nightly)                         -> the 80% size alarms
 
-import type { ApiError, SessionUser } from "../../../shared/types"
+import type { SessionUser } from "../../../shared/types"
+import { fail, json } from "../../../shared/workers/http"
 import { d1Query } from "../../../shared/workers/d1-rest"
 import type { Env } from "./env"
 import {
@@ -17,16 +22,11 @@ import {
   d1Config,
   listMyTeams,
 } from "./lib/teams"
+import {
+  checkDatabaseSizes,
+  moveModuleToOwnDatabase,
+} from "./lib/sharding"
 import { TEAM_MIGRATIONS, type Actor } from "./team-schema"
-
-const json = (data: unknown, status = 200) =>
-  new Response(JSON.stringify(data), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  })
-
-const fail = (status: number, error: string, message: string) =>
-  json({ error, message } satisfies ApiError, status)
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -41,6 +41,10 @@ export default {
           return await myTeams(request, env)
         case "POST /api/tenancy/admin/migrate-teams":
           return await migrateTeams(request, env)
+        case "GET /api/tenancy/admin/db-sizes":
+          return await dbSizes(request, env)
+        case "POST /api/tenancy/admin/move-module":
+          return await moveModule(request, env)
         case "GET /api/tenancy/health":
           return json({ ok: true })
         default:
@@ -54,7 +58,27 @@ export default {
       return fail(500, "internal", "Something went wrong on our side. Try again.")
     }
   },
+
+  /** Nightly cron: the 80% database-size alarms (locked sharding machinery). */
+  async scheduled(_controller, env): Promise<void> {
+    try {
+      const result = await checkDatabaseSizes(env, d1Config(env))
+      console.log(
+        `size check: ${result.checked} team DBs, ${result.alerted.length} alarm(s)`
+      )
+    } catch (e) {
+      console.error("nightly size check failed:", e)
+    }
+  },
 } satisfies ExportedHandler<Env>
+
+/** Shared guard for the maintenance endpoints (x-admin-key header). */
+function adminGuard(request: Request, env: Env): Response | null {
+  if (!env.ADMIN_KEY) return fail(503, "admin_key_missing", "Maintenance key not set.")
+  if (request.headers.get("x-admin-key") !== env.ADMIN_KEY)
+    return fail(403, "forbidden", "Bad maintenance key.")
+  return null
+}
 
 /** Ask the auth worker (one session system, one master) who this request is. */
 async function whoAmI(request: Request, env: Env): Promise<SessionUser | null> {
@@ -122,9 +146,8 @@ async function myTeams(request: Request, env: Env): Promise<Response> {
  * team database. Protected by the ADMIN_KEY secret.
  */
 async function migrateTeams(request: Request, env: Env): Promise<Response> {
-  if (!env.ADMIN_KEY) return fail(503, "admin_key_missing", "Maintenance key not set.")
-  if (request.headers.get("x-admin-key") !== env.ADMIN_KEY)
-    return fail(403, "forbidden", "Bad maintenance key.")
+  const denied = adminGuard(request, env)
+  if (denied) return denied
 
   const cfg = d1Config(env)
   const teams = await env.DB.prepare(
@@ -152,4 +175,39 @@ async function migrateTeams(request: Request, env: Env): Promise<Response> {
     migrated++
   }
   return json({ ok: true, teamsChecked: teams.results?.length ?? 0, teamsMigrated: migrated })
+}
+
+/** On-demand version of the nightly size check (plus the alarm list). */
+async function dbSizes(request: Request, env: Env): Promise<Response> {
+  const denied = adminGuard(request, env)
+  if (denied) return denied
+
+  const result = await checkDatabaseSizes(env, d1Config(env))
+  const open = await env.DB.prepare(
+    "SELECT database_name, size_bytes, created_at FROM db_alerts WHERE resolved_at IS NULL"
+  ).all()
+  return json({ ...result, openAlerts: open.results ?? [] })
+}
+
+/** The mover: POST { teamId, module, tables: [...] } with x-admin-key. */
+async function moveModule(request: Request, env: Env): Promise<Response> {
+  const denied = adminGuard(request, env)
+  if (denied) return denied
+
+  const body = (await request.json().catch(() => ({}))) as {
+    teamId?: string
+    module?: string
+    tables?: string[]
+  }
+  if (!body.teamId || !body.module || !body.tables?.length)
+    return fail(400, "invalid_input", "teamId, module and tables are required.")
+
+  const result = await moveModuleToOwnDatabase(
+    env,
+    d1Config(env),
+    body.teamId,
+    body.module,
+    body.tables
+  )
+  return json({ ok: true, ...result })
 }

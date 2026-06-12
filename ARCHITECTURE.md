@@ -23,9 +23,12 @@ Do not relitigate any "LOCKED" item without the user.
   all its tables: roles + permissions, learning, help + threads, invite logs,
   selectable data, activity, import sessions. Another team's rows are never in
   the same database — isolation by physics, not by query discipline.
-- **Sharding: build EVERYTHING up front** (user confirmed twice): daily size
-  checks alarming at 80% of D1's 10GB cap, the module-to-its-own-database
-  mover, AND the merged-reads splitter for a single oversized table.
+- **Sharding machinery: BUILT (2026-06-12)** per the locked build-everything
+  call: a nightly cron sizes every team database and alarms at 80% of D1's
+  10GB cap (`db_alerts`); the **mover** relocates a heavy module to its own
+  database (`team_module_databases` routing); reads merge across locations
+  via `d1QueryAcross` + `resolveModuleDatabases` — the splitter read-path
+  modules will use. Maintenance via x-admin-key endpoints.
 - Every row: globally-unique, team-stamped IDs (rows can move homes without
   collisions). Every worker reads/writes through ONE data-access layer.
 
@@ -41,6 +44,23 @@ Five domain workers, each small enough for an AI agent to hold fully in its head
 | **data-ops** | import sessions, export, the AI import agent (Workers AI, behind ONE swappable interface so the brain can change in one config edit) |
 | **gateway / MCP** | the single front desk: ONE master catalog of every action (name, purpose, what to call before/after, inputs), exposed as one MCP server. UI and agents call the SAME doors |
 
+
+### The actions today (each becomes an MCP-catalogued tool)
+
+| Action | Worker | What it does |
+|---|---|---|
+| POST /api/auth/email/start | auth | send a 6-digit login code |
+| POST /api/auth/email/verify | auth | check code, start session |
+| GET /api/auth/me | auth | who am I? |
+| POST /api/auth/profile | auth | onboarding names + photo (R2) |
+| POST /api/auth/logout | auth | end session |
+| POST /api/tenancy/bootstrap | tenancy | accept invites OR create the personal team (+ its database) |
+| GET /api/tenancy/teams | tenancy | my teams (switcher/home) |
+| POST /api/tenancy/admin/migrate-teams | tenancy | roll team-schema migrations to every team DB (x-admin-key) |
+| GET /api/tenancy/admin/db-sizes | tenancy | size check + open 80% alarms (x-admin-key) |
+| POST /api/tenancy/admin/move-module | tenancy | the mover: relocate a module to its own DB (x-admin-key) |
+| GET /media/* | gateway | serve uploaded files from R2 |
+
 ## 3 · Tenancy & security rules (LOCKED)
 
 - **One team session at a time** (Glide-style team-hop button on every page).
@@ -51,6 +71,9 @@ Five domain workers, each small enough for an AI agent to hold fully in its head
   New module = new rows, never a schema change. Members point at one role;
   editing a role applies instantly to every holder.
 - Any write right (create/edit/delete) **auto-flips READ on**, visibly.
+- The enforcement seam is BUILT (`workers/tenancy/src/lib/permissions.ts`:
+  requireMember + requireRight reading the tall sheet) — every module
+  endpoint starts with it the day the first module lands.
 - **Export needs READ only. Import needs CREATE.**
 - Default roles seeded per team: **Admin** (locked, full rights) + **Viewer**
   (read-only). Default selectable-data values seeded on team creation.

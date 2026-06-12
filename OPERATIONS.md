@@ -24,18 +24,21 @@ How this project ships. /ship-staging and /ship-production read the config below
 | brimba-core-staging | brimba-auth-staging | `cd workers/auth && npx wrangler d1 migrations apply brimba-core-staging --env staging --remote` |
 | brimba-core | brimba-auth | `cd workers/auth && npx wrangler d1 migrations apply brimba-core --remote` |
 
-Deploy order when both change: auth first, gateway second (root scripts do this).
+Deploy order when several change: auth → tenancy → gateway (root scripts do this).
+A nightly cron (03:10 UTC, tenancy worker) sizes every team DB and alarms at 80% of the 10GB cap.
 New migrations must be applied to BOTH databases before deploying workers that need them.
 
 ## Secrets (set once per env, never in git)
 
 - `cd workers/auth && npx wrangler secret put RESEND_API_KEY --env staging` (and again without `--env` for production)
-- `CF_D1_TOKEN` (Account→D1→Edit) on brimba-tenancy + brimba-tenancy-staging — SET 2026-06-12 (team creation live). `ADMIN_KEY` (migrate-teams endpoint) — set when first needed.
+- `CF_D1_TOKEN` (Account→D1→Edit) on brimba-tenancy + brimba-tenancy-staging — SET 2026-06-12 (team creation live). `ADMIN_KEY` (maintenance endpoints: migrate-teams, db-sizes, move-module) — SET on both envs 2026-06-12; rotate anytime with `wrangler secret put ADMIN_KEY`.
 - Until RESEND_API_KEY is set: staging echoes login codes in the API response (DEV_ECHO_CODES=1); production refuses email login.
 
 ## Verify before shipping
 
-- npm run check   (type-checks web + both workers, runs auth unit tests)
+- npm run check   (type-checks web + all workers, runs all 21 unit/integration tests)
+- CI runs the same on every push (.github/workflows/ci.yml)
+- deploy:staging ends with scripts/smoke-staging.mjs — the LIVE login→team journey must pass or the deploy is considered failed
 
 ## Local dev
 

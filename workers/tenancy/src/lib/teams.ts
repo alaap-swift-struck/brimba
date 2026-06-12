@@ -4,6 +4,7 @@
 import type { TeamSummary } from "../../../../shared/types"
 import {
   d1CreateDatabase,
+  d1DeleteDatabase,
   d1ExecScript,
   type D1Rest,
 } from "../../../../shared/workers/d1-rest"
@@ -64,11 +65,9 @@ export async function createTeam(
     .bind(teamId, name, logoUrl, now, actor.id, actor.email, actor.name)
     .run()
 
+  let databaseId: string | null = null
   try {
-    const databaseId = await d1CreateDatabase(
-      cfg,
-      `team-${teamId.toLowerCase()}`
-    )
+    databaseId = await d1CreateDatabase(cfg, `team-${teamId.toLowerCase()}`)
     const schemaVersion = await applyTeamSchema(cfg, databaseId)
 
     const seed = buildTeamSeed(actor, now)
@@ -93,11 +92,18 @@ export async function createTeam(
 
     return { teamId }
   } catch (e) {
+    // Leave a clear 'failed' trail AND clean up the half-created database so
+    // nothing orphaned lingers in the account; a retry starts fresh.
     await env.DB.prepare(
       "UPDATE teams SET db_status = 'failed', updated_at = ? WHERE id = ?"
     )
       .bind(new Date().toISOString(), teamId)
       .run()
+    if (databaseId) {
+      await d1DeleteDatabase(cfg, databaseId).catch((cleanupErr) =>
+        console.error("orphan DB cleanup failed:", cleanupErr)
+      )
+    }
     throw e
   }
 }

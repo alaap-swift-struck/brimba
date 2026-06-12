@@ -17,6 +17,8 @@
   ],
   "services": [{ "binding": "AUTH", "service": "brimba-auth" }],
   "vars": { "CF_ACCOUNT_ID": "af3f1bf82aa34512f4f6630091358439" },
+  // Nightly 80%-size alarms (03:10 UTC) — the locked sharding machinery.
+  "triggers": { "crons": ["10 3 * * *"] },
   "env": {
     "staging": {
       "name": "brimba-tenancy-staging",
@@ -30,7 +32,8 @@
         }
       ],
       "services": [{ "binding": "AUTH", "service": "brimba-auth-staging" }],
-      "vars": { "CF_ACCOUNT_ID": "af3f1bf82aa34512f4f6630091358439" }
+      "vars": { "CF_ACCOUNT_ID": "af3f1bf82aa34512f4f6630091358439" },
+      "triggers": { "crons": ["10 3 * * *"] }
     }
   }
 }

@@ -7,7 +7,7 @@
 //   POST /api/auth/logout                          -> forget me
 //   GET  /api/auth/health                          -> is this worker alive?
 
-import type { ApiError } from "../../../shared/types"
+import { fail, json } from "../../../shared/workers/http"
 import type { Env } from "./env"
 import { randomCode, sha256Hex } from "./lib/crypto"
 import { isValidEmail, normalizeEmail, sendLoginCode } from "./lib/email"
@@ -26,15 +26,6 @@ import {
 const CODE_TTL_MINUTES = 10
 const MAX_CODE_ATTEMPTS = 5
 const MAX_CODES_PER_HOUR = 5
-
-const json = (data: unknown, status = 200, headers: Record<string, string> = {}) =>
-  new Response(JSON.stringify(data), {
-    status,
-    headers: { "Content-Type": "application/json", ...headers },
-  })
-
-const fail = (status: number, error: string, message: string) =>
-  json({ error, message } satisfies ApiError, status)
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {

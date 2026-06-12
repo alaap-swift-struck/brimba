@@ -3,6 +3,8 @@
 // worker behind it. Same address for screens and brains = login cookies just
 // work everywhere. This is also where the MCP front desk will live.
 
+import { fail } from "../../../shared/workers/http"
+
 type Env = {
   ASSETS: Fetcher
   AUTH: Fetcher
@@ -18,10 +20,7 @@ export default {
     if (pathname.startsWith("/api/tenancy/")) return env.TENANCY.fetch(request)
 
     if (pathname.startsWith("/api/")) {
-      return new Response(
-        JSON.stringify({ error: "not_found", message: "No such API." }),
-        { status: 404, headers: { "Content-Type": "application/json" } }
-      )
+      return fail(404, "not_found", "No such API.")
     }
 
     // Uploaded files (profile photos, team logos). URLs carry ?v= for cache

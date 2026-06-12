@@ -2,7 +2,8 @@
 // Team databases are created at runtime, so workers can't have them as
 // pre-wired bindings — instead we talk to Cloudflare's D1 REST API with a
 // scoped token. Every module worker that touches team data goes through this
-// ONE file — which is also exactly where sharding routing will plug in.
+// ONE file — which is also where sharding routing plugs in (see
+// workers/tenancy/src/lib/sharding.ts for the routing + mover machinery).
 
 export type D1Rest = {
   accountId: string
@@ -16,26 +17,45 @@ type CfResponse<T> = {
 }
 
 const API = "https://api.cloudflare.com/client/v4"
+const RETRIES = 2 // total attempts = 1 + RETRIES, only on 5xx/network blips
 
 async function cf<T>(
   cfg: D1Rest,
   path: string,
-  body: unknown
+  body?: unknown,
+  method: "GET" | "POST" | "DELETE" = body === undefined ? "GET" : "POST"
 ): Promise<T> {
-  const res = await fetch(`${API}/accounts/${cfg.accountId}${path}`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${cfg.apiToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  })
-  const data = (await res.json()) as CfResponse<T>
-  if (!res.ok || !data.success) {
-    const msg = data.errors?.map((e) => e.message).join("; ") || res.statusText
-    throw new Error(`Cloudflare D1 API failed: ${msg}`)
+  let lastError: Error = new Error("unreachable")
+  for (let attempt = 0; attempt <= RETRIES; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 250 * attempt))
+    let res: Response
+    try {
+      res = await fetch(`${API}/accounts/${cfg.accountId}${path}`, {
+        method,
+        headers: {
+          Authorization: `Bearer ${cfg.apiToken}`,
+          "Content-Type": "application/json",
+        },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      })
+    } catch (e) {
+      // Network hiccup — worth retrying.
+      lastError = e instanceof Error ? e : new Error(String(e))
+      continue
+    }
+    if (res.status >= 500) {
+      lastError = new Error(`Cloudflare D1 API ${res.status} on ${path}`)
+      continue
+    }
+    const data = (await res.json()) as CfResponse<T>
+    if (!res.ok || !data.success) {
+      // 4xx = our request is wrong — retrying won't help, fail loudly.
+      const msg = data.errors?.map((e) => e.message).join("; ") || res.statusText
+      throw new Error(`Cloudflare D1 API failed: ${msg}`)
+    }
+    return data.result
   }
-  return data.result
+  throw lastError
 }
 
 /** Create a brand-new D1 database; returns its database id. */
@@ -45,6 +65,29 @@ export async function d1CreateDatabase(
 ): Promise<string> {
   const result = await cf<{ uuid: string }>(cfg, "/d1/database", { name })
   return result.uuid
+}
+
+/** Delete a database — used to clean up after a failed team creation. */
+export async function d1DeleteDatabase(
+  cfg: D1Rest,
+  databaseId: string
+): Promise<void> {
+  await cf(cfg, `/d1/database/${databaseId}`, undefined, "DELETE")
+}
+
+/** Every database in the account (id, name, size) — feeds the 80% alarms. */
+export async function d1ListDatabases(
+  cfg: D1Rest
+): Promise<{ uuid: string; name: string; file_size: number | null }[]> {
+  const all: { uuid: string; name: string; file_size: number | null }[] = []
+  for (let page = 1; ; page++) {
+    const batch = await cf<
+      { uuid: string; name: string; file_size: number | null }[]
+    >(cfg, `/d1/database?page=${page}&per_page=100`)
+    all.push(...batch)
+    if (batch.length < 100) break
+  }
+  return all
 }
 
 /** Run ONE parameterized statement; returns its rows. */
@@ -62,6 +105,23 @@ export async function d1Query<Row = Record<string, unknown>>(
   return result[0]?.results ?? []
 }
 
+/**
+ * Merged reads (the "splitter" read path): run the same query against several
+ * databases — e.g. a module split across shards — and return all rows as one
+ * list. Pair with resolveModuleDatabases() in the tenancy sharding lib.
+ */
+export async function d1QueryAcross<Row = Record<string, unknown>>(
+  cfg: D1Rest,
+  databaseIds: string[],
+  sql: string,
+  params: (string | number | null)[] = []
+): Promise<Row[]> {
+  const results = await Promise.all(
+    databaseIds.map((id) => d1Query<Row>(cfg, id, sql, params))
+  )
+  return results.flat()
+}
+
 /** Run a multi-statement script (schema/seeds — no params allowed). */
 export async function d1ExecScript(
   cfg: D1Rest,
@@ -71,9 +131,16 @@ export async function d1ExecScript(
   await cf(cfg, `/d1/database/${databaseId}/query`, { sql: script })
 }
 
-/** Escape a value for inlining into a seed script ('' doubling). Only used
- * by seed/schema scripts where the REST API forbids params. */
+/** Escape a value for inlining into a seed/copy script ('' doubling). Only
+ * used where the REST API forbids params (multi-statement scripts). */
 export function sqlString(value: string | null): string {
   if (value === null) return "NULL"
   return `'${value.replaceAll("'", "''")}'`
+}
+
+/** Inline any copied cell value into a script (numbers, NULLs, strings). */
+export function sqlValue(value: string | number | null): string {
+  if (value === null) return "NULL"
+  if (typeof value === "number") return String(value)
+  return sqlString(value)
 }
