@@ -1,7 +1,9 @@
 # Lean Mean Check — Brimba
-Scanned 2026-06-12 (re-check, same day) · Overall 90/100 (Grade A) · Ship-grade: tested at every layer, one master copy of everything, and the scaling machinery is built and proven live.
+Scanned 2026-06-12 (re-check) · Overall 91/100 (Grade A) · Ship-grade: tested at every layer, one master copy of everything, a self-testing reset tool, and the scaling machinery built and proven live.
 
-**Score moved 80 → 90.** Everything from the morning's fix-list is done: CI on every push, 21 tests (was 12) including team-factory integration + failure/cleanup + retry behavior, a 9-check LIVE smoke gate after every staging deploy, retry/backoff + orphan cleanup on the data door, shared response helpers, the theme now imported from the library package (317-line copy deleted), and the locked sharding machinery (nightly 80% alarms · module mover with routing · merged reads) built and partially live-proven.
+**Score moved 80 → 91.** Done since the first check: CI on every push; 21 tests (was 12) incl. team-factory integration + failure/cleanup + retry behavior; a 9-check LIVE smoke gate after every staging deploy; retry/backoff + orphan cleanup on the data door; shared response helpers; the theme imported from the library package (317-line copy deleted); the locked sharding machinery (nightly 80% alarms, module mover, merged reads) built and partly live-proven; a reset-all tool that reads itself back to prove it worked (spares other projects' DBs); emoji-free product UI; immovable contentless pages; a living (heartbeat) background — UI rules written once in the library.
+
+**Note:** the earlier HTML showed 72/C because the generator's text-injection silently failed and left the template's placeholder data — fixed; the file now genuinely carries the score.
 
 ## Fix next (small, ordered)
 - [ ] **(Scalability)** Rehearse one real module move on a test team — _why:_ the mover is built + reviewed but has never moved live data; one rehearsal graduates it to battle-tested — _where:_ POST /api/tenancy/admin/move-module
@@ -10,14 +12,14 @@ Scanned 2026-06-12 (re-check, same day) · Overall 90/100 (Grade A) · Ship-grad
 - [ ] **(Robustness)** Add a browser-level automated test when screens multiply — _why:_ API smoke covers the journey; a Playwright-style check covers the UI layer too — _where:_ web/
 
 ## Scores
-| Dimension | Score | Status | (was) |
-|---|---|---|---|
-| Size & Scope | 92 | green | 90 |
-| Robustness | 88 | green | 68 |
-| Documentation | 90 | green | 88 |
-| Understandability | 90 | green | 88 |
-| Leanness & Optimization | 90 | green | 72 |
-| Scalability & Structure | 88 | green | 78 |
+| Dimension | Score | Status |
+|---|---|---|
+| Size & Scope | 92 | green |
+| Robustness | 89 | green |
+| Documentation | 91 | green |
+| Understandability | 90 | green |
+| Leanness & Optimization | 91 | green |
+| Scalability & Structure | 89 | green |
 
 ## Full findings
 

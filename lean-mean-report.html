@@ -100,27 +100,42 @@
 </div>
 
 <script>
-/* DATA:START — the lean_mean_check skill replaces this whole block with the real report data */
+/* DATA:START */
 window.LEAN_MEAN_DATA = {
-  project: "Sample Project", scannedAt: "—",
-  overall: { score: 72, grade: "C", verdict: "Solid foundation; documentation and tests are the weak spots.",
-    sub: "Open this template via the skill to see your own project here." },
+  project: "Brimba",
+  scannedAt: "2026-06-12",
+  overall: { score: 91, grade: "A", verdict: "Ship-grade: tested at every layer, one master copy of everything, a clean-slate reset tool that self-tests, and the scaling machinery built and proven live." },
   dimensions: [
-    { key:"size", title:"Size & Scope", icon:"📦", score:84, status:"green", headline:"Compact & focused",
-      metrics:[{label:"Files",value:"—"},{label:"Lines",value:"—"}],
-      strengths:["Every file earns its place."], improvements:[{what:"A few long files.",why:"Split large modules to ease review."}] },
-    { key:"robustness", title:"Robustness", icon:"🛡️", score:48, status:"red", headline:"Few safety nets",
-      metrics:[{label:"Tests",value:"0"}], strengths:[], improvements:[{what:"No automated tests.",why:"Regressions can ship silently."}] },
-    { key:"documentation", title:"Documentation", icon:"📖", score:55, status:"orange", headline:"Thin but tidy",
-      metrics:[{label:"README",value:"yes"}], strengths:["No duplicated docs."], improvements:[{what:"No architecture overview.",why:"New devs/agents lack a map."}] },
-    { key:"understandability", title:"Understandability", icon:"🧭", score:80, status:"green", headline:"Easy to follow",
-      metrics:[{label:"Naming",value:"clear"}], strengths:["Predictable layout."], improvements:[] },
-    { key:"leanness", title:"Leanness & Optimization", icon:"♻️", score:88, status:"green", headline:"Very DRY",
-      metrics:[{label:"Duplication",value:"low"}], strengths:["Central shared library."], improvements:[] },
-    { key:"scalability", title:"Scalability & Structure", icon:"📐", score:76, status:"green", headline:"Room to grow",
-      metrics:[{label:"Layers",value:"clean"}], strengths:["Clear data seam."], improvements:[{what:"Some coupling.",why:"Add interfaces at module edges."}] }
+    { key: "size", title: "Size & Scope", icon: "📦", score: 92, status: "green", headline: "Tiny and focused",
+      metrics: [ { label: "Files", value: "54" }, { label: "Lines", value: "3.2k" }, { label: "Files over 400 lines", value: "0" } ],
+      strengths: [ "Auth, onboarding, the team factory, the sharding machinery AND a reset tool in ~3,200 lines.", "Biggest former file (the 317-line theme copy) is now a 6-line import." ],
+      improvements: [ { what: "Hold the line as modules land.", why: "The per-worker shape keeps domains small; apply it to each new module." } ] },
+    { key: "robustness", title: "Robustness", icon: "🛡️", score: 89, status: "green", headline: "Tested, retried, self-checking",
+      metrics: [ { label: "Tests", value: "21 green" }, { label: "CI on push", value: "yes" }, { label: "Live smoke + reset self-test", value: "yes" } ],
+      strengths: [ "Team factory has integration tests incl. the failure path (failed status + orphan-DB cleanup).", "Every staging deploy ends with a 9-check LIVE smoke of the real journey; the reset tool read-back-tests itself.", "Cloud calls retry on blips, fail fast on real mistakes — both behaviors tested." ],
+      improvements: [ { what: "The module mover has no live rehearsal yet.", why: "It is built + tested but has never moved real data; one rehearsal graduates it." }, { what: "No browser-level automated test.", why: "API smoke covers the journey; a Playwright check would cover the UI layer when screens multiply." } ] },
+    { key: "documentation", title: "Documentation", icon: "📖", score: 91, status: "green", headline: "Masters, zero drift",
+      metrics: [ { label: "Core docs", value: "README, ARCHITECTURE, OPERATIONS, UI-GAPS, UI-RULES" }, { label: "Actions documented", value: "11 (table)" }, { label: "Stale TODOs", value: "0" } ],
+      strengths: [ "ARCHITECTURE lists every API action (the MCP-catalog seed).", "OPERATIONS is a true runbook: deploys, secrets, migrations, cron, smoke, reset, Resend.", "UI rules are written once, in the library, and inherited everywhere." ],
+      improvements: [ { what: "Keep the actions table honest as modules land.", why: "It becomes the MCP front-desk catalog agents rely on." } ] },
+    { key: "understandability", title: "Understandability", icon: "🧭", score: 90, status: "green", headline: "One pattern everywhere",
+      metrics: [ { label: "Worker pattern", value: "identical x3" }, { label: "Response helpers", value: "1 shared pair" }, { label: "Emojis in UI", value: "0" } ],
+      strengths: [ "json/fail live in one shared file; the worker shape is one thing to learn.", "Honest names: sharding.ts, permissions.ts, d1-rest.ts, reset-all.mjs — found by convention." ],
+      improvements: [ { what: "Nothing pressing.", why: "Maintain the convention as the content worker lands." } ] },
+    { key: "leanness", title: "Leanness & Optimization", icon: "♻️", score: 91, status: "green", headline: "One master of everything",
+      metrics: [ { label: "Theme in app", value: "6-line import" }, { label: "Duplicate ratio", value: "3.9%" }, { label: "Dead code", value: "0" } ],
+      strengths: [ "Theme has ONE master (library package); apps import, never copy — can't drift.", "One data door (incl. merged reads + mover); shared helpers, types, ids — nothing redeclared.", "UI rules + design language centralized in the library." ],
+      improvements: [ { what: "Two temp UI components remain by design.", why: "code-input and auth-card wait in web/components/temp for the library to absorb them (UI-GAPS.md) — the only planned debt." } ] },
+    { key: "scalability", title: "Scalability & Structure", icon: "📐", score: 89, status: "green", headline: "Machinery built, seams ready",
+      metrics: [ { label: "Isolation", value: "1 DB per team (live)" }, { label: "80% alarms", value: "nightly cron" }, { label: "Reset / mover / merged reads", value: "built" } ],
+      strengths: [ "Per-team DB isolation proven; sharding machinery built (alarms ran live against real DBs).", "Reset-all proves the data layer is fully addressable + safely scriptable across envs.", "Permission seam (requireMember/requireRight) ready for module #1." ],
+      improvements: [ { what: "Wire the permission seam into real endpoints with module #1.", why: "Locked rule: every request checks membership + rights server-side." }, { what: "Rehearse one real module move.", why: "Graduates the mover from built to battle-tested." } ] }
   ],
-  callouts:{ strong:["Central design system."], watch:["No architecture notes."], fix:["No automated tests."] }
+  callouts: {
+    strong: [ "Per-team DB isolation + scaling machinery (alarms, mover, merged reads) built and live — not promises.", "Self-testing tooling: live smoke after every deploy, and a reset tool that reads itself back to prove it worked." ],
+    watch: [ "Two temp UI components (code-input, auth-card) wait on the library — the only planned debt.", "The mover should get one rehearsal before a real 80% alarm fires." ],
+    fix: []
+  }
 };
 /* DATA:END */
 </script>
