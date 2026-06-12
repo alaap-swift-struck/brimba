@@ -1,10 +1,10 @@
 {
-  "name": "brimba-auth",
+  "name": "brimba-tenancy",
   "version": "0.1.0",
   "private": true,
-  "description": "Brimba's auth worker: email-code login, Google login, sessions. All user data in our own D1.",
+  "description": "Brimba's tenancy worker: teams, memberships, and the per-team database factory.",
   "scripts": {
-    "dev": "wrangler dev --env staging --port 8787 --inspector-port 9230 --local --persist-to ../../.dev-state",
+    "dev": "wrangler dev --env staging --port 8788 --inspector-port 9231 --local --persist-to ../../.dev-state",
     "test": "vitest run",
     "deploy:staging": "wrangler deploy --env staging",
     "deploy:production": "wrangler deploy"

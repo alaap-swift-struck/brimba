@@ -1,0 +1,36 @@
+// The TENANCY worker — teams, memberships, and the team-database factory.
+// Secrets (wrangler secret put): CF_D1_TOKEN (Account→D1→Edit API token),
+// ADMIN_KEY (protects the migrate-all-teams maintenance endpoint).
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "brimba-tenancy",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-06-01",
+  "observability": { "enabled": true },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "brimba-core",
+      "database_id": "7196438c-5572-4317-b1e4-48084ab6e3ad",
+      "migrations_dir": "../../db/core"
+    }
+  ],
+  "services": [{ "binding": "AUTH", "service": "brimba-auth" }],
+  "vars": { "CF_ACCOUNT_ID": "af3f1bf82aa34512f4f6630091358439" },
+  "env": {
+    "staging": {
+      "name": "brimba-tenancy-staging",
+      "observability": { "enabled": true },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "brimba-core-staging",
+          "database_id": "68a9a2f6-13af-4d73-932e-ab38b40cc5b6",
+          "migrations_dir": "../../db/core"
+        }
+      ],
+      "services": [{ "binding": "AUTH", "service": "brimba-auth-staging" }],
+      "vars": { "CF_ACCOUNT_ID": "af3f1bf82aa34512f4f6630091358439" }
+    }
+  }
+}

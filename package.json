@@ -8,10 +8,10 @@
     "dev": "npm run dev --workspace=brimba-web",
     "dev:auth": "npm run dev --workspace=brimba-auth",
     "build": "npm run build:static --workspace=brimba-web",
-    "test": "npm run test --workspace=brimba-auth",
-    "check": "npx tsc --noEmit -p web && npx tsc --noEmit -p workers/auth && npx tsc --noEmit -p workers/gateway && npm test",
-    "deploy:staging": "npm run build && npm run deploy:staging --workspace=brimba-auth && npm run deploy:staging --workspace=brimba-gateway",
-    "deploy:production": "npm run build && npm run deploy:production --workspace=brimba-auth && npm run deploy:production --workspace=brimba-gateway"
+    "test": "npm run test --workspace=brimba-auth && npm run test --workspace=brimba-tenancy",
+    "check": "npx tsc --noEmit -p web && npx tsc --noEmit -p workers/auth && npx tsc --noEmit -p workers/tenancy && npx tsc --noEmit -p workers/gateway && npm test",
+    "deploy:staging": "npm run build && npm run deploy:staging --workspace=brimba-auth && npm run deploy:staging --workspace=brimba-tenancy && npm run deploy:staging --workspace=brimba-gateway",
+    "deploy:production": "npm run build && npm run deploy:production --workspace=brimba-auth && npm run deploy:production --workspace=brimba-tenancy && npm run deploy:production --workspace=brimba-gateway"
   },
   "devDependencies": {
     "wrangler": "^4.0.0"

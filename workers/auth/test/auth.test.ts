@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest"
 
 import { randomCode, randomToken, sha256Hex } from "../src/lib/crypto"
 import { isValidEmail, normalizeEmail } from "../src/lib/email"
-import { ulid } from "../src/lib/id"
+import { ulid } from "../../../shared/workers/id"
 
 describe("randomCode", () => {
   it("is always exactly 6 digits (zero-padded)", () => {

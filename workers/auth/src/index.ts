@@ -24,7 +24,8 @@ import {
   getSessionUser,
   readCookie,
 } from "./lib/sessions"
-import { ulid } from "./lib/id"
+import { ulid } from "../../../shared/workers/id"
+import { updateProfile, type ProfileInput } from "./lib/profile"
 import {
   findOrCreateUserByEmail,
   findOrCreateUserFromGoogle,
@@ -61,6 +62,8 @@ export default {
           return await googleCallback(request, env)
         case "GET /api/auth/me":
           return await me(request, env)
+        case "POST /api/auth/profile":
+          return await profile(request, env)
         case "POST /api/auth/logout":
           return await logout(request, env)
         case "GET /api/auth/health":
@@ -222,6 +225,17 @@ async function me(request: Request, env: Env): Promise<Response> {
   const user = await getSessionUser(env, request)
   if (!user) return fail(401, "signed_out", "Not signed in.")
   return json({ user: toSessionUser(user) })
+}
+
+/** Onboarding / profile edit: names + optional photo (stored in R2). */
+async function profile(request: Request, env: Env): Promise<Response> {
+  const user = await getSessionUser(env, request)
+  if (!user) return fail(401, "signed_out", "Not signed in.")
+
+  const input = (await request.json().catch(() => ({}))) as ProfileInput
+  const result = await updateProfile(env, user, input)
+  if ("error" in result) return fail(400, result.error, result.message)
+  return json(result)
 }
 
 async function logout(request: Request, env: Env): Promise<Response> {

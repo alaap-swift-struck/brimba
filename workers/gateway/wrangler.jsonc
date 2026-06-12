@@ -11,7 +11,11 @@
     "binding": "ASSETS",
     "not_found_handling": "404-page"
   },
-  "services": [{ "binding": "AUTH", "service": "brimba-auth" }],
+  "services": [
+    { "binding": "AUTH", "service": "brimba-auth" },
+    { "binding": "TENANCY", "service": "brimba-tenancy" }
+  ],
+  "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "brimba-media" }],
   "env": {
     "staging": {
       "name": "brimba-staging",
@@ -21,7 +25,13 @@
         "binding": "ASSETS",
         "not_found_handling": "404-page"
       },
-      "services": [{ "binding": "AUTH", "service": "brimba-auth-staging" }]
+      "services": [
+        { "binding": "AUTH", "service": "brimba-auth-staging" },
+        { "binding": "TENANCY", "service": "brimba-tenancy-staging" }
+      ],
+      "r2_buckets": [
+        { "binding": "MEDIA", "bucket_name": "brimba-media-staging" }
+      ]
     }
   }
 }

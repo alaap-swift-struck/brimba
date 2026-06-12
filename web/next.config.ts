@@ -10,7 +10,10 @@ const staticExport = process.env.BUILD_STATIC
       // localhost exactly like it does behind the deployed gateway.
       async rewrites() {
         return [
-          { source: "/api/:path*", destination: "http://127.0.0.1:8787/api/:path*" },
+          { source: "/api/auth/:path*", destination: "http://127.0.0.1:8787/api/auth/:path*" },
+          { source: "/api/tenancy/:path*", destination: "http://127.0.0.1:8788/api/tenancy/:path*" },
+          // /media/* has no local server (the gateway serves it when deployed)
+          // — avatars gracefully fall back to initials in dev.
         ]
       },
     }

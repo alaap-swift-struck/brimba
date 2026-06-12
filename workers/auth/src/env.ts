@@ -1,6 +1,8 @@
 // Everything the auth worker is given from outside (bindings, vars, secrets).
 export type Env = {
   DB: D1Database
+  /** Profile photos (and other uploads) — served by the gateway at /media/*. */
+  MEDIA: R2Bucket
 
   /** The app's public address — used for redirects and Google's callback. */
   APP_ORIGIN: string

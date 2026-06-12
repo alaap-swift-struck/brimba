@@ -12,3 +12,4 @@ out/
 # Worker local secrets — keep out of git
 .dev.vars
 .wrangler/
+.dev-state/

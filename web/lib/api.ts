@@ -1,7 +1,7 @@
 // The ONE place the web app talks to the workers. Same-origin /api calls —
 // the gateway routes them — so cookies flow automatically, no config needed.
 
-import type { ApiError, SessionUser } from "@shared/types"
+import type { ApiError, SessionUser, TeamSummary } from "@shared/types"
 
 export class ApiFailure extends Error {
   constructor(
@@ -45,5 +45,30 @@ export const auth = {
 
   me: () => api<{ user: SessionUser }>("/api/auth/me"),
 
+  /** Onboarding / profile edit: names + optional photo (as a data URL). */
+  updateProfile: (input: {
+    firstName: string
+    lastName: string
+    imageDataUrl?: string
+  }) =>
+    api<{ user: SessionUser }>("/api/auth/profile", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
   logout: () => api<{ ok: true }>("/api/auth/logout", { method: "POST" }),
+}
+
+export const tenancy = {
+  /** After onboarding: accept waiting invites OR create the personal team. */
+  bootstrap: () =>
+    api<{ teams: TeamSummary[]; currentTeamId: string | null }>(
+      "/api/tenancy/bootstrap",
+      { method: "POST" }
+    ),
+
+  teams: () =>
+    api<{ teams: TeamSummary[]; currentTeamId: string | null }>(
+      "/api/tenancy/teams"
+    ),
 }

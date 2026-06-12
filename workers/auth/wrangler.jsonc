@@ -13,9 +13,11 @@
     {
       "binding": "DB",
       "database_name": "brimba-core",
-      "database_id": "7196438c-5572-4317-b1e4-48084ab6e3ad"
+      "database_id": "7196438c-5572-4317-b1e4-48084ab6e3ad",
+      "migrations_dir": "../../db/core"
     }
   ],
+  "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "brimba-media" }],
   "vars": {
     "APP_ORIGIN": "https://brimba.swift-struck.workers.dev",
     "EMAIL_FROM": "Brimba <onboarding@resend.dev>",
@@ -30,8 +32,12 @@
         {
           "binding": "DB",
           "database_name": "brimba-core-staging",
-          "database_id": "68a9a2f6-13af-4d73-932e-ab38b40cc5b6"
+          "database_id": "68a9a2f6-13af-4d73-932e-ab38b40cc5b6",
+          "migrations_dir": "../../db/core"
         }
+      ],
+      "r2_buckets": [
+        { "binding": "MEDIA", "bucket_name": "brimba-media-staging" }
       ],
       "vars": {
         "APP_ORIGIN": "https://brimba-staging.swift-struck.workers.dev",
