@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lean Mean Check — Codebase Health</title>
+<style>
+  :root{
+    --green:#2FA968; --green-soft:#E4F4EB;
+    --orange:#E8902A; --orange-soft:#FBEEDD;
+    --red:#E5484D; --red-soft:#FBE6E7;
+    --ink:#141A22; --muted:#5C6775; --faint:#8A95A4;
+    --bg:#EEF1F6; --card:#FFFFFF; --line:#E4E9F0;
+    --shadow:0 18px 44px -26px rgba(20,26,34,.4);
+    font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:var(--bg);color:var(--ink);-webkit-font-smoothing:antialiased;padding:34px 20px 60px;line-height:1.5}
+  .wrap{max-width:1140px;margin:0 auto}
+  .topbar{display:flex;align-items:center;justify-content:space-between;gap:18px;margin-bottom:24px;flex-wrap:wrap}
+  .brand{display:flex;align-items:center;gap:11px;font-weight:700;letter-spacing:.02em}
+  .brand .dot{width:12px;height:12px;border-radius:50%;background:linear-gradient(135deg,var(--green),var(--orange),var(--red))}
+  .brand small{display:block;font-weight:500;color:var(--muted);font-size:12px;letter-spacing:.12em;text-transform:uppercase}
+  .meta{font-size:13px;color:var(--muted);text-align:right}
+  .meta b{color:var(--ink)}
+
+  .hero{background:var(--card);border:1px solid var(--line);border-radius:22px;box-shadow:var(--shadow);
+    display:grid;grid-template-columns:300px 1fr;gap:8px;align-items:center;padding:30px 36px;margin-bottom:22px}
+  .gauge-wrap{display:flex;flex-direction:column;align-items:center}
+  .gauge-num{font-size:46px;font-weight:800;line-height:1;margin-top:-26px}
+  .gauge-grade{font-size:13px;color:var(--muted);font-weight:600;letter-spacing:.16em;text-transform:uppercase;margin-top:6px}
+  .hero-text .ey{font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--faint);font-weight:600}
+  .hero-text h1{font-size:clamp(22px,3vw,32px);margin:8px 0 10px;line-height:1.15}
+  .hero-text p{color:var(--muted);max-width:60ch;font-size:15.5px}
+  .legend{display:flex;gap:16px;margin-top:16px;flex-wrap:wrap;font-size:12.5px;color:var(--muted)}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .legend i{width:10px;height:10px;border-radius:50%;display:inline-block}
+
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-bottom:22px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);padding:22px}
+  .card-top{display:flex;gap:16px;align-items:center;margin-bottom:14px}
+  .ring{flex:none}
+  .card-id .ico{font-size:18px}
+  .card-id h3{font-size:16.5px;margin:2px 0 3px}
+  .chip{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:700;letter-spacing:.04em;
+    text-transform:uppercase;padding:4px 10px;border-radius:30px}
+  .headline{font-size:15px;font-weight:600;margin-bottom:12px}
+  .metrics{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:14px}
+  .metric{background:var(--bg);border-radius:9px;padding:6px 10px;font-size:12px}
+  .metric b{display:block;font-size:14px}
+  .metric span{color:var(--muted)}
+  .lst{list-style:none;display:grid;gap:9px}
+  .lst li{display:flex;gap:9px;font-size:13.2px;align-items:flex-start;line-height:1.45}
+  .lst .mk{flex:none;width:16px;height:16px;border-radius:50%;display:grid;place-items:center;font-size:10px;color:#fff;margin-top:1px}
+  .lst.good .mk{background:var(--green)}
+  .lst.imp .mk{background:var(--orange)}
+  .imp li b{font-weight:600}
+  .imp li .why{color:var(--muted);display:block;margin-top:2px}
+  .sub{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);font-weight:700;margin:16px 0 9px}
+
+  .callouts{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+  .col{background:var(--card);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);padding:20px 22px;border-top:4px solid}
+  .col.s{border-top-color:var(--green)} .col.w{border-top-color:var(--orange)} .col.f{border-top-color:var(--red)}
+  .col h4{font-size:14px;display:flex;align-items:center;gap:8px;margin-bottom:13px}
+  .col h4 i{width:11px;height:11px;border-radius:50%}
+  .col ul{list-style:none;display:grid;gap:10px}
+  .col li{font-size:13.4px;color:var(--ink);padding-left:15px;position:relative;line-height:1.45}
+  .col li::before{content:"";position:absolute;left:0;top:8px;width:6px;height:6px;border-radius:50%;background:currentColor;opacity:.5}
+  footer{text-align:center;color:var(--faint);font-size:12px;margin-top:30px}
+  @media(max-width:900px){.hero{grid-template-columns:1fr}.grid,.callouts{grid-template-columns:1fr 1fr}}
+  @media(max-width:600px){.grid,.callouts{grid-template-columns:1fr}.meta{text-align:left}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <div class="brand"><span class="dot"></span><div>Lean&nbsp;Mean&nbsp;Check<small>Codebase health</small></div></div>
+    <div class="meta" id="meta"></div>
+  </div>
+  <section class="hero">
+    <div class="gauge-wrap">
+      <div id="speedo"></div>
+      <div class="gauge-num" id="ovScore"></div>
+      <div class="gauge-grade" id="ovGrade"></div>
+    </div>
+    <div class="hero-text">
+      <div class="ey">Overall verdict</div>
+      <h1 id="verdict"></h1>
+      <p id="subverdict"></p>
+      <div class="legend">
+        <span><i style="background:var(--green)"></i> Healthy (75–100)</span>
+        <span><i style="background:var(--orange)"></i> Needs work (50–74)</span>
+        <span><i style="background:var(--red)"></i> Critical (0–49)</span>
+      </div>
+    </div>
+  </section>
+  <div class="grid" id="dims"></div>
+  <div class="callouts" id="callouts"></div>
+  <footer>Generated by the <b>lean_mean_check</b> skill · a companion <b>lean-mean-report.md</b> holds the same findings as an agent-ready fix-list — say <b>“fix the lean mean check findings”</b> to act on it.</footer>
+</div>
+
+<script>
+/* DATA:START — the lean_mean_check skill replaces this whole block with the real report data */
+window.LEAN_MEAN_DATA = {
+  project: "Sample Project", scannedAt: "—",
+  overall: { score: 72, grade: "C", verdict: "Solid foundation; documentation and tests are the weak spots.",
+    sub: "Open this template via the skill to see your own project here." },
+  dimensions: [
+    { key:"size", title:"Size & Scope", icon:"📦", score:84, status:"green", headline:"Compact & focused",
+      metrics:[{label:"Files",value:"—"},{label:"Lines",value:"—"}],
+      strengths:["Every file earns its place."], improvements:[{what:"A few long files.",why:"Split large modules to ease review."}] },
+    { key:"robustness", title:"Robustness", icon:"🛡️", score:48, status:"red", headline:"Few safety nets",
+      metrics:[{label:"Tests",value:"0"}], strengths:[], improvements:[{what:"No automated tests.",why:"Regressions can ship silently."}] },
+    { key:"documentation", title:"Documentation", icon:"📖", score:55, status:"orange", headline:"Thin but tidy",
+      metrics:[{label:"README",value:"yes"}], strengths:["No duplicated docs."], improvements:[{what:"No architecture overview.",why:"New devs/agents lack a map."}] },
+    { key:"understandability", title:"Understandability", icon:"🧭", score:80, status:"green", headline:"Easy to follow",
+      metrics:[{label:"Naming",value:"clear"}], strengths:["Predictable layout."], improvements:[] },
+    { key:"leanness", title:"Leanness & Optimization", icon:"♻️", score:88, status:"green", headline:"Very DRY",
+      metrics:[{label:"Duplication",value:"low"}], strengths:["Central shared library."], improvements:[] },
+    { key:"scalability", title:"Scalability & Structure", icon:"📐", score:76, status:"green", headline:"Room to grow",
+      metrics:[{label:"Layers",value:"clean"}], strengths:["Clear data seam."], improvements:[{what:"Some coupling.",why:"Add interfaces at module edges."}] }
+  ],
+  callouts:{ strong:["Central design system."], watch:["No architecture notes."], fix:["No automated tests."] }
+};
+/* DATA:END */
+</script>
+
+<script>
+(function(){
+  var D = window.LEAN_MEAN_DATA || {};
+  var C = { green:getCSS('--green'), orange:getCSS('--orange'), red:getCSS('--red') };
+  function getCSS(v){ return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
+  function colorFor(s){ return s>=75?C.green : s>=50?C.orange : C.red; }
+  function softFor(s){ return s>=75?'var(--green-soft)' : s>=50?'var(--orange-soft)' : 'var(--red-soft)'; }
+  function statusLabel(s){ return s>=75?'Healthy' : s>=50?'Needs work' : 'Critical'; }
+  function polar(cx,cy,r,deg){ var a=deg*Math.PI/180; return [cx+r*Math.cos(a), cy-r*Math.sin(a)]; }
+  function arc(cx,cy,r,a0,a1,w,color){
+    var p0=polar(cx,cy,r,a0), p1=polar(cx,cy,r,a1);
+    var large = Math.abs(a0-a1)>180?1:0;
+    // a0 > a1 (e.g. 180 -> 0) sweeping over the top => sweep-flag 1 in screen coords
+    return '<path d="M '+p0[0]+' '+p0[1]+' A '+r+' '+r+' 0 '+large+' 1 '+p1[0]+' '+p1[1]+
+      '" fill="none" stroke="'+color+'" stroke-width="'+w+'" stroke-linecap="round"/>';
+  }
+  // ---- meta + overall ----
+  document.getElementById('meta').innerHTML = 'Project <b>'+esc(D.project)+'</b><br>Scanned '+esc(D.scannedAt);
+  var ov = D.overall||{score:0};
+  document.getElementById('ovScore').textContent = Math.round(ov.score);
+  document.getElementById('ovScore').style.color = colorFor(ov.score);
+  document.getElementById('ovGrade').textContent = 'Grade '+(ov.grade||'—');
+  document.getElementById('verdict').textContent = ov.verdict||'';
+  document.getElementById('subverdict').textContent = ov.sub||'';
+  // speedometer: 180deg (score 0, left) -> 0deg (score 100, right)
+  var cx=150,cy=140,r=112,w=20;
+  function ang(s){ return 180 - s*1.8; }
+  var s=Math.max(0,Math.min(100,ov.score));
+  var seg = arc(cx,cy,r,180,90,w,C.red) + arc(cx,cy,r,90,45,w,C.orange) + arc(cx,cy,r,45,0,w,C.green);
+  var nd = polar(cx,cy,r-12,ang(s));
+  var needle='<line x1="'+cx+'" y1="'+cy+'" x2="'+nd[0]+'" y2="'+nd[1]+'" stroke="var(--ink)" stroke-width="4" stroke-linecap="round"/>'
+    +'<circle cx="'+cx+'" cy="'+cy+'" r="9" fill="var(--ink)"/><circle cx="'+cx+'" cy="'+cy+'" r="4" fill="#fff"/>';
+  document.getElementById('speedo').innerHTML =
+    '<svg width="300" height="168" viewBox="0 0 300 168">'+
+    '<path d="M '+(cx-r)+' '+cy+' A '+r+' '+r+' 0 0 1 '+(cx+r)+' '+cy+'" fill="none" stroke="var(--line)" stroke-width="'+w+'"/>'+
+    seg+needle+'</svg>';
+
+  // ---- dimension cards ----
+  document.getElementById('dims').innerHTML = (D.dimensions||[]).map(function(d){
+    var col=colorFor(d.score), C2=2*Math.PI*26, off=C2*(1-d.score/100);
+    var ring='<svg class="ring" width="64" height="64" viewBox="0 0 64 64">'+
+      '<circle cx="32" cy="32" r="26" fill="none" stroke="var(--line)" stroke-width="7"/>'+
+      '<circle cx="32" cy="32" r="26" fill="none" stroke="'+col+'" stroke-width="7" stroke-linecap="round" '+
+      'stroke-dasharray="'+C2+'" stroke-dashoffset="'+off+'" transform="rotate(-90 32 32)"/>'+
+      '<text x="32" y="37" text-anchor="middle" font-size="17" font-weight="800" fill="'+col+'">'+Math.round(d.score)+'</text></svg>';
+    var metrics=(d.metrics||[]).map(function(m){return '<div class="metric"><b>'+esc(m.value)+'</b><span>'+esc(m.label)+'</span></div>';}).join('');
+    var strengths=(d.strengths||[]).length?'<div class="sub">Strengths</div><ul class="lst good">'+
+      d.strengths.map(function(x){return '<li><span class="mk">✓</span><span>'+esc(x)+'</span></li>';}).join('')+'</ul>':'';
+    var imps=(d.improvements||[]).length?'<div class="sub">To improve</div><ul class="lst imp">'+
+      d.improvements.map(function(x){return '<li><span class="mk">!</span><span><b>'+esc(x.what)+'</b><span class="why">'+esc(x.why)+'</span></span></li>';}).join('')+'</ul>':'';
+    return '<div class="card"><div class="card-top">'+ring+
+      '<div class="card-id"><div class="ico">'+esc(d.icon||'•')+'</div><h3>'+esc(d.title)+'</h3>'+
+      '<span class="chip" style="background:'+softFor(d.score)+';color:'+col+'">'+statusLabel(d.score)+' · '+Math.round(d.score)+'</span></div></div>'+
+      '<div class="headline">'+esc(d.headline||'')+'</div>'+
+      (metrics?'<div class="metrics">'+metrics+'</div>':'')+strengths+imps+'</div>';
+  }).join('');
+
+  // ---- callouts ----
+  var co=D.callouts||{};
+  function col(cls,title,color,items){
+    return '<div class="col '+cls+'"><h4><i style="background:'+color+'"></i>'+title+'</h4><ul>'+
+      (items||[]).map(function(x){return '<li>'+esc(x)+'</li>';}).join('')+'</ul></div>';
+  }
+  document.getElementById('callouts').innerHTML =
+    col('s','What\'s strong',C.green,co.strong)+
+    col('w','Keep an eye on',C.orange,co.watch)+
+    col('f','Fix first',C.red,co.fix);
+
+  function esc(v){ return String(v==null?'':v).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+})();
+</script>
+</body>
+</html>
