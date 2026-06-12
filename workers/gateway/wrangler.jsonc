@@ -1,0 +1,27 @@
+// The GATEWAY worker — Brimba's public address. Top-level = PRODUCTION
+// (the worker is literally named "brimba"); staging lives under env.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "brimba",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-06-01",
+  "observability": { "enabled": true },
+  "assets": {
+    "directory": "../../web/out",
+    "binding": "ASSETS",
+    "not_found_handling": "404-page"
+  },
+  "services": [{ "binding": "AUTH", "service": "brimba-auth" }],
+  "env": {
+    "staging": {
+      "name": "brimba-staging",
+      "observability": { "enabled": true },
+      "assets": {
+        "directory": "../../web/out",
+        "binding": "ASSETS",
+        "not_found_handling": "404-page"
+      },
+      "services": [{ "binding": "AUTH", "service": "brimba-auth-staging" }]
+    }
+  }
+}

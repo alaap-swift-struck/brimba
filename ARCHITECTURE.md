@@ -1,5 +1,10 @@
 # Brimba — Architecture (the 20 locked decisions)
 
+The gateway is also the app's public address: it serves the web screens as
+static assets AND routes /api/* to the domain workers (service bindings), so
+screens and brains share one origin — login cookies work everywhere, including
+installed iPhone apps.
+
 Decided with the user on 2026-06-12 across 20 targeted questions. This is the
 **master decision document** — every worker, table, and screen must follow it.
 Do not relitigate any "LOCKED" item without the user.

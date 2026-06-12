@@ -8,3 +8,7 @@ out/
 .DS_Store
 *.log
 *.tsbuildinfo
+
+# Worker local secrets — keep out of git
+.dev.vars
+.wrangler/

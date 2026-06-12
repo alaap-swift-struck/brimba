@@ -6,8 +6,8 @@ login (Google + email codes), teams, roles & permissions, invites, learning,
 help desk, dropdown management, AI-powered data import/export — all
 agent-callable via MCP, all hosted on Cloudflare.
 
-- **Production:** https://brimba.pages.dev
-- **Staging:** https://staging.brimba.pages.dev
+- **Production:** https://brimba.swift-struck.workers.dev
+- **Staging:** https://brimba-staging.swift-struck.workers.dev
 
 ## The three documents
 

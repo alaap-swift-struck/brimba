@@ -1,0 +1,44 @@
+// The AUTH worker — Brimba's front-door brain: email-code login, Google login,
+// sessions. Top-level config = PRODUCTION; the staging variant is under env.
+// Secrets (set via `wrangler secret put`, never in this file):
+//   RESEND_API_KEY        — lets us actually send code emails
+//   GOOGLE_CLIENT_SECRET  — pairs with GOOGLE_CLIENT_ID for Google login
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "brimba-auth",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-06-01",
+  "observability": { "enabled": true },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "brimba-core",
+      "database_id": "7196438c-5572-4317-b1e4-48084ab6e3ad"
+    }
+  ],
+  "vars": {
+    "APP_ORIGIN": "https://brimba.swift-struck.workers.dev",
+    "EMAIL_FROM": "Brimba <onboarding@resend.dev>",
+    "DEV_ECHO_CODES": "0",
+    "GOOGLE_CLIENT_ID": ""
+  },
+  "env": {
+    "staging": {
+      "name": "brimba-auth-staging",
+      "observability": { "enabled": true },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "brimba-core-staging",
+          "database_id": "68a9a2f6-13af-4d73-932e-ab38b40cc5b6"
+        }
+      ],
+      "vars": {
+        "APP_ORIGIN": "https://brimba-staging.swift-struck.workers.dev",
+        "EMAIL_FROM": "Brimba <onboarding@resend.dev>",
+        "DEV_ECHO_CODES": "1",
+        "GOOGLE_CLIENT_ID": ""
+      }
+    }
+  }
+}

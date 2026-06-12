@@ -4,23 +4,46 @@ How this project ships. /ship-staging and /ship-production read the config below
 
 ## Deploy config
 
-- platform: cloudflare-pages
-- cloudflare_project: brimba
-- build_command: npm run build:static
-- build_output: out
-- staging_branch: staging
-- production_branch: main
-- staging_url: https://staging.brimba.pages.dev
-- production_url: https://brimba.pages.dev
+- platform: cloudflare-workers (gateway worker serves the app + routes /api)
+- staging_url: https://brimba-staging.swift-struck.workers.dev
+- production_url: https://brimba.swift-struck.workers.dev
+- build_command: npm run build (root; builds web/ static export to web/out)
+- deploy_staging_command: npm run deploy:staging (root; builds + deploys brimba-auth-staging then brimba-staging)
+- deploy_production_command: npm run deploy:production (root; builds + deploys brimba-auth then brimba)
 - github_remote: origin (https://github.com/alaap-swift-struck/brimba)
+
+## The pieces
+
+| Worker | Staging name | Production name | What it is |
+|---|---|---|---|
+| gateway (`workers/gateway`) | brimba-staging | brimba | The front door: serves web/out + routes /api/* via service bindings |
+| auth (`workers/auth`) | brimba-auth-staging | brimba-auth | Login (email codes + Google), sessions, users |
+
+| D1 database | Bound to | Migrations |
+|---|---|---|
+| brimba-core-staging | brimba-auth-staging | `cd workers/auth && npx wrangler d1 migrations apply brimba-core-staging --env staging --remote` |
+| brimba-core | brimba-auth | `cd workers/auth && npx wrangler d1 migrations apply brimba-core --remote` |
+
+Deploy order when both change: auth first, gateway second (root scripts do this).
+New migrations must be applied to BOTH databases before deploying workers that need them.
+
+## Secrets (set once per env, never in git)
+
+- `cd workers/auth && npx wrangler secret put RESEND_API_KEY --env staging` (and again without `--env` for production)
+- Same for `GOOGLE_CLIENT_SECRET`. `GOOGLE_CLIENT_ID` is a plain var in workers/auth/wrangler.jsonc.
+- Until RESEND_API_KEY is set: staging echoes login codes in the API response (DEV_ECHO_CODES=1); production refuses email login.
 
 ## Verify before shipping
 
-- npx tsc --noEmit
+- npm run check   (type-checks web + both workers, runs auth unit tests)
+
+## Local dev
+
+- `npm run dev:auth` (auth worker on :8787, local DB; first time: apply migrations with `--local`)
+- `npm run dev` (web on :3000; /api proxies to :8787)
 
 ## Notes
 
-- The UI library (`@swift-struck/ui`) installs straight from GitHub. To pull
-  library updates: `npm install github:alaap-swift-struck/swift-struck-ui`.
-- `app/globals.css` is a COPY of the library theme (master:
-  swift-struck-ui repo, `www/app/globals.css`). Update the master, re-copy.
+- The UI library (`@swift-struck/ui`) installs from GitHub. Update: `npm install github:alaap-swift-struck/swift-struck-ui`.
+- `web/app/globals.css` is a COPY of the library theme (master: swift-struck-ui repo, www/app/globals.css). Its `@source` points at the ROOT node_modules (workspaces hoist).
+- Missing UI components are placeholdered in `web/components/temp/` and tracked in UI-GAPS.md — the library absorbs them, then placeholders get deleted.

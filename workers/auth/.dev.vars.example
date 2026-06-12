@@ -1,0 +1,8 @@
+# Local-dev settings for the auth worker. Copy to `.dev.vars` (gitignored).
+APP_ORIGIN=http://localhost:3000
+DEV_ECHO_CODES=1
+INSECURE_COOKIE=1
+EMAIL_FROM=Brimba <onboarding@resend.dev>
+GOOGLE_CLIENT_ID=
+# GOOGLE_CLIENT_SECRET=
+# RESEND_API_KEY=

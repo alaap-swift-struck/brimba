@@ -8,7 +8,7 @@
  * swift-struck-ui repo, www/app/globals.css). Don't hand-edit here — update
  * the master and re-copy. (Planned library improvement: ship this as an
  * importable file so apps never carry a copy.) */
-@source "../node_modules/@swift-struck/ui/registry";
+@source "../../node_modules/@swift-struck/ui/registry";
 
 /* ---------------------------------------------------------------------------
  * LAYER 0 — DESIGN TOKENS (the single source of truth)
