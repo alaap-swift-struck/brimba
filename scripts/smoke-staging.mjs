@@ -10,7 +10,7 @@ const EMAIL = "smoke-test@swiftstruck.com"
 
 let failures = 0
 const ok = (name, cond, detail = "") => {
-  console.log(`${cond ? "✅" : "❌"} ${name}${cond ? "" : ` — ${detail}`}`)
+  console.log(`${cond ? "PASS" : "FAIL"} ${name}${cond ? "" : ` — ${detail}`}`)
   if (!cond) failures++
 }
 
@@ -46,7 +46,7 @@ const start = await api("/api/auth/email/start", {
 ok("code issued", start.res.ok, JSON.stringify(start.body))
 const code = start.body?.devCode
 if (!code) {
-  console.log("ℹ no devCode in response (Resend live?) — smoke stops at login")
+  console.log("note: no devCode in response (Resend live?) — smoke stops at login")
   process.exit(failures ? 1 : 0)
 }
 

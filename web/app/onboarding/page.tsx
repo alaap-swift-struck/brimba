@@ -82,7 +82,7 @@ export default function OnboardingPage() {
 
   if (checking) {
     return (
-      <main className="flex min-h-screen items-center justify-center">
+      <main className="flex min-h-[100svh] items-center justify-center">
         <Spinner />
       </main>
     )
@@ -91,7 +91,7 @@ export default function OnboardingPage() {
   const initials = `${firstName[0] ?? ""}${lastName[0] ?? ""}`.toUpperCase() || "?"
 
   return (
-    <main className="flex min-h-screen items-center justify-center p-6">
+    <main className="flex min-h-[100svh] items-center justify-center p-6">
       <Card className="animate-rise w-full max-w-sm">
         <CardHeader className="text-center">
           <CardTitle className="text-2xl">Set up your profile</CardTitle>

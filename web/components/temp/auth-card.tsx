@@ -1,6 +1,6 @@
 "use client"
 
-// ⚠️ TEMPORARY PLACEHOLDER — flagged in UI-GAPS.md.
+// TEMPORARY PLACEHOLDER — flagged in UI-GAPS.md.
 // The library has no auth/login card collection yet. This stand-in is built
 // ENTIRELY from library primitives (Card, Button, Input, Field,
 // Spinner, toast) so when @swift-struck/ui ships `auth-card`, swapping is

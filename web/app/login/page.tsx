@@ -10,7 +10,7 @@ import { AuthCard } from "@/components/temp/auth-card"
 export default function LoginPage() {
   const router = useRouter()
   return (
-    <main className="flex min-h-screen items-center justify-center p-6">
+    <main className="flex min-h-[100svh] items-center justify-center p-6">
       <AuthCard onSignedIn={() => router.replace("/")} />
     </main>
   )

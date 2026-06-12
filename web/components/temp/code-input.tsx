@@ -1,6 +1,6 @@
 "use client"
 
-// ⚠️ TEMPORARY PLACEHOLDER — flagged in UI-GAPS.md.
+// TEMPORARY PLACEHOLDER — flagged in UI-GAPS.md.
 // The library has no one-time-code input yet. This stand-in composes six
 // library Inputs (auto-advance, backspace, paste). Once @swift-struck/ui
 // ships `code-input`, this file gets DELETED and imports swap to the library.

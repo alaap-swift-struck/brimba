@@ -55,7 +55,7 @@ export default function HomePage() {
 
   if (loading || !user) {
     return (
-      <main className="flex min-h-screen items-center justify-center">
+      <main className="flex min-h-[100svh] items-center justify-center">
         <Spinner />
       </main>
     )
@@ -64,7 +64,7 @@ export default function HomePage() {
   const fullName = [user.firstName, user.lastName].filter(Boolean).join(" ")
 
   return (
-    <main className="flex min-h-screen items-center justify-center p-6">
+    <main className="flex min-h-[100svh] items-center justify-center p-6">
       <Card className="animate-rise w-full max-w-sm">
         <CardHeader className="items-center text-center">
           <Avatar className="size-16">
@@ -73,7 +73,7 @@ export default function HomePage() {
               {`${user.firstName?.[0] ?? ""}${user.lastName?.[0] ?? ""}`.toUpperCase()}
             </AvatarFallback>
           </Avatar>
-          <CardTitle className="text-2xl">Hey, {user.firstName} 👋</CardTitle>
+          <CardTitle className="text-2xl">Hey, {user.firstName}</CardTitle>
           <CardDescription>{user.email}</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">

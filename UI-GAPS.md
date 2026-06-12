@@ -8,8 +8,8 @@ placeholder deleted).
 
 | # | Missing component | Placeholder here | What the library version needs | Status |
 |---|---|---|---|---|
-| 1 | `code-input` (primitive) — one-time-code boxes | `web/components/temp/code-input.tsx` | Configurable length, auto-advance, backspace, paste-spread, numeric keypad on mobile, `one-time-code` autofill, disabled state | 🚩 waiting on library |
-| 2 | `auth-card` (collection) — full sign-in card | `web/components/temp/auth-card.tsx` | Config-driven: app name, logo, legal links; two-step email→code flow; error/busy states; uses `code-input` | 🚩 waiting on library |
+| 1 | `code-input` (primitive) — one-time-code boxes | `web/components/temp/code-input.tsx` | Configurable length, auto-advance, backspace, paste-spread, numeric keypad on mobile, `one-time-code` autofill, disabled state | waiting on library |
+| 2 | `auth-card` (collection) — full sign-in card | `web/components/temp/auth-card.tsx` | Config-driven: app name, logo, legal links; two-step email→code flow; error/busy states; uses `code-input` | waiting on library |
 
 When the library ships one: re-run `npm install github:alaap-swift-struck/swift-struck-ui`,
 swap the import, delete the temp file, update this table.
