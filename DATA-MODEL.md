@@ -159,3 +159,31 @@ Open questions Q1–Q4 (audit scope, selectable types, activity design, role
 defaults) are being resolved with the user before the foundation build; the
 "(later)" questions (learning Seen, import details, importable-vs-recipe merge)
 are resolved when those modules are built.
+
+---
+
+## Resolutions (2026-06-13) — cross-cutting model LOCKED
+
+- **Q1 Audit block → full block on every DATA table** (global core + per-team).
+  Pure system/auth tables (sessions, login_codes) stay light — no meaningful
+  actor. Actor name+email are point-in-time snapshots.
+- **Q2 Dropdowns → global standard GROUPS + per-team VALUES.** The group list
+  (file type, help type, help status, learning category, + any the base needs)
+  is global + standard so code can rely on a group existing; values inside each
+  group are per-team and editable, seeded with defaults. (`selectable_data_types`
+  = global; `selectable_data` = per-team, as built.)
+- **Q3 Activity → log EVERYTHING (Glide breadth): creations, edits,
+  activations/deactivations, and system milestones** (member joined, invite
+  sent/accepted, import stage done). Reference the subject row by a **generic
+  `(related_table, related_row_id)` pair** — assumption: generic over Glide's
+  one-column-per-table, because it scales to any future module without schema
+  changes and matches our anti-bloat rule. (Supersedes the earlier
+  "edits/deactivations only" rule.)
+- **Q4 Roles → Admin locked + team always keeps ≥1 Admin; Viewer is a normal
+  editable/deactivatable role.** Role changes are direct, instant server
+  actions — Glide's async "updated role id + webhook complete" two-step is
+  dropped (it was a Glide limitation we don't have).
+
+Deferred to their module builds: learning `Seen` (needs a user×learning join),
+import-session details, and whether `importable_databases` merges into the
+recipe/config system.
