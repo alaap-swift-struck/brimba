@@ -25,6 +25,34 @@ export type TeamSummary = {
   dbStatus: string
 }
 
+/** One member of a team — membership (per-team) joined with identity (global,
+ * read fresh from the users table) and their role title (from the team's DB). */
+export type TeamMember = {
+  userId: string
+  email: string
+  firstName: string | null
+  lastName: string | null
+  imageUrl: string | null
+  roleId: string
+  roleTitle: string
+  /** true if this is the signed-in viewer */
+  isYou: boolean
+  /** true if they hold the team's locked Admin role */
+  isAdmin: boolean
+  joinedAt: string
+}
+
+/** One role in a team (from the team's own member_roles table). */
+export type TeamRole = {
+  id: string
+  title: string
+  description: string | null
+  /** the locked Admin role (cannot be edited or deleted) */
+  isDefault: boolean
+  /** how many active members currently hold this role */
+  memberCount: number
+}
+
 /** The signed-in person's current working context — powers the app shell. */
 export type ActiveContext = {
   /** the team you're currently working in (null only if you have no teams) */

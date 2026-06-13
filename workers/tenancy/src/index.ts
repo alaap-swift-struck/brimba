@@ -6,6 +6,10 @@
 //   POST /api/tenancy/switch-team          -> change the active team
 //   POST /api/tenancy/teams                -> create a new team (named)
 //   GET  /api/tenancy/teams                -> my teams (for switcher + home)
+//   GET  /api/tenancy/members              -> the team's members (+ identity)
+//   POST /api/tenancy/members/role         -> change a member's role
+//   POST /api/tenancy/members/remove       -> remove (deactivate) a member
+//   GET  /api/tenancy/roles                -> the team's roles (+ member counts)
 //   POST /api/tenancy/admin/migrate-teams  -> roll new team-schema migrations
 //                                             to EVERY team DB (x-admin-key)
 //   GET  /api/tenancy/admin/db-sizes       -> size every team DB + open alarms
@@ -31,6 +35,19 @@ import {
   checkDatabaseSizes,
   moveModuleToOwnDatabase,
 } from "./lib/sharding"
+import {
+  GuardError,
+  requireMember,
+  requireRight,
+  type MemberGuard,
+} from "./lib/permissions"
+import {
+  changeMemberRole,
+  listMembers,
+  listRoles,
+  removeMember,
+} from "./lib/members"
+import type { D1Rest } from "../../../shared/workers/d1-rest"
 import { TEAM_MIGRATIONS, type Actor } from "./team-schema"
 
 export default {
@@ -50,6 +67,14 @@ export default {
           return await createNamedTeam(request, env)
         case "GET /api/tenancy/teams":
           return await myTeams(request, env)
+        case "GET /api/tenancy/members":
+          return await getMembers(request, env)
+        case "POST /api/tenancy/members/role":
+          return await postMemberRole(request, env)
+        case "POST /api/tenancy/members/remove":
+          return await postMemberRemove(request, env)
+        case "GET /api/tenancy/roles":
+          return await getRoles(request, env)
         case "POST /api/tenancy/admin/migrate-teams":
           return await migrateTeams(request, env)
         case "GET /api/tenancy/admin/db-sizes":
@@ -62,6 +87,7 @@ export default {
           return fail(404, "not_found", "No such tenancy action.")
       }
     } catch (e) {
+      if (e instanceof GuardError) return fail(e.status, e.code, e.message)
       console.error("tenancy worker error:", e)
       const message = e instanceof Error ? e.message : ""
       if (message.startsWith("cloud_key_missing:"))
@@ -107,6 +133,63 @@ function toActor(user: SessionUser): Actor {
     email: user.email,
     name: [user.firstName, user.lastName].filter(Boolean).join(" "),
   }
+}
+
+/**
+ * The standard opening every team-scoped handler shares: who are you, the
+ * Cloudflare config, and a validated membership guard for your ACTIVE team.
+ * Throws GuardError (mapped to a response centrally) on any failure.
+ */
+async function teamContext(
+  request: Request,
+  env: Env
+): Promise<{ user: SessionUser; actor: Actor; cfg: D1Rest; guard: MemberGuard }> {
+  const user = await whoAmI(request, env)
+  if (!user) throw new GuardError(401, "signed_out", "Not signed in.")
+
+  const row = await env.DB.prepare("SELECT current_team_id FROM users WHERE id = ?")
+    .bind(user.id)
+    .first<{ current_team_id: string | null }>()
+  if (!row?.current_team_id)
+    throw new GuardError(409, "no_team", "No active team.")
+
+  const cfg = d1Config(env)
+  const guard = await requireMember(env, user.id, row.current_team_id)
+  return { user, actor: toActor(user), cfg, guard }
+}
+
+async function getMembers(request: Request, env: Env): Promise<Response> {
+  const { cfg, guard } = await teamContext(request, env)
+  await requireRight(cfg, guard, "team_members", "read")
+  return json({ members: await listMembers(env, cfg, guard) })
+}
+
+async function getRoles(request: Request, env: Env): Promise<Response> {
+  const { cfg, guard } = await teamContext(request, env)
+  await requireRight(cfg, guard, "member_roles", "read")
+  return json({ roles: await listRoles(env, cfg, guard) })
+}
+
+async function postMemberRole(request: Request, env: Env): Promise<Response> {
+  const { actor, cfg, guard } = await teamContext(request, env)
+  await requireRight(cfg, guard, "team_members", "edit")
+  const body = (await request.json().catch(() => ({}))) as {
+    userId?: string
+    roleId?: string
+  }
+  if (!body.userId || !body.roleId)
+    return fail(400, "invalid_input", "userId and roleId are required.")
+  await changeMemberRole(env, cfg, guard, actor, body.userId, body.roleId)
+  return json({ members: await listMembers(env, cfg, guard) })
+}
+
+async function postMemberRemove(request: Request, env: Env): Promise<Response> {
+  const { actor, cfg, guard } = await teamContext(request, env)
+  await requireRight(cfg, guard, "team_members", "delete")
+  const body = (await request.json().catch(() => ({}))) as { userId?: string }
+  if (!body.userId) return fail(400, "invalid_input", "userId is required.")
+  await removeMember(env, cfg, guard, actor, body.userId)
+  return json({ members: await listMembers(env, cfg, guard) })
 }
 
 /**

@@ -9,6 +9,18 @@
 import { d1Query, type D1Rest } from "../../../../shared/workers/d1-rest"
 import type { Env } from "../env"
 
+/** A handler-level rule failure that maps straight to an HTTP response. The
+ * worker's central catch turns it into json({error, message}, status). */
+export class GuardError extends Error {
+  constructor(
+    public status: number,
+    public code: string,
+    message: string
+  ) {
+    super(message)
+  }
+}
+
 export type Right = "read" | "create" | "edit" | "delete"
 
 export type MemberGuard = {
@@ -33,7 +45,7 @@ export async function requireMember(
   )
     .bind(teamId, userId)
     .first<{ role_id: string; database_id: string }>()
-  if (!row) throw new Error("guard_not_member")
+  if (!row) throw new GuardError(403, "not_member", "You're not a member of this team.")
   return { userId, teamId, roleId: row.role_id, databaseId: row.database_id }
 }
 
@@ -59,7 +71,7 @@ export async function hasRight(
   return rows[0][`can_${right}`] === 1
 }
 
-/** hasRight, but throws guard_forbidden — the one-liner for handlers. */
+/** hasRight, but throws a 403 GuardError — the one-liner for handlers. */
 export async function requireRight(
   cfg: D1Rest,
   guard: MemberGuard,
@@ -67,5 +79,5 @@ export async function requireRight(
   right: Right
 ): Promise<void> {
   if (!(await hasRight(cfg, guard, module, right)))
-    throw new Error("guard_forbidden")
+    throw new GuardError(403, "forbidden", "You don't have permission to do that.")
 }
