@@ -22,10 +22,13 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className={inter.variable} suppressHydrationWarning>
-      <body className="min-h-screen antialiased">
+      <body className="min-h-[100svh] antialiased">
+        {/* defaultTheme="system" = follow the device's day/night setting; a
+         * ModeToggle (in the app bar + on the auth screens) lets people
+         * override it, and next-themes remembers their choice. */}
         <ThemeProvider
           attribute="class"
-          defaultTheme="dark"
+          defaultTheme="system"
           enableSystem
           disableTransitionOnChange
         >

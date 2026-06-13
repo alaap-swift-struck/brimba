@@ -23,6 +23,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@swift-struck/ui/registry/primitives/dropdown-menu/dropdown-menu"
+import { ModeToggle } from "@swift-struck/ui/registry/primitives/mode-toggle/mode-toggle"
 import { Spinner } from "@swift-struck/ui/registry/primitives/spinner/spinner"
 import { toast } from "@swift-struck/ui/registry/primitives/sonner/sonner"
 import { ChevronsUpDown, Check, Plus, LogOut } from "lucide-react"
@@ -100,8 +101,10 @@ export function AppShell({
           </DropdownMenuContent>
         </DropdownMenu>
 
-        {/* Profile menu */}
-        <DropdownMenu>
+        {/* Right side: theme toggle + profile menu */}
+        <div className="flex items-center gap-1">
+          <ModeToggle />
+          <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button className="rounded-full outline-none ring-offset-2 focus-visible:ring-2">
               <Avatar className="size-8">
@@ -130,7 +133,8 @@ export function AppShell({
               Sign out
             </DropdownMenuItem>
           </DropdownMenuContent>
-        </DropdownMenu>
+          </DropdownMenu>
+        </div>
       </header>
 
       <main className="flex-1 px-4 py-6">{children}</main>

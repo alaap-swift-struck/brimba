@@ -23,6 +23,7 @@ import {
 import { Field } from "@swift-struck/ui/registry/primitives/field/field"
 import { FileUpload } from "@swift-struck/ui/registry/primitives/file-upload/file-upload"
 import { Input } from "@swift-struck/ui/registry/primitives/input/input"
+import { ModeToggle } from "@swift-struck/ui/registry/primitives/mode-toggle/mode-toggle"
 import { Spinner } from "@swift-struck/ui/registry/primitives/spinner/spinner"
 import { toast } from "@swift-struck/ui/registry/primitives/sonner/sonner"
 import { defaultFieldConfig } from "@swift-struck/ui/lib/config"
@@ -92,6 +93,9 @@ export default function OnboardingPage() {
 
   return (
     <main className="flex min-h-[100svh] items-center justify-center p-6">
+      <div className="fixed right-4 top-4 z-30">
+        <ModeToggle />
+      </div>
       <Card className="animate-rise w-full max-w-sm">
         <CardHeader className="text-center">
           <CardTitle className="text-2xl">Set up your profile</CardTitle>
