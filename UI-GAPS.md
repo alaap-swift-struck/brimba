@@ -13,3 +13,13 @@ placeholder deleted).
 
 When the library ships one: re-run `npm install github:alaap-swift-struck/swift-struck-ui`,
 swap the import, delete the temp file, update this table.
+
+## Composition candidates (built from primitives here; could graduate to the library)
+
+These work today (composed from existing primitives — NOT blocking), but the
+pattern repeats across apps, so they're good candidates to become library
+collections later. Not urgent.
+
+| Pattern | Lives here | Why it could move to the library |
+|---|---|---|
+| `app-bar` — top bar with a team/workspace switcher + profile menu | `web/components/app-shell.tsx` | Every multi-tenant app wants the same switcher + profile pattern; config-driven (brand, switcher items, menu items) it'd be reused everywhere |

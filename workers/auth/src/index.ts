@@ -89,11 +89,12 @@ async function emailStart(request: Request, env: Env): Promise<Response> {
     .run()
 
   const sent = await sendLoginCode(env, email, code)
-  if (sent) return json({ ok: true })
+  const echo = env.DEV_ECHO_CODES === "1"
 
-  // No Resend key yet: in staging/dev we echo the code (clearly temporary);
-  // in production we refuse rather than silently strand the user.
-  if (env.DEV_ECHO_CODES === "1") return json({ ok: true, devCode: code })
+  // Staging (echo on) ALSO returns the code so the smoke test + dev flow work
+  // even though a real email goes out too. Production (echo off) only sends —
+  // and if no key is configured yet, refuses rather than stranding the user.
+  if (sent || echo) return json({ ok: true, ...(echo ? { devCode: code } : {}) })
   return fail(503, "email_not_configured", "Email sending isn't set up yet.")
 }
 

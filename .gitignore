@@ -13,3 +13,4 @@ out/
 .dev.vars
 .wrangler/
 .dev-state/
+.dev.vars

@@ -25,6 +25,18 @@ export type TeamSummary = {
   dbStatus: string
 }
 
+/** The signed-in person's current working context — powers the app shell. */
+export type ActiveContext = {
+  /** the team you're currently working in (null only if you have no teams) */
+  team: TeamSummary | null
+  /** your role in that team (id + title, read from the team's own database) */
+  role: { id: string; title: string } | null
+  /** how many active members the current team has */
+  memberCount: number
+  /** every team you belong to — feeds the team switcher */
+  teams: TeamSummary[]
+}
+
 /** Every /api error body looks like this. */
 export type ApiError = {
   error: string

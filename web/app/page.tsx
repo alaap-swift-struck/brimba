@@ -1,10 +1,8 @@
 "use client"
 
-// Home — shows who you are and the team(s) you belong to. The full app shell
-// (team hop button, modules nav) arrives with the next phase.
-
-import * as React from "react"
-import { useRouter } from "next/navigation"
+// Home — the active team's hub. Shows which team you're in, the role you hold,
+// and the map of what you can manage. Each section card lights up as its phase
+// ships; until then it says so (no dead links).
 
 import {
   Avatar,
@@ -12,7 +10,6 @@ import {
   AvatarImage,
 } from "@swift-struck/ui/registry/primitives/avatar/avatar"
 import { Badge } from "@swift-struck/ui/registry/primitives/badge/badge"
-import { Button } from "@swift-struck/ui/registry/primitives/button/button"
 import {
   Card,
   CardContent,
@@ -20,99 +17,92 @@ import {
   CardHeader,
   CardTitle,
 } from "@swift-struck/ui/registry/primitives/card/card"
-import { Separator } from "@swift-struck/ui/registry/primitives/separator/separator"
-import { Spinner } from "@swift-struck/ui/registry/primitives/spinner/spinner"
-import type { SessionUser, TeamSummary } from "@shared/types"
+import { toast } from "@swift-struck/ui/registry/primitives/sonner/sonner"
+import { Users, ShieldCheck, UserPlus, Settings } from "lucide-react"
 
-import { auth, tenancy } from "@/lib/api"
+import { AppShell, ShellLoading } from "@/components/app-shell"
+import { useActiveTeam } from "@/lib/use-active-team"
+
+// The team-management sections. `ready: false` ones announce they're coming
+// (they turn into real links as each phase ships).
+const SECTIONS = [
+  { key: "members", title: "Members", desc: "Who's on the team", icon: Users, ready: false },
+  { key: "roles", title: "Roles & permissions", desc: "What each role can do", icon: ShieldCheck, ready: false },
+  { key: "invites", title: "Invites", desc: "Invite people by email", icon: UserPlus, ready: false },
+  { key: "settings", title: "Team settings", desc: "Name, logo and more", icon: Settings, ready: false },
+] as const
 
 export default function HomePage() {
-  const router = useRouter()
-  const [user, setUser] = React.useState<SessionUser | null>(null)
-  const [teams, setTeams] = React.useState<TeamSummary[]>([])
-  const [currentTeamId, setCurrentTeamId] = React.useState<string | null>(null)
-  const [loading, setLoading] = React.useState(true)
+  const active = useActiveTeam()
+  const { loading, ctx } = active
 
-  React.useEffect(() => {
-    async function load() {
-      try {
-        const { user } = await auth.me()
-        if (!user.onboardingComplete) {
-          router.replace("/onboarding")
-          return
-        }
-        setUser(user)
-        const mine = await tenancy.teams()
-        setTeams(mine.teams)
-        setCurrentTeamId(mine.currentTeamId)
-        setLoading(false)
-      } catch {
-        router.replace("/login")
-      }
-    }
-    void load()
-  }, [router])
-
-  if (loading || !user) {
-    return (
-      <main className="flex min-h-[100svh] items-center justify-center">
-        <Spinner />
-      </main>
-    )
-  }
-
-  const fullName = [user.firstName, user.lastName].filter(Boolean).join(" ")
+  if (loading || !ctx) return <ShellLoading />
 
   return (
-    <main className="flex min-h-[100svh] items-center justify-center p-6">
-      <Card className="animate-rise w-full max-w-sm">
-        <CardHeader className="items-center text-center">
-          <Avatar className="size-16">
-            {user.imageUrl && <AvatarImage src={user.imageUrl} alt={fullName} />}
-            <AvatarFallback className="text-lg">
-              {`${user.firstName?.[0] ?? ""}${user.lastName?.[0] ?? ""}`.toUpperCase()}
+    <AppShell active={active}>
+      <div className="mx-auto flex w-full max-w-2xl flex-col gap-6">
+        {/* Team identity */}
+        <div className="animate-rise flex items-center gap-4">
+          <Avatar className="size-14">
+            {ctx.team?.logoUrl && (
+              <AvatarImage src={ctx.team.logoUrl} alt={ctx.team.name} />
+            )}
+            <AvatarFallback className="text-xl">
+              {ctx.team?.name?.[0]?.toUpperCase() ?? "?"}
             </AvatarFallback>
           </Avatar>
-          <CardTitle className="text-2xl">Hey, {user.firstName}</CardTitle>
-          <CardDescription>{user.email}</CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          <Separator />
-          <p className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
-            Your teams
-          </p>
-          <div className="flex flex-col gap-2">
-            {teams.map((team) => (
-              <div
-                key={team.id}
-                className="hover-lift flex items-center gap-3 rounded-lg border p-3"
-              >
-                <Avatar className="size-8">
-                  {team.logoUrl && <AvatarImage src={team.logoUrl} alt={team.name} />}
-                  <AvatarFallback>{team.name[0]?.toUpperCase()}</AvatarFallback>
-                </Avatar>
-                <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                  {team.name}
-                </span>
-                {team.id === currentTeamId && <Badge>Current</Badge>}
-              </div>
-            ))}
-            {teams.length === 0 && (
-              <p className="text-muted-foreground text-sm">
-                No team yet — finish onboarding to create one.
-              </p>
-            )}
+          <div className="min-w-0">
+            <h1 className="truncate text-2xl font-semibold tracking-tight">
+              {ctx.team?.name}
+            </h1>
+            <div className="text-muted-foreground mt-1 flex items-center gap-2 text-sm">
+              {ctx.role && <Badge variant="secondary">{ctx.role.title}</Badge>}
+              <span>
+                {ctx.memberCount} member{ctx.memberCount === 1 ? "" : "s"}
+              </span>
+            </div>
           </div>
-          <Button
-            variant="outline"
-            onClick={() =>
-              void auth.logout().then(() => router.replace("/login"))
-            }
-          >
-            Sign out
-          </Button>
-        </CardContent>
-      </Card>
-    </main>
+        </div>
+
+        {/* Section map */}
+        <div className="grid gap-3 sm:grid-cols-2">
+          {SECTIONS.map((s) => {
+            const Icon = s.icon
+            return (
+              <Card
+                key={s.key}
+                role="button"
+                tabIndex={0}
+                onClick={() =>
+                  s.ready
+                    ? undefined
+                    : toast.info(`${s.title} is coming in the next build.`)
+                }
+                className="hover-lift animate-rise cursor-pointer"
+              >
+                <CardHeader className="flex-row items-center gap-3 space-y-0">
+                  <span className="bg-secondary text-secondary-foreground flex size-10 items-center justify-center rounded-lg">
+                    <Icon className="size-5" />
+                  </span>
+                  <div className="min-w-0">
+                    <CardTitle className="flex items-center gap-2 text-base">
+                      {s.title}
+                      {!s.ready && (
+                        <Badge variant="outline" className="text-[10px]">
+                          Soon
+                        </Badge>
+                      )}
+                    </CardTitle>
+                    <CardDescription className="truncate">
+                      {s.desc}
+                    </CardDescription>
+                  </div>
+                </CardHeader>
+              </Card>
+            )
+          })}
+        </div>
+      </div>
+    </AppShell>
   )
 }

@@ -6,7 +6,9 @@
 // factory; later runs prove idempotency (and don't litter team databases).
 
 const BASE = process.env.SMOKE_BASE ?? "https://brimba-staging.swift-struck.workers.dev"
-const EMAIL = "smoke-test@swiftstruck.com"
+// Resend's test inbox: real send path, always "delivered", never bounces —
+// so running the smoke repeatedly doesn't hurt the sending domain's reputation.
+const EMAIL = "delivered@resend.dev"
 
 let failures = 0
 const ok = (name, cond, detail = "") => {
@@ -73,7 +75,12 @@ const team = boot.body?.teams?.[0]
 ok("team exists + database ready", team?.dbStatus === "ready", JSON.stringify(boot.body))
 ok("current team set", typeof boot.body?.currentTeamId === "string")
 
-// 6 · Session round-trip + logout leaves the world clean.
+// 6 · Active context (Phase A): current team + your role, read from the team DB.
+const ctx = await api("/api/tenancy/active", {}, cookie)
+ok("active context has the current team", ctx.body?.team?.dbStatus === "ready", JSON.stringify(ctx.body))
+ok("active context has your role (Admin)", ctx.body?.role?.title === "Admin", JSON.stringify(ctx.body?.role))
+
+// 7 · Session round-trip + logout leaves the world clean.
 const me = await api("/api/auth/me", {}, cookie)
 ok("me() returns the smoke user", me.body?.user?.email === EMAIL)
 await api("/api/auth/logout", { method: "POST" }, cookie)

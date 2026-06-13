@@ -2,6 +2,9 @@
 //
 //   POST /api/tenancy/bootstrap            -> after onboarding: accept invites
 //                                             OR create the personal team
+//   GET  /api/tenancy/active               -> current team + your role + teams
+//   POST /api/tenancy/switch-team          -> change the active team
+//   POST /api/tenancy/teams                -> create a new team (named)
 //   GET  /api/tenancy/teams                -> my teams (for switcher + home)
 //   POST /api/tenancy/admin/migrate-teams  -> roll new team-schema migrations
 //                                             to EVERY team DB (x-admin-key)
@@ -20,7 +23,9 @@ import {
   applyMigration,
   createTeam,
   d1Config,
+  getActiveContext,
   listMyTeams,
+  switchTeam,
 } from "./lib/teams"
 import {
   checkDatabaseSizes,
@@ -37,6 +42,12 @@ export default {
       switch (route) {
         case "POST /api/tenancy/bootstrap":
           return await bootstrap(request, env)
+        case "GET /api/tenancy/active":
+          return await active(request, env)
+        case "POST /api/tenancy/switch-team":
+          return await switchActiveTeam(request, env)
+        case "POST /api/tenancy/teams":
+          return await createNamedTeam(request, env)
         case "GET /api/tenancy/teams":
           return await myTeams(request, env)
         case "POST /api/tenancy/admin/migrate-teams":
@@ -138,6 +149,42 @@ async function myTeams(request: Request, env: Env): Promise<Response> {
   const user = await whoAmI(request, env)
   if (!user) return fail(401, "signed_out", "Not signed in.")
   return json({ teams: await listMyTeams(env, user.id), currentTeamId: user.currentTeamId })
+}
+
+/** The active context: current team + your role + member count + all teams. */
+async function active(request: Request, env: Env): Promise<Response> {
+  const user = await whoAmI(request, env)
+  if (!user) return fail(401, "signed_out", "Not signed in.")
+  return json(await getActiveContext(env, d1Config(env), user.id))
+}
+
+/** Switch the active team (one team session at a time, validated). */
+async function switchActiveTeam(request: Request, env: Env): Promise<Response> {
+  const user = await whoAmI(request, env)
+  if (!user) return fail(401, "signed_out", "Not signed in.")
+
+  const body = (await request.json().catch(() => ({}))) as { teamId?: string }
+  if (!body.teamId) return fail(400, "invalid_input", "teamId is required.")
+
+  const ok = await switchTeam(env, user.id, body.teamId)
+  if (!ok) return fail(403, "not_member", "You're not a member of that team.")
+  return json(await getActiveContext(env, d1Config(env), user.id))
+}
+
+/** Create a brand-new team (its own database, you as Admin) and switch to it. */
+async function createNamedTeam(request: Request, env: Env): Promise<Response> {
+  const user = await whoAmI(request, env)
+  if (!user) return fail(401, "signed_out", "Not signed in.")
+  if (!user.onboardingComplete)
+    return fail(409, "onboarding_incomplete", "Finish onboarding first.")
+
+  const body = (await request.json().catch(() => ({}))) as { name?: string }
+  const name = (body.name ?? "").trim()
+  if (!name) return fail(400, "invalid_input", "A team name is required.")
+  if (name.length > 60) return fail(400, "name_too_long", "That team name is too long.")
+
+  await createTeam(env, toActor(user), name, null)
+  return json(await getActiveContext(env, d1Config(env), user.id))
 }
 
 /**

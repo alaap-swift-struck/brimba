@@ -1,11 +1,12 @@
 // Team lifecycle: the factory that gives every new team its OWN database
 // (locked architecture), seeded with default roles + dropdown values.
 
-import type { TeamSummary } from "../../../../shared/types"
+import type { ActiveContext, TeamSummary } from "../../../../shared/types"
 import {
   d1CreateDatabase,
   d1DeleteDatabase,
   d1ExecScript,
+  d1Query,
   type D1Rest,
 } from "../../../../shared/workers/d1-rest"
 import { ulid } from "../../../../shared/workers/id"
@@ -148,6 +149,85 @@ export async function acceptPendingInvites(
       .run()
   }
   return invites.length
+}
+
+/**
+ * The signed-in person's current working context: which team they're in, the
+ * role they hold there (title read from that team's OWN database), the member
+ * count, and the full list for the switcher. Self-heals a stale/empty current
+ * team by falling back to the first team they belong to.
+ */
+export async function getActiveContext(
+  env: Env,
+  cfg: D1Rest,
+  userId: string
+): Promise<ActiveContext> {
+  const teams = await listMyTeams(env, userId)
+  if (teams.length === 0)
+    return { team: null, role: null, memberCount: 0, teams: [] }
+
+  const stored = await env.DB.prepare(
+    "SELECT current_team_id FROM users WHERE id = ?"
+  )
+    .bind(userId)
+    .first<{ current_team_id: string | null }>()
+
+  let current = teams.find((t) => t.id === stored?.current_team_id) ?? teams[0]
+  if (current.id !== stored?.current_team_id) {
+    await env.DB.prepare(
+      "UPDATE users SET current_team_id = ?, updated_at = ? WHERE id = ?"
+    )
+      .bind(current.id, new Date().toISOString(), userId)
+      .run()
+  }
+
+  const dbRow = await env.DB.prepare(
+    "SELECT database_id FROM teams WHERE id = ?"
+  )
+    .bind(current.id)
+    .first<{ database_id: string }>()
+  const countRow = await env.DB.prepare(
+    "SELECT COUNT(*) AS n FROM team_members WHERE team_id = ? AND deactivated_at IS NULL"
+  )
+    .bind(current.id)
+    .first<{ n: number }>()
+
+  let role: ActiveContext["role"] = null
+  if (dbRow?.database_id) {
+    const roleRows = await d1Query<{ id: string; title: string }>(
+      cfg,
+      dbRow.database_id,
+      "SELECT id, title FROM member_roles WHERE id = ?",
+      [current.roleId]
+    )
+    if (roleRows[0]) role = { id: roleRows[0].id, title: roleRows[0].title }
+  }
+
+  return { team: current, role, memberCount: countRow?.n ?? 0, teams }
+}
+
+/** Switch the active team (locked: one team session at a time). Validates the
+ * person is an active member of the target before flipping their pointer. */
+export async function switchTeam(
+  env: Env,
+  userId: string,
+  teamId: string
+): Promise<boolean> {
+  const member = await env.DB.prepare(
+    `SELECT 1 FROM team_members tm
+     JOIN teams t ON t.id = tm.team_id AND t.deactivated_at IS NULL AND t.db_status = 'ready'
+     WHERE tm.team_id = ? AND tm.user_id = ? AND tm.deactivated_at IS NULL`
+  )
+    .bind(teamId, userId)
+    .first()
+  if (!member) return false
+
+  await env.DB.prepare(
+    "UPDATE users SET current_team_id = ?, updated_at = ? WHERE id = ?"
+  )
+    .bind(teamId, new Date().toISOString(), userId)
+    .run()
+  return true
 }
 
 /** Every active team this user belongs to (for the team switcher + home). */

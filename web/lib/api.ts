@@ -1,7 +1,12 @@
 // The ONE place the web app talks to the workers. Same-origin /api calls —
 // the gateway routes them — so cookies flow automatically, no config needed.
 
-import type { ApiError, SessionUser, TeamSummary } from "@shared/types"
+import type {
+  ActiveContext,
+  ApiError,
+  SessionUser,
+  TeamSummary,
+} from "@shared/types"
 
 export class ApiFailure extends Error {
   constructor(
@@ -71,4 +76,21 @@ export const tenancy = {
     api<{ teams: TeamSummary[]; currentTeamId: string | null }>(
       "/api/tenancy/teams"
     ),
+
+  /** Current working context: active team + your role + member count + teams. */
+  active: () => api<ActiveContext>("/api/tenancy/active"),
+
+  /** Switch the active team (one at a time); returns the new context. */
+  switchTeam: (teamId: string) =>
+    api<ActiveContext>("/api/tenancy/switch-team", {
+      method: "POST",
+      body: JSON.stringify({ teamId }),
+    }),
+
+  /** Create a new team (its own database, you as Admin); returns the context. */
+  createTeam: (name: string) =>
+    api<ActiveContext>("/api/tenancy/teams", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    }),
 }
