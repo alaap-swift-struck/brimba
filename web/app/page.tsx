@@ -18,22 +18,24 @@ import {
   CardTitle,
 } from "@swift-struck/ui/registry/primitives/card/card"
 import { toast } from "@swift-struck/ui/registry/primitives/sonner/sonner"
+import { useRouter } from "next/navigation"
 import { Users, ShieldCheck, UserPlus, Settings } from "lucide-react"
 
 import { AppShell, ShellLoading } from "@/components/app-shell"
 import { useActiveTeam } from "@/lib/use-active-team"
 
-// The team-management sections. `ready: false` ones announce they're coming
-// (they turn into real links as each phase ships).
+// The team-management sections. `ready` ones link to their screen; the rest
+// announce they're coming (they turn into real links as each phase ships).
 const SECTIONS = [
-  { key: "members", title: "Members", desc: "Who's on the team", icon: Users, ready: false },
-  { key: "roles", title: "Roles & permissions", desc: "What each role can do", icon: ShieldCheck, ready: false },
-  { key: "invites", title: "Invites", desc: "Invite people by email", icon: UserPlus, ready: false },
-  { key: "settings", title: "Team settings", desc: "Name, logo and more", icon: Settings, ready: false },
+  { key: "members", title: "Members", desc: "Who's on the team", icon: Users, ready: true, href: "/members" },
+  { key: "roles", title: "Roles & permissions", desc: "What each role can do", icon: ShieldCheck, ready: false, href: null },
+  { key: "invites", title: "Invites", desc: "Invite people by email", icon: UserPlus, ready: false, href: null },
+  { key: "settings", title: "Team settings", desc: "Name, logo and more", icon: Settings, ready: false, href: null },
 ] as const
 
 export default function HomePage() {
   const active = useActiveTeam()
+  const router = useRouter()
   const { loading, ctx } = active
 
   if (loading || !ctx) return <ShellLoading />
@@ -74,8 +76,8 @@ export default function HomePage() {
                 role="button"
                 tabIndex={0}
                 onClick={() =>
-                  s.ready
-                    ? undefined
+                  s.ready && s.href
+                    ? router.push(s.href)
                     : toast.info(`${s.title} is coming in the next build.`)
                 }
                 className="hover-lift animate-rise cursor-pointer"

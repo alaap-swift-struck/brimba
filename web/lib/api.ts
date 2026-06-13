@@ -5,6 +5,8 @@ import type {
   ActiveContext,
   ApiError,
   SessionUser,
+  TeamMember,
+  TeamRole,
   TeamSummary,
 } from "@shared/types"
 
@@ -92,5 +94,25 @@ export const tenancy = {
     api<ActiveContext>("/api/tenancy/teams", {
       method: "POST",
       body: JSON.stringify({ name }),
+    }),
+
+  /** Everyone on the active team (identity + role + the guard flags). */
+  members: () => api<{ members: TeamMember[] }>("/api/tenancy/members"),
+
+  /** Every role in the active team (for the role picker). */
+  roles: () => api<{ roles: TeamRole[] }>("/api/tenancy/roles"),
+
+  /** Change a member's role; returns the refreshed member list. */
+  setMemberRole: (userId: string, roleId: string) =>
+    api<{ members: TeamMember[] }>("/api/tenancy/members/role", {
+      method: "POST",
+      body: JSON.stringify({ userId, roleId }),
+    }),
+
+  /** Remove (deactivate) a member; returns the refreshed member list. */
+  removeMember: (userId: string) =>
+    api<{ members: TeamMember[] }>("/api/tenancy/members/remove", {
+      method: "POST",
+      body: JSON.stringify({ userId }),
     }),
 }
