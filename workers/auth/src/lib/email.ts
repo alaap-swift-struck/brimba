@@ -1,3 +1,4 @@
+import { brand } from "../../../../shared/brand"
 import type { Env } from "../env"
 
 // Same rule as the old Glide email transformer: trim, then lowercase.
@@ -28,10 +29,15 @@ export async function sendLoginCode(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      from: env.EMAIL_FROM,
+      // The sender name + all visible copy come from the ONE brand file, so a
+      // name change in shared/brand.ts shows up in emails too. EMAIL_FROM holds
+      // just the address (infra); we compose the friendly name from the brand.
+      from: env.EMAIL_FROM.includes("<")
+        ? env.EMAIL_FROM
+        : `${brand.name} <${env.EMAIL_FROM}>`,
       to: [to],
-      subject: `${code} is your Brimba login code`,
-      text: `Your Brimba login code is: ${code}\n\nIt expires in 10 minutes. If you didn't request it, ignore this email.`,
+      subject: `${code} is your ${brand.name} login code`,
+      text: `Your ${brand.name} login code is: ${code}\n\nIt expires in 10 minutes. If you didn't request it, ignore this email.`,
     }),
   })
   if (!res.ok) {

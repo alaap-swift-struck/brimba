@@ -21,8 +21,10 @@ import { Input } from "@swift-struck/ui/registry/primitives/input/input"
 import { Spinner } from "@swift-struck/ui/registry/primitives/spinner/spinner"
 import { toast } from "@swift-struck/ui/registry/primitives/sonner/sonner"
 import { defaultFieldConfig } from "@swift-struck/ui/lib/config"
+import { brand } from "@shared/brand"
 
 import { ApiFailure, auth } from "@/lib/api"
+import { BrandMark } from "@/components/brand-mark"
 import { CodeInput } from "./code-input"
 
 const emailFieldConfig = {
@@ -76,11 +78,12 @@ export function AuthCard({ onSignedIn }: { onSignedIn: () => void }) {
 
   return (
     <Card className="animate-rise w-full max-w-sm">
-      <CardHeader className="text-center">
-        <CardTitle className="text-2xl">Welcome to Brimba</CardTitle>
+      <CardHeader className="items-center text-center">
+        <BrandMark className="mb-1" />
+        <CardTitle className="text-2xl">Welcome to {brand.name}</CardTitle>
         <CardDescription>
           {step === "email"
-            ? "Sign in or create your account"
+            ? brand.motto
             : `Enter the 6-digit code sent to ${email}`}
         </CardDescription>
       </CardHeader>

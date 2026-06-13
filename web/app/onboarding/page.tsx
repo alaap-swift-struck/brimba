@@ -29,6 +29,7 @@ import { toast } from "@swift-struck/ui/registry/primitives/sonner/sonner"
 import { defaultFieldConfig } from "@swift-struck/ui/lib/config"
 
 import { ApiFailure, auth, tenancy } from "@/lib/api"
+import { BrandMark } from "@/components/brand-mark"
 import { fileToDataUrl } from "@/lib/image"
 
 const firstNameField = { ...defaultFieldConfig, label: "First name", required: true }
@@ -97,7 +98,8 @@ export default function OnboardingPage() {
         <ModeToggle />
       </div>
       <Card className="animate-rise w-full max-w-sm">
-        <CardHeader className="text-center">
+        <CardHeader className="items-center text-center">
+          <BrandMark className="mb-1" />
           <CardTitle className="text-2xl">Set up your profile</CardTitle>
           <CardDescription>
             Tell us who you are — your team gets created right after.
