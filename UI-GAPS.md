@@ -10,6 +10,7 @@ placeholder deleted).
 |---|---|---|---|---|
 | 1 | `code-input` (primitive) — one-time-code boxes | `web/components/temp/code-input.tsx` | Configurable length, auto-advance, backspace, paste-spread, numeric keypad on mobile, `one-time-code` autofill, disabled state | waiting on library |
 | 2 | `auth-card` (collection) — full sign-in card | `web/components/temp/auth-card.tsx` | Config-driven: app name, logo, legal links; two-step email→code flow; error/busy states; uses `code-input` | waiting on library |
+| 3 | `permission-matrix` (collection) — the roles access-rights grid | (temp built when Roles UI lands) | **Needed for Phase B (roles).** A grid: rows = modules (config: `{key,label}[]`), columns = Read / Create / Edit / Delete, cells = toggles. Value = `{ [moduleKey]: {read,create,edit,delete} }` + onChange. BAKED-IN RULE: switching ON any of create/edit/delete auto-switches Read ON and locks it on (the "any write needs read" rule), shown visibly. Modes: editable, read-only (view a role), fully-disabled (the locked Admin role). Must work on a narrow phone screen (horizontal scroll or stacked). | **NEEDED — please build in the library** |
 
 When the library ships one: re-run `npm install github:alaap-swift-struck/swift-struck-ui`,
 swap the import, delete the temp file, update this table.
