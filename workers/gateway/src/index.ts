@@ -41,17 +41,10 @@ export default {
       })
     }
 
-    // Static screens/assets. Next.js content-hashes everything under
-    // /_next/static/ (the filename changes when the file changes), so those are
-    // safe to cache FOREVER — tell the browser never to re-check them. Without
-    // this the default is `max-age=0, must-revalidate`, which re-validates every
-    // file on every load (the repeat-visit slowness). HTML stays revalidated.
-    const res = await env.ASSETS.fetch(request)
-    if (pathname.startsWith("/_next/static/")) {
-      const cached = new Response(res.body, res)
-      cached.headers.set("Cache-Control", "public, max-age=31536000, immutable")
-      return cached
-    }
-    return res
+    // Static screens/assets. Long-cache headers for the content-hashed
+    // /_next/static/** files are set in web/public/_headers — Workers Static
+    // Assets serves matching files BEFORE this Worker runs, so per-asset headers
+    // must live in _headers, not here.
+    return env.ASSETS.fetch(request)
   },
 } satisfies ExportedHandler<Env>

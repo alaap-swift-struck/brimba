@@ -1,0 +1,6 @@
+# Cloudflare Workers Static Assets reads this file (copied into web/out by the
+# Next export). Content-hashed files under /_next/static/** can never change
+# under the same name, so cache them forever — the browser never re-validates
+# them on repeat loads. Everything else keeps the safe default (revalidated).
+/_next/static/*
+  Cache-Control: public, max-age=31536000, immutable
