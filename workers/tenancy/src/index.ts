@@ -18,6 +18,7 @@
 //   GET  /api/tenancy/health
 //   cron (nightly)                         -> the 80% size alarms
 
+import { brand } from "../../../shared/brand"
 import type { SessionUser } from "../../../shared/types"
 import { fail, json } from "../../../shared/workers/http"
 import { d1Query } from "../../../shared/workers/d1-rest"
@@ -91,7 +92,7 @@ export default {
       console.error("tenancy worker error:", e)
       const message = e instanceof Error ? e.message : ""
       if (message.startsWith("cloud_key_missing:"))
-        return fail(503, "cloud_key_missing", "Brimba's cloud key isn't set up yet — team creation is paused.")
+        return fail(503, "cloud_key_missing", `${brand.name}'s cloud key isn't set up yet — team creation is paused.`)
       return fail(500, "internal", "Something went wrong on our side. Try again.")
     }
   },
