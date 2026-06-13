@@ -1,0 +1,44 @@
+// The REALTIME worker — Brimba's live "switchboard". Defines the TeamChannel
+// Durable Object (one instance per team, addressed by name "team:<id>"), which
+// holds that team's open WebSockets (hibernatable — idle teams cost ~nothing)
+// and broadcasts change pings. It reads team_members (global core DB) only to
+// gate connections, and asks the auth worker who's connecting. Stores NO app
+// data. Top-level = PRODUCTION; staging under env (envs don't inherit, so the
+// DO binding + migration + DB + service are repeated there).
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "brimba-realtime",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-06-01",
+  "observability": { "enabled": true },
+  "durable_objects": {
+    "bindings": [{ "name": "CHANNELS", "class_name": "TeamChannel" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["TeamChannel"] }],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "brimba-core",
+      "database_id": "7196438c-5572-4317-b1e4-48084ab6e3ad"
+    }
+  ],
+  "services": [{ "binding": "AUTH", "service": "brimba-auth" }],
+  "env": {
+    "staging": {
+      "name": "brimba-realtime-staging",
+      "observability": { "enabled": true },
+      "durable_objects": {
+        "bindings": [{ "name": "CHANNELS", "class_name": "TeamChannel" }]
+      },
+      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["TeamChannel"] }],
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "brimba-core-staging",
+          "database_id": "68a9a2f6-13af-4d73-932e-ab38b40cc5b6"
+        }
+      ],
+      "services": [{ "binding": "AUTH", "service": "brimba-auth-staging" }]
+    }
+  }
+}

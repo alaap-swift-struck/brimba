@@ -9,6 +9,7 @@ type Env = {
   ASSETS: Fetcher
   AUTH: Fetcher
   TENANCY: Fetcher
+  REALTIME: Fetcher
   MEDIA: R2Bucket
 }
 
@@ -18,6 +19,8 @@ export default {
 
     if (pathname.startsWith("/api/auth/")) return env.AUTH.fetch(request)
     if (pathname.startsWith("/api/tenancy/")) return env.TENANCY.fetch(request)
+    // Live channels (WebSocket upgrade + health) → the realtime switchboard.
+    if (pathname.startsWith("/api/realtime")) return env.REALTIME.fetch(request)
 
     if (pathname.startsWith("/api/")) {
       return fail(404, "not_found", "No such API.")
@@ -38,6 +41,17 @@ export default {
       })
     }
 
-    return env.ASSETS.fetch(request)
+    // Static screens/assets. Next.js content-hashes everything under
+    // /_next/static/ (the filename changes when the file changes), so those are
+    // safe to cache FOREVER — tell the browser never to re-check them. Without
+    // this the default is `max-age=0, must-revalidate`, which re-validates every
+    // file on every load (the repeat-visit slowness). HTML stays revalidated.
+    const res = await env.ASSETS.fetch(request)
+    if (pathname.startsWith("/_next/static/")) {
+      const cached = new Response(res.body, res)
+      cached.headers.set("Cache-Control", "public, max-age=31536000, immutable")
+      return cached
+    }
+    return res
   },
 } satisfies ExportedHandler<Env>

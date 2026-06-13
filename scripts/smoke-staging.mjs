@@ -36,8 +36,10 @@ const api = async (path, opts = {}, cookie = "") => {
 {
   const a = await api("/api/auth/health")
   const t = await api("/api/tenancy/health")
+  const r = await api("/api/realtime/health")
   ok("auth health", a.body?.ok === true)
   ok("tenancy health", t.body?.ok === true)
+  ok("realtime health", r.body?.ok === true)
 }
 
 // 2 · Login: request a code (staging echoes it until Resend is wired).

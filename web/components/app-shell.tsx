@@ -24,12 +24,14 @@ import {
   DropdownMenuTrigger,
 } from "@swift-struck/ui/registry/primitives/dropdown-menu/dropdown-menu"
 import { ModeToggle } from "@swift-struck/ui/registry/primitives/mode-toggle/mode-toggle"
-import { Spinner } from "@swift-struck/ui/registry/primitives/spinner/spinner"
+import { Skeleton } from "@swift-struck/ui/registry/primitives/skeleton/skeleton"
 import { toast } from "@swift-struck/ui/registry/primitives/sonner/sonner"
 import { ChevronsUpDown, Check, Plus, LogOut } from "lucide-react"
 
 import { auth } from "@/lib/api"
 import type { ActiveTeam } from "@/lib/use-active-team"
+import { useRealtime } from "@/lib/realtime"
+import { invalidate } from "@/lib/store"
 import { CreateTeamDialog } from "@/components/create-team-dialog"
 
 export function AppShell({
@@ -42,6 +44,20 @@ export function AppShell({
   const router = useRouter()
   const [creating, setCreating] = React.useState(false)
   const { user, ctx } = active
+  const teamId = ctx?.team?.id ?? null
+
+  // ONE live channel for the active team: when something changes (here or for
+  // another member), drop the matching cache so the open screen refetches — and
+  // refresh the shell's own member count. This is the "data just updates" piece.
+  useRealtime(teamId, (event) => {
+    if (!teamId) return
+    if (event.resource === "members") {
+      invalidate(`members:${teamId}`)
+      void active.refresh()
+    } else if (event.resource === "member_roles") {
+      invalidate(`member_roles:${teamId}`)
+    }
+  })
 
   function initials(first?: string | null, last?: string | null) {
     return `${first?.[0] ?? ""}${last?.[0] ?? ""}`.toUpperCase() || "?"
@@ -151,11 +167,20 @@ export function AppShell({
   )
 }
 
-/** Centered spinner for the brief moment the shell is loading its context. */
+/** Skeleton frame for the brief first load (only the FIRST screen ever shows it
+ * — the session is cached after that). Mirrors the shell so nothing jumps. */
 export function ShellLoading() {
   return (
-    <main className="flex min-h-[100svh] items-center justify-center">
-      <Spinner />
-    </main>
+    <div className="flex min-h-[100svh] flex-col">
+      <header className="glass sticky top-0 z-20 flex items-center justify-between gap-2 border-b px-4 py-2.5">
+        <Skeleton className="h-7 w-40 rounded-lg" />
+        <Skeleton className="size-8 rounded-full" />
+      </header>
+      <main className="flex-1 px-4 py-6">
+        <div className="mx-auto w-full max-w-2xl">
+          <Skeleton variant="list" lines={4} />
+        </div>
+      </main>
+    </div>
   )
 }

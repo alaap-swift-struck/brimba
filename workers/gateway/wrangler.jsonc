@@ -13,7 +13,8 @@
   },
   "services": [
     { "binding": "AUTH", "service": "brimba-auth" },
-    { "binding": "TENANCY", "service": "brimba-tenancy" }
+    { "binding": "TENANCY", "service": "brimba-tenancy" },
+    { "binding": "REALTIME", "service": "brimba-realtime" }
   ],
   "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "brimba-media" }],
   "env": {
@@ -27,7 +28,8 @@
       },
       "services": [
         { "binding": "AUTH", "service": "brimba-auth-staging" },
-        { "binding": "TENANCY", "service": "brimba-tenancy-staging" }
+        { "binding": "TENANCY", "service": "brimba-tenancy-staging" },
+        { "binding": "REALTIME", "service": "brimba-realtime-staging" }
       ],
       "r2_buckets": [
         { "binding": "MEDIA", "bucket_name": "brimba-media-staging" }

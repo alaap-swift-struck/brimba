@@ -4,6 +4,8 @@ export type Env = {
   DB: D1Database
   /** The auth worker — used to answer "who is making this request?". */
   AUTH: Fetcher
+  /** The realtime worker — pinged after a write so open screens refresh live. */
+  REALTIME: Fetcher
 
   /** Cloudflare account id (plain var) — for creating/querying team DBs. */
   CF_ACCOUNT_ID: string

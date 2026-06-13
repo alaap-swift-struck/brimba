@@ -3,12 +3,15 @@
 // Roles & permissions screen — pick a role, see/edit what it can do via the
 // library PermissionMatrix. The locked Admin role shows view-only (every cell
 // on); other roles are editable, with the "any write needs read" rule applied
-// live (and re-applied on the server when you save). Flat — no card surfaces.
+// live (re-applied on the server when you save). Flat — no card surfaces. The
+// role list is cache-first and live-refreshes when AppShell sees a "member_roles
+// changed" ping; the open matrix loads on selection.
 
 import * as React from "react"
 
 import { Badge } from "@swift-struck/ui/registry/primitives/badge/badge"
 import { Button } from "@swift-struck/ui/registry/primitives/button/button"
+import { Skeleton } from "@swift-struck/ui/registry/primitives/skeleton/skeleton"
 import { Spinner } from "@swift-struck/ui/registry/primitives/spinner/spinner"
 import { toast } from "@swift-struck/ui/registry/primitives/sonner/sonner"
 import {
@@ -22,40 +25,38 @@ import type { PermissionValue, RolePermissions, TeamRole } from "@shared/types"
 import { AppShell, ShellLoading } from "@/components/app-shell"
 import { CreateRoleDialog } from "@/components/create-role-dialog"
 import { ApiFailure, tenancy } from "@/lib/api"
+import { primeCache, useCached } from "@/lib/store"
 import { useActiveTeam } from "@/lib/use-active-team"
 
 export default function RolesPage() {
   const active = useActiveTeam()
-  const [roles, setRoles] = React.useState<TeamRole[] | null>(null)
+  const teamId = active.ctx?.team?.id ?? null
+
+  // Role list — cache-first + shares its key with the Members role picker, and
+  // AppShell invalidates it on a live "member_roles" ping.
+  const rolesQ = useCached<TeamRole[]>(
+    teamId ? `member_roles:${teamId}` : null,
+    () => tenancy.roles().then((r) => r.roles)
+  )
+  const roles = rolesQ.data
+
   const [selectedId, setSelectedId] = React.useState<string | null>(null)
   const [perms, setPerms] = React.useState<RolePermissions | null>(null)
   const [draft, setDraft] = React.useState<PermissionValue | null>(null)
   const [loadingPerms, setLoadingPerms] = React.useState(false)
   const [saving, setSaving] = React.useState(false)
   const [creating, setCreating] = React.useState(false)
-  const [error, setError] = React.useState<string | null>(null)
 
-  // Load the role list once the active team is known; select one to start.
+  // Keep a valid selection: pick the first editable role to start, and hold the
+  // current one across background refetches (unless it disappeared).
   React.useEffect(() => {
-    if (active.loading || !active.ctx) return
-    let live = true
-    tenancy
-      .roles()
-      .then(({ roles }) => {
-        if (!live) return
-        setRoles(roles)
-        // Prefer the first editable role so the matrix opens interactive.
-        const first = roles.find((r) => !r.isDefault) ?? roles[0]
-        setSelectedId(first?.id ?? null)
-      })
-      .catch((err) => {
-        if (!live) return
-        setError(err instanceof ApiFailure ? err.message : "Couldn't load roles.")
-      })
-    return () => {
-      live = false
-    }
-  }, [active.loading, active.ctx])
+    if (!roles || roles.length === 0) return
+    setSelectedId((cur) =>
+      cur && roles.some((r) => r.id === cur)
+        ? cur
+        : (roles.find((r) => !r.isDefault) ?? roles[0]).id
+    )
+  }, [roles])
 
   // Load the selected role's matrix whenever the selection changes.
   React.useEffect(() => {
@@ -108,7 +109,7 @@ export default function RolesPage() {
   async function createRole(title: string, description: string) {
     const before = new Set((roles ?? []).map((r) => r.id))
     const { roles: next } = await tenancy.createRole(title, description)
-    setRoles(next)
+    if (teamId) primeCache(`member_roles:${teamId}`, next)
     const created = next.find((r) => !before.has(r.id))
     if (created) setSelectedId(created.id)
     toast.success(`Created ${title}.`)
@@ -132,7 +133,7 @@ export default function RolesPage() {
         <div className="animate-rise flex items-start justify-between gap-4">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">
-              Roles &amp; permissions
+              Member roles
             </h1>
             <p className="text-muted-foreground mt-1 text-sm">
               What each role can do in {active.ctx.team?.name ?? "this team"}.
@@ -144,12 +145,10 @@ export default function RolesPage() {
           </Button>
         </div>
 
-        {error ? (
-          <p className="text-destructive text-sm">{error}</p>
-        ) : roles === null ? (
-          <div className="flex justify-center py-10">
-            <Spinner />
-          </div>
+        {rolesQ.error ? (
+          <p className="text-destructive text-sm">Couldn&apos;t load roles.</p>
+        ) : roles === undefined ? (
+          <Skeleton variant="list" lines={3} />
         ) : (
           <>
             {/* Role picker — flat selectable rows, no card surface */}
@@ -200,9 +199,7 @@ export default function RolesPage() {
             {/* Selected role's matrix */}
             <div className="animate-rise flex flex-col gap-3">
               {loadingPerms || !matrixConfig || !draft ? (
-                <div className="flex justify-center py-8">
-                  <Spinner />
-                </div>
+                <Skeleton className="h-64 w-full rounded-xl" />
               ) : (
                 <>
                   <div className="flex items-center justify-between gap-3">

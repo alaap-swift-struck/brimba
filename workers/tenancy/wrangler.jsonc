@@ -15,7 +15,10 @@
       "migrations_dir": "../../db/core"
     }
   ],
-  "services": [{ "binding": "AUTH", "service": "brimba-auth" }],
+  "services": [
+    { "binding": "AUTH", "service": "brimba-auth" },
+    { "binding": "REALTIME", "service": "brimba-realtime" }
+  ],
   "vars": { "CF_ACCOUNT_ID": "af3f1bf82aa34512f4f6630091358439" },
   // Nightly 80%-size alarms (03:10 UTC) — the locked sharding machinery.
   "triggers": { "crons": ["10 3 * * *"] },
@@ -31,7 +34,10 @@
           "migrations_dir": "../../db/core"
         }
       ],
-      "services": [{ "binding": "AUTH", "service": "brimba-auth-staging" }],
+      "services": [
+        { "binding": "AUTH", "service": "brimba-auth-staging" },
+        { "binding": "REALTIME", "service": "brimba-realtime-staging" }
+      ],
       "vars": { "CF_ACCOUNT_ID": "af3f1bf82aa34512f4f6630091358439" },
       "triggers": { "crons": ["10 3 * * *"] }
     }

@@ -34,15 +34,16 @@ Do not relitigate any "LOCKED" item without the user.
 
 ## 2 · The machine — workers (LOCKED)
 
-Five domain workers, each small enough for an AI agent to hold fully in its head:
+Six domain workers, each small enough for an AI agent to hold fully in its head:
 
 | Worker | Owns |
 |---|---|
 | **auth** | Strict email-OTP login — 6-digit codes via Resend (NO Clerk, NO Google; parked 2026-06-12), sessions, email-change flow (code to the NEW email) |
-| **tenancy** | teams, team members, roles & permissions, invites |
+| **tenancy** | teams, team members, member roles & permissions, invites |
 | **content** | learning, help + help threads, selectable data (+ types) |
 | **data-ops** | import sessions, export, the AI import agent (Workers AI, behind ONE swappable interface so the brain can change in one config edit) |
-| **gateway / MCP** | the single front desk: ONE master catalog of every action (name, purpose, what to call before/after, inputs), exposed as one MCP server. UI and agents call the SAME doors |
+| **realtime** | the live "switchboard" (LOCKED 2026-06-13): one **TeamChannel Durable Object** per team holds that team's members' WebSockets (hibernatable → idle teams cost ~nothing) and broadcasts coarse "X changed" pings so screens update with no refresh. Holds NO app data — the databases stay the source of truth. Channels are created on-demand by name (`team:<id>`), unlimited, and reusable as-is by any app on this base. Workers publish via `publishChange`; the client subscribes and refetches through the normal permission-checked endpoints (pings carry no data, so nothing leaks). |
+| **gateway / MCP** | the single front desk: serves the web screens (and marks `/_next/static/**` immutable so repeat loads don't re-validate), routes `/api/*` to the workers (incl. the `/api/realtime` WebSocket), exposes ONE master MCP catalog. UI and agents call the SAME doors |
 
 
 ### The actions today (each becomes an MCP-catalogued tool)
@@ -67,6 +68,7 @@ Five domain workers, each small enough for an AI agent to hold fully in its head
 | GET /api/tenancy/admin/db-sizes | tenancy | size check + open 80% alarms (x-admin-key) |
 | POST /api/tenancy/admin/move-module | tenancy | the mover: relocate a module to its own DB (x-admin-key) |
 | GET /media/* | gateway | serve uploaded files from R2 |
+| (WebSocket) /api/realtime?team= | realtime | join your team's live channel; receive "X changed" pings (server-gated by membership, same as the API) |
 
 ## 3 · Tenancy & security rules (LOCKED)
 

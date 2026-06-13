@@ -27,15 +27,16 @@ The /reset-all skill reads this. DESTRUCTIVE — wipes data back to empty.
 
 | Worker | Staging name | Production name | What it is |
 |---|---|---|---|
-| gateway (`workers/gateway`) | brimba-staging | brimba | The front door: serves web/out + routes /api/* via service bindings |
+| gateway (`workers/gateway`) | brimba-staging | brimba | The front door: serves web/out (marks `/_next/static/**` immutable) + routes /api/* (incl. the /api/realtime WebSocket) via service bindings |
 | auth (`workers/auth`) | brimba-auth-staging | brimba-auth | Login (strict email codes only), sessions, users |
+| realtime (`workers/realtime`) | brimba-realtime-staging | brimba-realtime | The live switchboard: per-team `TeamChannel` Durable Object broadcasts change pings over WebSockets. Binds AUTH + the core DB (to gate connections); holds no app data |
 
 | D1 database | Bound to | Migrations |
 |---|---|---|
 | brimba-core-staging | brimba-auth-staging | `cd workers/auth && npx wrangler d1 migrations apply brimba-core-staging --env staging --remote` |
 | brimba-core | brimba-auth | `cd workers/auth && npx wrangler d1 migrations apply brimba-core --remote` |
 
-Deploy order when several change: auth → tenancy → gateway (root scripts do this).
+Deploy order when several change: auth → realtime → tenancy → gateway (root scripts do this — realtime before the workers that bind it). The realtime worker defines the `TeamChannel` Durable Object (a one-time `migrations` tag in its wrangler.jsonc; no team-DB migration involved — the DO holds no app data). Durable Objects need the Workers Paid plan.
 A nightly cron (03:10 UTC, tenancy worker) sizes every team DB and alarms at 80% of the 10GB cap.
 New migrations must be applied to BOTH databases before deploying workers that need them.
 
@@ -64,7 +65,7 @@ both owner-only:
 
 ## Verify before shipping
 
-- npm run check   (type-checks web + all workers, runs all 21 unit/integration tests)
+- npm run check   (type-checks web + all 5 workers, runs all 42 unit/integration tests)
 - CI runs the same on every push (.github/workflows/ci.yml)
 - deploy:staging ends with scripts/smoke-staging.mjs — the LIVE login→team journey must pass or the deploy is considered failed
 

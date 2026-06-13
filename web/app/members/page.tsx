@@ -2,9 +2,9 @@
 
 // Members screen — the team's people in a library data-table. Each row has a
 // "⋯" menu: Change role (opens the role picker) and Remove (confirm first).
-// All the hard rules (no self-edit, keep one admin) are enforced server-side;
-// the UI just hides the actions that can't apply (your own row) and surfaces
-// any guard message as a toast.
+// Data is cache-first (instant on repeat visits) and refreshes itself when a
+// live "members changed" ping arrives (handled in AppShell). All the hard rules
+// (no self-edit, keep one admin) are enforced server-side.
 
 import * as React from "react"
 
@@ -31,6 +31,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@swift-struck/ui/registry/primitives/dropdown-menu/dropdown-menu"
+import { Skeleton } from "@swift-struck/ui/registry/primitives/skeleton/skeleton"
 import { Spinner } from "@swift-struck/ui/registry/primitives/spinner/spinner"
 import { toast } from "@swift-struck/ui/registry/primitives/sonner/sonner"
 import {
@@ -39,10 +40,11 @@ import {
 } from "@swift-struck/ui/registry/collections/data-table/data-table"
 import { MoreHorizontal, ShieldCheck } from "lucide-react"
 
-import type { TeamMember, TeamRole } from "@shared/types"
+import type { TeamMember } from "@shared/types"
 import { AppShell, ShellLoading } from "@/components/app-shell"
 import { RolePickerDialog } from "@/components/role-picker-dialog"
 import { ApiFailure, tenancy } from "@/lib/api"
+import { invalidate, primeCache, useCached } from "@/lib/store"
 import { useActiveTeam } from "@/lib/use-active-team"
 
 const COLUMNS = [
@@ -81,48 +83,39 @@ function formatDate(iso: string) {
 
 export default function MembersPage() {
   const active = useActiveTeam()
-  const [members, setMembers] = React.useState<TeamMember[] | null>(null)
-  const [roles, setRoles] = React.useState<TeamRole[]>([])
-  const [error, setError] = React.useState<string | null>(null)
+  const teamId = active.ctx?.team?.id ?? null
+
+  // Cache-first: instant on repeat visits; AppShell invalidates `members:<id>`
+  // on a live ping, which makes this refetch on its own. Roles share the
+  // `member_roles:<id>` key with the Roles screen (one fetch, both use it).
+  const membersQ = useCached(teamId ? `members:${teamId}` : null, () =>
+    tenancy.members().then((r) => r.members)
+  )
+  const rolesQ = useCached(teamId ? `member_roles:${teamId}` : null, () =>
+    tenancy.roles().then((r) => r.roles)
+  )
+  const members = membersQ.data
+  const roles = rolesQ.data ?? []
 
   const [roleTarget, setRoleTarget] = React.useState<TeamMember | null>(null)
   const [removeTarget, setRemoveTarget] = React.useState<TeamMember | null>(null)
   const [removing, setRemoving] = React.useState(false)
 
-  // Load members + roles once the active team is known.
-  React.useEffect(() => {
-    if (active.loading || !active.ctx) return
-    let live = true
-    Promise.all([tenancy.members(), tenancy.roles()])
-      .then(([m, r]) => {
-        if (!live) return
-        setMembers(m.members)
-        setRoles(r.roles)
-      })
-      .catch((err) => {
-        if (!live) return
-        setError(
-          err instanceof ApiFailure ? err.message : "Couldn't load members."
-        )
-      })
-    return () => {
-      live = false
-    }
-  }, [active.loading, active.ctx])
-
   async function changeRole(roleId: string) {
-    if (!roleTarget) return
+    if (!roleTarget || !teamId) return
     const { members } = await tenancy.setMemberRole(roleTarget.userId, roleId)
-    setMembers(members)
+    primeCache(`members:${teamId}`, members)
+    invalidate(`member_roles:${teamId}`) // role member-counts changed
     toast.success(`Updated ${fullName(roleTarget)}'s role.`)
   }
 
   async function confirmRemove() {
-    if (!removeTarget) return
+    if (!removeTarget || !teamId) return
     setRemoving(true)
     try {
       const { members } = await tenancy.removeMember(removeTarget.userId)
-      setMembers(members)
+      primeCache(`members:${teamId}`, members)
+      invalidate(`member_roles:${teamId}`)
       toast.success(`Removed ${fullName(removeTarget)}.`)
       setRemoveTarget(null)
     } catch (err) {
@@ -134,7 +127,6 @@ export default function MembersPage() {
     }
   }
 
-  // Map members to the table's display rows (cells are React nodes).
   const rows = React.useMemo(
     () =>
       (members ?? []).map((m) => ({
@@ -208,12 +200,10 @@ export default function MembersPage() {
         </div>
 
         <div className="animate-rise">
-          {error ? (
-            <p className="text-destructive text-sm">{error}</p>
-          ) : members === null ? (
-            <div className="flex justify-center py-10">
-              <Spinner />
-            </div>
+          {membersQ.error ? (
+            <p className="text-destructive text-sm">Couldn&apos;t load members.</p>
+          ) : members === undefined ? (
+            <Skeleton variant="list" lines={4} />
           ) : (
             <DataTable data={rows} config={TABLE_CONFIG} />
           )}

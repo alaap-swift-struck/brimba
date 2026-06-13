@@ -25,6 +25,7 @@ import { brand } from "../../../shared/brand"
 import type { SessionUser } from "../../../shared/types"
 import { fail, json } from "../../../shared/workers/http"
 import { d1Query } from "../../../shared/workers/d1-rest"
+import { publishChange } from "../../../shared/workers/realtime"
 import type { Env } from "./env"
 import {
   acceptPendingInvites,
@@ -204,6 +205,7 @@ async function postRolePerms(request: Request, env: Env): Promise<Response> {
   if (!body.roleId || !body.value)
     return fail(400, "invalid_input", "roleId and value are required.")
   await setRolePermissions(cfg, guard, actor, body.roleId, body.value)
+  await publishChange(env.REALTIME, guard.teamId, "member_roles")
   return json({ ok: true })
 }
 
@@ -216,6 +218,7 @@ async function postCreateRole(request: Request, env: Env): Promise<Response> {
   }
   if (!body.title?.trim()) return fail(400, "invalid_input", "A role needs a name.")
   await createRole(cfg, guard, actor, body.title, body.description ?? "")
+  await publishChange(env.REALTIME, guard.teamId, "member_roles")
   return json({ roles: await listRoles(env, cfg, guard) })
 }
 
@@ -229,6 +232,7 @@ async function postMemberRole(request: Request, env: Env): Promise<Response> {
   if (!body.userId || !body.roleId)
     return fail(400, "invalid_input", "userId and roleId are required.")
   await changeMemberRole(env, cfg, guard, actor, body.userId, body.roleId)
+  await publishChange(env.REALTIME, guard.teamId, "members")
   return json({ members: await listMembers(env, cfg, guard) })
 }
 
@@ -238,6 +242,7 @@ async function postMemberRemove(request: Request, env: Env): Promise<Response> {
   const body = (await request.json().catch(() => ({}))) as { userId?: string }
   if (!body.userId) return fail(400, "invalid_input", "userId is required.")
   await removeMember(env, cfg, guard, actor, body.userId)
+  await publishChange(env.REALTIME, guard.teamId, "members")
   return json({ members: await listMembers(env, cfg, guard) })
 }
 

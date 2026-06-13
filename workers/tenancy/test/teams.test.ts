@@ -60,6 +60,7 @@ function envWith(db: Env["DB"]): Env {
   return {
     DB: db,
     AUTH: {} as Fetcher,
+    REALTIME: {} as Fetcher,
     CF_ACCOUNT_ID: "acct",
     CF_D1_TOKEN: "token",
   }
