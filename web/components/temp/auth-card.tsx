@@ -1,21 +1,14 @@
 "use client"
 
 // TEMPORARY PLACEHOLDER — flagged in UI-GAPS.md.
-// The library has no auth/login card collection yet. This stand-in is built
-// ENTIRELY from library primitives (Card, Button, Input, Field,
-// Spinner, toast) so when @swift-struck/ui ships `auth-card`, swapping is
-// a one-file change. No styles or components invented here beyond layout.
+// The library has no auth/login collection yet. This stand-in is built ENTIRELY
+// from library primitives (Button, Input, Field, Spinner, toast) so when
+// @swift-struck/ui ships `auth-card`, swapping is a one-file change. Flat (no
+// card surface), matching the app-wide flat look. No styles invented beyond layout.
 
 import * as React from "react"
 
 import { Button } from "@swift-struck/ui/registry/primitives/button/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@swift-struck/ui/registry/primitives/card/card"
 import { Field } from "@swift-struck/ui/registry/primitives/field/field"
 import { Input } from "@swift-struck/ui/registry/primitives/input/input"
 import { Spinner } from "@swift-struck/ui/registry/primitives/spinner/spinner"
@@ -77,17 +70,19 @@ export function AuthCard({ onSignedIn }: { onSignedIn: () => void }) {
   }
 
   return (
-    <Card className="animate-rise w-full max-w-sm">
-      <CardHeader className="items-center text-center">
+    <div className="animate-rise w-full max-w-sm">
+      <div className="flex flex-col items-center text-center">
         <BrandMark className="mb-1" />
-        <CardTitle className="text-2xl">Welcome to {brand.name}</CardTitle>
-        <CardDescription>
+        <h1 className="text-2xl font-semibold tracking-tight">
+          Welcome to {brand.name}
+        </h1>
+        <p className="text-muted-foreground mt-1 text-sm">
           {step === "email"
             ? brand.motto
             : `Enter the 6-digit code sent to ${email}`}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
+        </p>
+      </div>
+      <div className="mt-6 flex flex-col gap-4">
         {step === "email" ? (
           <form
               className="flex flex-col gap-4"
@@ -150,8 +145,8 @@ export function AuthCard({ onSignedIn }: { onSignedIn: () => void }) {
             </div>
           </>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   )
 }
 

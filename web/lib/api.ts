@@ -4,6 +4,8 @@
 import type {
   ActiveContext,
   ApiError,
+  PermissionValue,
+  RolePermissions,
   SessionUser,
   TeamMember,
   TeamRole,
@@ -99,8 +101,28 @@ export const tenancy = {
   /** Everyone on the active team (identity + role + the guard flags). */
   members: () => api<{ members: TeamMember[] }>("/api/tenancy/members"),
 
-  /** Every role in the active team (for the role picker). */
+  /** Every role in the active team (for the role picker + roles screen). */
   roles: () => api<{ roles: TeamRole[] }>("/api/tenancy/roles"),
+
+  /** One role's permission matrix (modules + saved value + locked flag). */
+  rolePermissions: (roleId: string) =>
+    api<RolePermissions>(
+      `/api/tenancy/roles/permissions?roleId=${encodeURIComponent(roleId)}`
+    ),
+
+  /** Save a role's permission matrix (server re-applies auto-flip-read). */
+  saveRolePermissions: (roleId: string, value: PermissionValue) =>
+    api<{ ok: true }>("/api/tenancy/roles/permissions", {
+      method: "POST",
+      body: JSON.stringify({ roleId, value }),
+    }),
+
+  /** Create a new role (starts with no rights); returns the refreshed list. */
+  createRole: (title: string, description: string) =>
+    api<{ roles: TeamRole[] }>("/api/tenancy/roles", {
+      method: "POST",
+      body: JSON.stringify({ title, description }),
+    }),
 
   /** Change a member's role; returns the refreshed member list. */
   setMemberRole: (userId: string, roleId: string) =>

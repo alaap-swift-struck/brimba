@@ -1,7 +1,8 @@
 "use client"
 
 // Home — the active team's hub. Shows which team you're in, the role you hold,
-// and the map of what you can manage. Each section card lights up as its phase
+// and the map of what you can manage as a flat list (no card surfaces — the
+// items sit directly on the screen background). Each row lights up as its phase
 // ships; until then it says so (no dead links).
 
 import {
@@ -10,16 +11,9 @@ import {
   AvatarImage,
 } from "@swift-struck/ui/registry/primitives/avatar/avatar"
 import { Badge } from "@swift-struck/ui/registry/primitives/badge/badge"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@swift-struck/ui/registry/primitives/card/card"
 import { toast } from "@swift-struck/ui/registry/primitives/sonner/sonner"
 import { useRouter } from "next/navigation"
-import { Users, ShieldCheck, UserPlus, Settings } from "lucide-react"
+import { Users, ShieldCheck, UserPlus, Settings, ChevronRight } from "lucide-react"
 
 import { AppShell, ShellLoading } from "@/components/app-shell"
 import { useActiveTeam } from "@/lib/use-active-team"
@@ -28,7 +22,7 @@ import { useActiveTeam } from "@/lib/use-active-team"
 // announce they're coming (they turn into real links as each phase ships).
 const SECTIONS = [
   { key: "members", title: "Members", desc: "Who's on the team", icon: Users, ready: true, href: "/members" },
-  { key: "roles", title: "Roles & permissions", desc: "What each role can do", icon: ShieldCheck, ready: false, href: null },
+  { key: "roles", title: "Roles & permissions", desc: "What each role can do", icon: ShieldCheck, ready: true, href: "/roles" },
   { key: "invites", title: "Invites", desc: "Invite people by email", icon: UserPlus, ready: false, href: null },
   { key: "settings", title: "Team settings", desc: "Name, logo and more", icon: Settings, ready: false, href: null },
 ] as const
@@ -66,41 +60,39 @@ export default function HomePage() {
           </div>
         </div>
 
-        {/* Section map */}
-        <div className="grid gap-3 sm:grid-cols-2">
+        {/* Section map — a flat list, hairline-separated, no card surface */}
+        <div className="animate-rise divide-border/60 flex flex-col divide-y">
           {SECTIONS.map((s) => {
             const Icon = s.icon
             return (
-              <Card
+              <button
                 key={s.key}
-                role="button"
-                tabIndex={0}
+                type="button"
                 onClick={() =>
                   s.ready && s.href
                     ? router.push(s.href)
                     : toast.info(`${s.title} is coming in the next build.`)
                 }
-                className="hover-lift animate-rise cursor-pointer"
+                className="hover:bg-muted/40 flex w-full items-center gap-3 px-2 py-3.5 text-left transition-colors"
               >
-                <CardHeader className="flex-row items-center gap-3 space-y-0">
-                  <span className="bg-secondary text-secondary-foreground flex size-10 items-center justify-center rounded-lg">
-                    <Icon className="size-5" />
-                  </span>
-                  <div className="min-w-0">
-                    <CardTitle className="flex items-center gap-2 text-base">
-                      {s.title}
-                      {!s.ready && (
-                        <Badge variant="outline" className="text-[10px]">
-                          Soon
-                        </Badge>
-                      )}
-                    </CardTitle>
-                    <CardDescription className="truncate">
-                      {s.desc}
-                    </CardDescription>
+                <span className="bg-secondary text-secondary-foreground flex size-10 shrink-0 items-center justify-center rounded-lg">
+                  <Icon className="size-5" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 font-medium">
+                    {s.title}
+                    {!s.ready && (
+                      <Badge variant="outline" className="text-[10px]">
+                        Soon
+                      </Badge>
+                    )}
                   </div>
-                </CardHeader>
-              </Card>
+                  <div className="text-muted-foreground truncate text-sm">
+                    {s.desc}
+                  </div>
+                </div>
+                <ChevronRight className="text-muted-foreground size-4 shrink-0" />
+              </button>
             )
           })}
         </div>

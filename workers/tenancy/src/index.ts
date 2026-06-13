@@ -10,6 +10,9 @@
 //   POST /api/tenancy/members/role         -> change a member's role
 //   POST /api/tenancy/members/remove       -> remove (deactivate) a member
 //   GET  /api/tenancy/roles                -> the team's roles (+ member counts)
+//   POST /api/tenancy/roles                 -> create a new role
+//   GET  /api/tenancy/roles/permissions    -> a role's permission matrix (?roleId)
+//   POST /api/tenancy/roles/permissions    -> save a role's permission matrix
 //   POST /api/tenancy/admin/migrate-teams  -> roll new team-schema migrations
 //                                             to EVERY team DB (x-admin-key)
 //   GET  /api/tenancy/admin/db-sizes       -> size every team DB + open alarms
@@ -48,6 +51,12 @@ import {
   listRoles,
   removeMember,
 } from "./lib/members"
+import {
+  createRole,
+  getRolePermissions,
+  setRolePermissions,
+  type PermissionValue,
+} from "./lib/roles"
 import type { D1Rest } from "../../../shared/workers/d1-rest"
 import { TEAM_MIGRATIONS, type Actor } from "./team-schema"
 
@@ -76,6 +85,12 @@ export default {
           return await postMemberRemove(request, env)
         case "GET /api/tenancy/roles":
           return await getRoles(request, env)
+        case "POST /api/tenancy/roles":
+          return await postCreateRole(request, env)
+        case "GET /api/tenancy/roles/permissions":
+          return await getRolePerms(request, env)
+        case "POST /api/tenancy/roles/permissions":
+          return await postRolePerms(request, env)
         case "POST /api/tenancy/admin/migrate-teams":
           return await migrateTeams(request, env)
         case "GET /api/tenancy/admin/db-sizes":
@@ -168,6 +183,39 @@ async function getMembers(request: Request, env: Env): Promise<Response> {
 async function getRoles(request: Request, env: Env): Promise<Response> {
   const { cfg, guard } = await teamContext(request, env)
   await requireRight(cfg, guard, "member_roles", "read")
+  return json({ roles: await listRoles(env, cfg, guard) })
+}
+
+async function getRolePerms(request: Request, env: Env): Promise<Response> {
+  const { cfg, guard } = await teamContext(request, env)
+  await requireRight(cfg, guard, "member_roles", "read")
+  const roleId = new URL(request.url).searchParams.get("roleId")
+  if (!roleId) return fail(400, "invalid_input", "roleId is required.")
+  return json(await getRolePermissions(cfg, guard, roleId))
+}
+
+async function postRolePerms(request: Request, env: Env): Promise<Response> {
+  const { actor, cfg, guard } = await teamContext(request, env)
+  await requireRight(cfg, guard, "member_roles", "edit")
+  const body = (await request.json().catch(() => ({}))) as {
+    roleId?: string
+    value?: PermissionValue
+  }
+  if (!body.roleId || !body.value)
+    return fail(400, "invalid_input", "roleId and value are required.")
+  await setRolePermissions(cfg, guard, actor, body.roleId, body.value)
+  return json({ ok: true })
+}
+
+async function postCreateRole(request: Request, env: Env): Promise<Response> {
+  const { actor, cfg, guard } = await teamContext(request, env)
+  await requireRight(cfg, guard, "member_roles", "create")
+  const body = (await request.json().catch(() => ({}))) as {
+    title?: string
+    description?: string
+  }
+  if (!body.title?.trim()) return fail(400, "invalid_input", "A role needs a name.")
+  await createRole(cfg, guard, actor, body.title, body.description ?? "")
   return json({ roles: await listRoles(env, cfg, guard) })
 }
 

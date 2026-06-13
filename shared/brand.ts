@@ -35,4 +35,14 @@ export const brand = {
       dark: "oklch(0.3 0.04 185)",
     } as AccentPair,
   },
+
+  /** The screen background tone — the SINGLE source for the page surface behind
+   * every screen (not the glass/menus on top). Softened off pure white / pure
+   * black so no screen ever looks "super white" or "super dark"; the brand glow
+   * + ambient light layer on top. Change these two values to re-tone every
+   * screen in both modes at once (BrandTheme injects them as --background). */
+  screen: {
+    light: "oklch(0.975 0 0)",
+    dark: "oklch(0.18 0 0)",
+  } as AccentPair,
 }

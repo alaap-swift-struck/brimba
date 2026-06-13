@@ -42,6 +42,31 @@ export type TeamMember = {
   joinedAt: string
 }
 
+/** The four access switches for one module (matches the library
+ * PermissionMatrix component's RightSet). */
+export type RightSet = {
+  read: boolean
+  create: boolean
+  edit: boolean
+  delete: boolean
+}
+
+/** A whole role's permission sheet: one RightSet per module key. */
+export type PermissionValue = Record<string, RightSet>
+
+/** A role's permission matrix as the tenancy worker returns it: the module rows
+ * (key + label), the saved value, the role title, and whether it's the locked
+ * Admin role (shown view-only). */
+export type RolePermissions = {
+  modules: { key: string; label: string }[]
+  value: PermissionValue
+  isDefault: boolean
+  title: string
+  /** whether the signed-in viewer may edit roles (member_roles:edit) — drives
+   * the screen's edit-vs-view mode and whether Save shows. */
+  canEdit: boolean
+}
+
 /** One role in a team (from the team's own member_roles table). */
 export type TeamRole = {
   id: string

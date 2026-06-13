@@ -13,13 +13,6 @@ import {
   AvatarImage,
 } from "@swift-struck/ui/registry/primitives/avatar/avatar"
 import { Button } from "@swift-struck/ui/registry/primitives/button/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@swift-struck/ui/registry/primitives/card/card"
 import { Field } from "@swift-struck/ui/registry/primitives/field/field"
 import { FileUpload } from "@swift-struck/ui/registry/primitives/file-upload/file-upload"
 import { Input } from "@swift-struck/ui/registry/primitives/input/input"
@@ -97,16 +90,17 @@ export default function OnboardingPage() {
       <div className="fixed right-4 top-4 z-30">
         <ModeToggle />
       </div>
-      <Card className="animate-rise w-full max-w-sm">
-        <CardHeader className="items-center text-center">
+      <div className="animate-rise w-full max-w-sm">
+        <div className="flex flex-col items-center text-center">
           <BrandMark className="mb-1" />
-          <CardTitle className="text-2xl">Set up your profile</CardTitle>
-          <CardDescription>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            Set up your profile
+          </h1>
+          <p className="text-muted-foreground mt-1 text-sm">
             Tell us who you are — your team gets created right after.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form className="flex flex-col gap-4" onSubmit={finish}>
+          </p>
+        </div>
+        <form className="mt-6 flex flex-col gap-4" onSubmit={finish}>
             <div className="flex flex-col items-center gap-3">
               <Avatar className="size-20">
                 {photo && <AvatarImage src={photo} alt="Your photo" />}
@@ -144,8 +138,7 @@ export default function OnboardingPage() {
               {busy ? "Creating your team…" : "Continue"}
             </Button>
           </form>
-        </CardContent>
-      </Card>
+      </div>
     </main>
   )
 }

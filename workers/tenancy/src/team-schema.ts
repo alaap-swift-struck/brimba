@@ -17,6 +17,22 @@ export const TEAM_MODULES = [
   "selectable_data",
 ] as const
 
+/** Plain-English label for each module, shown as the rows of the permission
+ * matrix. Keyed off TEAM_MODULES so a new module can't be added without a
+ * label. ONE source for both the worker and the Roles screen. */
+const MODULE_LABELS: Record<(typeof TEAM_MODULES)[number], string> = {
+  teams: "Team",
+  team_members: "Members",
+  member_roles: "Roles & permissions",
+  learning: "Learning",
+  help: "Help desk",
+  selectable_data: "Dropdown data",
+}
+
+/** The matrix rows: { key, label } per module, in display order. */
+export const TEAM_MODULE_CATALOG: { key: string; label: string }[] =
+  TEAM_MODULES.map((key) => ({ key, label: MODULE_LABELS[key] }))
+
 export const TEAM_MIGRATIONS: { version: string; sql: string }[] = [
   {
     version: "0001_team_base",
