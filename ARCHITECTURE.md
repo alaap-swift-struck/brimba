@@ -46,6 +46,43 @@ Six domain workers, each small enough for an AI agent to hold fully in its head:
 | **gateway / MCP** | the single front desk: serves the web screens (and marks `/_next/static/**` immutable so repeat loads don't re-validate), routes `/api/*` to the workers (incl. the `/api/realtime` WebSocket), exposes ONE master MCP catalog. UI and agents call the SAME doors |
 
 
+### Durable Objects — code vs runtime, and how they scale (LOCKED 2026-06-15)
+
+The confusion to retire: **a worker count and a Durable-Object count are different things.**
+
+- A **Worker** is deployed *code*. We have ~6 (auth, tenancy, realtime, content,
+  data-ops, gateway). This number does **not** grow with teams.
+- A **Durable Object class** is also code — a class *inside* a worker (e.g.
+  `TeamChannel` in the realtime worker). We have very few (the 500-classes cap is
+  irrelevant).
+- A **Durable Object instance** is a *runtime* entity addressed by name
+  (`team:<id>`). Instances are **unlimited** and created on demand — addressing
+  one by name conjures it; idle ones hibernate (≈ free). **An instance is not a
+  worker.**
+
+So 10,000 teams = still ~6 workers + one `TeamChannel` class, but 10,000
+*instances* (one per team), almost all hibernating. Exactly like OOP: one
+`class` (code), millions of objects (runtime).
+
+**What gets a DO instance — and what does NOT:**
+- **Live channel — one instance per team** (`TeamChannel`). Every change in a
+  team (its name, a product, stock…) publishes one ping to that team's single
+  channel. NOT one-DO-per-record.
+- **Transactional entity — one instance per *contended* thing** (an inventory
+  cell, a ledger account, a booking slot), and ONLY where serialized
+  read-modify-write matters. Reserved for hot counters/balances. Race-free
+  because one instance handles its requests one at a time (single-threaded);
+  apply the *operation* inside it ("decrement by 2"), persist before you ack;
+  cross-entity transactions use a coordinator + idempotency keys.
+- **Everything else = plain D1 rows.** Team name, member list, roles, a product's
+  descriptive fields → written by a worker to the per-team D1, no DO. (Renaming a
+  team is a D1 write + a channel ping; it does **not** get its own DO.)
+
+**Scale + sharding:** DO instances are addressed by key and scale horizontally
+*independent* of D1 sharding (which only decides where relational rows live).
+Both scale by key to very large numbers; they're orthogonal. Client read-caching
+on top follows [CACHING.md](CACHING.md).
+
 ### The actions today (each becomes an MCP-catalogued tool)
 
 | Action | Worker | What it does |

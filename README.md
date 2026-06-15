@@ -9,12 +9,17 @@ agent-callable via MCP, all hosted on Cloudflare.
 - **Production:** https://brimba.swift-struck.workers.dev
 - **Staging:** https://brimba-staging.swift-struck.workers.dev
 
-## The three documents
+## The documents
 
-1. **[ARCHITECTURE.md](ARCHITECTURE.md)** — the 20 locked decisions. Read
+1. **[ARCHITECTURE.md](ARCHITECTURE.md)** — the locked decisions (incl. the
+   workers, the live layer, and the Durable Object code-vs-runtime model). Read
    before building anything; do not relitigate without the user.
 2. **[OPERATIONS.md](OPERATIONS.md)** — how it builds and ships.
-3. The UI comes ONLY from **[@swift-struck/ui](https://swift-struck-ui.pages.dev/documentation)**
+3. **[CACHING.md](CACHING.md)** — the system-wide caching ruleset (cache-first,
+   live-channel invalidation, examples). Follow it for every screen/module.
+4. **[ROADMAP.md](ROADMAP.md)** — what's built and what's next, with the
+   type/endpoint contracts each phase plugs into.
+5. The UI comes ONLY from **[@swift-struck/ui](https://swift-struck-ui.pages.dev/documentation)**
    (installed from GitHub). Missing a component? Add it to the LIBRARY first —
    never build one-off UI here.
 
