@@ -49,6 +49,21 @@ describe("publishChange (the change ping)", () => {
     })
   })
 
+  it("includes a row id when given (so a specific open record can refresh)", async () => {
+    const calls: { body: unknown }[] = []
+    const realtime = {
+      fetch: async (_url: string, init: { body: string }) => {
+        calls.push({ body: JSON.parse(init.body) })
+        return new Response(null)
+      },
+    } as unknown as Parameters<typeof publishChange>[0]
+    await publishChange(realtime, "T", "member_roles", "ROLE9")
+    expect(calls[0].body).toEqual({
+      channel: "team:T",
+      event: { resource: "member_roles", id: "ROLE9" },
+    })
+  })
+
   it("never throws — a live-layer hiccup can't break the write it describes", async () => {
     const realtime = {
       fetch: async () => {

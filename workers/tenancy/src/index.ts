@@ -205,7 +205,7 @@ async function postRolePerms(request: Request, env: Env): Promise<Response> {
   if (!body.roleId || !body.value)
     return fail(400, "invalid_input", "roleId and value are required.")
   await setRolePermissions(cfg, guard, actor, body.roleId, body.value)
-  await publishChange(env.REALTIME, guard.teamId, "member_roles")
+  await publishChange(env.REALTIME, guard.teamId, "member_roles", body.roleId)
   return json({ ok: true })
 }
 

@@ -56,6 +56,8 @@ export function AppShell({
       void active.refresh()
     } else if (event.resource === "member_roles") {
       invalidate(`member_roles:${teamId}`)
+      // refresh the specific role's open matrix too, not just the list
+      if (event.id) invalidate(`role-perms:${event.id}`)
     }
   })
 

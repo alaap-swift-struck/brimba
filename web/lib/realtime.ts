@@ -8,7 +8,7 @@
 
 import * as React from "react"
 
-export type RealtimeEvent = { resource: string }
+export type RealtimeEvent = { resource: string; id?: string }
 
 export function useRealtime(
   teamId: string | null,

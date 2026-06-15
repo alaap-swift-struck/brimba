@@ -41,9 +41,6 @@ export default function RolesPage() {
   const roles = rolesQ.data
 
   const [selectedId, setSelectedId] = React.useState<string | null>(null)
-  const [perms, setPerms] = React.useState<RolePermissions | null>(null)
-  const [draft, setDraft] = React.useState<PermissionValue | null>(null)
-  const [loadingPerms, setLoadingPerms] = React.useState(false)
   const [saving, setSaving] = React.useState(false)
   const [creating, setCreating] = React.useState(false)
 
@@ -58,29 +55,31 @@ export default function RolesPage() {
     )
   }, [roles])
 
-  // Load the selected role's matrix whenever the selection changes.
+  // The selected role's matrix — cache-first (instant on revisit) AND
+  // live-refreshable: AppShell invalidates `role-perms:<id>` on a member_roles
+  // ping, so this refetches and the matrix updates on its own.
+  const permsQ = useCached<RolePermissions>(
+    selectedId ? `role-perms:${selectedId}` : null,
+    () => tenancy.rolePermissions(selectedId as string)
+  )
+  const perms = permsQ.data ?? null
+
+  // `draft` is the editable copy. Seed it when the role changes; when the SERVER
+  // value changes (a live update), adopt it — unless you've made local edits.
+  const [draft, setDraft] = React.useState<PermissionValue | null>(null)
+  const serverRef = React.useRef<{ roleId: string; value: PermissionValue } | null>(null)
   React.useEffect(() => {
-    if (!selectedId) return
-    let live = true
-    setLoadingPerms(true)
-    tenancy
-      .rolePermissions(selectedId)
-      .then((p) => {
-        if (!live) return
-        setPerms(p)
-        setDraft(p.value)
-      })
-      .catch((err) => {
-        if (!live) return
-        toast.error(
-          err instanceof ApiFailure ? err.message : "Couldn't load permissions."
-        )
-      })
-      .finally(() => live && setLoadingPerms(false))
-    return () => {
-      live = false
+    if (!perms || !selectedId) return
+    const prev = serverRef.current
+    if (!prev || prev.roleId !== selectedId) {
+      setDraft(perms.value)
+    } else if (JSON.stringify(prev.value) !== JSON.stringify(perms.value)) {
+      setDraft((d) =>
+        d && JSON.stringify(d) === JSON.stringify(prev.value) ? perms.value : d
+      )
     }
-  }, [selectedId])
+    serverRef.current = { roleId: selectedId, value: perms.value }
+  }, [perms, selectedId])
 
   const dirty =
     perms != null &&
@@ -94,7 +93,8 @@ export default function RolesPage() {
       await tenancy.saveRolePermissions(selectedId, draft)
       // Re-read so we reflect exactly what the server stored (auto-flip-read).
       const fresh = await tenancy.rolePermissions(selectedId)
-      setPerms(fresh)
+      primeCache(`role-perms:${selectedId}`, fresh)
+      serverRef.current = { roleId: selectedId, value: fresh.value }
       setDraft(fresh.value)
       toast.success("Permissions saved.")
     } catch (err) {
@@ -198,7 +198,7 @@ export default function RolesPage() {
 
             {/* Selected role's matrix */}
             <div className="animate-rise flex flex-col gap-3">
-              {loadingPerms || !matrixConfig || !draft ? (
+              {permsQ.loading || !matrixConfig || !draft ? (
                 <Skeleton className="h-64 w-full rounded-xl" />
               ) : (
                 <>

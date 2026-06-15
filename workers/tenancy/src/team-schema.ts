@@ -125,7 +125,7 @@ export function buildTeamSeed(
     [sqlString(now), sqlString(actor.id), sqlString(actor.email), sqlString(actor.name), ...extra].join(", ")
 
   const statements: string[] = [
-    `INSERT INTO member_roles (id, title, description, is_default, created_at, creator_id, creator_email, creator_name) VALUES (${sqlString(adminRoleId)}, 'Admin', 'This role is a default and cannot be changed. Any member with admin access has full control over that team', 1, ${a([])});`,
+    `INSERT INTO member_roles (id, title, description, is_default, created_at, creator_id, creator_email, creator_name) VALUES (${sqlString(adminRoleId)}, 'Admin', 'This role is a default and cannot be changed.', 1, ${a([])});`,
     `INSERT INTO member_roles (id, title, description, is_default, created_at, creator_id, creator_email, creator_name) VALUES (${sqlString(viewerRoleId)}, 'Viewer', 'This role is read-only. Anyone assigned with this role can see all data but not create or modify it in any way', 0, ${a([])});`,
   ]
 

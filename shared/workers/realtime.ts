@@ -13,13 +13,19 @@ import type { Fetcher } from "@cloudflare/workers-types"
 export async function publishChange(
   realtime: Fetcher,
   teamId: string,
-  resource: string
+  resource: string,
+  /** optional row id — lets clients refresh a specific open record (e.g. the
+   * role whose matrix is open), not just the list. */
+  id?: string
 ): Promise<void> {
   try {
     await realtime.fetch("https://realtime/publish", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ channel: `team:${teamId}`, event: { resource } }),
+      body: JSON.stringify({
+        channel: `team:${teamId}`,
+        event: id ? { resource, id } : { resource },
+      }),
     })
   } catch (e) {
     console.error("realtime publish failed:", e)
