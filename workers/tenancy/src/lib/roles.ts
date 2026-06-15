@@ -167,6 +167,37 @@ ON CONFLICT(role_id, module) DO UPDATE SET
   }).catch((e) => console.error("activity log failed:", e))
 }
 
+/** Rename / re-describe a role. Refuses the locked Admin (default) role; needs
+ * a non-empty title. (Permissions are edited separately via setRolePermissions.) */
+export async function updateRole(
+  cfg: D1Rest,
+  guard: MemberGuard,
+  actor: Actor,
+  roleId: string,
+  title: string,
+  description: string
+): Promise<void> {
+  const role = await roleOrThrow(cfg, guard, roleId)
+  if (role.is_default === 1)
+    throw new GuardError(409, "locked_role", "The Admin role is locked — it can't be renamed.")
+  const cleanTitle = title.trim()
+  if (!cleanTitle) throw new GuardError(400, "invalid_input", "A role needs a name.")
+
+  const now = new Date().toISOString()
+  await d1ExecScript(
+    cfg,
+    guard.databaseId,
+    `UPDATE member_roles SET title = ${sqlString(cleanTitle)}, description = ${sqlString(description.trim() || null)}, updated_at = ${sqlString(now)}, editor_id = ${sqlString(actor.id)}, editor_email = ${sqlString(actor.email)}, editor_name = ${sqlString(actor.name)} WHERE id = ${sqlString(roleId)};`
+  )
+
+  await logActivity(cfg, guard.databaseId, actor, {
+    type: "Role edited",
+    description: `${actor.name} edited the ${cleanTitle} role`,
+    relatedTable: "member_roles",
+    relatedRowId: roleId,
+  }).catch((e) => console.error("activity log failed:", e))
+}
+
 /** Create a new (non-default) role. It starts with NO rights — the admin grants
  * them via the matrix. Returns the new role id. */
 export async function createRole(

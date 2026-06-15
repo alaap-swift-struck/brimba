@@ -1,4 +1,5 @@
 import { brand } from "../../../../shared/brand"
+import { brandedEmail } from "../../../../shared/workers/email-template"
 import type { Env } from "../env"
 
 // Same rule as the old Glide email transformer: trim, then lowercase.
@@ -22,6 +23,14 @@ export async function sendLoginCode(
 ): Promise<boolean> {
   if (!env.RESEND_API_KEY) return false
 
+  // One branded template (moulds to shared/brand.ts) → rich HTML + plaintext.
+  const { html, text } = brandedEmail({
+    heading: "Your login code",
+    intro: `Use this code to sign in to ${brand.name}. It expires in 10 minutes.`,
+    code,
+    footnote: "If you didn't request this, you can safely ignore this email.",
+  })
+
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
@@ -37,7 +46,8 @@ export async function sendLoginCode(
         : `${brand.name} <${env.EMAIL_FROM}>`,
       to: [to],
       subject: `${code} is your ${brand.name} login code`,
-      text: `Your ${brand.name} login code is: ${code}\n\nIt expires in 10 minutes. If you didn't request it, ignore this email.`,
+      html,
+      text,
     }),
   })
   if (!res.ok) {

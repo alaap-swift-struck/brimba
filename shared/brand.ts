@@ -36,6 +36,15 @@ export const brand = {
     } as AccentPair,
   },
 
+  /** Email-safe HEX mirror of the accent. Email clients don't support oklch, so
+   * branded emails use these. Keep roughly in step with `accent` above.
+   * primary = buttons/links · surface = soft tint panel · ink = text on surface. */
+  accentHex: {
+    primary: "#0e9e86",
+    surface: "#e8f6f1",
+    ink: "#0a5446",
+  },
+
   /** The screen background tone — the SINGLE source for the page surface behind
    * every screen (not the glass/menus on top). Softened off pure white / pure
    * black so no screen ever looks "super white" or "super dark"; the brand glow

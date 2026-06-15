@@ -128,6 +128,13 @@ export const tenancy = {
       body: JSON.stringify({ title, description }),
     }),
 
+  /** Rename / re-describe a role (not the locked Admin); returns the list. */
+  updateRole: (roleId: string, title: string, description: string) =>
+    api<{ roles: TeamRole[] }>("/api/tenancy/roles/update", {
+      method: "POST",
+      body: JSON.stringify({ roleId, title, description }),
+    }),
+
   /** Change a member's role; returns the refreshed member list. */
   setMemberRole: (userId: string, roleId: string) =>
     api<{ members: TeamMember[] }>("/api/tenancy/members/role", {

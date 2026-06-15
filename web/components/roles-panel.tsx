@@ -16,10 +16,10 @@ import {
   defaultPermissionMatrixConfig,
   type PermissionMatrixConfig,
 } from "@swift-struck/ui/registry/collections/permission-matrix/permission-matrix"
-import { Lock, Plus, ShieldCheck } from "lucide-react"
+import { Lock, Pencil, Plus, ShieldCheck } from "lucide-react"
 
 import type { PermissionValue, RolePermissions, TeamRole } from "@shared/types"
-import { CreateRoleDialog } from "@/components/create-role-dialog"
+import { RoleFormDialog } from "@/components/role-form-dialog"
 import { ApiFailure, tenancy } from "@/lib/api"
 import { primeCache, useCached } from "@/lib/store"
 import type { ActiveTeam } from "@/lib/use-active-team"
@@ -36,6 +36,8 @@ export function RolesPanel({ active }: { active: ActiveTeam }) {
   const [selectedId, setSelectedId] = React.useState<string | null>(null)
   const [saving, setSaving] = React.useState(false)
   const [creating, setCreating] = React.useState(false)
+  const [editingOpen, setEditingOpen] = React.useState(false)
+  const selectedRole = roles?.find((r) => r.id === selectedId) ?? null
 
   React.useEffect(() => {
     if (!roles || roles.length === 0) return
@@ -98,6 +100,13 @@ export function RolesPanel({ active }: { active: ActiveTeam }) {
     const created = next.find((r) => !before.has(r.id))
     if (created) setSelectedId(created.id)
     toast.success(`Created ${title}.`)
+  }
+
+  async function updateRoleDetails(title: string, description: string) {
+    if (!selectedId) return
+    const { roles: next } = await tenancy.updateRole(selectedId, title, description)
+    if (teamId) primeCache(`member_roles:${teamId}`, next)
+    toast.success("Role updated.")
   }
 
   const matrixConfig: PermissionMatrixConfig | null = perms && {
@@ -182,14 +191,21 @@ export function RolesPanel({ active }: { active: ActiveTeam }) {
                         : "You can view what this role can do, but not change it."}
                   </p>
                   {canSave && (
-                    <Button
-                      onClick={() => void save()}
-                      disabled={!dirty || saving}
-                      className="shrink-0"
-                    >
-                      {saving ? <Spinner /> : null}
-                      {saving ? "Saving…" : "Save"}
-                    </Button>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setEditingOpen(true)}
+                        className="gap-1.5"
+                      >
+                        <Pencil className="size-3.5" />
+                        Edit details
+                      </Button>
+                      <Button onClick={() => void save()} disabled={!dirty || saving}>
+                        {saving ? <Spinner /> : null}
+                        {saving ? "Saving…" : "Save"}
+                      </Button>
+                    </div>
                   )}
                 </div>
                 <PermissionMatrix
@@ -204,7 +220,17 @@ export function RolesPanel({ active }: { active: ActiveTeam }) {
         </>
       )}
 
-      <CreateRoleDialog open={creating} onOpenChange={setCreating} onCreate={createRole} />
+      <RoleFormDialog open={creating} onOpenChange={setCreating} onSubmit={createRole} />
+      <RoleFormDialog
+        open={editingOpen}
+        onOpenChange={setEditingOpen}
+        initial={
+          selectedRole
+            ? { title: selectedRole.title, description: selectedRole.description ?? "" }
+            : null
+        }
+        onSubmit={updateRoleDetails}
+      />
     </div>
   )
 }

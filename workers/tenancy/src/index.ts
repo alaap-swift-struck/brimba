@@ -12,6 +12,7 @@
 //   GET  /api/tenancy/my-permissions       -> the caller's own rights (page guard)
 //   GET  /api/tenancy/roles                -> the team's roles (+ member counts)
 //   POST /api/tenancy/roles                 -> create a new role
+//   POST /api/tenancy/roles/update          -> rename / re-describe a role
 //   GET  /api/tenancy/roles/permissions    -> a role's permission matrix (?roleId)
 //   POST /api/tenancy/roles/permissions    -> save a role's permission matrix
 //   POST /api/tenancy/admin/migrate-teams  -> roll new team-schema migrations
@@ -58,6 +59,7 @@ import {
   getMyPermissions,
   getRolePermissions,
   setRolePermissions,
+  updateRole,
   type PermissionValue,
 } from "./lib/roles"
 import type { D1Rest } from "../../../shared/workers/d1-rest"
@@ -92,6 +94,8 @@ export default {
           return await getRoles(request, env)
         case "POST /api/tenancy/roles":
           return await postCreateRole(request, env)
+        case "POST /api/tenancy/roles/update":
+          return await postUpdateRole(request, env)
         case "GET /api/tenancy/roles/permissions":
           return await getRolePerms(request, env)
         case "POST /api/tenancy/roles/permissions":
@@ -229,6 +233,21 @@ async function postCreateRole(request: Request, env: Env): Promise<Response> {
   if (!body.title?.trim()) return fail(400, "invalid_input", "A role needs a name.")
   await createRole(cfg, guard, actor, body.title, body.description ?? "")
   await publishChange(env.REALTIME, guard.teamId, "member_roles")
+  return json({ roles: await listRoles(env, cfg, guard) })
+}
+
+async function postUpdateRole(request: Request, env: Env): Promise<Response> {
+  const { actor, cfg, guard } = await teamContext(request, env)
+  await requireRight(cfg, guard, "member_roles", "edit")
+  const body = (await request.json().catch(() => ({}))) as {
+    roleId?: string
+    title?: string
+    description?: string
+  }
+  if (!body.roleId || !body.title?.trim())
+    return fail(400, "invalid_input", "roleId and title are required.")
+  await updateRole(cfg, guard, actor, body.roleId, body.title, body.description ?? "")
+  await publishChange(env.REALTIME, guard.teamId, "member_roles", body.roleId)
   return json({ roles: await listRoles(env, cfg, guard) })
 }
 

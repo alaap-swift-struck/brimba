@@ -1,7 +1,8 @@
 "use client"
 
-// Create-role dialog — a name + optional description. The new role starts with
-// no rights; the admin grants them in the permission matrix. Library primitives.
+// Role form dialog — create a new role OR edit a role's name + description.
+// `initial` present = edit mode. Permissions are edited in the matrix, not here.
+// Library primitives.
 
 import * as React from "react"
 
@@ -26,35 +27,39 @@ import { ApiFailure } from "@/lib/api"
 const titleField = { ...defaultFieldConfig, label: "Role name", required: true }
 const descField = { ...defaultFieldConfig, label: "Description", required: false }
 
-export function CreateRoleDialog({
+export function RoleFormDialog({
   open,
   onOpenChange,
-  onCreate,
+  initial,
+  onSubmit,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  onCreate: (title: string, description: string) => Promise<void>
+  /** present = edit mode (prefilled); absent = create mode */
+  initial?: { title: string; description: string } | null
+  onSubmit: (title: string, description: string) => Promise<void>
 }) {
+  const isEdit = !!initial
   const [title, setTitle] = React.useState("")
   const [description, setDescription] = React.useState("")
   const [busy, setBusy] = React.useState(false)
 
   React.useEffect(() => {
     if (open) {
-      setTitle("")
-      setDescription("")
+      setTitle(initial?.title ?? "")
+      setDescription(initial?.description ?? "")
     }
-  }, [open])
+  }, [open, initial])
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
     setBusy(true)
     try {
-      await onCreate(title.trim(), description.trim())
+      await onSubmit(title.trim(), description.trim())
       onOpenChange(false)
     } catch (err) {
       toast.error(
-        err instanceof ApiFailure ? err.message : "Couldn't create the role."
+        err instanceof ApiFailure ? err.message : "Couldn't save the role."
       )
     } finally {
       setBusy(false)
@@ -65,9 +70,11 @@ export function CreateRoleDialog({
     <Dialog open={open} onOpenChange={(o) => !busy && onOpenChange(o)}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Create a role</DialogTitle>
+          <DialogTitle>{isEdit ? "Edit role" : "Create a role"}</DialogTitle>
           <DialogDescription>
-            It starts with no access — you&apos;ll switch on what it can do next.
+            {isEdit
+              ? "Rename it or update what it's for. Permissions are set in the grid."
+              : "It starts with no access — you'll switch on what it can do next."}
           </DialogDescription>
         </DialogHeader>
         <form className="flex flex-col gap-4" onSubmit={submit}>
@@ -94,7 +101,7 @@ export function CreateRoleDialog({
           <DialogFooter>
             <Button type="submit" disabled={busy || !title.trim()}>
               {busy ? <Spinner /> : null}
-              {busy ? "Creating…" : "Create role"}
+              {busy ? "Saving…" : isEdit ? "Save" : "Create role"}
             </Button>
           </DialogFooter>
         </form>

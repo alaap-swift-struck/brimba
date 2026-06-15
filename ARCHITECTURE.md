@@ -100,6 +100,7 @@ on top follows [CACHING.md](CACHING.md).
 | GET /api/tenancy/my-permissions | tenancy | the caller's own rights for the active team (drives the page-visibility guard) |
 | GET /api/tenancy/roles | tenancy | the team's roles (+ member counts) |
 | POST /api/tenancy/roles | tenancy | create a new role (starts with no rights) |
+| POST /api/tenancy/roles/update | tenancy | rename / re-describe a role (not the locked Admin) |
 | GET /api/tenancy/roles/permissions | tenancy | a role's permission matrix (tall sheet) |
 | POST /api/tenancy/roles/permissions | tenancy | save a role's matrix (server re-applies auto-flip-read; Admin locked) |
 | POST /api/tenancy/admin/migrate-teams | tenancy | roll team-schema migrations to every team DB (x-admin-key) |
