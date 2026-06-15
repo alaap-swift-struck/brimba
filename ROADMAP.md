@@ -75,10 +75,12 @@ Then the Foundation phase (below) resumes.
 
 ## Phases (sequential; ship each to staging)
 
-- **F · Foundation** — sidebar + bottom-tab shell (Home / Settings); page
-  registry + slug + guard + `GET /my-permissions`; the Member-roles rename;
-  scaffold Settings → Teams → [team] with tabs and move the existing Members +
-  Member-roles screens into them.
+- **F · Foundation** — SHIPPED (2026-06-15): sidebar + bottom-tab shell
+  (Home / Settings), breadcrumbs, real slugs (`/settings`, `/settings/team`),
+  the page registry (`web/lib/pages.ts`), the page-visibility guard +
+  `GET /api/tenancy/my-permissions`, the Member-roles rename, and Settings →
+  Teams → [team] with tabs (Members + Member-roles panels moved in; Invites tab
+  placeholder). Old `/members` `/roles` now redirect into the tabs.
 - **1 · Branded email** — the brand-driven template; switch the login-code email to it.
 - **2 · Profile + email-change** — Settings → Account (name/photo) + avatar-menu
   link; the email-change flow + `email_change_logs` (uses the branded template).

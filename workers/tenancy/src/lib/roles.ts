@@ -94,6 +94,33 @@ export async function getRolePermissions(
   }
 }
 
+/** The CALLER's own effective rights for every module in this team — powers the
+ * client's page-visibility guard and which nav/tabs to show. Any member may read
+ * their own rights (no requireRight needed). */
+export async function getMyPermissions(
+  cfg: D1Rest,
+  guard: MemberGuard
+): Promise<PermissionValue> {
+  const rows = await d1Query<PermRow>(
+    cfg,
+    guard.databaseId,
+    "SELECT module, can_read, can_create, can_edit, can_delete FROM role_permissions WHERE role_id = ?",
+    [guard.roleId]
+  )
+  const byModule = new Map(rows.map((r) => [r.module, r]))
+  const value: PermissionValue = {}
+  for (const m of TEAM_MODULE_CATALOG) {
+    const r = byModule.get(m.key)
+    value[m.key] = {
+      read: r?.can_read === 1,
+      create: r?.can_create === 1,
+      edit: r?.can_edit === 1,
+      delete: r?.can_delete === 1,
+    }
+  }
+  return value
+}
+
 /** Normalize one module's rights with the locked "any write needs read" rule:
  * if any of create/edit/delete is on, read is forced on. */
 export function normalizeRights(r: Partial<RightSet> | undefined): RightSet {

@@ -101,6 +101,10 @@ export const tenancy = {
   /** Everyone on the active team (identity + role + the guard flags). */
   members: () => api<{ members: TeamMember[] }>("/api/tenancy/members"),
 
+  /** YOUR own effective rights for the active team — powers the page guard. */
+  myPermissions: () =>
+    api<{ permissions: PermissionValue }>("/api/tenancy/my-permissions"),
+
   /** Every role in the active team (for the role picker + roles screen). */
   roles: () => api<{ roles: TeamRole[] }>("/api/tenancy/roles"),
 

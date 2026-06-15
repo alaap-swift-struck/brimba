@@ -60,6 +60,7 @@ Six domain workers, each small enough for an AI agent to hold fully in its head:
 | GET /api/tenancy/members | tenancy | the active team's members (+ identity + role) |
 | POST /api/tenancy/members/role | tenancy | change a member's role (guards: not self, ≥1 admin) |
 | POST /api/tenancy/members/remove | tenancy | remove (deactivate) a member |
+| GET /api/tenancy/my-permissions | tenancy | the caller's own rights for the active team (drives the page-visibility guard) |
 | GET /api/tenancy/roles | tenancy | the team's roles (+ member counts) |
 | POST /api/tenancy/roles | tenancy | create a new role (starts with no rights) |
 | GET /api/tenancy/roles/permissions | tenancy | a role's permission matrix (tall sheet) |

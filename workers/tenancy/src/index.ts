@@ -9,6 +9,7 @@
 //   GET  /api/tenancy/members              -> the team's members (+ identity)
 //   POST /api/tenancy/members/role         -> change a member's role
 //   POST /api/tenancy/members/remove       -> remove (deactivate) a member
+//   GET  /api/tenancy/my-permissions       -> the caller's own rights (page guard)
 //   GET  /api/tenancy/roles                -> the team's roles (+ member counts)
 //   POST /api/tenancy/roles                 -> create a new role
 //   GET  /api/tenancy/roles/permissions    -> a role's permission matrix (?roleId)
@@ -54,6 +55,7 @@ import {
 } from "./lib/members"
 import {
   createRole,
+  getMyPermissions,
   getRolePermissions,
   setRolePermissions,
   type PermissionValue,
@@ -84,6 +86,8 @@ export default {
           return await postMemberRole(request, env)
         case "POST /api/tenancy/members/remove":
           return await postMemberRemove(request, env)
+        case "GET /api/tenancy/my-permissions":
+          return await getMyPerms(request, env)
         case "GET /api/tenancy/roles":
           return await getRoles(request, env)
         case "POST /api/tenancy/roles":
@@ -179,6 +183,12 @@ async function getMembers(request: Request, env: Env): Promise<Response> {
   const { cfg, guard } = await teamContext(request, env)
   await requireRight(cfg, guard, "team_members", "read")
   return json({ members: await listMembers(env, cfg, guard) })
+}
+
+async function getMyPerms(request: Request, env: Env): Promise<Response> {
+  // Your OWN rights for the active team — no requireRight (it's about you).
+  const { cfg, guard } = await teamContext(request, env)
+  return json({ permissions: await getMyPermissions(cfg, guard) })
 }
 
 async function getRoles(request: Request, env: Env): Promise<Response> {

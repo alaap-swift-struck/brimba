@@ -77,8 +77,10 @@ export function useActiveTeam(): ActiveTeam {
   }, [])
 
   const refresh = React.useCallback(async () => {
-    const nextCtx = await tenancy.active()
-    if (sessionCache) sessionCache = { ...sessionCache, ctx: nextCtx }
+    // reload both identity (profile edits) and context (member counts, etc.)
+    const [me, nextCtx] = await Promise.all([auth.me(), tenancy.active()])
+    sessionCache = { user: me.user, ctx: nextCtx }
+    setUser(me.user)
     setCtx(nextCtx)
   }, [])
 
