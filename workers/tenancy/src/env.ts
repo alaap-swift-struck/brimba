@@ -16,4 +16,7 @@ export type Env = {
   CF_D1_TOKEN?: string
   /** Protects the migrate-all-team-DBs maintenance endpoint. */
   ADMIN_KEY?: string
+  /** Shared secret sent to auth's /internal/send-email (must match auth's
+   * INTERNAL_KEY). Defense-in-depth alongside workers_dev:false. */
+  INTERNAL_KEY?: string
 }

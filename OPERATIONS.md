@@ -44,6 +44,11 @@ New migrations must be applied to BOTH databases before deploying workers that n
 
 - `cd workers/auth && npx wrangler secret put RESEND_API_KEY --env staging` (and again without `--env` for production)
 - `CF_D1_TOKEN` (Account→D1→Edit) on brimba-tenancy + brimba-tenancy-staging — SET 2026-06-12 (team creation live). `ADMIN_KEY` (maintenance endpoints: migrate-teams, db-sizes, move-module) — SET on both envs 2026-06-12; rotate anytime with `wrangler secret put ADMIN_KEY`.
+- `INTERNAL_KEY` — shared secret guarding auth's `/internal/send-email` (tenancy sends it; auth enforces it when set). Must MATCH on `brimba-auth*` + `brimba-tenancy*`. Defense-in-depth alongside `workers_dev:false`.
+
+### Public surface (LOCKED): only the gateway is public
+
+auth, tenancy and realtime set `"workers_dev": false` (top-level AND env.staging — envs don't inherit), so they have NO public `*.workers.dev` URL and are reachable ONLY via service bindings. The **gateway** (`brimba` / `brimba-staging`) is the single public address. This is what makes `/internal/send-email` safe (no public route can reach it). Never add a public route/`workers_dev` to a non-gateway worker.
 - Until RESEND_API_KEY is set: staging echoes login codes in the API response (DEV_ECHO_CODES=1); production refuses email login.
 
 ### Resend (real login emails) — production wiring

@@ -67,6 +67,18 @@ export type RolePermissions = {
   canEdit: boolean
 }
 
+/** One invite to a team. `status` is the display status — "pending" past its
+ * expiry is reported as "expired"; an admin-cancelled one is "revoked". */
+export type Invite = {
+  id: string
+  email: string
+  roleId: string
+  roleTitle: string
+  status: "pending" | "accepted" | "revoked" | "expired"
+  createdAt: string
+  expiresAt: string
+}
+
 /** One role in a team (from the team's own member_roles table). */
 export type TeamRole = {
   id: string

@@ -10,7 +10,7 @@
 import { fail, json } from "../../../shared/workers/http"
 import type { Env } from "./env"
 import { randomCode, sha256Hex } from "./lib/crypto"
-import { isValidEmail, normalizeEmail, sendLoginCode } from "./lib/email"
+import { isValidEmail, normalizeEmail, sendEmail, sendLoginCode } from "./lib/email"
 import {
   createSession,
   destroySession,
@@ -46,6 +46,11 @@ export default {
           return await logout(request, env)
         case "GET /api/auth/health":
           return json({ ok: true })
+        // Internal: other workers send branded emails THROUGH auth (it owns the
+        // Resend key). NOT under /api/ — the gateway never routes it publicly;
+        // only a service binding (env.AUTH.fetch) can reach it.
+        case "POST /internal/send-email":
+          return await internalSendEmail(request, env)
         default:
           return fail(404, "not_found", "No such auth action.")
       }
@@ -55,6 +60,30 @@ export default {
     }
   },
 } satisfies ExportedHandler<Env>
+
+/** Internal (service-binding only): send a branded email composed by another
+ * worker (e.g. tenancy's invite email). */
+async function internalSendEmail(request: Request, env: Env): Promise<Response> {
+  // Defense-in-depth: even though this worker has no public URL (workers_dev:
+  // false), require the shared secret when one is configured.
+  if (env.INTERNAL_KEY && request.headers.get("x-internal-key") !== env.INTERNAL_KEY)
+    return fail(403, "forbidden", "Bad internal key.")
+  const m = (await request.json().catch(() => ({}))) as {
+    to?: string
+    subject?: string
+    html?: string
+    text?: string
+  }
+  if (!m.to || !m.subject)
+    return fail(400, "invalid_input", "to and subject are required.")
+  const sent = await sendEmail(env, {
+    to: m.to,
+    subject: m.subject,
+    html: m.html ?? "",
+    text: m.text ?? "",
+  })
+  return json({ sent })
+}
 
 /** Step 1 of email login: create + send a 6-digit code. */
 async function emailStart(request: Request, env: Env): Promise<Response> {

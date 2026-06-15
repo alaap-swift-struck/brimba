@@ -7,6 +7,9 @@
   "name": "brimba-auth",
   "main": "src/index.ts",
   "compatibility_date": "2026-06-01",
+  // Only the gateway is public (locked: one public address). No *.workers.dev
+  // URL for this worker — it's reachable ONLY via service bindings.
+  "workers_dev": false,
   "observability": { "enabled": true },
   "d1_databases": [
     {
@@ -25,6 +28,7 @@
   "env": {
     "staging": {
       "name": "brimba-auth-staging",
+      "workers_dev": false,
       "observability": { "enabled": true },
       "d1_databases": [
         {

@@ -64,7 +64,7 @@ export default function SettingsPage() {
           <h2 className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
             Teams
           </h2>
-          <div className="divide-border/60 flex flex-col divide-y">
+          <div className="divide-border/60 flex flex-col divide-y overflow-hidden rounded-xl border">
             {ctx.teams.map((team) => {
               const current = team.id === ctx.team?.id
               return (

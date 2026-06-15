@@ -15,6 +15,9 @@
 //   POST /api/tenancy/roles/update          -> rename / re-describe a role
 //   GET  /api/tenancy/roles/permissions    -> a role's permission matrix (?roleId)
 //   POST /api/tenancy/roles/permissions    -> save a role's permission matrix
+//   GET  /api/tenancy/invites               -> the team's invites (all statuses)
+//   POST /api/tenancy/invites               -> invite someone by email + role
+//   POST /api/tenancy/invites/revoke        -> revoke ("redact") a pending invite
 //   POST /api/tenancy/admin/migrate-teams  -> roll new team-schema migrations
 //                                             to EVERY team DB (x-admin-key)
 //   GET  /api/tenancy/admin/db-sizes       -> size every team DB + open alarms
@@ -62,6 +65,7 @@ import {
   updateRole,
   type PermissionValue,
 } from "./lib/roles"
+import { createInvite, listInvites, revokeInvite } from "./lib/invites"
 import type { D1Rest } from "../../../shared/workers/d1-rest"
 import { TEAM_MIGRATIONS, type Actor } from "./team-schema"
 
@@ -100,6 +104,12 @@ export default {
           return await getRolePerms(request, env)
         case "POST /api/tenancy/roles/permissions":
           return await postRolePerms(request, env)
+        case "GET /api/tenancy/invites":
+          return await getInvites(request, env)
+        case "POST /api/tenancy/invites":
+          return await postCreateInvite(request, env)
+        case "POST /api/tenancy/invites/revoke":
+          return await postRevokeInvite(request, env)
         case "POST /api/tenancy/admin/migrate-teams":
           return await migrateTeams(request, env)
         case "GET /api/tenancy/admin/db-sizes":
@@ -221,6 +231,36 @@ async function postRolePerms(request: Request, env: Env): Promise<Response> {
   await setRolePermissions(cfg, guard, actor, body.roleId, body.value)
   await publishChange(env.REALTIME, guard.teamId, "member_roles", body.roleId)
   return json({ ok: true })
+}
+
+async function getInvites(request: Request, env: Env): Promise<Response> {
+  const { cfg, guard } = await teamContext(request, env)
+  await requireRight(cfg, guard, "team_members", "read")
+  return json({ invites: await listInvites(env, cfg, guard) })
+}
+
+async function postCreateInvite(request: Request, env: Env): Promise<Response> {
+  const { actor, cfg, guard } = await teamContext(request, env)
+  await requireRight(cfg, guard, "team_members", "create")
+  const body = (await request.json().catch(() => ({}))) as {
+    email?: string
+    roleId?: string
+  }
+  if (!body.email || !body.roleId)
+    return fail(400, "invalid_input", "email and roleId are required.")
+  await createInvite(env, cfg, guard, actor, body.email, body.roleId, new URL(request.url).origin)
+  await publishChange(env.REALTIME, guard.teamId, "invites")
+  return json({ invites: await listInvites(env, cfg, guard) })
+}
+
+async function postRevokeInvite(request: Request, env: Env): Promise<Response> {
+  const { cfg, guard } = await teamContext(request, env)
+  await requireRight(cfg, guard, "team_members", "delete")
+  const body = (await request.json().catch(() => ({}))) as { inviteId?: string }
+  if (!body.inviteId) return fail(400, "invalid_input", "inviteId is required.")
+  await revokeInvite(env, guard, body.inviteId)
+  await publishChange(env.REALTIME, guard.teamId, "invites")
+  return json({ invites: await listInvites(env, cfg, guard) })
 }
 
 async function postCreateRole(request: Request, env: Env): Promise<Response> {

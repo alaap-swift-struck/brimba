@@ -13,6 +13,9 @@ export type Env = {
 
   // Secrets (wrangler secret put) — optional until the user provides them.
   RESEND_API_KEY?: string
+  /** Shared secret guarding /internal/send-email (defense-in-depth alongside
+   * workers_dev:false). When set, the route rejects callers lacking the header. */
+  INTERNAL_KEY?: string
 
   /** "1" only in local dev (.dev.vars) — lets the cookie work on http://localhost. */
   INSECURE_COOKIE?: string

@@ -41,7 +41,7 @@ export default function OnboardingPage() {
       .me()
       .then(({ user }) => {
         // Already fully set up? Straight to the app.
-        if (user.onboardingComplete && user.currentTeamId) router.replace("/")
+        if (user.onboardingComplete && user.currentTeamId) router.replace("/home")
         else {
           setFirstName(user.firstName ?? "")
           setLastName(user.lastName ?? "")
@@ -66,7 +66,7 @@ export default function OnboardingPage() {
     try {
       await auth.updateProfile({ firstName, lastName, imageDataUrl: photo })
       await tenancy.bootstrap()
-      router.replace("/")
+      router.replace("/home")
     } catch (err) {
       toast.error(
         err instanceof ApiFailure ? err.message : "Something went wrong. Try again."

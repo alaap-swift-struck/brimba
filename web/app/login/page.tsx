@@ -16,7 +16,7 @@ export default function LoginPage() {
       <div className="fixed right-4 top-4 z-30">
         <ModeToggle />
       </div>
-      <AuthCard onSignedIn={() => router.replace("/")} />
+      <AuthCard onSignedIn={() => router.replace("/home")} />
     </main>
   )
 }

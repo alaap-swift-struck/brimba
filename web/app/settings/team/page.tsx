@@ -21,6 +21,7 @@ import { Pencil } from "lucide-react"
 import { AppShell, ShellLoading } from "@/components/app-shell"
 import { MembersPanel } from "@/components/members-panel"
 import { RolesPanel } from "@/components/roles-panel"
+import { InvitesPanel } from "@/components/invites-panel"
 import { tenancy } from "@/lib/api"
 import { useCached } from "@/lib/store"
 import { useActiveTeam } from "@/lib/use-active-team"
@@ -137,11 +138,7 @@ export default function TeamDetailPage() {
             <div className="animate-rise">
               {tab === "members" && <MembersPanel active={active} />}
               {tab === "roles" && <RolesPanel active={active} />}
-              {tab === "invites" && (
-                <p className="text-muted-foreground py-8 text-center text-sm">
-                  Invites are coming in the next build.
-                </p>
-              )}
+              {tab === "invites" && <InvitesPanel active={active} />}
             </div>
           </>
         )}

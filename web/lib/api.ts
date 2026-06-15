@@ -4,6 +4,7 @@
 import type {
   ActiveContext,
   ApiError,
+  Invite,
   PermissionValue,
   RolePermissions,
   SessionUser,
@@ -147,5 +148,22 @@ export const tenancy = {
     api<{ members: TeamMember[] }>("/api/tenancy/members/remove", {
       method: "POST",
       body: JSON.stringify({ userId }),
+    }),
+
+  /** Every invite for the active team (pending / accepted / revoked / expired). */
+  invites: () => api<{ invites: Invite[] }>("/api/tenancy/invites"),
+
+  /** Invite someone by email to a role; returns the refreshed invite list. */
+  createInvite: (email: string, roleId: string) =>
+    api<{ invites: Invite[] }>("/api/tenancy/invites", {
+      method: "POST",
+      body: JSON.stringify({ email, roleId }),
+    }),
+
+  /** Revoke ("redact") a pending invite; returns the refreshed invite list. */
+  revokeInvite: (inviteId: string) =>
+    api<{ invites: Invite[] }>("/api/tenancy/invites/revoke", {
+      method: "POST",
+      body: JSON.stringify({ inviteId }),
     }),
 }

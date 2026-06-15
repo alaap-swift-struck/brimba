@@ -10,6 +10,9 @@
   "name": "brimba-realtime",
   "main": "src/index.ts",
   "compatibility_date": "2026-06-01",
+  // Only the gateway is public — reachable only via service bindings (the
+  // gateway forwards the /api/realtime WebSocket to it).
+  "workers_dev": false,
   "observability": { "enabled": true },
   "durable_objects": {
     "bindings": [{ "name": "CHANNELS", "class_name": "TeamChannel" }]
@@ -26,6 +29,7 @@
   "env": {
     "staging": {
       "name": "brimba-realtime-staging",
+      "workers_dev": false,
       "observability": { "enabled": true },
       "durable_objects": {
         "bindings": [{ "name": "CHANNELS", "class_name": "TeamChannel" }]

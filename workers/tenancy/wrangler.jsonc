@@ -6,6 +6,8 @@
   "name": "brimba-tenancy",
   "main": "src/index.ts",
   "compatibility_date": "2026-06-01",
+  // Only the gateway is public — this worker is reachable only via bindings.
+  "workers_dev": false,
   "observability": { "enabled": true },
   "d1_databases": [
     {
@@ -25,6 +27,7 @@
   "env": {
     "staging": {
       "name": "brimba-tenancy-staging",
+      "workers_dev": false,
       "observability": { "enabled": true },
       "d1_databases": [
         {

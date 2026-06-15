@@ -133,7 +133,7 @@ export function RolesPanel({ active }: { active: ActiveTeam }) {
         <Skeleton variant="list" lines={3} />
       ) : (
         <>
-          <div className="divide-border/60 flex flex-col divide-y">
+          <div className="divide-border/60 flex flex-col divide-y overflow-hidden rounded-xl border">
             {roles.map((r) => {
               const selected = r.id === selectedId
               return (

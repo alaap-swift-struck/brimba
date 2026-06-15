@@ -103,6 +103,10 @@ on top follows [CACHING.md](CACHING.md).
 | POST /api/tenancy/roles/update | tenancy | rename / re-describe a role (not the locked Admin) |
 | GET /api/tenancy/roles/permissions | tenancy | a role's permission matrix (tall sheet) |
 | POST /api/tenancy/roles/permissions | tenancy | save a role's matrix (server re-applies auto-flip-read; Admin locked) |
+| GET /api/tenancy/invites | tenancy | the team's invites (pending/accepted/revoked/expired) |
+| POST /api/tenancy/invites | tenancy | invite by email to a role (branded email via auth) |
+| POST /api/tenancy/invites/revoke | tenancy | revoke ("redact") a pending invite |
+| POST /internal/send-email | auth | send a branded email composed by another worker (service-binding only) |
 | POST /api/tenancy/admin/migrate-teams | tenancy | roll team-schema migrations to every team DB (x-admin-key) |
 | GET /api/tenancy/admin/db-sizes | tenancy | size check + open 80% alarms (x-admin-key) |
 | POST /api/tenancy/admin/move-module | tenancy | the mover: relocate a module to its own DB (x-admin-key) |
