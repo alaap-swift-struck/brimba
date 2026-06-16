@@ -22,6 +22,7 @@ import { AppShell, ShellLoading } from "@/components/app-shell"
 import { MembersPanel } from "@/components/members-panel"
 import { RolesPanel } from "@/components/roles-panel"
 import { InvitesPanel } from "@/components/invites-panel"
+import { TeamEditDialog } from "@/components/team-edit-dialog"
 import { tenancy } from "@/lib/api"
 import { useCached } from "@/lib/store"
 import { useActiveTeam } from "@/lib/use-active-team"
@@ -41,6 +42,7 @@ export default function TeamDetailPage() {
   const teamId = active.ctx?.team?.id ?? null
 
   const [tab, setTab] = React.useState<TabKey>("members")
+  const [editingTeam, setEditingTeam] = React.useState(false)
   React.useEffect(() => setTab(readTabFromUrl()), [])
 
   function selectTab(k: TabKey) {
@@ -97,11 +99,17 @@ export default function TeamDetailPage() {
               </span>
             </div>
           </div>
-          <Button variant="outline" size="sm" disabled className="shrink-0 gap-1.5">
-            <Pencil className="size-3.5" />
-            Edit team
-            <Badge variant="outline" className="text-[10px]">Soon</Badge>
-          </Button>
+          {perms?.teams?.edit && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setEditingTeam(true)}
+              className="shrink-0 gap-1.5"
+            >
+              <Pencil className="size-3.5" />
+              Edit team
+            </Button>
+          )}
         </div>
 
         {/* Tabs */}
@@ -143,6 +151,13 @@ export default function TeamDetailPage() {
           </>
         )}
       </div>
+
+      <TeamEditDialog
+        open={editingTeam}
+        onOpenChange={setEditingTeam}
+        team={active.ctx.team}
+        onSaved={active.refresh}
+      />
     </AppShell>
   )
 }

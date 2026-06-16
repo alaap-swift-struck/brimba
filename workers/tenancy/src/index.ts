@@ -5,6 +5,7 @@
 //   GET  /api/tenancy/active               -> current team + your role + teams
 //   POST /api/tenancy/switch-team          -> change the active team
 //   POST /api/tenancy/teams                -> create a new team (named)
+//   POST /api/tenancy/teams/update          -> edit the active team's name + logo
 //   GET  /api/tenancy/teams                -> my teams (for switcher + home)
 //   GET  /api/tenancy/members              -> the team's members (+ identity)
 //   POST /api/tenancy/members/role         -> change a member's role
@@ -40,6 +41,7 @@ import {
   getActiveContext,
   listMyTeams,
   switchTeam,
+  updateTeamDetails,
 } from "./lib/teams"
 import {
   checkDatabaseSizes,
@@ -84,6 +86,8 @@ export default {
           return await switchActiveTeam(request, env)
         case "POST /api/tenancy/teams":
           return await createNamedTeam(request, env)
+        case "POST /api/tenancy/teams/update":
+          return await postUpdateTeam(request, env)
         case "GET /api/tenancy/teams":
           return await myTeams(request, env)
         case "GET /api/tenancy/members":
@@ -230,6 +234,19 @@ async function postRolePerms(request: Request, env: Env): Promise<Response> {
     return fail(400, "invalid_input", "roleId and value are required.")
   await setRolePermissions(cfg, guard, actor, body.roleId, body.value)
   await publishChange(env.REALTIME, guard.teamId, "member_roles", body.roleId)
+  return json({ ok: true })
+}
+
+async function postUpdateTeam(request: Request, env: Env): Promise<Response> {
+  const { cfg, guard } = await teamContext(request, env)
+  await requireRight(cfg, guard, "teams", "edit")
+  const body = (await request.json().catch(() => ({}))) as {
+    name?: string
+    logoDataUrl?: string
+  }
+  if (!body.name?.trim()) return fail(400, "invalid_input", "A team needs a name.")
+  await updateTeamDetails(env, guard.teamId, body.name, body.logoDataUrl)
+  await publishChange(env.REALTIME, guard.teamId, "team")
   return json({ ok: true })
 }
 

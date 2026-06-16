@@ -6,6 +6,8 @@ export type Env = {
   AUTH: Fetcher
   /** The realtime worker — pinged after a write so open screens refresh live. */
   REALTIME: Fetcher
+  /** Team logos (uploaded), served by the gateway at /media/teams/<id>. */
+  MEDIA: R2Bucket
 
   /** Cloudflare account id (plain var) — for creating/querying team DBs. */
   CF_ACCOUNT_ID: string

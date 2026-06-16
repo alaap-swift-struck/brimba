@@ -99,6 +99,13 @@ export const tenancy = {
       body: JSON.stringify({ name }),
     }),
 
+  /** Edit the active team's name + optional logo (data URL). Needs teams:edit. */
+  updateTeam: (name: string, logoDataUrl?: string) =>
+    api<{ ok: true }>("/api/tenancy/teams/update", {
+      method: "POST",
+      body: JSON.stringify({ name, logoDataUrl }),
+    }),
+
   /** Everyone on the active team (identity + role + the guard flags). */
   members: () => api<{ members: TeamMember[] }>("/api/tenancy/members"),
 

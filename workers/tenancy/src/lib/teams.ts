@@ -10,7 +10,9 @@ import {
   type D1Rest,
 } from "../../../../shared/workers/d1-rest"
 import { ulid } from "../../../../shared/workers/id"
+import { MAX_IMAGE_BYTES, parseDataUrl } from "../../../../shared/workers/image"
 import type { Env } from "../env"
+import { GuardError } from "./permissions"
 import { buildTeamSeed, TEAM_MIGRATIONS, type Actor } from "../team-schema"
 
 export function d1Config(env: Env): D1Rest {
@@ -106,6 +108,41 @@ export async function createTeam(
       )
     }
     throw e
+  }
+}
+
+/** Edit a team's name + optional logo (the global teams row). A new logo (data
+ * URL) lands in R2 and is served by the gateway at /media/teams/<id>. Caller
+ * checks teams:edit. */
+export async function updateTeamDetails(
+  env: Env,
+  teamId: string,
+  name: string,
+  logoDataUrl?: string
+): Promise<void> {
+  const clean = name.trim()
+  if (!clean) throw new GuardError(400, "invalid_input", "A team needs a name.")
+
+  let logoUrl: string | undefined // undefined = leave the existing logo as-is
+  if (logoDataUrl) {
+    const parsed = parseDataUrl(logoDataUrl)
+    if (!parsed) throw new GuardError(400, "bad_image", "That image format isn't supported.")
+    if (parsed.bytes.byteLength > MAX_IMAGE_BYTES)
+      throw new GuardError(400, "image_too_large", "That image is too large.")
+    const key = `teams/${teamId}`
+    await env.MEDIA.put(key, parsed.bytes, { httpMetadata: { contentType: parsed.contentType } })
+    logoUrl = `/media/${key}?v=${Date.now()}`
+  }
+
+  const now = new Date().toISOString()
+  if (logoUrl !== undefined) {
+    await env.DB.prepare("UPDATE teams SET name = ?, logo_url = ?, updated_at = ? WHERE id = ?")
+      .bind(clean, logoUrl, now, teamId)
+      .run()
+  } else {
+    await env.DB.prepare("UPDATE teams SET name = ?, updated_at = ? WHERE id = ?")
+      .bind(clean, now, teamId)
+      .run()
   }
 }
 

@@ -2,11 +2,11 @@
 // Photos arrive as a data URL (the web app downsizes them first), land in R2,
 // and are served by the gateway at /media/users/<id>.
 
+import { MAX_IMAGE_BYTES, parseDataUrl } from "../../../../shared/workers/image"
 import type { Env } from "../env"
 import { toSessionUser, type UserRow } from "./users"
 
 const MAX_NAME_LENGTH = 60
-const MAX_IMAGE_BYTES = 2_500_000 // ~2.5MB after the client-side downsize
 
 export type ProfileInput = {
   firstName?: string
@@ -57,20 +57,4 @@ export async function updateProfile(
     .bind(user.id)
     .first<UserRow>()
   return { user: toSessionUser(updated as UserRow) }
-}
-
-/** data:image/png;base64,AAAA... -> bytes + content type. */
-export function parseDataUrl(
-  dataUrl: string
-): { contentType: string; bytes: Uint8Array } | null {
-  const match = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl)
-  if (!match) return null
-  try {
-    const binary = atob(match[2])
-    const bytes = new Uint8Array(binary.length)
-    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
-    return { contentType: match[1], bytes }
-  } catch {
-    return null
-  }
 }

@@ -209,6 +209,8 @@ export function AppShell({
       if (event.id) invalidate(`role-perms:${event.id}`)
     } else if (event.resource === "invites") {
       invalidate(`invites:${teamId}`)
+    } else if (event.resource === "team") {
+      void active.refresh() // team name/logo changed
     }
   })
 

@@ -94,6 +94,7 @@ on top follows [CACHING.md](CACHING.md).
 | POST /api/auth/logout | auth | end session |
 | POST /api/tenancy/bootstrap | tenancy | accept invites OR create the personal team (+ its database) |
 | GET /api/tenancy/teams | tenancy | my teams (switcher/home) |
+| POST /api/tenancy/teams/update | tenancy | edit the active team's name + logo (teams:edit) |
 | GET /api/tenancy/members | tenancy | the active team's members (+ identity + role) |
 | POST /api/tenancy/members/role | tenancy | change a member's role (guards: not self, ≥1 admin) |
 | POST /api/tenancy/members/remove | tenancy | remove (deactivate) a member |
