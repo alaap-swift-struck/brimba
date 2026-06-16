@@ -81,13 +81,31 @@ Then the Foundation phase (below) resumes.
   `GET /api/tenancy/my-permissions`, the Member-roles rename, and Settings →
   Teams → [team] with tabs (Members + Member-roles panels moved in; Invites tab
   placeholder). Old `/members` `/roles` now redirect into the tabs.
-- **1 · Branded email** — the brand-driven template; switch the login-code email to it.
-- **2 · Profile + email-change** — Settings → Account (name/photo) + avatar-menu
-  link; the email-change flow + `email_change_logs` (uses the branded template).
-- **3 · Invites** — endpoints + the Invites tab (send / existing / redacted);
-  branded invite email; this unlocks a live 2nd member (proves the deny path).
-- **4 · Team header + edit** — the team header (name/members/image) + an
-  access-gated Edit-team dialog; breadcrumbs.
+- **1 · Branded email** — SHIPPED (2026-06-15): one `brand.ts`-driven template
+  (`shared/workers/email-template.ts`); login code + invite emails use it; sent
+  through auth (it owns the Resend key) via the service-binding-only
+  `/internal/send-email` route.
+- **2 · Profile + email-change** — PARTIAL: Settings → Account profile editing
+  (name/photo, `ProfileDialog`) + avatar-menu link SHIPPED. **STILL TODO: the
+  email-change flow** — `POST /api/auth/email/change/start` (6-digit code to the
+  NEW email) + `/verify` (switch `users.email`, write an `email_change_logs` row;
+  add that table to `db/core`). Reuse `brandedEmail` for the code email.
+- **3 · Invites** — SHIPPED (2026-06-15): create/list/revoke
+  (`workers/tenancy/src/lib/invites.ts`, global `invite_index`), the Invites tab,
+  branded invite email, auto-join via the existing bootstrap path.
+- **4 · Team header + edit** — SHIPPED (2026-06-15): team header + access-gated
+  `TeamEditDialog` (name + logo → R2 `/media/teams/<id>`), `teams:edit` guarded.
+
+## Remaining (for the next session)
+
+1. **Email-change flow** (Phase 2b above) — the only unfinished original-plan item.
+2. **Record detail screens** (raised later) — every record's detail view with an
+   **Activities** tab (the per-team `activity` log is already being written) + a
+   **Metadata/Overview** tab (created/edited/deactivated audit block). Likely uses
+   the library `detail-view` collection.
+3. **Nice-to-haves:** extract a reusable `<PageGuard>` (the guard is currently
+   inline in the team-detail tabs); graduate the `auth-card`/`code-input` temps
+   into the library (UI-GAPS.md).
 
 ## Pace (why sequential, not parallel)
 
