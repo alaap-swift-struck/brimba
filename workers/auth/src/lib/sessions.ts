@@ -98,6 +98,23 @@ export async function getSessionUser(
   return row
 }
 
+/** Sign out every OTHER device for this user, keeping the current session
+ * (identified by its token hash). Used after a sensitive change (e.g. email
+ * change) so a lost/hijacked device can't keep a foothold. Returns the count. */
+export async function signOutOtherSessions(
+  env: Env,
+  userId: string,
+  keepTokenHash: string
+): Promise<number> {
+  if (!keepTokenHash) return 0 // never wipe everything by accident
+  const res = await env.DB.prepare(
+    "DELETE FROM sessions WHERE user_id = ? AND token_hash != ?"
+  )
+    .bind(userId, keepTokenHash)
+    .run()
+  return res.meta.changes ?? 0
+}
+
 /** Log out: forget the session row and blank the cookie. */
 export async function destroySession(
   env: Env,

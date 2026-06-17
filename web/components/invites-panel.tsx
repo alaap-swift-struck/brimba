@@ -24,6 +24,7 @@ import { Mail } from "lucide-react"
 
 import type { Invite, TeamRole } from "@shared/types"
 import { ApiFailure, tenancy } from "@/lib/api"
+import { usePermissions } from "@/lib/perms"
 import { primeCache, useCached } from "@/lib/store"
 import type { ActiveTeam } from "@/lib/use-active-team"
 
@@ -45,6 +46,10 @@ export function InvitesPanel({ active }: { active: ActiveTeam }) {
   )
   const invites = invitesQ.data
   const roles = rolesQ.data ?? []
+
+  const { can } = usePermissions(teamId)
+  const canInvite = can("team_members", "create")
+  const canRevoke = can("team_members", "delete")
 
   const [email, setEmail] = React.useState("")
   const [roleId, setRoleId] = React.useState<string>("")
@@ -90,33 +95,35 @@ export function InvitesPanel({ active }: { active: ActiveTeam }) {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Invite-by-email form */}
-      <form onSubmit={send} className="flex flex-wrap items-center gap-2">
-        <Input
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="name@company.com"
-          disabled={sending}
-          className="min-w-0 flex-1"
-        />
-        <Select value={roleId} onValueChange={setRoleId} disabled={sending}>
-          <SelectTrigger className="w-40 shrink-0">
-            <SelectValue placeholder="Role" />
-          </SelectTrigger>
-          <SelectContent>
-            {roles.map((r) => (
-              <SelectItem key={r.id} value={r.id}>
-                {r.title}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Button type="submit" disabled={sending || !email.trim() || !roleId} className="shrink-0 gap-1.5">
-          {sending ? <Spinner /> : <Mail className="size-4" />}
-          {sending ? "Sending…" : "Send invite"}
-        </Button>
-      </form>
+      {/* Invite-by-email form — only for those who may invite */}
+      {canInvite && (
+        <form onSubmit={send} className="flex flex-wrap items-center gap-2">
+          <Input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="name@company.com"
+            disabled={sending}
+            className="min-w-0 flex-1"
+          />
+          <Select value={roleId} onValueChange={setRoleId} disabled={sending}>
+            <SelectTrigger className="w-40 shrink-0">
+              <SelectValue placeholder="Role" />
+            </SelectTrigger>
+            <SelectContent>
+              {roles.map((r) => (
+                <SelectItem key={r.id} value={r.id}>
+                  {r.title}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button type="submit" disabled={sending || !email.trim() || !roleId} className="shrink-0 gap-1.5">
+            {sending ? <Spinner /> : <Mail className="size-4" />}
+            {sending ? "Sending…" : "Send invite"}
+          </Button>
+        </form>
+      )}
 
       {/* Invite list — bordered, transparent fill */}
       {invitesQ.error ? (
@@ -125,7 +132,7 @@ export function InvitesPanel({ active }: { active: ActiveTeam }) {
         <Skeleton variant="list" lines={3} />
       ) : invites.length === 0 ? (
         <p className="text-muted-foreground border-border/60 rounded-xl border py-8 text-center text-sm">
-          No invites yet — invite someone above.
+          {canInvite ? "No invites yet — invite someone above." : "No invites yet."}
         </p>
       ) : (
         <div className="divide-border/60 overflow-hidden rounded-xl border divide-y">
@@ -145,7 +152,7 @@ export function InvitesPanel({ active }: { active: ActiveTeam }) {
               >
                 {STATUS[inv.status]}
               </Badge>
-              {inv.status === "pending" && (
+              {inv.status === "pending" && canRevoke && (
                 <Button
                   variant="ghost"
                   size="sm"

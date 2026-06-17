@@ -19,6 +19,7 @@ import { Skeleton } from "@swift-struck/ui/registry/primitives/skeleton/skeleton
 import { Pencil } from "lucide-react"
 
 import { AppShell, ShellLoading } from "@/components/app-shell"
+import { ErrorBoundary } from "@/components/error-boundary"
 import { MembersPanel } from "@/components/members-panel"
 import { RolesPanel } from "@/components/roles-panel"
 import { InvitesPanel } from "@/components/invites-panel"
@@ -144,9 +145,21 @@ export default function TeamDetailPage() {
             </div>
 
             <div className="animate-rise">
-              {tab === "members" && <MembersPanel active={active} />}
-              {tab === "roles" && <RolesPanel active={active} />}
-              {tab === "invites" && <InvitesPanel active={active} />}
+              {tab === "members" && (
+                <ErrorBoundary label="Members">
+                  <MembersPanel active={active} />
+                </ErrorBoundary>
+              )}
+              {tab === "roles" && (
+                <ErrorBoundary label="Member roles">
+                  <RolesPanel active={active} />
+                </ErrorBoundary>
+              )}
+              {tab === "invites" && (
+                <ErrorBoundary label="Invites">
+                  <InvitesPanel active={active} />
+                </ErrorBoundary>
+              )}
             </div>
           </>
         )}

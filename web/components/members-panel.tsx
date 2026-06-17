@@ -41,6 +41,7 @@ import { MoreHorizontal, ShieldCheck } from "lucide-react"
 import type { TeamMember } from "@shared/types"
 import { RolePickerDialog } from "@/components/role-picker-dialog"
 import { ApiFailure, tenancy } from "@/lib/api"
+import { usePermissions } from "@/lib/perms"
 import { invalidate, primeCache, useCached } from "@/lib/store"
 import type { ActiveTeam } from "@/lib/use-active-team"
 
@@ -87,6 +88,11 @@ export function MembersPanel({ active }: { active: ActiveTeam }) {
   )
   const members = membersQ.data
   const roles = rolesQ.data ?? []
+
+  // Mirror the server's rights in the UI — never show an action you can't do.
+  const { can } = usePermissions(teamId)
+  const canEditRoles = can("team_members", "edit")
+  const canRemove = can("team_members", "delete")
 
   const [roleTarget, setRoleTarget] = React.useState<TeamMember | null>(null)
   const [removeTarget, setRemoveTarget] = React.useState<TeamMember | null>(null)
@@ -149,28 +155,33 @@ export function MembersPanel({ active }: { active: ActiveTeam }) {
         joined: (
           <span className="text-muted-foreground text-sm">{formatDate(m.joinedAt)}</span>
         ),
-        menu: m.isYou ? null : (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="size-7">
-                <MoreHorizontal />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onSelect={() => setRoleTarget(m)}>
-                Change role
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                className="text-destructive focus:text-destructive"
-                onSelect={() => setRemoveTarget(m)}
-              >
-                Remove from team
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        ),
+        menu:
+          m.isYou || (!canEditRoles && !canRemove) ? null : (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="size-7">
+                  <MoreHorizontal />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" style={{ backgroundColor: "var(--popover)" }}>
+                {canEditRoles && (
+                  <DropdownMenuItem onSelect={() => setRoleTarget(m)}>
+                    Change role
+                  </DropdownMenuItem>
+                )}
+                {canRemove && (
+                  <DropdownMenuItem
+                    className="text-destructive focus:text-destructive"
+                    onSelect={() => setRemoveTarget(m)}
+                  >
+                    Remove from team
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ),
       })),
-    [members]
+    [members, canEditRoles, canRemove]
   )
 
   return (

@@ -85,11 +85,18 @@ Then the Foundation phase (below) resumes.
   (`shared/workers/email-template.ts`); login code + invite emails use it; sent
   through auth (it owns the Resend key) via the service-binding-only
   `/internal/send-email` route.
-- **2 · Profile + email-change** — PARTIAL: Settings → Account profile editing
-  (name/photo, `ProfileDialog`) + avatar-menu link SHIPPED. **STILL TODO: the
-  email-change flow** — `POST /api/auth/email/change/start` (6-digit code to the
-  NEW email) + `/verify` (switch `users.email`, write an `email_change_logs` row;
-  add that table to `db/core`). Reuse `brandedEmail` for the code email.
+- **2 · Profile + email-change** — SHIPPED (2026-06-17): Settings → Account
+  profile editing (name/photo, `ProfileDialog`) + avatar-menu link, AND the
+  **email-change flow** — `POST /api/auth/email/change/start` (6-digit code to
+  the NEW email) + `/verify` (switch `users.email`, write an `email_change_logs`
+  row). New global-core migration `db/core/0005_email_change.sql` adds
+  `email_change_codes` (pending, hashed, separate from `login_codes` so it can't
+  be replayed as a login) + `email_change_logs` (audit). Reuses `brandedEmail`.
+  `web/components/email-change-dialog.tsx` (two-step, reuses the `CodeInput`
+  temp) lives in Settings → Account. **Two security sub-decisions locked this
+  round (do not relitigate):** on a successful change we (a) **sign out the
+  user's other devices** (`signOutOtherSessions`, keeps the current one) and
+  (b) **warn the OLD email** with a masked notice (`sendEmailChangedNotice`).
 - **3 · Invites** — SHIPPED (2026-06-15): create/list/revoke
   (`workers/tenancy/src/lib/invites.ts`, global `invite_index`), the Invites tab,
   branded invite email, auto-join via the existing bootstrap path.
@@ -98,12 +105,11 @@ Then the Foundation phase (below) resumes.
 
 ## Remaining (for the next session)
 
-1. **Email-change flow** (Phase 2b above) — the only unfinished original-plan item.
-2. **Record detail screens** (raised later) — every record's detail view with an
+1. **Record detail screens** (raised later) — every record's detail view with an
    **Activities** tab (the per-team `activity` log is already being written) + a
    **Metadata/Overview** tab (created/edited/deactivated audit block). Likely uses
    the library `detail-view` collection.
-3. **Nice-to-haves:** extract a reusable `<PageGuard>` (the guard is currently
+2. **Nice-to-haves:** extract a reusable `<PageGuard>` (the guard is currently
    inline in the team-detail tabs); graduate the `auth-card`/`code-input` temps
    into the library (UI-GAPS.md).
 

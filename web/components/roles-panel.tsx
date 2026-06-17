@@ -16,11 +16,12 @@ import {
   defaultPermissionMatrixConfig,
   type PermissionMatrixConfig,
 } from "@swift-struck/ui/registry/collections/permission-matrix/permission-matrix"
-import { Lock, Pencil, Plus, ShieldCheck } from "lucide-react"
+import { Lock, Pencil, Plus, Shield, ShieldCheck } from "lucide-react"
 
 import type { PermissionValue, RolePermissions, TeamRole } from "@shared/types"
 import { RoleFormDialog } from "@/components/role-form-dialog"
 import { ApiFailure, tenancy } from "@/lib/api"
+import { usePermissions } from "@/lib/perms"
 import { primeCache, useCached } from "@/lib/store"
 import type { ActiveTeam } from "@/lib/use-active-team"
 
@@ -32,6 +33,8 @@ export function RolesPanel({ active }: { active: ActiveTeam }) {
     () => tenancy.roles().then((r) => r.roles)
   )
   const roles = rolesQ.data
+  const { can } = usePermissions(teamId)
+  const canCreate = can("member_roles", "create")
 
   const [selectedId, setSelectedId] = React.useState<string | null>(null)
   const [saving, setSaving] = React.useState(false)
@@ -121,10 +124,12 @@ export function RolesPanel({ active }: { active: ActiveTeam }) {
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between gap-3">
         <p className="text-muted-foreground text-sm">Roles and what each one can do.</p>
-        <Button onClick={() => setCreating(true)} className="shrink-0 gap-1.5">
-          <Plus className="size-4" />
-          New role
-        </Button>
+        {canCreate && (
+          <Button onClick={() => setCreating(true)} className="shrink-0 gap-1.5">
+            <Plus className="size-4" />
+            New role
+          </Button>
+        )}
       </div>
 
       {rolesQ.error ? (
@@ -141,17 +146,19 @@ export function RolesPanel({ active }: { active: ActiveTeam }) {
                   key={r.id}
                   type="button"
                   onClick={() => setSelectedId(r.id)}
-                  aria-current={selected}
-                  className={`flex w-full items-center gap-3 rounded-lg px-2 py-3 text-left transition-colors ${
-                    selected ? "bg-muted" : "hover:bg-muted/40"
+                  aria-current={selected ? "true" : undefined}
+                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left transition-colors ${
+                    selected ? "bg-primary/10 ring-primary/20 ring-1" : "hover:bg-muted/50"
                   }`}
                 >
-                  <span className="bg-secondary text-secondary-foreground flex size-9 shrink-0 items-center justify-center rounded-lg">
-                    {r.isDefault ? (
-                      <ShieldCheck className="size-4" />
-                    ) : (
-                      <Lock className="size-4 opacity-0" aria-hidden />
-                    )}
+                  <span
+                    className={`flex size-9 shrink-0 items-center justify-center rounded-lg transition-colors ${
+                      selected
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-secondary text-secondary-foreground"
+                    }`}
+                  >
+                    {r.isDefault ? <ShieldCheck className="size-4" /> : <Shield className="size-4" />}
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 font-medium">

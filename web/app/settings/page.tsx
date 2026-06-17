@@ -13,9 +13,10 @@ import {
 import { Badge } from "@swift-struck/ui/registry/primitives/badge/badge"
 import { Button } from "@swift-struck/ui/registry/primitives/button/button"
 import { useRouter } from "next/navigation"
-import { ChevronRight } from "lucide-react"
+import { ChevronRight, Mail } from "lucide-react"
 
 import { AppShell, ShellLoading } from "@/components/app-shell"
+import { EmailChangeDialog } from "@/components/email-change-dialog"
 import { ProfileDialog } from "@/components/profile-dialog"
 import { useActiveTeam } from "@/lib/use-active-team"
 
@@ -23,6 +24,7 @@ export default function SettingsPage() {
   const active = useActiveTeam()
   const router = useRouter()
   const [editing, setEditing] = React.useState(false)
+  const [changingEmail, setChangingEmail] = React.useState(false)
   const { loading, ctx, user } = active
 
   async function openTeam(teamId: string) {
@@ -42,20 +44,33 @@ export default function SettingsPage() {
           <h2 className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
             Account
           </h2>
-          <div className="flex items-center gap-3">
-            <Avatar className="size-12">
-              {user?.imageUrl && <AvatarImage src={user.imageUrl} alt={name} />}
-              <AvatarFallback>
-                {`${user?.firstName?.[0] ?? ""}${user?.lastName?.[0] ?? ""}`.toUpperCase() || "?"}
-              </AvatarFallback>
-            </Avatar>
-            <div className="min-w-0 flex-1">
-              <div className="truncate font-medium">{name}</div>
-              <div className="text-muted-foreground truncate text-sm">{user?.email}</div>
+          <div className="divide-border/60 flex flex-col divide-y overflow-hidden rounded-xl border">
+            <div className="flex items-center gap-3 px-2 py-3">
+              <Avatar className="size-9">
+                {user?.imageUrl && <AvatarImage src={user.imageUrl} alt={name} />}
+                <AvatarFallback>
+                  {`${user?.firstName?.[0] ?? ""}${user?.lastName?.[0] ?? ""}`.toUpperCase() || "?"}
+                </AvatarFallback>
+              </Avatar>
+              <div className="min-w-0 flex-1">
+                <div className="truncate font-medium">{name}</div>
+              </div>
+              <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
+                Edit profile
+              </Button>
             </div>
-            <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
-              Edit profile
-            </Button>
+            <div className="flex items-center gap-3 px-2 py-3">
+              <div className="text-muted-foreground flex size-9 shrink-0 items-center justify-center">
+                <Mail className="size-4" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-muted-foreground text-xs">Email</div>
+                <div className="truncate text-sm">{user?.email}</div>
+              </div>
+              <Button variant="outline" size="sm" onClick={() => setChangingEmail(true)}>
+                Change email
+              </Button>
+            </div>
           </div>
         </section>
 
@@ -102,6 +117,12 @@ export default function SettingsPage() {
         open={editing}
         onOpenChange={setEditing}
         user={user}
+        onSaved={active.refresh}
+      />
+      <EmailChangeDialog
+        open={changingEmail}
+        onOpenChange={setChangingEmail}
+        currentEmail={user?.email ?? ""}
         onSaved={active.refresh}
       />
     </AppShell>

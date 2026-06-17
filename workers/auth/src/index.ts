@@ -1,20 +1,25 @@
 // Brimba AUTH worker — every login-related action lives here, each as its own
 // small handler (these become MCP-catalogued actions via the gateway later).
 //
-//   POST /api/auth/email/start    { email }        -> sends a 6-digit code
-//   POST /api/auth/email/verify   { email, code }  -> logs in (sets cookie)
-//   GET  /api/auth/me                              -> who am I?
-//   POST /api/auth/logout                          -> forget me
-//   GET  /api/auth/health                          -> is this worker alive?
+//   POST /api/auth/email/start          { email }        -> sends a 6-digit code
+//   POST /api/auth/email/verify         { email, code }  -> logs in (sets cookie)
+//   POST /api/auth/email/change/start   { email }        -> code to the NEW email
+//   POST /api/auth/email/change/verify  { email, code }  -> switch email + log it
+//   GET  /api/auth/me                                    -> who am I?
+//   POST /api/auth/logout                                -> forget me
+//   GET  /api/auth/health                                -> is this worker alive?
 
 import { fail, json } from "../../../shared/workers/http"
 import type { Env } from "./env"
 import { randomCode, sha256Hex } from "./lib/crypto"
 import { isValidEmail, normalizeEmail, sendEmail, sendLoginCode } from "./lib/email"
+import { startEmailChange, verifyEmailChange } from "./lib/email-change"
 import {
   createSession,
   destroySession,
   getSessionUser,
+  readCookie,
+  SESSION_COOKIE,
 } from "./lib/sessions"
 import { ulid } from "../../../shared/workers/id"
 import { updateProfile, type ProfileInput } from "./lib/profile"
@@ -38,6 +43,10 @@ export default {
           return await emailStart(request, env)
         case "POST /api/auth/email/verify":
           return await emailVerify(request, env)
+        case "POST /api/auth/email/change/start":
+          return await emailChangeStart(request, env)
+        case "POST /api/auth/email/change/verify":
+          return await emailChangeVerify(request, env)
         case "GET /api/auth/me":
           return await me(request, env)
         case "POST /api/auth/profile":
@@ -174,6 +183,40 @@ async function emailVerify(request: Request, env: Env): Promise<Response> {
 
   const { setCookie } = await createSession(env, user.id)
   return json({ user: toSessionUser(user), isNew }, 200, { "Set-Cookie": setCookie })
+}
+
+/** Email change, step 1: send a 6-digit code to the NEW email (signed-in only). */
+async function emailChangeStart(request: Request, env: Env): Promise<Response> {
+  const user = await getSessionUser(env, request)
+  if (!user) return fail(401, "signed_out", "Not signed in.")
+
+  const body = (await request.json().catch(() => ({}))) as { email?: string }
+  const r = await startEmailChange(env, user, body.email ?? "")
+  if ("error" in r) return fail(r.status, r.error, r.message)
+  return json({ ok: true, ...(r.devCode ? { devCode: r.devCode } : {}) })
+}
+
+/** Email change, step 2: verify the code, switch the email, log + secure it. */
+async function emailChangeVerify(request: Request, env: Env): Promise<Response> {
+  const user = await getSessionUser(env, request)
+  if (!user) return fail(401, "signed_out", "Not signed in.")
+
+  const body = (await request.json().catch(() => ({}))) as {
+    email?: string
+    code?: string
+  }
+  // Keep THIS device signed in when we drop the others.
+  const token = readCookie(request, SESSION_COOKIE)
+  const currentTokenHash = token ? await sha256Hex(token) : ""
+  const r = await verifyEmailChange(
+    env,
+    user,
+    body.email ?? "",
+    (body.code ?? "").trim(),
+    currentTokenHash
+  )
+  if ("error" in r) return fail(r.status, r.error, r.message)
+  return json({ user: r.user })
 }
 
 /** Who is the cookie attached to this request? */

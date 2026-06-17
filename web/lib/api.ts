@@ -66,6 +66,22 @@ export const auth = {
       body: JSON.stringify(input),
     }),
 
+  /** Change email, step 1: send a 6-digit code to the NEW address. devCode
+   * comes back only on staging/dev (same as login). */
+  startEmailChange: (email: string) =>
+    api<{ ok: true; devCode?: string }>("/api/auth/email/change/start", {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    }),
+
+  /** Change email, step 2: verify the code → switched email (other devices are
+   * signed out server-side; the old address is warned). */
+  verifyEmailChange: (email: string, code: string) =>
+    api<{ user: SessionUser }>("/api/auth/email/change/verify", {
+      method: "POST",
+      body: JSON.stringify({ email, code }),
+    }),
+
   logout: () => api<{ ok: true }>("/api/auth/logout", { method: "POST" }),
 }
 

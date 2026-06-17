@@ -70,7 +70,7 @@ both owner-only:
 
 ## Verify before shipping
 
-- npm run check   (type-checks web + all 5 workers, runs all 42 unit/integration tests)
+- npm run check   (type-checks web + all 5 workers, runs all 49 unit/integration tests)
 - CI runs the same on every push (.github/workflows/ci.yml)
 - deploy:staging ends with scripts/smoke-staging.mjs — the LIVE login→team journey must pass or the deploy is considered failed
 

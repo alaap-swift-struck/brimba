@@ -2,7 +2,12 @@
 import { describe, expect, it } from "vitest"
 
 import { randomCode, randomToken, sha256Hex } from "../src/lib/crypto"
-import { isValidEmail, normalizeEmail } from "../src/lib/email"
+import {
+  isValidEmail,
+  maskEmail,
+  normalizeEmail,
+  validateNewEmail,
+} from "../src/lib/email"
 import { ulid } from "../../../shared/workers/id"
 
 describe("randomCode", () => {
@@ -47,5 +52,29 @@ describe("email rules (same as the old Glide transformer)", () => {
     expect(isValidEmail("nope")).toBe(false)
     expect(isValidEmail("a@b")).toBe(false)
     expect(isValidEmail("a @b.co")).toBe(false)
+  })
+})
+
+describe("validateNewEmail (email-change shape check)", () => {
+  it("rejects a junk address", () => {
+    expect(validateNewEmail("me@a.com", "nope")?.error).toBe("invalid_email")
+  })
+  it("rejects the same address (case/space-insensitive)", () => {
+    expect(validateNewEmail("me@a.com", "  ME@A.com ")?.error).toBe("same_email")
+  })
+  it("accepts a valid, different address", () => {
+    expect(validateNewEmail("me@a.com", "new@b.io")).toBeNull()
+  })
+})
+
+describe("maskEmail (security notice)", () => {
+  it("hides the local part, keeps the domain", () => {
+    expect(maskEmail("alaap@swiftstruck.com")).toBe("a****@swiftstruck.com")
+  })
+  it("never reveals a one-letter local part", () => {
+    expect(maskEmail("a@b.co")).toBe("a*@b.co")
+  })
+  it("returns junk unchanged (no @)", () => {
+    expect(maskEmail("notanemail")).toBe("notanemail")
   })
 })

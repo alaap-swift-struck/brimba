@@ -101,7 +101,11 @@ function TeamSwitcher({
           </Button>
         )}
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-60">
+      <DropdownMenuContent
+        align="start"
+        className="w-60"
+        style={{ backgroundColor: "var(--popover)" }}
+      >
         <DropdownMenuLabel>Your teams</DropdownMenuLabel>
         {ctx?.teams.map((team) => (
           <DropdownMenuItem key={team.id} onSelect={() => void handleSwitch(team.id)} className="gap-2">
@@ -139,7 +143,11 @@ function ProfileMenu({ active }: { active: ActiveTeam }) {
           </Avatar>
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56">
+      <DropdownMenuContent
+        align="end"
+        className="w-56"
+        style={{ backgroundColor: "var(--popover)" }}
+      >
         <DropdownMenuLabel className="flex flex-col">
           <span className="truncate">
             {[user?.firstName, user?.lastName].filter(Boolean).join(" ")}

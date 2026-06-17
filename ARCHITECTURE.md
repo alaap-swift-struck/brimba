@@ -89,6 +89,8 @@ on top follows [CACHING.md](CACHING.md).
 |---|---|---|
 | POST /api/auth/email/start | auth | send a 6-digit login code |
 | POST /api/auth/email/verify | auth | check code, start session |
+| POST /api/auth/email/change/start | auth | send a 6-digit code to the NEW email (signed-in) |
+| POST /api/auth/email/change/verify | auth | check code → switch `users.email`, log it, sign out other devices, warn the old email |
 | GET /api/auth/me | auth | who am I? |
 | POST /api/auth/profile | auth | onboarding names + photo (R2) |
 | POST /api/auth/logout | auth | end session |
