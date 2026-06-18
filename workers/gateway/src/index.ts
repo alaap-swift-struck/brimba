@@ -56,9 +56,11 @@ export default {
     // (the browser keeps the real URL; web/app/t/[[...path]] parses it client-side
     // and re-checks permissions — see SCREEN-ENGINE-PLAN §10). Without this, an
     // unknown /t/* path would hit the 404 page.
-    if (pathname === "/t" || pathname.startsWith("/t/")) {
+    if (pathname.startsWith("/t/")) {
+      // Fetch the CLEAN path (/t), not /t.html — Static Assets canonicalizes
+      // .html → clean URL with a 307, which would otherwise leak to the client.
       const shell = new URL(request.url)
-      shell.pathname = "/t.html"
+      shell.pathname = "/t"
       return env.ASSETS.fetch(new Request(shell, request))
     }
 
