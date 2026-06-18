@@ -1,7 +1,7 @@
 // Team lifecycle: the factory that gives every new team its OWN database
 // (locked architecture), seeded with default roles + dropdown values.
 
-import type { ActiveContext, TeamMeta, TeamSummary } from "../../../../shared/types"
+import type { ActiveContext, ReceivedInvite, TeamMeta, TeamSummary } from "../../../../shared/types"
 import { logActivity } from "../../../../shared/workers/activity"
 import {
   d1CreateDatabase,
@@ -176,9 +176,14 @@ export async function acceptPendingInvites(
 
   const invites = pending.results ?? []
   for (const invite of invites) {
+    // UPSERT (not INSERT OR IGNORE): a previously-removed member's row is only
+    // soft-deactivated (ARCHITECTURE §4), so reactivate + apply the invited role
+    // — otherwise re-joining via a fresh signup would silently no-op.
     await env.DB.prepare(
-      `INSERT OR IGNORE INTO team_members (id, team_id, user_id, role_id, created_at, creator_id, creator_email, creator_name)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO team_members (id, team_id, user_id, role_id, created_at, creator_id, creator_email, creator_name)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(team_id, user_id) DO UPDATE SET
+         deactivated_at = NULL, role_id = excluded.role_id, updated_at = excluded.created_at`
     )
       .bind(ulid(), invite.team_id, actor.id, invite.role_id, now, actor.id, actor.email, actor.name)
       .run()
@@ -203,6 +208,109 @@ export async function acceptPendingInvites(
     }
   }
   return invites.length
+}
+
+/**
+ * Invitations this email has RECEIVED and not yet acted on — powers the
+ * Invitations inbox so a missed/failed email is still recoverable in-app. Only
+ * pending, unexpired invites to a still-live team; newest first. One global
+ * query (no team database opened) so it's cheap for any signed-in user.
+ */
+export async function listReceivedInvites(
+  env: Env,
+  email: string
+): Promise<ReceivedInvite[]> {
+  const now = new Date().toISOString()
+  const rows = await env.DB.prepare(
+    `SELECT i.id, i.team_id, i.role_id, i.created_at, i.expires_at,
+            t.name AS team_name, t.logo_url AS team_logo
+     FROM invite_index i
+     JOIN teams t ON t.id = i.team_id AND t.deactivated_at IS NULL AND t.db_status = 'ready'
+     WHERE i.email = ? AND i.status = 'pending' AND i.expires_at > ?
+     ORDER BY i.created_at DESC`
+  )
+    .bind(email, now)
+    .all<{
+      id: string
+      team_id: string
+      role_id: string
+      created_at: string
+      expires_at: string
+      team_name: string
+      team_logo: string | null
+    }>()
+
+  return (rows.results ?? []).map((r) => ({
+    id: r.id,
+    teamId: r.team_id,
+    teamName: r.team_name,
+    teamLogoUrl: r.team_logo,
+    roleId: r.role_id,
+    createdAt: r.created_at,
+    expiresAt: r.expires_at,
+  }))
+}
+
+/**
+ * Accept ONE invite the caller received — the path for an ALREADY-onboarded user
+ * (the onboarding sweep above only runs for teamless users). Validates the
+ * invite is theirs (email match), still pending, unexpired, and the team is
+ * live; joins them (idempotent INSERT OR IGNORE, backed by the team_members
+ * UNIQUE) and — per the locked "join + switch" choice — makes it their active
+ * team. Returns the joined team's id, or null if the invite isn't valid for this
+ * caller. Race-safe: the status flip is conditional on 'pending' (CONCURRENCY.md
+ * rule 1) and the membership insert is idempotent, so a double-tap can't
+ * double-join.
+ */
+export async function acceptInvite(
+  env: Env,
+  actor: Actor,
+  inviteId: string
+): Promise<string | null> {
+  const now = new Date().toISOString()
+  // Validate the invite is theirs (email), still pending, unexpired, to a live
+  // team — and grab its team + role for the join.
+  const invite = await env.DB.prepare(
+    `SELECT i.id, i.team_id, i.role_id FROM invite_index i
+     JOIN teams t ON t.id = i.team_id AND t.deactivated_at IS NULL AND t.db_status = 'ready'
+     WHERE i.id = ? AND i.email = ? AND i.status = 'pending' AND i.expires_at > ?`
+  )
+    .bind(inviteId, actor.email, now)
+    .first<{ id: string; team_id: string; role_id: string }>()
+  if (!invite) return null
+
+  // CLAIM IT FIRST, atomically: only the request that flips pending→accepted may
+  // proceed. This is the race gate (CONCURRENCY.md rule 1) — a double-tap, or a
+  // revoke landing in the window, makes this UPDATE change 0 rows, so we bail
+  // BEFORE joining. (A revoked invite can therefore never grant membership.)
+  const claim = await env.DB.prepare(
+    "UPDATE invite_index SET status = 'accepted' WHERE id = ? AND status = 'pending'"
+  )
+    .bind(inviteId)
+    .run()
+  if (!claim.meta?.changes) return null
+
+  // Join — UPSERT, not INSERT OR IGNORE: removal soft-deactivates the row
+  // (ARCHITECTURE §4, deactivate-not-delete), so a previously-removed member
+  // still occupies the UNIQUE(team_id,user_id) slot. Reactivate + apply the
+  // invited role so a re-invite truly rejoins them (idempotent on a fresh join).
+  await env.DB.prepare(
+    `INSERT INTO team_members (id, team_id, user_id, role_id, created_at, creator_id, creator_email, creator_name)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(team_id, user_id) DO UPDATE SET
+       deactivated_at = NULL, role_id = excluded.role_id, updated_at = excluded.created_at`
+  )
+    .bind(ulid(), invite.team_id, actor.id, invite.role_id, now, actor.id, actor.email, actor.name)
+    .run()
+
+  // Join + switch (locked): make the newly-joined team the active one.
+  await env.DB.prepare("UPDATE users SET current_team_id = ?, updated_at = ? WHERE id = ?")
+    .bind(invite.team_id, now, actor.id)
+    .run()
+
+  await publishChange(env.REALTIME, invite.team_id, "invites")
+  await publishChange(env.REALTIME, invite.team_id, "members")
+  return invite.team_id
 }
 
 /**

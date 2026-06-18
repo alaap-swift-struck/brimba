@@ -129,7 +129,9 @@ export async function createInvite(
     heading: `You're invited to ${teamName}`,
     intro: `${actor.name || "Someone"} invited you to join ${teamName} on ${brand.name} as ${roles[0].title}. Sign in with this email address to accept.`,
     ctaLabel: `Join ${teamName}`,
-    ctaUrl: appOrigin,
+    // Deep-link to the in-app Invitations inbox: an already-signed-in user lands
+    // right on Accept; a new user is sent to sign in, then onboarding auto-joins.
+    ctaUrl: `${appOrigin}/invitations`,
     footnote: "This invite expires in 7 days. If you weren't expecting it, you can ignore this email.",
   })
   await env.AUTH.fetch("https://auth/internal/send-email", {

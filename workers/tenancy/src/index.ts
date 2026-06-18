@@ -24,6 +24,8 @@
 //   GET  /api/tenancy/invites              -> the team's invites (all statuses)
 //   POST /api/tenancy/invites              -> invite someone by email + role
 //   POST /api/tenancy/invites/revoke       -> revoke ("redact") a pending invite
+//   GET  /api/tenancy/invitations          -> invites I've RECEIVED (any signed-in user)
+//   POST /api/tenancy/invitations/accept   -> accept a received invite (join + switch)
 //   POST /api/tenancy/admin/migrate-teams  -> roll team-schema migrations (x-admin-key)
 //   GET  /api/tenancy/admin/db-sizes       -> size every team DB + open alarms
 //   POST /api/tenancy/admin/move-module    -> relocate a heavy module (the mover)
@@ -55,7 +57,13 @@ import {
   postRolePerms,
   postUpdateRole,
 } from "./routes/roles"
-import { getInvites, postCreateInvite, postRevokeInvite } from "./routes/invites"
+import {
+  getInvites,
+  getReceivedInvitations,
+  postAcceptInvitation,
+  postCreateInvite,
+  postRevokeInvite,
+} from "./routes/invites"
 import { dbSizes, migrateTeams, moveModule } from "./routes/admin"
 
 export default {
@@ -105,6 +113,10 @@ export default {
           return await postCreateInvite(request, env)
         case "POST /api/tenancy/invites/revoke":
           return await postRevokeInvite(request, env)
+        case "GET /api/tenancy/invitations":
+          return await getReceivedInvitations(request, env)
+        case "POST /api/tenancy/invitations/accept":
+          return await postAcceptInvitation(request, env)
         case "POST /api/tenancy/admin/migrate-teams":
           return await migrateTeams(request, env)
         case "GET /api/tenancy/admin/db-sizes":

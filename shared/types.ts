@@ -79,6 +79,19 @@ export type Invite = {
   expiresAt: string
 }
 
+/** An invite the signed-in person has RECEIVED (matched by their email) — for
+ * the Invitations inbox. Read from the global invite_index + teams row, so it
+ * works for ANY signed-in user without opening a team database. */
+export type ReceivedInvite = {
+  id: string
+  teamId: string
+  teamName: string
+  teamLogoUrl: string | null
+  roleId: string
+  createdAt: string
+  expiresAt: string
+}
+
 /** One role in a team (from the team's own member_roles table). */
 export type TeamRole = {
   id: string

@@ -4,11 +4,14 @@
 // sidebar and the mobile top bar. Extracted from the app shell so each stays
 // small. Menu opacity is handled by the library dropdown now (UI-GAPS row 5).
 
+import { useRouter } from "next/navigation"
+
 import {
   Avatar,
   AvatarFallback,
   AvatarImage,
 } from "@swift-struck/ui/registry/primitives/avatar/avatar"
+import { Badge } from "@swift-struck/ui/registry/primitives/badge/badge"
 import { Button } from "@swift-struck/ui/registry/primitives/button/button"
 import {
   DropdownMenu,
@@ -19,8 +22,9 @@ import {
   DropdownMenuTrigger,
 } from "@swift-struck/ui/registry/primitives/dropdown-menu/dropdown-menu"
 import { toast } from "@swift-struck/ui/registry/primitives/sonner/sonner"
-import { Check, ChevronsUpDown, Plus } from "lucide-react"
+import { Check, ChevronsUpDown, Inbox, Plus } from "lucide-react"
 
+import { useReceivedInvites } from "@/components/invitations"
 import type { ActiveTeam } from "@/lib/use-active-team"
 
 function teamInitial(name?: string | null) {
@@ -38,6 +42,8 @@ export function TeamSwitcher({
   collapsed?: boolean
 }) {
   const { ctx } = active
+  const router = useRouter()
+  const pendingInvites = useReceivedInvites().data?.length ?? 0
   async function handleSwitch(teamId: string) {
     if (teamId === ctx?.team?.id) return
     const name = ctx?.teams.find((t) => t.id === teamId)?.name
@@ -72,6 +78,20 @@ export function TeamSwitcher({
         )}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-60">
+        {/* Invitations you've received — reachable from anywhere, so a missed
+         * invite email is never a dead end. */}
+        {pendingInvites > 0 && (
+          <>
+            <DropdownMenuItem onSelect={() => router.push("/invitations")} className="gap-2">
+              <Inbox className="size-4" />
+              <span className="min-w-0 flex-1">Invitations</span>
+              <Badge variant="secondary" className="text-[10px]">
+                {pendingInvites}
+              </Badge>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+          </>
+        )}
         <DropdownMenuLabel>Your teams</DropdownMenuLabel>
         {ctx?.teams.map((team) => (
           <DropdownMenuItem key={team.id} onSelect={() => void handleSwitch(team.id)} className="gap-2">

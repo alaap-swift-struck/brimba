@@ -111,6 +111,8 @@ on top follows [CACHING.md](CACHING.md).
 | GET /api/tenancy/invites | tenancy | the team's invites (pending/accepted/revoked/expired) |
 | POST /api/tenancy/invites | tenancy | invite by email to a role (branded email via auth) |
 | POST /api/tenancy/invites/revoke | tenancy | revoke ("redact") a pending invite |
+| GET /api/tenancy/invitations | tenancy | invites the caller has RECEIVED (by email) — the inbox; works for any signed-in user, not just teamless ones |
+| POST /api/tenancy/invitations/accept | tenancy | accept one received invite → join + switch to that team (validates email-ownership + pending + unexpired; race-safe) |
 | POST /internal/send-email | auth | send a branded email composed by another worker (service-binding only) |
 | POST /api/tenancy/admin/migrate-teams | tenancy | roll team-schema migrations to every team DB (x-admin-key) |
 | GET /api/tenancy/admin/db-sizes | tenancy | size check + open 80% alarms (x-admin-key) |
@@ -163,6 +165,13 @@ on top follows [CACHING.md](CACHING.md).
 - Invites are by email, with a shelf life. At onboarding, **all active invites
   auto-accept** (the user lands in those teams). A personal "Chris' team" is
   auto-created **only if there are no active invites**.
+- **Invitations inbox (BUILT 2026-06-18).** An ALREADY-onboarded user (who has a
+  team) is not covered by the onboarding auto-accept, so they get an in-app
+  **inbox** (`GET /api/tenancy/invitations` by their email; reachable from the
+  team switcher, the top of Settings, and the `/invitations` route the invite
+  email deep-links to). Accepting (`POST .../invitations/accept`) **joins +
+  switches** to that team. This makes an invite recoverable even if the email
+  never arrives — no invite is ever a dead end.
 
 ## 6 · App shell (LOCKED)
 

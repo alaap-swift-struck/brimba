@@ -25,7 +25,9 @@ agent-callable via MCP, all hosted on Cloudflare.
    one swappable logging seam, the error boundary, never-swallow).
 6. **[ROADMAP.md](ROADMAP.md)** — what's built and what's next, with the
    type/endpoint contracts each phase plugs into.
-7. The UI comes ONLY from **[@swift-struck/ui](https://swift-struck-ui.pages.dev/documentation)**
+7. **[SEARCH.md](SEARCH.md)** — the search + in-app-filter ruleset (the layered
+   client-side → server `?q=` → per-team FTS5 model; recipe-declared).
+8. The UI comes ONLY from **[@swift-struck/ui](https://swift-struck-ui.pages.dev/documentation)**
    (installed from GitHub). Missing a component? Add it to the LIBRARY first —
    never build one-off UI here.
 

@@ -100,6 +100,12 @@ Then the Foundation phase (below) resumes.
 - **3 · Invites** — SHIPPED (2026-06-15): create/list/revoke
   (`workers/tenancy/src/lib/invites.ts`, global `invite_index`), the Invites tab,
   branded invite email, auto-join via the existing bootstrap path.
+  - **Received-invites inbox — SHIPPED (2026-06-18).** The bootstrap auto-accept
+    only covers teamless users at onboarding; an already-onboarded user now has
+    `GET /api/tenancy/invitations` + `POST /api/tenancy/invitations/accept`
+    (`acceptInvite` in `teams.ts`, race-safe, join + switch) surfaced in the team
+    switcher, top of Settings, and the `/invitations` route the email deep-links
+    to. `web/components/invitations.tsx`. No schema change (reuses `invite_index`).
 - **4 · Team header + edit** — SHIPPED (2026-06-15): team header + access-gated
   `TeamEditDialog` (name + logo → R2 `/media/teams/<id>`), `teams:edit` guarded.
 

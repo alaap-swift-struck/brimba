@@ -17,6 +17,7 @@ import { ChevronRight, Mail } from "lucide-react"
 
 import { AppShell, ShellLoading } from "@/components/app-shell"
 import { EmailChangeDialog } from "@/components/email-change-dialog"
+import { InvitationsPanel, useReceivedInvites } from "@/components/invitations"
 import { ProfileDialog } from "@/components/profile-dialog"
 import { useActiveTeam } from "@/lib/use-active-team"
 
@@ -26,6 +27,7 @@ export default function SettingsPage() {
   const [editing, setEditing] = React.useState(false)
   const [changingEmail, setChangingEmail] = React.useState(false)
   const { loading, ctx, user } = active
+  const pendingInvites = useReceivedInvites().data ?? []
 
   async function openTeam(teamId: string) {
     if (teamId !== ctx?.team?.id) await active.switchTeam(teamId)
@@ -39,6 +41,17 @@ export default function SettingsPage() {
   return (
     <AppShell active={active} breadcrumbs={[{ label: "Settings" }]}>
       <div className="mx-auto flex w-full max-w-2xl flex-col gap-8">
+        {/* Invitations you've received — only shown when you have some, so a
+         * missed invite email is always recoverable here. */}
+        {pendingInvites.length > 0 && (
+          <section className="animate-rise flex flex-col gap-3">
+            <h2 className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
+              Invitations
+            </h2>
+            <InvitationsPanel active={active} />
+          </section>
+        )}
+
         {/* Account */}
         <section className="animate-rise flex flex-col gap-3">
           <h2 className="text-muted-foreground text-xs font-medium uppercase tracking-wide">

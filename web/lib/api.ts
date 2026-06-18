@@ -7,6 +7,7 @@ import type {
   ApiError,
   Invite,
   PermissionValue,
+  ReceivedInvite,
   RolePermissions,
   SessionUser,
   TeamMeta,
@@ -191,6 +192,18 @@ export const tenancy = {
       method: "POST",
       body: JSON.stringify({ inviteId }),
     }),
+
+  /** Invitations I've RECEIVED (by my email) — the inbox. Works for any
+   * signed-in user, not just teamless ones. */
+  receivedInvitations: () =>
+    api<{ invitations: ReceivedInvite[] }>("/api/tenancy/invitations"),
+
+  /** Accept one received invite → join + switch to that team. */
+  acceptInvitation: (inviteId: string) =>
+    api<{ invitations: ReceivedInvite[]; joinedTeamId: string }>(
+      "/api/tenancy/invitations/accept",
+      { method: "POST", body: JSON.stringify({ inviteId }) }
+    ),
 
   /** The team's activity feed, or one record's (scope = team | user | role). */
   activity: (scope: "team" | "user" | "role" = "team", id?: string) =>

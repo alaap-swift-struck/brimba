@@ -4,8 +4,9 @@
 import { fail, json } from "../../../../shared/workers/http"
 import { publishChange } from "../../../../shared/workers/realtime"
 import { createInvite, listInvites, revokeInvite } from "../lib/invites"
+import { acceptInvite, listReceivedInvites } from "../lib/teams"
 import { requireRight } from "../lib/permissions"
-import { teamContext } from "../context"
+import { teamContext, toActor, whoAmI } from "../context"
 import type { Env } from "../env"
 
 export async function getInvites(request: Request, env: Env): Promise<Response> {
@@ -36,4 +37,34 @@ export async function postRevokeInvite(request: Request, env: Env): Promise<Resp
   await revokeInvite(env, cfg, guard, actor, body.inviteId)
   await publishChange(env.REALTIME, guard.teamId, "invites")
   return json({ invites: await listInvites(env, cfg, guard) })
+}
+
+/**
+ * Invitations the signed-in user has RECEIVED (matched by their email). NOT
+ * team-scoped — works for any signed-in user, including one who already has a
+ * team (the onboarding auto-accept only covers teamless users). This is what
+ * makes a missed/failed invite email recoverable in-app.
+ */
+export async function getReceivedInvitations(request: Request, env: Env): Promise<Response> {
+  const user = await whoAmI(request, env)
+  if (!user) return fail(401, "signed_out", "Not signed in.")
+  return json({ invitations: await listReceivedInvites(env, user.email) })
+}
+
+/** Accept one received invite → join + switch to that team. Validates ownership
+ * (email match) + pending + unexpired inside acceptInvite. */
+export async function postAcceptInvitation(request: Request, env: Env): Promise<Response> {
+  const user = await whoAmI(request, env)
+  if (!user) return fail(401, "signed_out", "Not signed in.")
+  if (!user.onboardingComplete)
+    return fail(409, "onboarding_incomplete", "Finish onboarding first.")
+  const body = (await request.json().catch(() => ({}))) as { inviteId?: string }
+  if (!body.inviteId) return fail(400, "invalid_input", "inviteId is required.")
+  const joinedTeamId = await acceptInvite(env, toActor(user), body.inviteId)
+  if (!joinedTeamId)
+    return fail(404, "invite_unavailable", "That invitation is no longer available.")
+  return json({
+    invitations: await listReceivedInvites(env, user.email),
+    joinedTeamId,
+  })
 }
