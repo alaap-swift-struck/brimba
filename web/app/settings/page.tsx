@@ -12,6 +12,11 @@ import {
 } from "@swift-struck/ui/registry/primitives/avatar/avatar"
 import { Badge } from "@swift-struck/ui/registry/primitives/badge/badge"
 import { Button } from "@swift-struck/ui/registry/primitives/button/button"
+import { Skeleton } from "@swift-struck/ui/registry/primitives/skeleton/skeleton"
+import {
+  ActivityFeed,
+  defaultActivityFeedConfig,
+} from "@swift-struck/ui/registry/collections/activity-feed/activity-feed"
 import { useRouter } from "next/navigation"
 import { ChevronRight, Mail } from "lucide-react"
 
@@ -19,6 +24,9 @@ import { AppShell, ShellLoading } from "@/components/app-shell"
 import { EmailChangeDialog } from "@/components/email-change-dialog"
 import { InvitationsPanel, useReceivedInvites } from "@/components/invitations"
 import { ProfileDialog } from "@/components/profile-dialog"
+import { auth } from "@/lib/api"
+import { formatDateTime } from "@/lib/format"
+import { useCached } from "@/lib/store"
 import { useActiveTeam } from "@/lib/use-active-team"
 
 export default function SettingsPage() {
@@ -28,6 +36,9 @@ export default function SettingsPage() {
   const [changingEmail, setChangingEmail] = React.useState(false)
   const { loading, ctx, user } = active
   const pendingInvites = useReceivedInvites().data ?? []
+  const accountActivityQ = useCached("account-activity", () =>
+    auth.activity().then((r) => r.activity)
+  )
 
   async function openTeam(teamId: string) {
     if (teamId !== ctx?.team?.id) await active.switchTeam(teamId)
@@ -85,6 +96,32 @@ export default function SettingsPage() {
               </Button>
             </div>
           </div>
+        </section>
+
+        {/* Account activity — your own identity history (name / photo / email
+         * changes), not tied to any team. From the library ActivityFeed. */}
+        <section className="animate-rise flex flex-col gap-3">
+          <h2 className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
+            Account activity
+          </h2>
+          {accountActivityQ.error ? (
+            <p className="text-destructive text-sm">Couldn&apos;t load your activity.</p>
+          ) : accountActivityQ.data === undefined ? (
+            <Skeleton variant="list" lines={3} />
+          ) : (
+            <ActivityFeed
+              config={{
+                ...defaultActivityFeedConfig,
+                newestFirst: false, // server already returns newest-first
+                emptyText: "No account activity yet.",
+              }}
+              items={accountActivityQ.data.map((a) => ({
+                id: a.id,
+                description: a.description,
+                timestamp: formatDateTime(a.createdAt),
+              }))}
+            />
+          )}
         </section>
 
         {/* Teams */}

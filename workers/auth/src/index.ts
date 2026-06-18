@@ -6,6 +6,7 @@
 //   POST /api/auth/email/change/start   { email }        -> code to the NEW email
 //   POST /api/auth/email/change/verify  { email, code }  -> switch email + log it
 //   GET  /api/auth/me                                    -> who am I?
+//   GET  /api/auth/activity                              -> my account history (name/photo/email)
 //   POST /api/auth/logout                                -> forget me
 //   GET  /api/auth/health                                -> is this worker alive?
 
@@ -22,6 +23,7 @@ import {
   SESSION_COOKIE,
 } from "./lib/sessions"
 import { ulid } from "../../../shared/workers/id"
+import { listAccountActivity } from "./lib/account-activity"
 import { updateProfile, type ProfileInput } from "./lib/profile"
 import {
   findOrCreateUserByEmail,
@@ -46,6 +48,8 @@ export default {
           return await emailChangeVerify(request, env)
         case "GET /api/auth/me":
           return await me(request, env)
+        case "GET /api/auth/activity":
+          return await activity(request, env)
         case "POST /api/auth/profile":
           return await profile(request, env)
         case "POST /api/auth/logout":
@@ -221,6 +225,13 @@ async function me(request: Request, env: Env): Promise<Response> {
   const user = await getSessionUser(env, request)
   if (!user) return fail(401, "signed_out", "Not signed in.")
   return json({ user: toSessionUser(user) })
+}
+
+/** The signed-in person's own account history (name / photo / email changes). */
+async function activity(request: Request, env: Env): Promise<Response> {
+  const user = await getSessionUser(env, request)
+  if (!user) return fail(401, "signed_out", "Not signed in.")
+  return json({ activity: await listAccountActivity(env, user.id) })
 }
 
 /** Onboarding / profile edit: names + optional photo (stored in R2). */

@@ -4,6 +4,7 @@
 
 import { MAX_IMAGE_BYTES, parseDataUrl } from "../../../../shared/workers/image"
 import type { Env } from "../env"
+import { logAccountActivity } from "./account-activity"
 import { toSessionUser, type UserRow } from "./users"
 
 const MAX_NAME_LENGTH = 60
@@ -42,6 +43,13 @@ export async function updateProfile(
     imageUrl = `/media/${key}?v=${Date.now()}`
   }
 
+  // Snapshot what actually changed, BEFORE the write, so we only log real edits
+  // (not the initial onboarding fill-in, where there's nothing to "change").
+  const wasOnboarded = user.onboarding_completed_at != null
+  const nameChanged =
+    firstName !== (user.first_name ?? "") || lastName !== (user.last_name ?? "")
+  const photoChanged = Boolean(input.imageDataUrl)
+
   const now = new Date().toISOString()
   await env.DB.prepare(
     `UPDATE users SET
@@ -52,6 +60,22 @@ export async function updateProfile(
   )
     .bind(firstName, lastName, imageUrl, now, now, user.id)
     .run()
+
+  // Account-activity (best-effort): record name / photo edits to the person's
+  // own history. Only once they're past onboarding — the first fill-in isn't a
+  // "change". Email changes are logged in the email-change flow.
+  if (wasOnboarded) {
+    if (nameChanged)
+      await logAccountActivity(env, user.id, {
+        type: "name_changed",
+        description: `Changed your name to ${firstName} ${lastName}`,
+      })
+    if (photoChanged)
+      await logAccountActivity(env, user.id, {
+        type: "photo_changed",
+        description: "Updated your profile photo",
+      })
+  }
 
   const updated = await env.DB.prepare("SELECT * FROM users WHERE id = ?")
     .bind(user.id)

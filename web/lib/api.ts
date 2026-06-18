@@ -58,6 +58,10 @@ export const auth = {
 
   me: () => api<{ user: SessionUser }>("/api/auth/me"),
 
+  /** Your own account activity (name / photo / email changes) — identity-level,
+   * not tied to any team. */
+  activity: () => api<{ activity: ActivityItem[] }>("/api/auth/activity"),
+
   /** Onboarding / profile edit: names + optional photo (as a data URL). */
   updateProfile: (input: {
     firstName: string

@@ -8,6 +8,7 @@
 import type { SessionUser } from "../../../../shared/types"
 import { ulid } from "../../../../shared/workers/id"
 import type { Env } from "../env"
+import { logAccountActivity } from "./account-activity"
 import { randomCode, sha256Hex } from "./crypto"
 import {
   normalizeEmail,
@@ -134,6 +135,13 @@ export async function verifyEmailChange(
   await sendEmailChangedNotice(env, oldEmail, newEmail).catch((e) =>
     console.error("email-change notice failed:", e)
   )
+
+  // Record it in the person's own account history (best-effort; the security
+  // record with both addresses already went into email_change_logs above).
+  await logAccountActivity(env, user.id, {
+    type: "email_changed",
+    description: `Changed your sign-in email to ${newEmail}`,
+  })
 
   return { user: toSessionUser({ ...user, email: newEmail }) }
 }
