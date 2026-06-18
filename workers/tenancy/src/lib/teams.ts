@@ -12,6 +12,7 @@ import {
 } from "../../../../shared/workers/d1-rest"
 import { ulid } from "../../../../shared/workers/id"
 import { MAX_IMAGE_BYTES, parseDataUrl } from "../../../../shared/workers/image"
+import { publishChange } from "../../../../shared/workers/realtime"
 import type { Env } from "../env"
 import { GuardError } from "./permissions"
 import { buildTeamSeed, TEAM_MIGRATIONS, type Actor } from "../team-schema"
@@ -192,6 +193,14 @@ export async function acceptPendingInvites(
     )
       .bind(invites[0].team_id, now, actor.id)
       .run()
+
+    // Ping each affected team's live channel so members/invites screens that are
+    // open update instantly (best-effort; publishChange swallows errors).
+    const affected = [...new Set(invites.map((i) => i.team_id))]
+    for (const teamId of affected) {
+      await publishChange(env.REALTIME, teamId, "invites")
+      await publishChange(env.REALTIME, teamId, "members")
+    }
   }
   return invites.length
 }

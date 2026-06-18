@@ -32,6 +32,21 @@ export function useActiveTeam(): ActiveTeam {
   const [ctx, setCtx] = React.useState<ActiveContext | null>(sessionCache?.ctx ?? null)
   const [loading, setLoading] = React.useState(!sessionCache)
 
+  // A teamless context (e.g. just removed from your last team) means there's no
+  // app screen to show — bounce to onboarding and DON'T cache the empty ctx, so
+  // returning here re-checks once a team exists. Shared by load() + refresh().
+  const sendToOnboardingIfTeamless = React.useCallback(
+    (ctx: ActiveContext): boolean => {
+      if (ctx.teams.length === 0) {
+        sessionCache = null
+        router.replace("/onboarding")
+        return true
+      }
+      return false
+    },
+    [router]
+  )
+
   React.useEffect(() => {
     let alive = true
     async function load() {
@@ -41,7 +56,9 @@ export function useActiveTeam(): ActiveTeam {
           router.replace("/onboarding")
           return
         }
-        const next: Session = { user: me.user, ctx: await tenancy.active() }
+        const ctx = await tenancy.active()
+        if (sendToOnboardingIfTeamless(ctx)) return
+        const next: Session = { user: me.user, ctx }
         sessionCache = next
         if (!alive) return
         setUser(next.user)
@@ -62,7 +79,7 @@ export function useActiveTeam(): ActiveTeam {
     return () => {
       alive = false
     }
-  }, [router])
+  }, [router, sendToOnboardingIfTeamless])
 
   const switchTeam = React.useCallback(async (teamId: string) => {
     const nextCtx = await tenancy.switchTeam(teamId)
@@ -79,10 +96,11 @@ export function useActiveTeam(): ActiveTeam {
   const refresh = React.useCallback(async () => {
     // reload both identity (profile edits) and context (member counts, etc.)
     const [me, nextCtx] = await Promise.all([auth.me(), tenancy.active()])
+    if (sendToOnboardingIfTeamless(nextCtx)) return
     sessionCache = { user: me.user, ctx: nextCtx }
     setUser(me.user)
     setCtx(nextCtx)
-  }, [])
+  }, [sendToOnboardingIfTeamless])
 
   return { loading, user, ctx, switchTeam, createTeam, refresh }
 }

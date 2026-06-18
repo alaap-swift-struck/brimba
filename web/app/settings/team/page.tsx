@@ -16,6 +16,12 @@ import {
 import { Badge } from "@swift-struck/ui/registry/primitives/badge/badge"
 import { Button } from "@swift-struck/ui/registry/primitives/button/button"
 import { Skeleton } from "@swift-struck/ui/registry/primitives/skeleton/skeleton"
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@swift-struck/ui/registry/primitives/tabs/tabs"
 import { Pencil } from "lucide-react"
 
 import { AppShell, ShellLoading } from "@/components/app-shell"
@@ -120,61 +126,51 @@ export default function TeamDetailPage() {
         {!perms ? (
           <Skeleton variant="list" lines={4} />
         ) : (
-          <>
-            <div className="border-b">
-              <div className="-mb-px flex gap-1">
-                {visibleTabs.map((t) => {
-                  const isActive = t.key === tab
-                  return (
-                    <button
-                      key={t.key}
-                      type="button"
-                      onClick={() => selectTab(t.key)}
-                      aria-current={isActive ? "page" : undefined}
-                      className={`flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium transition-colors ${
-                        isActive
-                          ? "border-primary text-foreground"
-                          : "text-muted-foreground hover:text-foreground border-transparent"
-                      }`}
-                    >
-                      {t.title}
-                      {t.soon && (
-                        <Badge variant="outline" className="text-[10px]">Soon</Badge>
-                      )}
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
+          <Tabs
+            value={tab}
+            onValueChange={(v) => selectTab(v as TabKey)}
+            className="animate-rise"
+          >
+            <TabsList variant="line">
+              {visibleTabs.map((t) => (
+                <TabsTrigger
+                  key={t.key}
+                  value={t.key}
+                  variant="line"
+                  badge={t.soon ? "Soon" : undefined}
+                  badgeVariant="outline"
+                >
+                  {t.title}
+                </TabsTrigger>
+              ))}
+            </TabsList>
 
-            <div className="animate-rise">
-              {tab === "overview" && (
-                <ErrorBoundary label="Overview">
-                  <TeamOverviewPanel active={active} />
-                </ErrorBoundary>
-              )}
-              {tab === "members" && (
-                <ErrorBoundary label="Members">
-                  <MembersPanel active={active} />
-                </ErrorBoundary>
-              )}
-              {tab === "roles" && (
-                <ErrorBoundary label="Member roles">
-                  <RolesPanel active={active} />
-                </ErrorBoundary>
-              )}
-              {tab === "invites" && (
-                <ErrorBoundary label="Invites">
-                  <InvitesPanel active={active} />
-                </ErrorBoundary>
-              )}
-              {tab === "activity" && (
-                <ErrorBoundary label="Activity">
-                  <TeamActivityPanel active={active} />
-                </ErrorBoundary>
-              )}
-            </div>
-          </>
+            <TabsContent value="overview">
+              <ErrorBoundary label="Overview">
+                <TeamOverviewPanel active={active} />
+              </ErrorBoundary>
+            </TabsContent>
+            <TabsContent value="members">
+              <ErrorBoundary label="Members">
+                <MembersPanel active={active} />
+              </ErrorBoundary>
+            </TabsContent>
+            <TabsContent value="roles">
+              <ErrorBoundary label="Member roles">
+                <RolesPanel active={active} />
+              </ErrorBoundary>
+            </TabsContent>
+            <TabsContent value="invites">
+              <ErrorBoundary label="Invites">
+                <InvitesPanel active={active} />
+              </ErrorBoundary>
+            </TabsContent>
+            <TabsContent value="activity">
+              <ErrorBoundary label="Activity">
+                <TeamActivityPanel active={active} />
+              </ErrorBoundary>
+            </TabsContent>
+          </Tabs>
         )}
       </div>
 

@@ -180,7 +180,9 @@ export function AppShell({
           </nav>
         )}
 
-        <main className="flex-1 px-4 py-6 pb-24 md:pb-8">{children}</main>
+        <main className="min-w-0 flex-1 overflow-x-hidden px-4 py-6 pb-24 md:pb-8">
+          {children}
+        </main>
 
         {/* Mobile bottom tabs — capped at 5, Home centered, gated items hidden */}
         <nav className="glass fixed inset-x-0 bottom-0 z-20 flex items-center justify-around border-t px-2 py-1.5 md:hidden">

@@ -125,6 +125,7 @@ export function RolesPanel({ active }: { active: ActiveTeam }) {
     modules: perms.modules,
     mode: perms.isDefault ? "locked" : perms.canEdit ? "edit" : "read",
     autoFlipRead: true,
+    surface: "none",
   }
   const canSave = perms != null && !perms.isDefault && perms.canEdit
 
@@ -147,6 +148,7 @@ export function RolesPanel({ active }: { active: ActiveTeam }) {
       ) : (
         <>
           <List
+            surface="none"
             selectedId={selectedId}
             onSelect={(item) => setSelectedId(item.id)}
             items={roles.map((r) => ({
@@ -211,7 +213,6 @@ export function RolesPanel({ active }: { active: ActiveTeam }) {
                   config={matrixConfig}
                   value={draft}
                   onChange={(next) => setDraft(next)}
-                  className="border-border bg-transparent [&_td.sticky]:bg-background [&_th.sticky]:bg-background"
                 />
               </>
             )}

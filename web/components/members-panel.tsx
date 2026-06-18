@@ -5,6 +5,7 @@
 // `members:<team>` on a ping). All guard rules are enforced server-side.
 
 import * as React from "react"
+import { useRouter } from "next/navigation"
 
 import {
   Avatar,
@@ -39,7 +40,6 @@ import {
 import { MoreHorizontal, ShieldCheck } from "lucide-react"
 
 import type { TeamMember } from "@shared/types"
-import { MemberDetailDialog } from "@/components/member-detail-dialog"
 import { RolePickerDialog } from "@/components/role-picker-dialog"
 import { ApiFailure, tenancy } from "@/lib/api"
 import { formatDate } from "@/lib/format"
@@ -60,6 +60,7 @@ const TABLE_CONFIG = {
   searchable: false,
   rowActions: false,
   emptyText: "No members yet.",
+  surface: "none" as const,
 }
 
 function fullName(m: TeamMember) {
@@ -73,6 +74,7 @@ function initials(m: TeamMember) {
   )
 }
 export function MembersPanel({ active }: { active: ActiveTeam }) {
+  const router = useRouter()
   const teamId = active.ctx?.team?.id ?? null
 
   const membersQ = useCached(teamId ? `members:${teamId}` : null, () =>
@@ -91,8 +93,17 @@ export function MembersPanel({ active }: { active: ActiveTeam }) {
 
   const [roleTarget, setRoleTarget] = React.useState<TeamMember | null>(null)
   const [removeTarget, setRemoveTarget] = React.useState<TeamMember | null>(null)
-  const [detailTarget, setDetailTarget] = React.useState<TeamMember | null>(null)
   const [removing, setRemoving] = React.useState(false)
+
+  // Defer opening a dialog from a menu item: Radix closes the menu and restores
+  // focus on the same tick, which fights the dialog's focus trap (→ crash when
+  // picking a radio). requestAnimationFrame opens it after the menu has settled.
+  function openDeferred(set: (m: TeamMember) => void, m: TeamMember) {
+    return (e: Event) => {
+      e.preventDefault()
+      requestAnimationFrame(() => set(m))
+    }
+  }
 
   async function changeRole(roleId: string) {
     if (!roleTarget || !teamId) return
@@ -123,6 +134,7 @@ export function MembersPanel({ active }: { active: ActiveTeam }) {
   const rows = React.useMemo(
     () =>
       (members ?? []).map((m) => ({
+        userId: m.userId,
         member: (
           <div className="flex items-center gap-3">
             <Avatar className="size-8">
@@ -152,6 +164,11 @@ export function MembersPanel({ active }: { active: ActiveTeam }) {
           <span className="text-muted-foreground text-sm">{formatDate(m.joinedAt)}</span>
         ),
         menu: (
+          // Stop propagation so tapping ⋯ never also fires the row-open.
+          <div
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
+          >
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon" className="size-7">
@@ -159,24 +176,22 @@ export function MembersPanel({ active }: { active: ActiveTeam }) {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onSelect={() => setDetailTarget(m)}>
-                View details
-              </DropdownMenuItem>
               {!m.isYou && canEditRoles && (
-                <DropdownMenuItem onSelect={() => setRoleTarget(m)}>
+                <DropdownMenuItem onSelect={openDeferred(setRoleTarget, m)}>
                   Change role
                 </DropdownMenuItem>
               )}
               {!m.isYou && canRemove && (
                 <DropdownMenuItem
                   className="text-destructive focus:text-destructive"
-                  onSelect={() => setRemoveTarget(m)}
+                  onSelect={openDeferred(setRemoveTarget, m)}
                 >
                   Remove from team
                 </DropdownMenuItem>
               )}
             </DropdownMenuContent>
           </DropdownMenu>
+          </div>
         ),
       })),
     [members, canEditRoles, canRemove]
@@ -189,14 +204,14 @@ export function MembersPanel({ active }: { active: ActiveTeam }) {
       ) : members === undefined ? (
         <Skeleton variant="list" lines={4} />
       ) : (
-        <DataTable data={rows} config={TABLE_CONFIG} />
+        <DataTable
+          data={rows}
+          config={TABLE_CONFIG}
+          onRowClick={(row) =>
+            router.push(`/settings/team/member?id=${row.userId as string}`)
+          }
+        />
       )}
-
-      <MemberDetailDialog
-        open={detailTarget !== null}
-        onOpenChange={(o) => !o && setDetailTarget(null)}
-        member={detailTarget}
-      />
 
       <RolePickerDialog
         open={roleTarget !== null}

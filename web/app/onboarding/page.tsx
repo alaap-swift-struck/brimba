@@ -37,18 +37,32 @@ export default function OnboardingPage() {
   const [busy, setBusy] = React.useState(false)
 
   React.useEffect(() => {
-    auth
-      .me()
-      .then(({ user }) => {
-        // Already fully set up? Straight to the app.
-        if (user.onboardingComplete && user.currentTeamId) router.replace("/home")
-        else {
-          setFirstName(user.firstName ?? "")
-          setLastName(user.lastName ?? "")
-          setChecking(false)
+    let alive = true
+    async function check() {
+      try {
+        const { user } = await auth.me()
+        // Don't trust a stale currentTeamId — only send to the app when they
+        // ACTUALLY belong to a team (a removed/teamless user stays here).
+        if (user.onboardingComplete) {
+          const ctx = await tenancy.active()
+          if (ctx.teams.length > 0) {
+            router.replace("/home")
+            return
+          }
         }
-      })
-      .catch(() => router.replace("/login"))
+        if (!alive) return
+        setFirstName(user.firstName ?? "")
+        setLastName(user.lastName ?? "")
+        setPhoto(user.imageUrl ?? undefined)
+        setChecking(false)
+      } catch {
+        router.replace("/login")
+      }
+    }
+    void check()
+    return () => {
+      alive = false
+    }
   }, [router])
 
   async function handlePhoto(files: File[]) {

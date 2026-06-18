@@ -1,4 +1,4 @@
-import type { Metadata } from "next"
+import type { Metadata, Viewport } from "next"
 import { Inter } from "next/font/google"
 
 import { AmbientBackground } from "@swift-struck/ui/registry/primitives/ambient-background/ambient-background"
@@ -11,10 +11,21 @@ import "./globals.css"
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" })
 
-// App name + description come from the ONE brand file (shared/brand.ts).
+// App name + description come from the ONE brand file (shared/brand.ts). The
+// favicon is derived from the brand logo when one is set (null today = no-op).
 export const metadata: Metadata = {
   title: brand.name,
   description: brand.description,
+  ...(brand.logoUrl ? { icons: { icon: brand.logoUrl } } : {}),
+}
+
+// Lock the viewport: fit the device width and block pinch-zoom so the app feels
+// like a native shell on mobile (the design language has no zoomable surfaces).
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
 }
 
 // Root layout: theme, ambient background, and toasts all come straight from

@@ -36,11 +36,19 @@ function makeD1(db: DatabaseSync) {
 function seedMembers(db: DatabaseSync, rows: { id: string; user: string; role: string }[]) {
   db.exec(`CREATE TABLE team_members (
     id TEXT PRIMARY KEY, team_id TEXT NOT NULL, user_id TEXT NOT NULL, role_id TEXT NOT NULL,
-    created_at TEXT NOT NULL, updated_at TEXT, deactivated_at TEXT, UNIQUE(team_id, user_id));`)
-  const ins = db.prepare(
+    created_at TEXT NOT NULL, updated_at TEXT, deactivated_at TEXT, UNIQUE(team_id, user_id));
+    CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT, first_name TEXT, last_name TEXT, image_url TEXT);`)
+  const insMember = db.prepare(
     "INSERT INTO team_members (id, team_id, user_id, role_id, created_at) VALUES (?, 'T', ?, ?, '2026-01-01')"
   )
-  for (const r of rows) ins.run(r.id, r.user, r.role)
+  // membership() now joins users for the activity-naming snapshot.
+  const insUser = db.prepare(
+    "INSERT OR IGNORE INTO users (id, email, first_name, last_name) VALUES (?, ?, ?, ?)"
+  )
+  for (const r of rows) {
+    insMember.run(r.id, r.user, r.role)
+    insUser.run(r.user, `${r.user.toLowerCase()}@x.com`, r.user, null)
+  }
 }
 
 const adminCount = (db: DatabaseSync) =>

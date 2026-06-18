@@ -113,13 +113,31 @@ export async function listRoles(
   }))
 }
 
-/** The membership row for a target user (active only). */
+/** The membership row for a target user (active only), with their identity
+ * (email + name) joined from the global users table — so activity rows can name
+ * the affected person, not just "a member". */
 async function membership(env: Env, teamId: string, userId: string) {
   return env.DB.prepare(
-    "SELECT id, role_id FROM team_members WHERE team_id = ? AND user_id = ? AND deactivated_at IS NULL"
+    `SELECT tm.id, tm.role_id, u.email, u.first_name, u.last_name
+     FROM team_members tm
+     JOIN users u ON u.id = tm.user_id
+     WHERE tm.team_id = ? AND tm.user_id = ? AND tm.deactivated_at IS NULL`
   )
     .bind(teamId, userId)
-    .first<{ id: string; role_id: string }>()
+    .first<{
+      id: string
+      role_id: string
+      email: string
+      first_name: string | null
+      last_name: string | null
+    }>()
+}
+
+/** A target member's display name = "First Last" or, lacking a name, their
+ * email (so the email serves as the name with no duplicate parenthetical). */
+function targetDisplayName(t: { email: string; first_name: string | null; last_name: string | null }) {
+  const name = [t.first_name, t.last_name].filter(Boolean).join(" ")
+  return { name: name || t.email, email: t.email, hasName: name !== "" }
 }
 
 /** Change a member's role. Guards: not yourself, target exists, role exists,
@@ -170,9 +188,14 @@ export async function changeMemberRole(
   if (!res.meta?.changes)
     throw new GuardError(409, "last_admin", "A team must keep at least one admin.")
 
+  const t = targetDisplayName(target)
   await logActivity(cfg, guard.databaseId, actor, {
     type: "Member role changed",
-    description: `${actor.name} changed a member's role to ${roles[0].title}`,
+    // Point-in-time snapshot. When there's no name yet, the email IS the name —
+    // drop the parenthetical duplicate.
+    description: t.hasName
+      ? `${actor.name} changed ${t.name}'s role to ${roles[0].title} (${t.email})`
+      : `${actor.name} changed ${t.name}'s role to ${roles[0].title}`,
     // Point at the affected USER so it shows on their detail + the team feed.
     relatedTable: "users",
     relatedRowId: targetUserId,
@@ -213,9 +236,12 @@ export async function removeMember(
   if (!res.meta?.changes)
     throw new GuardError(409, "last_admin", "A team must keep at least one admin.")
 
+  const t = targetDisplayName(target)
   await logActivity(cfg, guard.databaseId, actor, {
     type: "Member removed",
-    description: `${actor.name} removed a member from the team`,
+    description: t.hasName
+      ? `${actor.name} removed ${t.name} (${t.email}) from the team`
+      : `${actor.name} removed ${t.name} from the team`,
     relatedTable: "users",
     relatedRowId: targetUserId,
   })

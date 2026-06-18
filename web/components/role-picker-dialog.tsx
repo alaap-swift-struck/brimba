@@ -36,19 +36,31 @@ export function RolePickerDialog({
   open: boolean
   onOpenChange: (open: boolean) => void
   roles: TeamRole[]
-  /** The role the subject currently holds (preselected; Save stays off until changed). */
+  /** The role the subject currently holds. When set, it's hidden from the list
+   * (shown as static "Current role: …" text) so you can only pick a different one. */
   currentRoleId: string | null
   /** Who the role is for — shown in the description (e.g. a member's name). */
   subjectName: string | null
   onPick: (roleId: string) => Promise<void>
 }) {
-  const [selected, setSelected] = React.useState<string | null>(currentRoleId)
+  // No preselection: the current role isn't in the list, so start empty and let
+  // the person pick a *different* role.
+  const [selected, setSelected] = React.useState<string | null>(null)
   const [busy, setBusy] = React.useState(false)
 
-  // Re-seed the selection each time the dialog opens for a (new) subject.
+  // Re-seed (clear) the selection each time the dialog opens for a (new) subject.
   React.useEffect(() => {
-    if (open) setSelected(currentRoleId)
+    if (open) setSelected(null)
   }, [open, currentRoleId])
+
+  // Hide the member's CURRENT role from the choices — you can only pick a
+  // different one. Only filter when we know their current role.
+  const currentTitle =
+    currentRoleId != null
+      ? (roles.find((r) => r.id === currentRoleId)?.title ?? null)
+      : null
+  const choices =
+    currentRoleId != null ? roles.filter((r) => r.id !== currentRoleId) : roles
 
   async function save() {
     if (!selected) return
@@ -77,12 +89,18 @@ export function RolePickerDialog({
           </DialogDescription>
         </DialogHeader>
 
+        {currentTitle && (
+          <p className="text-muted-foreground text-sm">
+            Current role: <span className="text-foreground font-medium">{currentTitle}</span>
+          </p>
+        )}
+
         <RadioGroup
           value={selected ?? undefined}
           onValueChange={setSelected}
           className="gap-2"
         >
-          {roles.map((r) => (
+          {choices.map((r) => (
             <label
               key={r.id}
               htmlFor={`role-${r.id}`}
@@ -112,7 +130,7 @@ export function RolePickerDialog({
         <DialogFooter>
           <Button
             onClick={() => void save()}
-            disabled={busy || !selected || selected === currentRoleId}
+            disabled={busy || !selected}
           >
             {busy ? <Spinner /> : null}
             {busy ? "Saving…" : "Save role"}
