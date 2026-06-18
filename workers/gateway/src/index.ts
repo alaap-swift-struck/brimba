@@ -51,6 +51,17 @@ export default {
       })
     }
 
+    // Deep-link tree: /t/<teamId>/<module>/<id>/… is ONE client-resolved screen.
+    // Static export emits a single shell (t.html), so serve it for ANY /t/* depth
+    // (the browser keeps the real URL; web/app/t/[[...path]] parses it client-side
+    // and re-checks permissions — see SCREEN-ENGINE-PLAN §10). Without this, an
+    // unknown /t/* path would hit the 404 page.
+    if (pathname === "/t" || pathname.startsWith("/t/")) {
+      const shell = new URL(request.url)
+      shell.pathname = "/t.html"
+      return env.ASSETS.fetch(new Request(shell, request))
+    }
+
     // Static screens/assets. Long-cache headers for the content-hashed
     // /_next/static/** files are set in web/public/_headers — Workers Static
     // Assets serves matching files BEFORE this Worker runs, so per-asset headers
