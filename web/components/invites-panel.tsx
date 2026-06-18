@@ -95,19 +95,22 @@ export function InvitesPanel({ active }: { active: ActiveTeam }) {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Invite-by-email form — only for those who may invite */}
+      {/* Invite-by-email form — only for those who may invite. Mobile-first:
+       * controls STACK (full width) on phones so the email field shows its
+       * placeholder + the typed address; they line up in a row only at sm+
+       * (library UI-RULES: never blindly inherit desktop horizontal layout). */}
       {canInvite && (
-        <form onSubmit={send} className="flex flex-wrap items-center gap-2">
+        <form onSubmit={send} className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <Input
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="name@company.com"
             disabled={sending}
-            className="min-w-0 flex-1"
+            className="w-full min-w-0 sm:flex-1"
           />
           <Select value={roleId} onValueChange={setRoleId} disabled={sending}>
-            <SelectTrigger className="w-40 shrink-0">
+            <SelectTrigger className="w-full sm:w-40 sm:shrink-0">
               <SelectValue placeholder="Role" />
             </SelectTrigger>
             <SelectContent>
@@ -118,7 +121,7 @@ export function InvitesPanel({ active }: { active: ActiveTeam }) {
               ))}
             </SelectContent>
           </Select>
-          <Button type="submit" disabled={sending || !email.trim() || !roleId} className="shrink-0 gap-1.5">
+          <Button type="submit" disabled={sending || !email.trim() || !roleId} className="w-full gap-1.5 sm:w-auto sm:shrink-0">
             {sending ? <Spinner /> : <Mail className="size-4" />}
             {sending ? "Sending…" : "Send invite"}
           </Button>

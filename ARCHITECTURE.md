@@ -166,8 +166,26 @@ on top follows [CACHING.md](CACHING.md).
 
 ## 6 · App shell (LOCKED)
 
-- **PWA, online-only.** Real install prompt on Android/desktop; iPhone gets a
-  guided "Share → Add to Home Screen" walkthrough (Apple allows no auto-prompt).
+- **PWA, online-only — install prompt BUILT (2026-06-18).** The app ships a web
+  manifest (`web/app/manifest.ts`, name/description from `shared/brand.ts`) +
+  brand-monogram icons (`web/public/icons/*`, swappable via `brand.logoUrl`) +
+  per-mode `theme-color`, so it is installable to a home screen / dock. A library
+  bottom `Sheet` (`web/components/install-prompt.tsx`) drives it: Chrome / Edge /
+  Android use the captured `beforeinstallprompt` (a real "Install" button); iOS
+  Safari (which fires no such event) gets the guided "Share → Add to Home Screen"
+  walkthrough. **Trigger rules:** never when already installed; never on a
+  browser that can't install (don't nag where the action is impossible); show
+  once on the first visit (any page), then only on the **login page** and at most
+  once per **14 days** after a dismissal (a dismissal or install stamps the
+  cooldown, kept in `localStorage`). No service worker — online-only;
+  installability is manifest-based (Chrome ≥90 needs no SW). A reusable
+  `pwa-install-prompt` library collection is flagged in UI-GAPS.md for later.
+- **Mobile is not desktop-shrunk (LOCKED 2026-06-18).** Controls placed
+  side-by-side on desktop must NOT blindly stay side-by-side on mobile: a
+  multi-control row stacks (`flex-col`) by default and becomes a row only at
+  `sm:` (`sm:flex-row`); every control gets enough width to show its
+  placeholder / its content (`w-full` when stacked). Canon lives in the library
+  `UI-RULES.md` (the twin of the no-horizontal-scroll / no-pinch-zoom rule).
 - **UI comes ONLY from `@swift-struck/ui`.** Gaps go INTO the library first
   (known gaps: 6-digit code input, step wizard). Never one-off components here.
 - Anti-bloat is law: one master copy of every rule/doc/component; reuse over

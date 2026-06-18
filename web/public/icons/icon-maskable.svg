@@ -1,0 +1,12 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Brimba">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#13b89c"/>
+      <stop offset="1" stop-color="#0c8c77"/>
+    </linearGradient>
+  </defs>
+  <!-- Full-bleed (no rounded corners): the OS applies its own mask. Glyph kept
+       inside the inner ~60% safe zone so it never clips under any mask shape. -->
+  <rect x="0" y="0" width="512" height="512" fill="url(#g)"/>
+  <text x="256" y="272" font-family="Helvetica, Arial, sans-serif" font-size="240" font-weight="700" fill="#ffffff" text-anchor="middle" dominant-baseline="central">B</text>
+</svg>
