@@ -176,6 +176,13 @@ export function MembersPanel({ active }: { active: ActiveTeam }) {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
+              {/* Always present — so the menu is never an empty card, and every
+               * member (including yourself) has a clear way into their detail. */}
+              <DropdownMenuItem
+                onSelect={() => router.push(`/settings/team/member?id=${m.userId}`)}
+              >
+                View details
+              </DropdownMenuItem>
               {!m.isYou && canEditRoles && (
                 <DropdownMenuItem onSelect={openDeferred(setRoleTarget, m)}>
                   Change role
