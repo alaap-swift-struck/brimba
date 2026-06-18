@@ -19,25 +19,30 @@ export type ActivityEntry = {
   relatedRowId?: string
 }
 
-/** Write one activity row into a team's own database. Best-effort: a logging
- * failure must never break the action it describes (caller may ignore throws). */
+/** Write one activity row into a team's own database. Best-effort by contract:
+ * it swallows + logs its own failures so a logging hiccup can NEVER break the
+ * action it describes — callers just `await logActivity(...)`, no `.catch` needed. */
 export async function logActivity(
   cfg: D1Rest,
   databaseId: string,
   actor: Actor,
   entry: ActivityEntry
 ): Promise<void> {
-  const now = new Date().toISOString()
-  await d1ExecScript(
-    cfg,
-    databaseId,
-    `INSERT INTO activity
-       (id, type, description, related_table, related_row_id,
-        created_at, creator_id, creator_email, creator_name)
-     VALUES (
-        ${sqlString(ulid())}, ${sqlString(entry.type)}, ${sqlString(entry.description)},
-        ${sqlString(entry.relatedTable ?? null)}, ${sqlString(entry.relatedRowId ?? null)},
-        ${sqlString(now)}, ${sqlString(actor.id)}, ${sqlString(actor.email)}, ${sqlString(actor.name)}
-     );`
-  )
+  try {
+    const now = new Date().toISOString()
+    await d1ExecScript(
+      cfg,
+      databaseId,
+      `INSERT INTO activity
+         (id, type, description, related_table, related_row_id,
+          created_at, creator_id, creator_email, creator_name)
+       VALUES (
+          ${sqlString(ulid())}, ${sqlString(entry.type)}, ${sqlString(entry.description)},
+          ${sqlString(entry.relatedTable ?? null)}, ${sqlString(entry.relatedRowId ?? null)},
+          ${sqlString(now)}, ${sqlString(actor.id)}, ${sqlString(actor.email)}, ${sqlString(actor.name)}
+       );`
+    )
+  } catch (e) {
+    console.error("activity log failed:", e)
+  }
 }

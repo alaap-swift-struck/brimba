@@ -27,10 +27,7 @@ import {
   findOrCreateUserByEmail,
   toSessionUser,
 } from "./lib/users"
-
-const CODE_TTL_MINUTES = 10
-const MAX_CODE_ATTEMPTS = 5
-const MAX_CODES_PER_HOUR = 5
+import { CODE_TTL_MINUTES, MAX_CODE_ATTEMPTS, MAX_CODES_PER_HOUR } from "./lib/constants"
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {

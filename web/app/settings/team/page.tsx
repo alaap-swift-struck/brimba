@@ -23,6 +23,7 @@ import { ErrorBoundary } from "@/components/error-boundary"
 import { MembersPanel } from "@/components/members-panel"
 import { RolesPanel } from "@/components/roles-panel"
 import { InvitesPanel } from "@/components/invites-panel"
+import { TeamOverviewPanel, TeamActivityPanel } from "@/components/team-meta-panels"
 import { TeamEditDialog } from "@/components/team-edit-dialog"
 import { tenancy } from "@/lib/api"
 import { useCached } from "@/lib/store"
@@ -34,7 +35,9 @@ type TabKey = TeamTab["key"]
 function readTabFromUrl(): TabKey {
   if (typeof window === "undefined") return "members"
   const t = new URLSearchParams(window.location.search).get("tab")
-  return t === "roles" || t === "invites" ? t : "members"
+  return t === "roles" || t === "invites" || t === "overview" || t === "activity"
+    ? (t as TabKey)
+    : "members"
 }
 
 export default function TeamDetailPage() {
@@ -145,6 +148,11 @@ export default function TeamDetailPage() {
             </div>
 
             <div className="animate-rise">
+              {tab === "overview" && (
+                <ErrorBoundary label="Overview">
+                  <TeamOverviewPanel active={active} />
+                </ErrorBoundary>
+              )}
               {tab === "members" && (
                 <ErrorBoundary label="Members">
                   <MembersPanel active={active} />
@@ -158,6 +166,11 @@ export default function TeamDetailPage() {
               {tab === "invites" && (
                 <ErrorBoundary label="Invites">
                   <InvitesPanel active={active} />
+                </ErrorBoundary>
+              )}
+              {tab === "activity" && (
+                <ErrorBoundary label="Activity">
+                  <TeamActivityPanel active={active} />
                 </ErrorBoundary>
               )}
             </div>

@@ -84,5 +84,26 @@ later — the live channel keeps it correct while the tab is open.
 4. After a client mutation, `primeCache` the fresh result.
 5. Never cache cross-tenant; never trust the ping for data — always refetch through the gated endpoint.
 
+## Loading & feedback (the rule for "something's happening")
+
+The user should never face a dead or silent UI. The locked sequence for every
+screen and action:
+
+1. **First load → skeleton.** Show a `Skeleton` shaped like the content (never a
+   bare spinner for a whole screen). `useCached` returns `undefined` until the
+   first fetch lands.
+2. **Revisit → instant.** Cache-first means a revisit paints immediately and
+   revalidates in the background (rules 1–6 above). No spinner on navigation.
+3. **A write in flight → button spinner + disabled.** The button that triggered
+   it shows a `Spinner` and disables (and the dialog blocks close) so it can't be
+   double-fired. This also covers the rare case where a write serializes behind a
+   Durable Object (see [CONCURRENCY.md](CONCURRENCY.md)) — the wait is visible,
+   not mysterious.
+4. **Optimistic for the actor.** After a successful write, `primeCache` the fresh
+   result so the person who acted sees it with zero refetch; everyone else gets
+   the live ping (rule 3).
+5. **Always resolve.** Finish with a `toast` — success or a plain-English error
+   (the technical detail goes to the logs, see [ERROR-HANDLING.md](ERROR-HANDLING.md)).
+
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the live layer (the realtime worker +
 the Durable Object model) that powers rule 3.

@@ -6,6 +6,7 @@ import { Toaster } from "@swift-struck/ui/registry/primitives/sonner/sonner"
 import { ThemeProvider } from "@swift-struck/ui/registry/tokens/theme-provider"
 import { brand } from "@shared/brand"
 import { BrandTheme } from "@/components/brand-theme"
+import { ErrorReporter } from "@/components/error-reporter"
 import "./globals.css"
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" })
@@ -37,6 +38,7 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           <AmbientBackground />
+          <ErrorReporter />
           {children}
           <Toaster />
         </ThemeProvider>

@@ -10,29 +10,10 @@
 import * as React from "react"
 import { useRouter, usePathname } from "next/navigation"
 
-import {
-  Avatar,
-  AvatarFallback,
-  AvatarImage,
-} from "@swift-struck/ui/registry/primitives/avatar/avatar"
-import { Button } from "@swift-struck/ui/registry/primitives/button/button"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@swift-struck/ui/registry/primitives/dropdown-menu/dropdown-menu"
 import { ModeToggle } from "@swift-struck/ui/registry/primitives/mode-toggle/mode-toggle"
 import { Skeleton } from "@swift-struck/ui/registry/primitives/skeleton/skeleton"
 import { toast } from "@swift-struck/ui/registry/primitives/sonner/sonner"
 import {
-  ChevronsUpDown,
-  Check,
-  Plus,
-  LogOut,
-  UserRound,
   Home,
   Settings,
   ChevronRight,
@@ -40,138 +21,15 @@ import {
   PanelLeftOpen,
 } from "lucide-react"
 
-import { auth } from "@/lib/api"
 import type { ActiveTeam } from "@/lib/use-active-team"
 import { useRealtime } from "@/lib/realtime"
 import { invalidate } from "@/lib/store"
 import { NAV, bottomNavItems, isNavActive, type Crumb } from "@/lib/pages"
 import { CreateTeamDialog } from "@/components/create-team-dialog"
+import { ProfileMenu } from "@/components/profile-menu"
+import { TeamSwitcher } from "@/components/team-switcher"
 
 const NAV_ICONS = { home: Home, settings: Settings } as const
-
-function teamInitial(name?: string | null) {
-  return name?.[0]?.toUpperCase() ?? "?"
-}
-function userInitials(first?: string | null, last?: string | null) {
-  return `${first?.[0] ?? ""}${last?.[0] ?? ""}`.toUpperCase() || "?"
-}
-
-/** The team switcher (one team at a time; tap to hop) — used in both layouts. */
-function TeamSwitcher({
-  active,
-  onCreateTeam,
-  collapsed,
-}: {
-  active: ActiveTeam
-  onCreateTeam: () => void
-  /** icon-only trigger (collapsed sidebar) */
-  collapsed?: boolean
-}) {
-  const { ctx } = active
-  async function handleSwitch(teamId: string) {
-    if (teamId === ctx?.team?.id) return
-    const name = ctx?.teams.find((t) => t.id === teamId)?.name
-    await active.switchTeam(teamId)
-    toast.success(name ? `Switched to ${name}` : "Team switched")
-  }
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        {collapsed ? (
-          <button
-            className="rounded-lg outline-none ring-offset-2 focus-visible:ring-2"
-            title={ctx?.team?.name ?? "No team"}
-            aria-label="Switch team"
-          >
-            <Avatar className="size-8">
-              {ctx?.team?.logoUrl && <AvatarImage src={ctx.team.logoUrl} alt={ctx.team.name} />}
-              <AvatarFallback className="text-xs">{teamInitial(ctx?.team?.name)}</AvatarFallback>
-            </Avatar>
-          </button>
-        ) : (
-          <Button variant="ghost" className="hover-lift-none h-auto w-full justify-start gap-2 px-2 py-1.5">
-            <Avatar className="size-7">
-              {ctx?.team?.logoUrl && <AvatarImage src={ctx.team.logoUrl} alt={ctx.team.name} />}
-              <AvatarFallback className="text-xs">{teamInitial(ctx?.team?.name)}</AvatarFallback>
-            </Avatar>
-            <span className="min-w-0 flex-1 truncate text-left text-sm font-semibold">
-              {ctx?.team?.name ?? "No team"}
-            </span>
-            <ChevronsUpDown className="text-muted-foreground size-4 shrink-0" />
-          </Button>
-        )}
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="start"
-        className="w-60"
-        style={{ backgroundColor: "var(--popover)" }}
-      >
-        <DropdownMenuLabel>Your teams</DropdownMenuLabel>
-        {ctx?.teams.map((team) => (
-          <DropdownMenuItem key={team.id} onSelect={() => void handleSwitch(team.id)} className="gap-2">
-            <Avatar className="size-6">
-              {team.logoUrl && <AvatarImage src={team.logoUrl} alt={team.name} />}
-              <AvatarFallback className="text-[10px]">{teamInitial(team.name)}</AvatarFallback>
-            </Avatar>
-            <span className="min-w-0 flex-1 truncate">{team.name}</span>
-            {team.id === ctx.team?.id && <Check className="size-4" />}
-          </DropdownMenuItem>
-        ))}
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={onCreateTeam} className="gap-2">
-          <Plus className="size-4" />
-          Create team
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  )
-}
-
-/** The profile menu — your name/email, a link to Account, and sign out. */
-function ProfileMenu({ active }: { active: ActiveTeam }) {
-  const router = useRouter()
-  const { user } = active
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button className="rounded-full outline-none ring-offset-2 focus-visible:ring-2">
-          <Avatar className="size-8">
-            {user?.imageUrl && <AvatarImage src={user.imageUrl} alt="You" />}
-            <AvatarFallback className="text-xs">
-              {userInitials(user?.firstName, user?.lastName)}
-            </AvatarFallback>
-          </Avatar>
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="end"
-        className="w-56"
-        style={{ backgroundColor: "var(--popover)" }}
-      >
-        <DropdownMenuLabel className="flex flex-col">
-          <span className="truncate">
-            {[user?.firstName, user?.lastName].filter(Boolean).join(" ")}
-          </span>
-          <span className="text-muted-foreground truncate text-xs font-normal">
-            {user?.email}
-          </span>
-        </DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={() => router.push("/settings")} className="gap-2">
-          <UserRound className="size-4" />
-          Account
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onSelect={() => void auth.logout().then(() => router.replace("/login"))}
-          className="gap-2"
-        >
-          <LogOut className="size-4" />
-          Sign out
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  )
-}
 
 export function AppShell({
   active,
@@ -208,6 +66,9 @@ export function AppShell({
   // One live channel for the active team → refresh caches when data changes.
   useRealtime(teamId, (event) => {
     if (!teamId) return
+    // Any change can add an activity row — refresh the team feed (cheap when the
+    // Activity tab isn't open: no subscriber, so it just clears the cache).
+    invalidate(`activity:team:${teamId}`)
     if (event.resource === "members") {
       invalidate(`members:${teamId}`)
       void active.refresh()
@@ -218,6 +79,7 @@ export function AppShell({
     } else if (event.resource === "invites") {
       invalidate(`invites:${teamId}`)
     } else if (event.resource === "team") {
+      invalidate(`team-meta:${teamId}`) // name/creator metadata changed
       void active.refresh() // team name/logo changed
     }
   })

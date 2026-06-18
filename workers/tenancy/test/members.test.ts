@@ -18,13 +18,17 @@ const cfg = { accountId: "a", apiToken: "t" } as never
 const guard = { userId: "ME", teamId: "TEAM", roleId: "ADMIN", databaseId: "db" }
 const actor = { id: "ME", email: "me@x.com", name: "Me" }
 
-/** Minimal global-DB stub: answers the COUNT and membership lookups. */
+/** Minimal global-DB stub: answers the COUNT and membership lookups. `changes`
+ * is what the atomic UPDATE reports back (0 = the write was refused, e.g. a
+ * concurrent removal won the race and the admin floor would be breached). */
 function fakeEnv({
   target,
   adminCount,
+  changes = 1,
 }: {
   target: { id: string; role_id: string } | null
   adminCount: number
+  changes?: number
 }) {
   const runs: { sql: string }[] = []
   const env = {
@@ -41,7 +45,7 @@ function fakeEnv({
                     : null,
               run: async () => {
                 runs.push({ sql })
-                return {}
+                return { meta: { changes } }
               },
             }
           },
@@ -106,6 +110,19 @@ describe("changeMemberRole guards", () => {
       true
     )
   })
+
+  it("blocks the race: atomic write reports 0 changes → last_admin", async () => {
+    // Pre-check passes (count looks fine), but a concurrent demotion won the
+    // race so the conditional UPDATE matched nothing.
+    const { env } = fakeEnv({
+      target: { id: "m", role_id: "ADMIN" },
+      adminCount: 2,
+      changes: 0,
+    })
+    await expect(
+      changeMemberRole(env, cfg, guard, actor, "OTHER", "VIEWER")
+    ).rejects.toMatchObject({ code: "last_admin" })
+  })
 })
 
 describe("removeMember guards", () => {
@@ -130,5 +147,16 @@ describe("removeMember guards", () => {
     })
     await removeMember(env, cfg, guard, actor, "OTHER")
     expect(runs.some((r) => r.sql.includes("deactivated_at"))).toBe(true)
+  })
+
+  it("blocks the race: atomic write reports 0 changes → last_admin", async () => {
+    const { env } = fakeEnv({
+      target: { id: "m", role_id: "ADMIN" },
+      adminCount: 2,
+      changes: 0,
+    })
+    await expect(
+      removeMember(env, cfg, guard, actor, "OTHER")
+    ).rejects.toMatchObject({ code: "last_admin" })
   })
 })

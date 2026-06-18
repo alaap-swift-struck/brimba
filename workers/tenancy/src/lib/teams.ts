@@ -1,7 +1,8 @@
 // Team lifecycle: the factory that gives every new team its OWN database
 // (locked architecture), seeded with default roles + dropdown values.
 
-import type { ActiveContext, TeamSummary } from "../../../../shared/types"
+import type { ActiveContext, TeamMeta, TeamSummary } from "../../../../shared/types"
+import { logActivity } from "../../../../shared/workers/activity"
 import {
   d1CreateDatabase,
   d1DeleteDatabase,
@@ -75,6 +76,13 @@ export async function createTeam(
 
     const seed = buildTeamSeed(actor, now)
     await d1ExecScript(cfg, databaseId, seed.script)
+
+    await logActivity(cfg, databaseId, actor, {
+      type: "Team created",
+      description: `${actor.name} created the team`,
+      relatedTable: "teams",
+      relatedRowId: teamId,
+    })
 
     await env.DB.prepare(
       `INSERT INTO team_members (id, team_id, user_id, role_id, created_at, creator_id, creator_email, creator_name)
@@ -295,4 +303,27 @@ export async function listMyTeams(
     roleId: r.role_id,
     dbStatus: r.db_status,
   }))
+}
+
+/** A team's metadata for its Overview tab: who created it + when, last updated.
+ * (Reads the global teams row — the source of truth for team identity.) */
+export async function getTeamMeta(env: Env, teamId: string): Promise<TeamMeta> {
+  const row = await env.DB.prepare(
+    "SELECT name, created_at, creator_name, creator_email, updated_at FROM teams WHERE id = ?"
+  )
+    .bind(teamId)
+    .first<{
+      name: string
+      created_at: string
+      creator_name: string | null
+      creator_email: string | null
+      updated_at: string | null
+    }>()
+  return {
+    name: row?.name ?? "",
+    createdAt: row?.created_at ?? "",
+    creatorName: row?.creator_name ?? null,
+    creatorEmail: row?.creator_email ?? null,
+    updatedAt: row?.updated_at ?? null,
+  }
 }

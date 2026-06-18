@@ -22,6 +22,16 @@ export default {
     // Live channels (WebSocket upgrade + health) → the realtime switchboard.
     if (pathname.startsWith("/api/realtime")) return env.REALTIME.fetch(request)
 
+    // Client error beacon → this Worker's logs (Cloudflare observability). No
+    // data store; just structured logging so a crash on staging/prod is visible
+    // without the user reporting it. The swappable seam is web/lib/log.ts; the
+    // ruleset is ERROR-HANDLING.md. Body is capped to avoid log-spam abuse.
+    if (pathname === "/api/log/client" && request.method === "POST") {
+      const raw = await request.text().catch(() => "")
+      console.error("client_error", raw.slice(0, 4000))
+      return new Response(null, { status: 204 })
+    }
+
     if (pathname.startsWith("/api/")) {
       return fail(404, "not_found", "No such API.")
     }

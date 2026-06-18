@@ -102,6 +102,28 @@ export type ActiveContext = {
   teams: TeamSummary[]
 }
 
+/** One row of a record's Activity tab (and the team-wide feed). The same row
+ * surfaces in the team / user / role scopes by the relation it carries. */
+export type ActivityItem = {
+  id: string
+  /** short type, e.g. "Member role changed" */
+  type: string
+  /** the human sentence shown in the feed */
+  description: string
+  /** who did it (name snapshot), or null if unknown */
+  actorName: string | null
+  createdAt: string
+}
+
+/** A team's Overview-tab metadata (who made it + when). */
+export type TeamMeta = {
+  name: string
+  createdAt: string
+  creatorName: string | null
+  creatorEmail: string | null
+  updatedAt: string | null
+}
+
 /** Every /api error body looks like this. */
 export type ApiError = {
   error: string

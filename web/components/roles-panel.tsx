@@ -11,6 +11,7 @@ import { Button } from "@swift-struck/ui/registry/primitives/button/button"
 import { Skeleton } from "@swift-struck/ui/registry/primitives/skeleton/skeleton"
 import { Spinner } from "@swift-struck/ui/registry/primitives/spinner/spinner"
 import { toast } from "@swift-struck/ui/registry/primitives/sonner/sonner"
+import { List } from "@swift-struck/ui/registry/collections/list/list"
 import {
   PermissionMatrix,
   defaultPermissionMatrixConfig,
@@ -62,9 +63,16 @@ export function RolesPanel({ active }: { active: ActiveTeam }) {
   React.useEffect(() => {
     if (!perms || !selectedId) return
     const prev = serverRef.current
+    const nextJson = JSON.stringify(perms.value)
+    // Same role + identical server value → nothing to reconcile. A realtime
+    // ping (e.g. the one our own create/save fires) triggers a stale-while-
+    // revalidate refetch that returns structurally-identical data as a NEW
+    // object; without this bail the effect would churn while you're mid-edit.
+    if (prev && prev.roleId === selectedId && JSON.stringify(prev.value) === nextJson)
+      return
     if (!prev || prev.roleId !== selectedId) {
       setDraft(perms.value)
-    } else if (JSON.stringify(prev.value) !== JSON.stringify(perms.value)) {
+    } else if (JSON.stringify(prev.value) !== nextJson) {
       setDraft((d) =>
         d && JSON.stringify(d) === JSON.stringify(prev.value) ? perms.value : d
       )
@@ -138,51 +146,35 @@ export function RolesPanel({ active }: { active: ActiveTeam }) {
         <Skeleton variant="list" lines={3} />
       ) : (
         <>
-          <div className="divide-border/60 flex flex-col divide-y overflow-hidden rounded-xl border">
-            {roles.map((r) => {
-              const selected = r.id === selectedId
-              return (
-                <button
-                  key={r.id}
-                  type="button"
-                  onClick={() => setSelectedId(r.id)}
-                  aria-current={selected ? "true" : undefined}
-                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left transition-colors ${
-                    selected ? "bg-primary/10 ring-primary/20 ring-1" : "hover:bg-muted/50"
-                  }`}
-                >
-                  <span
-                    className={`flex size-9 shrink-0 items-center justify-center rounded-lg transition-colors ${
-                      selected
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-secondary text-secondary-foreground"
-                    }`}
-                  >
-                    {r.isDefault ? <ShieldCheck className="size-4" /> : <Shield className="size-4" />}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 font-medium">
-                      {r.title}
-                      {r.isDefault && (
-                        <Badge variant="outline" className="gap-1 text-[10px]">
-                          <Lock className="size-2.5" aria-hidden />
-                          Locked
-                        </Badge>
-                      )}
-                    </div>
-                    {r.description && (
-                      <div className="text-muted-foreground truncate text-sm">
-                        {r.description}
-                      </div>
-                    )}
-                  </div>
-                  <span className="text-muted-foreground shrink-0 text-xs">
-                    {r.memberCount} member{r.memberCount === 1 ? "" : "s"}
-                  </span>
-                </button>
-              )
-            })}
-          </div>
+          <List
+            selectedId={selectedId}
+            onSelect={(item) => setSelectedId(item.id)}
+            items={roles.map((r) => ({
+              id: r.id,
+              title: (
+                <span className="flex items-center gap-2">
+                  {r.title}
+                  {r.isDefault && (
+                    <Badge variant="outline" className="gap-1 text-[10px]">
+                      <Lock className="size-2.5" aria-hidden />
+                      Locked
+                    </Badge>
+                  )}
+                </span>
+              ),
+              subtitle: r.description ?? undefined,
+              leading: (
+                <span className="bg-secondary text-secondary-foreground flex size-9 items-center justify-center rounded-lg">
+                  {r.isDefault ? <ShieldCheck className="size-4" /> : <Shield className="size-4" />}
+                </span>
+              ),
+              trailing: (
+                <span className="text-muted-foreground text-xs">
+                  {r.memberCount} member{r.memberCount === 1 ? "" : "s"}
+                </span>
+              ),
+            }))}
+          />
 
           <div className="flex flex-col gap-3">
             {permsQ.loading || !matrixConfig || !draft ? (

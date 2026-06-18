@@ -17,10 +17,7 @@ import {
 } from "./email"
 import { signOutOtherSessions } from "./sessions"
 import { findUserByEmail, toSessionUser, type UserRow } from "./users"
-
-const CODE_TTL_MINUTES = 10
-const MAX_CODE_ATTEMPTS = 5
-const MAX_CODES_PER_HOUR = 5
+import { CODE_TTL_MINUTES, MAX_CODE_ATTEMPTS, MAX_CODES_PER_HOUR } from "./constants"
 
 /** A handled failure — the route turns this into the HTTP error response. */
 export type ChangeFail = { error: string; message: string; status: number }

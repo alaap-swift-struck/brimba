@@ -106,6 +106,8 @@ on top follows [CACHING.md](CACHING.md).
 | POST /api/tenancy/roles/update | tenancy | rename / re-describe a role (not the locked Admin) |
 | GET /api/tenancy/roles/permissions | tenancy | a role's permission matrix (tall sheet) |
 | POST /api/tenancy/roles/permissions | tenancy | save a role's matrix (server re-applies auto-flip-read; Admin locked) |
+| GET /api/tenancy/activity | tenancy | the team's activity feed, or one record's (`?scope=team\|user\|role&id=`) |
+| GET /api/tenancy/team-meta | tenancy | the active team's Overview metadata (created by/when, last updated) |
 | GET /api/tenancy/invites | tenancy | the team's invites (pending/accepted/revoked/expired) |
 | POST /api/tenancy/invites | tenancy | invite by email to a role (branded email via auth) |
 | POST /api/tenancy/invites/revoke | tenancy | revoke ("redact") a pending invite |
@@ -140,8 +142,18 @@ on top follows [CACHING.md](CACHING.md).
 - **Master records are NEVER hard-deleted** — deactivate/activate only
   (the words are "deactivate"/"activate", not archive). The delete right stays
   in the grid for future child-table cases; base modules don't expose it.
-- **Activity log records edits, deactivations, activations ONLY** — creation
-  details already live on the row; deletes don't happen.
+- **Activity log records meaningful changes** — created, edited, role changed,
+  invite sent/revoked, member removed (deletes don't happen). One reusable writer
+  (`shared/workers/activity.ts`) writes to each team's own `activity` table; each
+  row carries a relation (`related_table`/`related_row_id`) so the SAME feed
+  surfaces three ways — the whole team, one user, or one role.
+- **Every record screen has an Overview tab + an Activity tab** (LOCKED
+  2026-06-17): Overview = the audit block (created/edited/deactivated + who);
+  Activity = that record's slice of the log. Built from two reusable components
+  (`web/components/metadata-overview.tsx`, `activity-feed.tsx`). See the activity
+  read path in `workers/tenancy/src/lib/activity-read.ts`.
+- Race-safety for invariant writes follows [CONCURRENCY.md](CONCURRENCY.md);
+  failures follow [ERROR-HANDLING.md](ERROR-HANDLING.md).
 
 ## 5 · Users, onboarding, invites (LOCKED)
 

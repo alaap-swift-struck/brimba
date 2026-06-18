@@ -3,11 +3,13 @@
 
 import type {
   ActiveContext,
+  ActivityItem,
   ApiError,
   Invite,
   PermissionValue,
   RolePermissions,
   SessionUser,
+  TeamMeta,
   TeamMember,
   TeamRole,
   TeamSummary,
@@ -189,4 +191,13 @@ export const tenancy = {
       method: "POST",
       body: JSON.stringify({ inviteId }),
     }),
+
+  /** The team's activity feed, or one record's (scope = team | user | role). */
+  activity: (scope: "team" | "user" | "role" = "team", id?: string) =>
+    api<{ activity: ActivityItem[] }>(
+      `/api/tenancy/activity?scope=${scope}${id ? `&id=${encodeURIComponent(id)}` : ""}`
+    ),
+
+  /** The active team's Overview metadata (created by/when, last updated). */
+  teamMeta: () => api<TeamMeta>("/api/tenancy/team-meta"),
 }

@@ -15,11 +15,17 @@ agent-callable via MCP, all hosted on Cloudflare.
    workers, the live layer, and the Durable Object code-vs-runtime model). Read
    before building anything; do not relitigate without the user.
 2. **[OPERATIONS.md](OPERATIONS.md)** — how it builds and ships.
-3. **[CACHING.md](CACHING.md)** — the system-wide caching ruleset (cache-first,
-   live-channel invalidation, examples). Follow it for every screen/module.
-4. **[ROADMAP.md](ROADMAP.md)** — what's built and what's next, with the
+3. **[CACHING.md](CACHING.md)** — the system-wide caching + loading/feedback
+   ruleset (cache-first, live-channel invalidation, examples). Follow it for
+   every screen/module.
+4. **[CONCURRENCY.md](CONCURRENCY.md)** — the race-safety ruleset (atomic writes,
+   unique indexes, when a Durable Object is the lock). Follow it for any write
+   that protects an invariant (counts, balances, uniqueness).
+5. **[ERROR-HANDLING.md](ERROR-HANDLING.md)** — the error-capture ruleset (the
+   one swappable logging seam, the error boundary, never-swallow).
+6. **[ROADMAP.md](ROADMAP.md)** — what's built and what's next, with the
    type/endpoint contracts each phase plugs into.
-5. The UI comes ONLY from **[@swift-struck/ui](https://swift-struck-ui.pages.dev/documentation)**
+7. The UI comes ONLY from **[@swift-struck/ui](https://swift-struck-ui.pages.dev/documentation)**
    (installed from GitHub). Missing a component? Add it to the LIBRARY first —
    never build one-off UI here.
 

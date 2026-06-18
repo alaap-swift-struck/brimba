@@ -153,18 +153,30 @@ export async function changeMemberRole(
       throw new GuardError(409, "last_admin", "A team must keep at least one admin.")
   }
 
-  await env.DB.prepare(
-    "UPDATE team_members SET role_id = ?, updated_at = ? WHERE id = ?"
+  // The count above is the friendly/fast path. This UPDATE re-checks the admin
+  // floor INSIDE the statement, so two simultaneous demotions can't both slip
+  // past the count and zero out the team's admins — D1 serializes the write, so
+  // no Durable Object is needed (see CONCURRENCY.md). Allowed when: the new role
+  // IS admin, OR the target isn't currently admin, OR more than one admin remains.
+  const res = await env.DB.prepare(
+    `UPDATE team_members SET role_id = ?, updated_at = ?
+     WHERE id = ? AND deactivated_at IS NULL
+       AND ( ? = ? OR role_id != ?
+             OR (SELECT COUNT(*) FROM team_members
+                 WHERE team_id = ? AND role_id = ? AND deactivated_at IS NULL) > 1 )`
   )
-    .bind(newRoleId, new Date().toISOString(), target.id)
+    .bind(newRoleId, new Date().toISOString(), target.id, newRoleId, adminId, adminId, guard.teamId, adminId)
     .run()
+  if (!res.meta?.changes)
+    throw new GuardError(409, "last_admin", "A team must keep at least one admin.")
 
   await logActivity(cfg, guard.databaseId, actor, {
     type: "Member role changed",
     description: `${actor.name} changed a member's role to ${roles[0].title}`,
-    relatedTable: "team_members",
-    relatedRowId: target.id,
-  }).catch((e) => console.error("activity log failed:", e))
+    // Point at the affected USER so it shows on their detail + the team feed.
+    relatedTable: "users",
+    relatedRowId: targetUserId,
+  })
 }
 
 /** Remove a member = deactivate the membership (reversible; never hard-delete).
@@ -186,16 +198,25 @@ export async function removeMember(
   if (target.role_id === adminId && (await countRole(env, guard.teamId, adminId)) <= 1)
     throw new GuardError(409, "last_admin", "A team must keep at least one admin.")
 
-  await env.DB.prepare(
-    "UPDATE team_members SET deactivated_at = ? WHERE id = ?"
+  // Atomic backstop (same reasoning as changeMemberRole): the WHERE re-checks
+  // the admin floor at write time so two simultaneous removals can't both pass
+  // the count above and leave the team with zero admins.
+  const res = await env.DB.prepare(
+    `UPDATE team_members SET deactivated_at = ?
+     WHERE id = ? AND deactivated_at IS NULL
+       AND ( ? IS NULL OR role_id != ?
+             OR (SELECT COUNT(*) FROM team_members
+                 WHERE team_id = ? AND role_id = ? AND deactivated_at IS NULL) > 1 )`
   )
-    .bind(new Date().toISOString(), target.id)
+    .bind(new Date().toISOString(), target.id, adminId, adminId, guard.teamId, adminId)
     .run()
+  if (!res.meta?.changes)
+    throw new GuardError(409, "last_admin", "A team must keep at least one admin.")
 
   await logActivity(cfg, guard.databaseId, actor, {
     type: "Member removed",
     description: `${actor.name} removed a member from the team`,
-    relatedTable: "team_members",
-    relatedRowId: target.id,
-  }).catch((e) => console.error("activity log failed:", e))
+    relatedTable: "users",
+    relatedRowId: targetUserId,
+  })
 }

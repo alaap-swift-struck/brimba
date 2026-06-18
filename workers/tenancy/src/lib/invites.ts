@@ -4,6 +4,7 @@
 // sent THROUGH the auth worker (it owns the Resend key). All guards live here.
 
 import { brand } from "../../../../shared/brand"
+import { logActivity, type Actor } from "../../../../shared/workers/activity"
 import { d1Query, type D1Rest } from "../../../../shared/workers/d1-rest"
 import { brandedEmail } from "../../../../shared/workers/email-template"
 import { ulid } from "../../../../shared/workers/id"
@@ -98,12 +99,25 @@ export async function createInvite(
 
   const now = new Date()
   const expiresAt = new Date(now.getTime() + INVITE_TTL_DAYS * 86400000).toISOString()
-  await env.DB.prepare(
-    `INSERT INTO invite_index (id, email, team_id, invite_row_id, role_id, expires_at, status, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)`
-  )
-    .bind(ulid(), to, guard.teamId, ulid(), roleId, expiresAt, now.toISOString())
-    .run()
+  try {
+    await env.DB.prepare(
+      `INSERT INTO invite_index (id, email, team_id, invite_row_id, role_id, expires_at, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)`
+    )
+      .bind(ulid(), to, guard.teamId, ulid(), roleId, expiresAt, now.toISOString())
+      .run()
+  } catch (e) {
+    // The partial unique index (db/core/0006) backstops a simultaneous second
+    // invite that slipped past the pending-check above — report it kindly.
+    if (String((e as Error)?.message ?? "").includes("UNIQUE"))
+      throw new GuardError(409, "already_invited", "They already have a pending invite.")
+    throw e
+  }
+
+  await logActivity(cfg, guard.databaseId, actor, {
+    type: "Invite sent",
+    description: `${actor.name || "Someone"} invited ${to} as ${roles[0].title}`,
+  })
 
   const teamRow = await env.DB.prepare("SELECT name FROM teams WHERE id = ?")
     .bind(guard.teamId)
@@ -133,15 +147,29 @@ export async function createInvite(
   }).catch((e) => console.error("invite email failed:", e))
 }
 
-/** Revoke ("redact") a pending invite. */
+/** Revoke ("redact") a pending invite, and log it (if one was actually revoked). */
 export async function revokeInvite(
   env: Env,
+  cfg: D1Rest,
   guard: MemberGuard,
+  actor: Actor,
   inviteId: string
 ): Promise<void> {
-  await env.DB.prepare(
+  const row = await env.DB.prepare(
+    "SELECT email FROM invite_index WHERE id = ? AND team_id = ?"
+  )
+    .bind(inviteId, guard.teamId)
+    .first<{ email: string }>()
+
+  const res = await env.DB.prepare(
     "UPDATE invite_index SET status = 'revoked' WHERE id = ? AND team_id = ? AND status = 'pending'"
   )
     .bind(inviteId, guard.teamId)
     .run()
+
+  if (res.meta?.changes)
+    await logActivity(cfg, guard.databaseId, actor, {
+      type: "Invite revoked",
+      description: `${actor.name} revoked the invite${row?.email ? ` for ${row.email}` : ""}`,
+    })
 }

@@ -39,8 +39,10 @@ import {
 import { MoreHorizontal, ShieldCheck } from "lucide-react"
 
 import type { TeamMember } from "@shared/types"
+import { MemberDetailDialog } from "@/components/member-detail-dialog"
 import { RolePickerDialog } from "@/components/role-picker-dialog"
 import { ApiFailure, tenancy } from "@/lib/api"
+import { formatDate } from "@/lib/format"
 import { usePermissions } from "@/lib/perms"
 import { invalidate, primeCache, useCached } from "@/lib/store"
 import type { ActiveTeam } from "@/lib/use-active-team"
@@ -70,13 +72,6 @@ function initials(m: TeamMember) {
     "?"
   )
 }
-function formatDate(iso: string) {
-  const d = new Date(iso)
-  return Number.isNaN(d.getTime())
-    ? ""
-    : d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })
-}
-
 export function MembersPanel({ active }: { active: ActiveTeam }) {
   const teamId = active.ctx?.team?.id ?? null
 
@@ -96,6 +91,7 @@ export function MembersPanel({ active }: { active: ActiveTeam }) {
 
   const [roleTarget, setRoleTarget] = React.useState<TeamMember | null>(null)
   const [removeTarget, setRemoveTarget] = React.useState<TeamMember | null>(null)
+  const [detailTarget, setDetailTarget] = React.useState<TeamMember | null>(null)
   const [removing, setRemoving] = React.useState(false)
 
   async function changeRole(roleId: string) {
@@ -155,31 +151,33 @@ export function MembersPanel({ active }: { active: ActiveTeam }) {
         joined: (
           <span className="text-muted-foreground text-sm">{formatDate(m.joinedAt)}</span>
         ),
-        menu:
-          m.isYou || (!canEditRoles && !canRemove) ? null : (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="size-7">
-                  <MoreHorizontal />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" style={{ backgroundColor: "var(--popover)" }}>
-                {canEditRoles && (
-                  <DropdownMenuItem onSelect={() => setRoleTarget(m)}>
-                    Change role
-                  </DropdownMenuItem>
-                )}
-                {canRemove && (
-                  <DropdownMenuItem
-                    className="text-destructive focus:text-destructive"
-                    onSelect={() => setRemoveTarget(m)}
-                  >
-                    Remove from team
-                  </DropdownMenuItem>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ),
+        menu: (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="size-7">
+                <MoreHorizontal />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onSelect={() => setDetailTarget(m)}>
+                View details
+              </DropdownMenuItem>
+              {!m.isYou && canEditRoles && (
+                <DropdownMenuItem onSelect={() => setRoleTarget(m)}>
+                  Change role
+                </DropdownMenuItem>
+              )}
+              {!m.isYou && canRemove && (
+                <DropdownMenuItem
+                  className="text-destructive focus:text-destructive"
+                  onSelect={() => setRemoveTarget(m)}
+                >
+                  Remove from team
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ),
       })),
     [members, canEditRoles, canRemove]
   )
@@ -193,6 +191,12 @@ export function MembersPanel({ active }: { active: ActiveTeam }) {
       ) : (
         <DataTable data={rows} config={TABLE_CONFIG} />
       )}
+
+      <MemberDetailDialog
+        open={detailTarget !== null}
+        onOpenChange={(o) => !o && setDetailTarget(null)}
+        member={detailTarget}
+      />
 
       <RolePickerDialog
         open={roleTarget !== null}

@@ -35,6 +35,24 @@ type PermRow = {
 }
 type RoleRow = { id: string; title: string; is_default: number }
 
+/** Build a full PermissionValue (every module present; missing DB rows → all-
+ * off) from raw permission rows — ONE source for getRolePermissions and
+ * getMyPermissions, so the two can't shape the value differently. */
+function buildPermissionValue(rows: PermRow[]): PermissionValue {
+  const byModule = new Map(rows.map((r) => [r.module, r]))
+  const value: PermissionValue = {}
+  for (const m of TEAM_MODULE_CATALOG) {
+    const r = byModule.get(m.key)
+    value[m.key] = {
+      read: r?.can_read === 1,
+      create: r?.can_create === 1,
+      edit: r?.can_edit === 1,
+      delete: r?.can_delete === 1,
+    }
+  }
+  return value
+}
+
 /** Fetch an active role in this team, or throw a clean 404. */
 async function roleOrThrow(
   cfg: D1Rest,
@@ -72,22 +90,10 @@ export async function getRolePermissions(
     "SELECT module, can_read, can_create, can_edit, can_delete FROM role_permissions WHERE role_id = ?",
     [roleId]
   )
-  const byModule = new Map(rows.map((r) => [r.module, r]))
-
-  const value: PermissionValue = {}
-  for (const m of TEAM_MODULE_CATALOG) {
-    const r = byModule.get(m.key)
-    value[m.key] = {
-      read: r?.can_read === 1,
-      create: r?.can_create === 1,
-      edit: r?.can_edit === 1,
-      delete: r?.can_delete === 1,
-    }
-  }
 
   return {
     modules: TEAM_MODULE_CATALOG,
-    value,
+    value: buildPermissionValue(rows),
     isDefault: role.is_default === 1,
     title: role.title,
     canEdit: await hasRight(cfg, guard, "member_roles", "edit"),
@@ -107,18 +113,7 @@ export async function getMyPermissions(
     "SELECT module, can_read, can_create, can_edit, can_delete FROM role_permissions WHERE role_id = ?",
     [guard.roleId]
   )
-  const byModule = new Map(rows.map((r) => [r.module, r]))
-  const value: PermissionValue = {}
-  for (const m of TEAM_MODULE_CATALOG) {
-    const r = byModule.get(m.key)
-    value[m.key] = {
-      read: r?.can_read === 1,
-      create: r?.can_create === 1,
-      edit: r?.can_edit === 1,
-      delete: r?.can_delete === 1,
-    }
-  }
-  return value
+  return buildPermissionValue(rows)
 }
 
 /** Normalize one module's rights with the locked "any write needs read" rule:
@@ -164,7 +159,7 @@ ON CONFLICT(role_id, module) DO UPDATE SET
     description: `${actor.name} updated permissions for the ${role.title} role`,
     relatedTable: "member_roles",
     relatedRowId: roleId,
-  }).catch((e) => console.error("activity log failed:", e))
+  })
 }
 
 /** Rename / re-describe a role. Refuses the locked Admin (default) role; needs
@@ -195,7 +190,7 @@ export async function updateRole(
     description: `${actor.name} edited the ${cleanTitle} role`,
     relatedTable: "member_roles",
     relatedRowId: roleId,
-  }).catch((e) => console.error("activity log failed:", e))
+  })
 }
 
 /** Create a new (non-default) role. It starts with NO rights — the admin grants
@@ -230,7 +225,7 @@ VALUES (${sqlString(roleId)}, ${sqlString(cleanTitle)}, ${sqlString(desc)}, 0, $
     description: `${actor.name} created the ${cleanTitle} role`,
     relatedTable: "member_roles",
     relatedRowId: roleId,
-  }).catch((e) => console.error("activity log failed:", e))
+  })
 
   return roleId
 }

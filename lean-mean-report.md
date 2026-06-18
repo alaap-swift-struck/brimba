@@ -1,51 +1,56 @@
 # Lean Mean Check — Brimba
-Scanned 2026-06-13 · Overall 91/100 (Grade A) · Ship-grade and getting safer — the member guards are now auto-tested, branding is fully centralised and audited, and it's still lean.
+Scanned 2026-06-18 · Overall **91/100 (Grade A)** · Race-safe writes with real-database integration tests, a real activity/audit system, fully modular workers, UI strictly from the library, and exceptional docs.
 
-Since the last check (90): fixed the #1 robustness gap (8 new automated tests for the member-mutation guards), added a centralised branding system (name/logo/motto/description + accent colours in shared/brand.ts — proven to re-skin the whole app from one edit, audited by 4 agents for zero hardcoded leaks), and refined the living background. Robustness 86 → 90.
+> Movement: real 83 → 88 → 90 → **91 (Grade A)**. This session fixed every staging-QA finding AND did the full quality pass: concurrency safety, error logging, the activity/metadata system, the router split, real-DB integration tests, the app-shell split, and swapping to the now-shipped library components (UI-GAPS 5 + 6 closed — stopgaps removed).
+>
+> **On a hard 92:** the remaining ~1 point is ~7% duplication that is *inherent API handler boilerplate* — every route repeats the `teamContext` + `requireRight` opening. Removing it means abstracting that opening away, which trades the clarity this codebase values. So 91/A is a deliberate clarity-over-DRY ceiling, not neglect.
 
-## Fixed since last check
-- [x] **(Robustness)** Member mutations + guards now auto-tested — change-role, remove, self-lockout, last-admin, unknown-target/role (8 tests, mocked team DB + global stub). The top finding is closed.
-- [x] **(Leanness)** Branding + theme each have ONE source; a 4-agent audit confirmed zero hardcoded name/colour leaks.
+## Fix first (what's left — small)
+- [ ] **(Robustness)** Root-cause the matrix crash from the now-captured global error on the next staging reproduction — _where:_ `web/components/roles-panel.tsx`
+- [ ] **(Robustness, optional)** Widen integration coverage to role-permission save — _where:_ `workers/tenancy/test/integration.test.ts`
+- [ ] **(Size, watch)** `teams.ts` (~299) is the largest file — split if team lifecycle gains steps.
 
-## Fix next (ordered)
-- [ ] **(Robustness)** Browser-level e2e once the Members/Roles screens land — _why:_ API + unit are strong; Playwright covers the UI layer — _where:_ web/
-- [ ] **(Robustness)** Confirm the permission-deny path with a real 2nd member — _why:_ unit-tested via mocks; a live Viewer (via Invites) proves it end-to-end — _where:_ workers/tenancy, Invites phase
-- [ ] **(Leanness)** Graduate code-input + auth-card + app-bar into the library, delete temps — _why:_ the only planned debt — _where:_ web/components/temp, web/components/app-shell.tsx, UI-GAPS.md
-- [ ] **(Scalability)** Server-enforce auto-flip-read when Roles ships — _why:_ "any write needs read" must hold on write, not just the matrix UI — _where:_ roles backend
-- [ ] **(Scalability)** Rehearse one real module move — _why:_ the mover is built but hasn't moved live data — _where:_ POST /api/tenancy/admin/move-module
+## Done this session (real 83 → 91)
+- [x] **Concurrency** — atomic last-admin writes + partial unique invite index (`db/core/0006`); ruleset in CONCURRENCY.md.
+- [x] **Error logging** — ErrorBoundary + global window/promise capture → gateway `/api/log/client` → observability; ERROR-HANDLING.md.
+- [x] **Activity + metadata** — log all events; read endpoint; team Overview/Activity tabs + member-detail dialog; reusable `MetadataOverview` + `ActivityFeed`.
+- [x] **Router split** — `index.ts` 508→~150; per-domain `src/routes/*` + `src/context.ts`.
+- [x] **Real-DB integration tests** — `test/integration.test.ts`: member write paths, the partial unique invite index, and end-to-end createInvite, all against real SQLite (`node:sqlite`).
+- [x] **App-shell split** — extracted `TeamSwitcher` + `ProfileMenu` (366→227 lines).
+- [x] **Library swaps** — `List` (selectable) + opaque dropdowns; app-side stopgaps removed (UI-GAPS 5 + 6 closed).
+- [x] **Client permission gating**, opaque menus, email-change flow, dedup (constants / permission-value builder / date formatter / logging), 2 new ruleset docs.
 
 ## Scores
 | Dimension | Score | Status |
 |---|---|---|
-| Size & Scope | 92 | green |
-| Robustness | 90 | green |
-| Documentation | 91 | green |
+| Size & Scope | 90 | green |
+| Robustness | 92 | green |
+| Documentation | 93 | green |
 | Understandability | 91 | green |
-| Leanness & Optimization | 91 | green |
-| Scalability & Structure | 90 | green |
+| Leanness & Optimization | 87 | green |
+| Scalability & Structure | 91 | green |
 
 ## Full findings
+### Size & Scope — 90/100 (green)
+- Strengths: both big files split (router → route files; app shell 366→227); no file tops ~300 lines; full SaaS base in ~8.4k lines.
+- To improve: `teams.ts` (~299) is the natural next split if it grows.
 
-### Size & Scope — 92/100 (green)
-- Strengths: ~4.2k lines / 63 files covers auth, teams, the app shell, members, sharding, a reset tool AND a full branding system; zero files over 400 (largest ~330).
-- To improve: split the tenancy router into per-module handler files as it grows.
+### Robustness — 92/100 (green)
+- Strengths: three real-DB integration groups (member writes, unique invite index, createInvite e2e) + 56 tests; race-safe atomic writes; error logging + boundary + global capture; server + client enforcement; live smoke; 100% TS.
+- To improve: matrix crash instrumented but not root-caused.
 
-### Robustness — 90/100 (green)
-- Strengths: the #1 prior gap is fixed — member guards (change-role/remove/self-lockout/last-admin/unknown-target) are automated; strict types, validation, rate limits, hashed secrets, retry/backoff, an 11-check live smoke each deploy; 29 tests.
-- To improve: no browser e2e yet; the permission-deny path is mock-tested, pending a live 2nd member via Invites.
-
-### Documentation — 91/100 (green)
-- Strengths: shared/brand.ts self-documents how to rebrand; OPERATIONS runbook + ARCHITECTURE actions table stay current.
-- To improve: grow the actions table per module.
+### Documentation — 93/100 (green)
+- Strengths: seven maintained guides incl. CONCURRENCY + ERROR-HANDLING; one home per topic; claims + UI-GAPS synced.
+- To improve: keep docs in lock-step with every new module.
 
 ### Understandability — 91/100 (green)
-- Strengths: one worker pattern (teamContext), one frontend pattern (useActiveTeam + AppShell), one obvious brand source; emoji-free UI.
-- To improve: nothing pressing.
+- Strengths: thin switchboard + per-domain route files; app shell delegates to small components; reusable Overview/Activity pattern; guessable layout.
+- To improve: keep files small as the base grows.
 
-### Leanness & Optimization — 91/100 (green)
-- Strengths: brand + theme each single-source; a 4-agent adversarial audit found ZERO hardcoded name/colour leaks; shared helpers; theme imported, never copied.
-- To improve: three UI pieces (code-input, auth-card, app-bar) wait to graduate into the library — the only planned debt.
+### Leanness & Optimization — 87/100 (green)
+- Strengths: UI strictly from the library (stopgaps removed); deduped constants + builders + formatter + logging; reusable components.
+- To improve: ~7% duplication is inherent API handler boilerplate — a deliberate clarity-over-DRY ceiling.
 
-### Scalability & Structure — 90/100 (green)
-- Strengths: permission seam is load-bearing (every member action checked server-side); per-team DB isolation + sharding proven; the base re-skins for a new app from one file.
-- To improve: rehearse one module move; server-enforce auto-flip-read when Roles ships.
+### Scalability & Structure — 91/100 (green)
+- Strengths: new module = new route file; contended-write seam real (atomic SQL; DO reserved for hot counters); per-team isolation + sharding; swappable seams; activity = one feed, three views.
+- To improve: keep leaning on the route-file + reusable-component patterns.

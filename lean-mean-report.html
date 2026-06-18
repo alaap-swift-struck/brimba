@@ -100,41 +100,41 @@
 </div>
 
 <script>
-/* DATA:START */
+/* DATA:START — the lean_mean_check skill replaces this whole block with the real report data */
 window.LEAN_MEAN_DATA = {
-  project: "Brimba",
-  scannedAt: "2026-06-13",
-  overall: { score: 91, grade: "A", verdict: "Ship-grade and getting safer — the member guards are now auto-tested, branding is fully centralised and audited, and it's still lean." },
+  project: "Brimba", scannedAt: "2026-06-18",
+  overall: { score: 91, grade: "A", verdict: "Grade A: race-safe writes with real-database integration tests, a real activity/audit system, fully modular workers, UI strictly from the library, and exceptional docs. The last point is the inherent API-handler boilerplate — a deliberate clarity-over-DRY ceiling.",
+    sub: "A full multi-tenant SaaS base in ~8.4k lines across 6 workers + the web app." },
   dimensions: [
-    { key: "size", title: "Size & Scope", icon: "📦", score: 92, status: "green", headline: "Lots of product, still tiny",
-      metrics: [ { label: "Files", value: "63" }, { label: "Lines", value: "~4.2k" }, { label: "Files over 400 lines", value: "0" } ],
-      strengths: [ "Auth, teams, the app shell, members, sharding, a reset tool AND a full branding system in ~4,200 lines.", "Zero files over 400 lines; biggest is ~300." ],
-      improvements: [ { what: "Split the tenancy router as modules land.", why: "index.ts (~330 lines) is fine now; peel members/roles/invites into their own handler files when it grows." } ] },
-    { key: "robustness", title: "Robustness", icon: "🛡️", score: 90, status: "green", headline: "Guards now under test",
-      metrics: [ { label: "Tests", value: "29 green" }, { label: "Member-guard tests", value: "8 (new)" }, { label: "Live smoke", value: "11 checks/deploy" } ],
-      strengths: [ "The #1 prior gap is fixed: change-role / remove / self-lockout / last-admin / unknown-target are now automated (mocked team DB + global stub).", "Strict types, validation, rate limits, hashed secrets, retry/backoff, graceful failures, an 11-check live smoke every deploy." ],
-      improvements: [ { what: "No browser-level e2e yet.", why: "API + unit are strong; a Playwright check covers the UI layer once Members/Roles screens land." }, { what: "Permission-deny path still needs a live 2nd member.", why: "Unit-tested via mocks; a real Viewer (via Invites) confirms end-to-end." } ] },
-    { key: "documentation", title: "Documentation", icon: "📖", score: 91, status: "green", headline: "Self-documenting brand + masters",
-      metrics: [ { label: "Core docs", value: "README, ARCHITECTURE, OPERATIONS, UI-RULES, UI-GAPS" }, { label: "Brand config", value: "1 self-documented file" }, { label: "Stale TODOs", value: "0" } ],
-      strengths: [ "shared/brand.ts documents exactly how to rebrand a new app in one place.", "OPERATIONS runbook + the actions table (MCP-catalog seed) stay current." ],
-      improvements: [ { what: "Grow the actions table per module.", why: "It becomes the MCP front-desk catalog agents call." } ] },
-    { key: "understandability", title: "Understandability", icon: "🧭", score: 91, status: "green", headline: "One pattern, one brand source",
-      metrics: [ { label: "Worker shape", value: "identical x3" }, { label: "Brand source", value: "1 file -> everywhere" }, { label: "Emojis in UI", value: "0" } ],
-      strengths: [ "Every handler opens with teamContext(); the frontend mirrors it with useActiveTeam + AppShell.", "Branding flows from one obvious file — proven by the accent-swap test re-skinning the whole app." ],
-      improvements: [ { what: "Nothing pressing.", why: "Hold the convention as new screens land." } ] },
-    { key: "leanness", title: "Leanness & Optimization", icon: "♻️", score: 91, status: "green", headline: "One master of everything",
-      metrics: [ { label: "Theme + brand", value: "one source each" }, { label: "Duplicate ratio", value: "4.5%" }, { label: "Hardcoded brand/colour leaks", value: "0 (audited)" } ],
-      strengths: [ "A 4-agent adversarial audit confirmed ZERO hardcoded name/colour leaks — the brand + theme each have a single source.", "Shared activity/http/id/data-door helpers; theme imported from the library, never copied." ],
-      improvements: [ { what: "Three UI pieces wait to graduate to the library.", why: "code-input, auth-card (temps) + app-bar (composition) — the only planned debt, tracked in UI-GAPS." } ] },
-    { key: "scalability", title: "Scalability & Structure", icon: "📐", score: 90, status: "green", headline: "Seam load-bearing, brand swappable",
-      metrics: [ { label: "Isolation", value: "1 DB per team (live)" }, { label: "Permission seam", value: "wired into endpoints" }, { label: "Rebrand cost", value: "1 file" } ],
-      strengths: [ "Every member action runs through requireMember + requireRight (not just hidden UI).", "Per-team DB isolation + sharding machinery proven; the base re-skins for a new app from one file." ],
-      improvements: [ { what: "Rehearse one real module move.", why: "The mover is built + reviewed but hasn't moved live data yet." }, { what: "Server-enforce auto-flip-read when Roles ships.", why: "'Any write needs read' must hold on write, not just in the matrix UI." } ] }
+    { key:"size", title:"Size & Scope", icon:"📦", score:90, status:"green", headline:"Compact + modular",
+      metrics:[{label:"Files",value:"115"},{label:"Lines",value:"8.4k"},{label:"Largest file",value:"299 LOC"}],
+      strengths:["Both big files were split: the 460-line tenancy router into per-module route files, and the app shell (366→227) by extracting the switcher + profile menu. No file now tops ~300 lines.","A whole multi-tenant SaaS base (auth, tenancy, realtime, gateway, web, sharding, activity + audit) in ~8.4k lines."],
+      improvements:[{what:"Watch the team factory as it grows.",why:"teams.ts (~299) is the largest file — fine today, but the natural next split if team lifecycle gains steps."}] },
+    { key:"robustness", title:"Robustness", icon:"🛡️", score:92, status:"green", headline:"Race-safe, tested, observable",
+      metrics:[{label:"Tests",value:"56 ✓"},{label:"DB tests",value:"real D1 ×3"},{label:"Types",value:"100% TS"}],
+      strengths:["Three real-database integration groups (member write paths, the partial unique invite index, and an end-to-end createInvite flow) run the ACTUAL SQL against in-memory SQLite — plus race-safe atomic writes and the unit suite.","Errors caught + reported (ErrorBoundary + global capture → observability); server enforcement + client gating + a live smoke test all hold."],
+      improvements:[{what:"One client crash isn't root-caused yet.",why:"The matrix crash is hardened (reconcile loop) + instrumented (global capture) — the next reproduction prints the real cause."}] },
+    { key:"documentation", title:"Documentation", icon:"📖", score:93, status:"green", headline:"Exceptional",
+      metrics:[{label:"Doc files",value:"11"},{label:"Doc lines",value:"854"},{label:"Comments",value:"11%"}],
+      strengths:["Seven maintained docs — ARCHITECTURE + OPERATIONS + CACHING + CONCURRENCY + ERROR-HANDLING + ROADMAP + UI-GAPS — you can onboard from them alone.","Each topic has ONE home (no duplicated docs); comments explain the 'why'; claims + UI-GAPS synced to the code."],
+      improvements:[{what:"Keep docs in lock-step as features land.",why:"The discipline only holds if every new module updates its doc in the same change."}] },
+    { key:"understandability", title:"Understandability", icon:"🧭", score:91, status:"green", headline:"Modular + guessable",
+      metrics:[{label:"Largest file",value:"299 LOC"},{label:"TODOs",value:"0"},{label:"Top dirs",value:"6"}],
+      strengths:["The tenancy worker is a thin switchboard + small per-domain route files; the app shell delegates to a TeamSwitcher + ProfileMenu — any handler/feature is easy to find.","Intention-revealing names (requireRight, publishChange, can) and a guessable web / workers / shared / db layout."],
+      improvements:[{what:"Lean on the patterns as you grow.",why:"New module → a new route file; new record screen → reuse MetadataOverview + ActivityFeed; keep files small."}] },
+    { key:"leanness", title:"Leanness & Optimization", icon:"♻️", score:87, status:"green", headline:"Lean, library-first",
+      metrics:[{label:"Duplication",value:"7.2%"},{label:"UI source",value:"library"},{label:"Stopgaps",value:"0"}],
+      strengths:["UI is now strictly the library — the hand-built selectable list + the dropdown-opacity overrides were removed once the library shipped them (UI-GAPS 5 + 6 closed).","Deduped: shared code-policy constants, one permission-value builder, one date formatter, best-effort logging folded into logActivity; the activity feature reused two components."],
+      improvements:[{what:"~7% duplication is inherent API boilerplate.",why:"Each route handler repeats the teamContext + requireRight opening; abstracting it further would trade away readability — a deliberate clarity-over-DRY ceiling (the one point keeping this off a hard 92)."}] },
+    { key:"scalability", title:"Scalability & Structure", icon:"📐", score:91, status:"green", headline:"Built to grow",
+      metrics:[{label:"Workers",value:"6"},{label:"Per-team DBs",value:"yes"},{label:"Seams",value:"swappable"}],
+      strengths:["A new module = a new route file, not edits to a monolith. The contended-write seam is real (atomic SQL; a Durable Object reserved for hot counters).","Per-team isolation + sharding built ahead; swappable error + AI seams; the activity feed is one model surfaced three ways (team / user / role)."],
+      improvements:[{what:"Keep the discipline.",why:"Lean on the route-file + reusable-component patterns for every new module so structure holds as the base grows."}] }
   ],
-  callouts: {
-    strong: [ "Rebrand the whole app — name, logo, motto, accent colours, even the living background — from ONE file; proven live and audited clean.", "The member-management guards are now automated tests, not just manual checks." ],
-    watch: [ "Browser-level e2e and a live permission-deny test arrive with the Members/Roles/Invites screens.", "Three UI pieces still wait to graduate into the library." ],
-    fix: []
+  callouts:{
+    strong:["Grade A (91): race-safe writes WITH three real-database integration test groups; fully modular workers (no file >300 lines); a real activity/audit system; exceptional in-sync docs.","UI strictly from the library — every stopgap removed once the library shipped the fixes (UI-GAPS 5 + 6 closed).","Concurrency, error-handling and caching each have a written ruleset."],
+    watch:["~7% duplication is inherent API handler boilerplate — the one deliberate clarity-over-DRY point keeping it off a hard 92.","One client crash (the matrix toggle) is hardened + instrumented but not yet root-caused."],
+    fix:["Root-cause the matrix crash from the now-captured global error on the next staging reproduction.","Optional: widen integration coverage further (role-permission save) for extra robustness headroom."]
   }
 };
 /* DATA:END */

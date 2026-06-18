@@ -9,6 +9,8 @@ import * as React from "react"
 
 import { Button } from "@swift-struck/ui/registry/primitives/button/button"
 
+import { reportError } from "@/lib/log"
+
 type Props = { label?: string; children: React.ReactNode }
 type State = { error: Error | null }
 
@@ -20,8 +22,11 @@ export class ErrorBoundary extends React.Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
-    // Surfaced in the browser console with the component stack for diagnosis.
-    console.error(`[ErrorBoundary${this.props.label ? ` · ${this.props.label}` : ""}]`, error, info)
+    // Report with the component stack so a render crash is diagnosable from the
+    // logs (the swappable seam — web/lib/log.ts → Cloudflare observability now).
+    reportError(`ErrorBoundary${this.props.label ? `:${this.props.label}` : ""}`, error, {
+      componentStack: info.componentStack,
+    })
   }
 
   render() {

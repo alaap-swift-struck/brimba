@@ -103,15 +103,32 @@ Then the Foundation phase (below) resumes.
 - **4 · Team header + edit** — SHIPPED (2026-06-15): team header + access-gated
   `TeamEditDialog` (name + logo → R2 `/media/teams/<id>`), `teams:edit` guarded.
 
+## Shipped 2026-06-17 (staging QA round + finish-the-base)
+
+- **Hardening:** client permission gating (`web/lib/perms.ts` `can()`), opaque
+  dropdown menus (stopgap; library flagged), restyled role selection + visible
+  icons, an `ErrorBoundary` + global error reporting (`web/lib/log.ts` → the
+  gateway's `/api/log/client` → Cloudflare observability). Rule: ERROR-HANDLING.md.
+- **Concurrency (race-safety):** atomic last-admin writes (`members.ts`, no DO
+  needed) + a partial unique index for pending invites (`db/core/0006`). Rule:
+  CONCURRENCY.md.
+- **Activity + metadata:** one reusable writer logs created/edited/role-changed/
+  invite/removed events to each team's `activity` table; a read endpoint
+  (`GET /api/tenancy/activity?scope=team|user|role`) + `GET /api/tenancy/team-meta`;
+  reusable `MetadataOverview` + `ActivityFeed`; team-detail **Overview** + **Activity**
+  tabs and a **member-detail dialog** (Overview + Activity). Email-change flow live.
+
 ## Remaining (for the next session)
 
-1. **Record detail screens** (raised later) — every record's detail view with an
-   **Activities** tab (the per-team `activity` log is already being written) + a
-   **Metadata/Overview** tab (created/edited/deactivated audit block). Likely uses
-   the library `detail-view` collection.
-2. **Nice-to-haves:** extract a reusable `<PageGuard>` (the guard is currently
-   inline in the team-detail tabs); graduate the `auth-card`/`code-input` temps
-   into the library (UI-GAPS.md).
+1. **Role detail Overview/Activity** — reuse `MetadataOverview` + `ActivityFeed`
+   (scope=role) on the selected role in the Member-roles tab (the endpoint + both
+   components already support it — small wiring job).
+2. **One-row-three-places (optional polish):** to show a member-role-change on the
+   role's detail too (not just the user's + team feed), add `subject_role_id` to the
+   per-team `activity` table (a team-schema migration + a `migrate-teams` roll).
+3. **Nice-to-haves:** extract a reusable `<PageGuard>`; graduate the
+   `auth-card`/`code-input`/dropdown-opacity/selectable-list temps into the library
+   (UI-GAPS.md).
 
 ## Pace (why sequential, not parallel)
 

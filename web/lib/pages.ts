@@ -32,16 +32,18 @@ export function bottomNavItems(items: NavItem[]): NavItem[] {
 /** Tabs inside a team's detail screen. `module` is the right needed to see the
  * tab (read); `soon` marks a not-yet-built tab. */
 export type TeamTab = {
-  key: "members" | "roles" | "invites"
+  key: "overview" | "members" | "roles" | "invites" | "activity"
   title: string
   module: string
   soon?: boolean
 }
 
 export const TEAM_TABS: TeamTab[] = [
+  { key: "overview", title: "Overview", module: "teams" },
   { key: "members", title: "Members", module: "team_members" },
   { key: "roles", title: "Member roles", module: "member_roles" },
   { key: "invites", title: "Invites", module: "team_members" },
+  { key: "activity", title: "Activity", module: "team_members" },
 ]
 
 /** A breadcrumb step. `href` omitted = the current (non-link) page. */
