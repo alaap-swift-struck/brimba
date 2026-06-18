@@ -70,6 +70,17 @@ Purpose: change a user's email safely. Real data: audit block + `current_email`,
 `user_input_code`, `email_change_successful`, `email_change_timestamp`. Flow:
 request → OTP to new email → match → swap on the user row.
 
+### account_activity — KEEP (BUILT 2026-06-18, GLOBAL — `db/core/0007`)
+Purpose: the person's OWN identity history, shown in Settings → Account. NOT
+team-tied (per-team `activity` lives in each team DB; identity events belong to
+the user across all teams). Real data: `id`, `user_id`, `type`
+(`name_changed`/`photo_changed`/`email_changed`), `description` (human
+sentence), `created_at`. No actor-snapshot block — the actor is always the user
+themselves. Written best-effort by the auth worker on profile/email change
+(`workers/auth/src/lib/account-activity.ts`); read via `GET /api/auth/activity`;
+rendered with the library `ActivityFeed`. `email_change_logs` is kept alongside
+it as the security record (old/new email).
+
 ### importable_databases — KEEP (TO BUILD, GLOBAL reference)
 Purpose: registry for the AI import feature — which tables can be imported.
 Real data: `table_id`, `table_name`, `screen_name`, `required_fields` (JSON:

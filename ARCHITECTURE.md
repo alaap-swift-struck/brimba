@@ -92,6 +92,7 @@ on top follows [CACHING.md](CACHING.md).
 | POST /api/auth/email/change/start | auth | send a 6-digit code to the NEW email (signed-in) |
 | POST /api/auth/email/change/verify | auth | check code → switch `users.email`, log it, sign out other devices, warn the old email |
 | GET /api/auth/me | auth | who am I? |
+| GET /api/auth/activity | auth | the caller's OWN account history (name/photo/email changes) — identity-level, not team-tied |
 | POST /api/auth/profile | auth | onboarding names + photo (R2) |
 | POST /api/auth/logout | auth | end session |
 | POST /api/tenancy/bootstrap | tenancy | accept invites OR create the personal team (+ its database) |

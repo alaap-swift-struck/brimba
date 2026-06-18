@@ -117,3 +117,36 @@ endpoint → a row in ARCHITECTURE.md's actions table → an MCP-catalogued tool
 The engine and any agent call the **same** actions. Authoring a screen is
 itself an action, so agents can build/modify screens — the runtime-config
 choice is what makes that possible.
+
+## 10 · Locked decisions (2026-06-18) — engine + deep links
+
+Decided with the user; do not relitigate without them.
+
+- **Build the FULL config-driven engine** (not a thin route-convention first).
+- **The library OWNS the engine + the recipe contract.** `ScreenRecipe` (the
+  recipe schema) and the `screen-renderer` collection live in `@swift-struck/ui`
+  (`lib/recipe.ts` + `registry/collections/screen-renderer`), so EVERY app on
+  the base inherits them. The engine **renders** a recipe + speaks the URL
+  grammar; it does NOT fetch data, call APIs, store recipes, or own the router —
+  those are the host app's job (a `workers/config` recipe store + the app's
+  catch-all route + server-side permission checks).
+- **Self-describing deep links (URL grammar).** PATH = the record spine
+  `/t/<teamId>/<module>/<id>/<childModule>/<childId>/…` (teamId in the URL so a
+  shared link auto-resolves the tenant + auto-switches the active team for a
+  user who has access). QUERY = the transient layer that sits on top:
+  `?panel=edit|add` (+`module`), `?confirm=<action>&id=`, `?tab=`. Back closes an
+  overlay. Static-export safe: ONE catch-all `web/app/t/[[...path]]/page.tsx`
+  parses the path client-side + a ~3-line gateway rule serves `/t.html` for any
+  `/t/*` depth. Every deep-linked level re-checks rights (client gate +
+  server `requireRight`). Breadcrumbs are DERIVED from the URL + page registry
+  and collapse the middle on small screens (no horizontal scroll).
+- **Record detail = a full route per record** (members, invites, future types),
+  Overview + Activity tabs, via the library `RecordDetail`/`DescriptionList`/
+  `ActivityFeed`. **Invites get the full `invite_logs` audit table** (per-team:
+  inviter snapshot, accepted-by, richer trail) + an `invite` activity scope.
+- **Build sequence (sequential, ship each):** the library builds the engine
+  first (the long pole). Then, in the app, Phase 2 = `workers/config` + the
+  deep-link catch-all + gateway rule + recipe-driven screens + URL breadcrumbs;
+  folded in: `invite_logs` + invite detail, migrate the remaining hand-built
+  lists onto the library `List`, adopt the library search/filters. Phase 3 =
+  custom-screen + live config editing. Then full cross-device test + audits.
