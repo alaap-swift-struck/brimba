@@ -10,10 +10,14 @@
     "directory": "../../web/out",
     "binding": "ASSETS",
     "not_found_handling": "404-page",
-    // The deep-link tree is client-resolved from one shell — run the worker
-    // FIRST for /t/* so it serves the shell, instead of the asset layer 404-ing
-    // an unknown /t/<team>/<module>/<id> navigation before the worker sees it.
-    "run_worker_first": ["/t/*"]
+    // Worker-first for every DYNAMIC path the worker owns. An ARRAY here means
+    // non-listed paths skip the worker entirely (asset-only), so ALL must be
+    // listed: /api/* (routed to the domain workers), /media/* (R2), and /t/*
+    // (the deep-link shell — otherwise the asset layer 404s an unknown
+    // /t/<team>/<module>/<id> navigation before the worker sees it). Static
+    // screens (/, /home, /_next/static/**) are NOT listed, so they keep the
+    // fast asset path + the immutable _headers caching.
+    "run_worker_first": ["/api/*", "/media/*", "/t/*"]
   },
   "services": [
     { "binding": "AUTH", "service": "brimba-auth" },
@@ -29,7 +33,7 @@
         "directory": "../../web/out",
         "binding": "ASSETS",
         "not_found_handling": "404-page",
-        "run_worker_first": ["/t/*"]
+        "run_worker_first": ["/api/*", "/media/*", "/t/*"]
       },
       "services": [
         { "binding": "AUTH", "service": "brimba-auth-staging" },
