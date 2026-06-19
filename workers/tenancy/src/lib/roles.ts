@@ -193,6 +193,44 @@ export async function updateRole(
   })
 }
 
+/** Deactivate or reactivate a role. Deactivate-only model (ARCHITECTURE §4): the
+ * row + its permission sheet are NEVER deleted, so holders keep their access —
+ * deactivating just retires the role (hidden from new assignment). Refuses the
+ * locked Admin. Gated by member_roles:delete (deactivate is the closest thing to
+ * "delete" in our model). */
+export async function setRoleActive(
+  cfg: D1Rest,
+  guard: MemberGuard,
+  actor: Actor,
+  roleId: string,
+  active: boolean
+): Promise<void> {
+  // Find the role regardless of status — we may be reactivating a deactivated one.
+  const rows = await d1Query<RoleRow>(
+    cfg,
+    guard.databaseId,
+    "SELECT id, title, is_default FROM member_roles WHERE id = ?",
+    [roleId]
+  )
+  const role = rows[0]
+  if (!role) throw new GuardError(404, "role_not_found", "That role doesn't exist.")
+  if (role.is_default === 1)
+    throw new GuardError(409, "locked_role", "The Admin role is locked — it can't be deactivated.")
+
+  const now = new Date().toISOString()
+  const sql = active
+    ? `UPDATE member_roles SET deactivated_at = NULL, deactivator_id = NULL, deactivator_email = NULL, deactivator_name = NULL, updated_at = ${sqlString(now)} WHERE id = ${sqlString(roleId)};`
+    : `UPDATE member_roles SET deactivated_at = ${sqlString(now)}, deactivator_id = ${sqlString(actor.id)}, deactivator_email = ${sqlString(actor.email)}, deactivator_name = ${sqlString(actor.name)} WHERE id = ${sqlString(roleId)};`
+  await d1ExecScript(cfg, guard.databaseId, sql)
+
+  await logActivity(cfg, guard.databaseId, actor, {
+    type: active ? "Role activated" : "Role deactivated",
+    description: `${actor.name} ${active ? "activated" : "deactivated"} the ${role.title} role`,
+    relatedTable: "member_roles",
+    relatedRowId: roleId,
+  })
+}
+
 /** Create a new (non-default) role. It starts with NO rights — the admin grants
  * them via the matrix. Returns the new role id. */
 export async function createRole(

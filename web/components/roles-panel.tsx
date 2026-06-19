@@ -36,9 +36,12 @@ export function RolesPanel({ active }: { active: ActiveTeam }) {
   const roles = rolesQ.data
   const { can } = usePermissions(teamId)
   const canCreate = can("member_roles", "create")
+  // Deactivate/reactivate is the "delete" right in our deactivate-only model.
+  const canDeactivate = can("member_roles", "delete")
 
   const [selectedId, setSelectedId] = React.useState<string | null>(null)
   const [saving, setSaving] = React.useState(false)
+  const [busyActive, setBusyActive] = React.useState(false)
   const [creating, setCreating] = React.useState(false)
   const [editingOpen, setEditingOpen] = React.useState(false)
   const selectedRole = roles?.find((r) => r.id === selectedId) ?? null
@@ -52,8 +55,10 @@ export function RolesPanel({ active }: { active: ActiveTeam }) {
     )
   }, [roles])
 
+  // A deactivated role's permissions are frozen + not fetchable (the server
+  // 404s a deactivated role) — only load the matrix for an active role.
   const permsQ = useCached<RolePermissions>(
-    selectedId ? `role-perms:${selectedId}` : null,
+    selectedId && selectedRole?.active ? `role-perms:${selectedId}` : null,
     () => tenancy.rolePermissions(selectedId as string)
   )
   const perms = permsQ.data ?? null
@@ -120,12 +125,28 @@ export function RolesPanel({ active }: { active: ActiveTeam }) {
     toast.success("Role updated.")
   }
 
+  async function setActive(activeNext: boolean) {
+    if (!selectedId) return
+    setBusyActive(true)
+    try {
+      const { roles: next } = await tenancy.setRoleActive(selectedId, activeNext)
+      if (teamId) primeCache(`member_roles:${teamId}`, next)
+      toast.success(activeNext ? "Role activated." : "Role deactivated.")
+    } catch (err) {
+      toast.error(
+        err instanceof ApiFailure ? err.message : "Couldn't update the role."
+      )
+    } finally {
+      setBusyActive(false)
+    }
+  }
+
   const matrixConfig: PermissionMatrixConfig | null = perms && {
     ...defaultPermissionMatrixConfig,
     modules: perms.modules,
     mode: perms.isDefault ? "locked" : perms.canEdit ? "edit" : "read",
     autoFlipRead: true,
-    surface: "none",
+    surface: "card",
   }
   const canSave = perms != null && !perms.isDefault && perms.canEdit
 
@@ -148,18 +169,23 @@ export function RolesPanel({ active }: { active: ActiveTeam }) {
       ) : (
         <>
           <List
-            surface="none"
+            surface="card"
             selectedId={selectedId}
             onSelect={(item) => setSelectedId(item.id)}
             items={roles.map((r) => ({
               id: r.id,
               title: (
                 <span className="flex items-center gap-2">
-                  {r.title}
+                  <span className={r.active ? "" : "text-muted-foreground"}>{r.title}</span>
                   {r.isDefault && (
                     <Badge variant="outline" className="gap-1 text-[10px]">
                       <Lock className="size-2.5" aria-hidden />
                       Locked
+                    </Badge>
+                  )}
+                  {!r.active && (
+                    <Badge variant="outline" className="text-muted-foreground text-[10px]">
+                      Inactive
                     </Badge>
                   )}
                 </span>
@@ -179,11 +205,30 @@ export function RolesPanel({ active }: { active: ActiveTeam }) {
           />
 
           <div className="flex flex-col gap-3">
-            {permsQ.loading || !matrixConfig || !draft ? (
+            {selectedRole && !selectedRole.active ? (
+              // Deactivated role: permissions are frozen (holders keep their
+              // access); offer to reactivate. Never deleted — ARCHITECTURE §4.
+              <div className="border-border/60 flex flex-col gap-3 rounded-xl border p-6">
+                <p className="text-muted-foreground text-sm">
+                  This role is deactivated. Members who hold it keep their access,
+                  but it can&apos;t be assigned to new members until you reactivate it.
+                </p>
+                {canDeactivate && (
+                  <Button
+                    onClick={() => void setActive(true)}
+                    disabled={busyActive}
+                    className="w-full gap-1.5 sm:w-auto sm:self-start"
+                  >
+                    {busyActive ? <Spinner /> : null}
+                    {busyActive ? "Activating…" : "Activate role"}
+                  </Button>
+                )}
+              </div>
+            ) : permsQ.loading || !matrixConfig || !draft ? (
               <Skeleton className="h-64 w-full rounded-xl" />
             ) : (
               <>
-                <div className="flex items-center justify-between gap-3">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <p className="text-muted-foreground text-sm">
                     {perms?.isDefault
                       ? "The Admin role has full access and can't be changed."
@@ -191,8 +236,8 @@ export function RolesPanel({ active }: { active: ActiveTeam }) {
                         ? "Switch on what this role can do. Any write turns Read on."
                         : "You can view what this role can do, but not change it."}
                   </p>
-                  {canSave && (
-                    <div className="flex shrink-0 items-center gap-2">
+                  <div className="flex shrink-0 flex-wrap items-center gap-2">
+                    {canSave && (
                       <Button
                         variant="outline"
                         size="sm"
@@ -202,12 +247,27 @@ export function RolesPanel({ active }: { active: ActiveTeam }) {
                         <Pencil className="size-3.5" />
                         Edit details
                       </Button>
+                    )}
+                    {/* Deactivate — non-Admin only, needs the delete right. */}
+                    {selectedRole && !selectedRole.isDefault && canDeactivate && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void setActive(false)}
+                        disabled={busyActive}
+                        className="text-destructive hover:text-destructive gap-1.5"
+                      >
+                        {busyActive ? <Spinner /> : null}
+                        Deactivate
+                      </Button>
+                    )}
+                    {canSave && (
                       <Button onClick={() => void save()} disabled={!dirty || saving}>
                         {saving ? <Spinner /> : null}
                         {saving ? "Saving…" : "Save"}
                       </Button>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
                 <PermissionMatrix
                   config={matrixConfig}

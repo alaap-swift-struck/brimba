@@ -21,6 +21,7 @@ import {
   createRole,
   getRolePermissions,
   normalizeRights,
+  setRoleActive,
   setRolePermissions,
 } from "../src/lib/roles"
 import { GuardError } from "../src/lib/permissions"
@@ -111,6 +112,38 @@ describe("createRole", () => {
     const permRows = script.match(/INSERT INTO role_permissions/g) ?? []
     expect(permRows).toHaveLength(TEAM_MODULE_CATALOG.length)
     expect(script).toContain("0, 0, 0, 0") // every right starts off
+  })
+})
+
+describe("setRoleActive (deactivate / reactivate)", () => {
+  it("refuses to deactivate the locked Admin role", async () => {
+    roleLookup({ id: "ADMIN", title: "Admin", is_default: 1 })
+    await expect(
+      setRoleActive(cfg, guard, actor, "ADMIN", false)
+    ).rejects.toMatchObject({ code: "locked_role" })
+    expect(d1ExecScript).not.toHaveBeenCalled()
+  })
+
+  it("throws when the role doesn't exist", async () => {
+    roleLookup(null)
+    await expect(
+      setRoleActive(cfg, guard, actor, "NOPE", false)
+    ).rejects.toMatchObject({ code: "role_not_found" })
+  })
+
+  it("deactivates a non-default role (stamps deactivated_at, never deletes)", async () => {
+    roleLookup({ id: "R", title: "Editor", is_default: 0 })
+    await setRoleActive(cfg, guard, actor, "R", false)
+    const script = d1ExecScript.mock.calls[0][2] as string
+    expect(script).toContain("UPDATE member_roles SET deactivated_at = '")
+    expect(script).not.toContain("DELETE")
+  })
+
+  it("reactivates a role (clears deactivated_at)", async () => {
+    roleLookup({ id: "R", title: "Editor", is_default: 0 })
+    await setRoleActive(cfg, guard, actor, "R", true)
+    const script = d1ExecScript.mock.calls[0][2] as string
+    expect(script).toContain("deactivated_at = NULL")
   })
 })
 

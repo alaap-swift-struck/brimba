@@ -10,6 +10,7 @@ import {
   createRole,
   getMyPermissions,
   getRolePermissions,
+  setRoleActive,
   setRolePermissions,
   updateRole,
   type PermissionValue,
@@ -75,6 +76,22 @@ export async function postUpdateRole(request: Request, env: Env): Promise<Respon
   if (!body.roleId || !body.title?.trim())
     return fail(400, "invalid_input", "roleId and title are required.")
   await updateRole(cfg, guard, actor, body.roleId, body.title, body.description ?? "")
+  await publishChange(env.REALTIME, guard.teamId, "member_roles", body.roleId)
+  return json({ roles: await listRoles(env, cfg, guard) })
+}
+
+/** Deactivate / reactivate a role — never deleted (holders keep access). Gated
+ * by member_roles:delete (deactivate is our "delete" in the deactivate-only model). */
+export async function postSetRoleActive(request: Request, env: Env): Promise<Response> {
+  const { actor, cfg, guard } = await teamContext(request, env)
+  await requireRight(cfg, guard, "member_roles", "delete")
+  const body = (await request.json().catch(() => ({}))) as {
+    roleId?: string
+    active?: boolean
+  }
+  if (!body.roleId || typeof body.active !== "boolean")
+    return fail(400, "invalid_input", "roleId and active are required.")
+  await setRoleActive(cfg, guard, actor, body.roleId, body.active)
   await publishChange(env.REALTIME, guard.teamId, "member_roles", body.roleId)
   return json({ roles: await listRoles(env, cfg, guard) })
 }

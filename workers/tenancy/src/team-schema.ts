@@ -25,7 +25,7 @@ const MODULE_LABELS: Record<(typeof TEAM_MODULES)[number], string> = {
   team_members: "Members",
   member_roles: "Roles & permissions",
   learning: "Learning",
-  help: "Help desk",
+  help: "Help",
   selectable_data: "Dropdown data",
 }
 

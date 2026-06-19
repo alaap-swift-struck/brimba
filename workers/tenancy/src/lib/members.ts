@@ -92,10 +92,18 @@ export async function listRoles(
   cfg: D1Rest,
   guard: MemberGuard
 ): Promise<TeamRole[]> {
-  const roles = await d1Query<RoleRow>(
+  // Include deactivated roles (active-first) so they can be seen + reactivated;
+  // deactivate-only means the row + its permissions are never deleted.
+  const roles = await d1Query<{
+    id: string
+    title: string
+    description: string | null
+    is_default: number
+    deactivated_at: string | null
+  }>(
     cfg,
     guard.databaseId,
-    "SELECT id, title, description, is_default FROM member_roles WHERE deactivated_at IS NULL ORDER BY is_default DESC, title"
+    "SELECT id, title, description, is_default, deactivated_at FROM member_roles ORDER BY (deactivated_at IS NULL) DESC, is_default DESC, title"
   )
   const counts = await env.DB.prepare(
     "SELECT role_id, COUNT(*) AS n FROM team_members WHERE team_id = ? AND deactivated_at IS NULL GROUP BY role_id"
@@ -110,6 +118,7 @@ export async function listRoles(
     description: r.description,
     isDefault: r.is_default === 1,
     memberCount: countBy.get(r.id) ?? 0,
+    active: r.deactivated_at == null,
   }))
 }
 

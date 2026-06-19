@@ -60,7 +60,7 @@ const TABLE_CONFIG = {
   searchable: false,
   rowActions: false,
   emptyText: "No members yet.",
-  surface: "none" as const,
+  surface: "card" as const,
 }
 
 function fullName(m: TeamMember) {
@@ -223,7 +223,7 @@ export function MembersPanel({ active }: { active: ActiveTeam }) {
       <RolePickerDialog
         open={roleTarget !== null}
         onOpenChange={(o) => !o && setRoleTarget(null)}
-        roles={roles}
+        roles={roles.filter((r) => r.active)}
         currentRoleId={roleTarget?.roleId ?? null}
         subjectName={roleTarget ? fullName(roleTarget) : null}
         onPick={changeRole}

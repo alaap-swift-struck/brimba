@@ -45,7 +45,8 @@ export function InvitesPanel({ active }: { active: ActiveTeam }) {
     tenancy.roles().then((r) => r.roles)
   )
   const invites = invitesQ.data
-  const roles = rolesQ.data ?? []
+  // Only active roles can be assigned (the server also rejects deactivated ones).
+  const roles = (rolesQ.data ?? []).filter((r) => r.active)
 
   const { can } = usePermissions(teamId)
   const canInvite = can("team_members", "create")

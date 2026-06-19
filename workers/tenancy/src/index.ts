@@ -17,6 +17,7 @@
 //   GET  /api/tenancy/roles                -> the team's roles (+ member counts)
 //   POST /api/tenancy/roles                -> create a new role
 //   POST /api/tenancy/roles/update         -> rename / re-describe a role
+//   POST /api/tenancy/roles/active         -> deactivate / reactivate a role (never deleted)
 //   GET  /api/tenancy/roles/permissions    -> a role's permission matrix (?roleId)
 //   POST /api/tenancy/roles/permissions    -> save a role's permission matrix
 //   GET  /api/tenancy/activity             -> activity feed (?scope=team|user|role&id=)
@@ -55,6 +56,7 @@ import {
   getRoles,
   postCreateRole,
   postRolePerms,
+  postSetRoleActive,
   postUpdateRole,
 } from "./routes/roles"
 import {
@@ -99,6 +101,8 @@ export default {
           return await postCreateRole(request, env)
         case "POST /api/tenancy/roles/update":
           return await postUpdateRole(request, env)
+        case "POST /api/tenancy/roles/active":
+          return await postSetRoleActive(request, env)
         case "GET /api/tenancy/roles/permissions":
           return await getRolePerms(request, env)
         case "POST /api/tenancy/roles/permissions":

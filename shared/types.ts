@@ -101,6 +101,8 @@ export type TeamRole = {
   isDefault: boolean
   /** how many active members currently hold this role */
   memberCount: number
+  /** false = deactivated (kept, never deleted; holders keep their access) */
+  active: boolean
 }
 
 /** The signed-in person's current working context — powers the app shell. */

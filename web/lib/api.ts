@@ -166,6 +166,14 @@ export const tenancy = {
       body: JSON.stringify({ roleId, title, description }),
     }),
 
+  /** Deactivate / reactivate a role (never deleted; holders keep access). Needs
+   * member_roles:delete. Returns the refreshed role list. */
+  setRoleActive: (roleId: string, active: boolean) =>
+    api<{ roles: TeamRole[] }>("/api/tenancy/roles/active", {
+      method: "POST",
+      body: JSON.stringify({ roleId, active }),
+    }),
+
   /** Change a member's role; returns the refreshed member list. */
   setMemberRole: (userId: string, roleId: string) =>
     api<{ members: TeamMember[] }>("/api/tenancy/members/role", {
