@@ -27,7 +27,7 @@ import { formatDate, formatDateTime } from "@/lib/format"
 import { usePermissions } from "@/lib/perms"
 import { useCached } from "@/lib/store"
 import { useActiveTeam } from "@/lib/use-active-team"
-import { memberDetailRecipe } from "@/lib/screens"
+import { resolveRecipe } from "@/lib/screens"
 import type { TeamMember } from "@shared/types"
 
 function fullName(m: TeamMember) {
@@ -67,6 +67,12 @@ export function DeepLinkScreen() {
   const activityQ = useCached(
     recordId && onTeam && module === "members" ? `activity:user:${recordId}` : null,
     () => tenancy.activity("user", recordId as string).then((r) => r.activity)
+  )
+  // The team's screen-recipe overrides (config store). The recipe is resolved
+  // override-over-base; cache-first, defensive (no/bad override → base).
+  const overridesQ = useCached(
+    teamId && onTeam ? `screens:${teamId}` : null,
+    () => tenancy.screenOverrides().then((r) => r.screens)
   )
   const { can } = usePermissions(onTeam ? teamId : null)
 
@@ -115,6 +121,10 @@ export function DeepLinkScreen() {
     // milestone (keeps M1 free of re-render churn on every tab click).
   }
 
+  // Override-over-base (config store). Base exists for members.detail, so this
+  // is non-null in practice; the guard keeps it safe if a key is ever missing.
+  const recipe = resolveRecipe("members.detail", overridesQ.data)
+
   const crumbs = [
     { label: "Settings", href: "/settings" },
     { label: teamName, href: "/settings/team?tab=members" },
@@ -134,9 +144,11 @@ export function DeepLinkScreen() {
           <Skeleton variant="list" lines={4} />
         ) : !member ? (
           <p className="text-muted-foreground text-sm">That member isn&apos;t on this team.</p>
+        ) : !recipe ? (
+          <p className="text-muted-foreground text-sm">That screen isn&apos;t available.</p>
         ) : (
           <ScreenRenderer
-            recipe={memberDetailRecipe}
+            recipe={recipe}
             data={data}
             rights={rights}
             onAction={() => {}}

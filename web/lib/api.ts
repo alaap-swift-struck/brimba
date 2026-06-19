@@ -225,4 +225,17 @@ export const tenancy = {
 
   /** The active team's Overview metadata (created by/when, last updated). */
   teamMeta: () => api<TeamMeta>("/api/tenancy/team-meta"),
+
+  /** The active team's screen-recipe OVERRIDES ({ module: recipeJSON }). The web
+   * app merges these over the in-code base recipes (override wins per screen). */
+  screenOverrides: () =>
+    api<{ screens: Record<string, string> }>("/api/tenancy/config/screens"),
+
+  /** Set (author) a team's override for one screen — runtime-editable, no deploy.
+   * Needs teams:edit. */
+  setScreenOverride: (module: string, recipe: unknown) =>
+    api<{ screens: Record<string, string> }>("/api/tenancy/config/screens", {
+      method: "POST",
+      body: JSON.stringify({ module, recipe }),
+    }),
 }

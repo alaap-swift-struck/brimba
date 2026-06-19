@@ -87,6 +87,22 @@ CREATE TABLE activity (
 CREATE INDEX idx_activity_related ON activity (related_table, related_row_id);
 `,
   },
+  {
+    // Screen-engine config: a team's per-screen recipe OVERRIDES. The base
+    // recipes ship in app code (one definition every team inherits); a row here
+    // overrides one screen for THIS team — the runtime-editable layer that lets
+    // an admin/agent reshape a screen with no deploy. `recipe` is opaque JSON to
+    // the worker (the web app owns the ScreenRecipe shape + validates it).
+    version: "0002_screens",
+    sql: `
+CREATE TABLE screens (
+  module TEXT PRIMARY KEY,          -- the screen/recipe key, e.g. "members" | "member_roles"
+  recipe TEXT NOT NULL,             -- a ScreenRecipe as JSON (overrides the base)
+  created_at TEXT NOT NULL, creator_id TEXT, creator_email TEXT, creator_name TEXT,
+  updated_at TEXT, editor_id TEXT, editor_email TEXT, editor_name TEXT
+);
+`,
+  },
 ]
 
 export type Actor = { id: string; email: string; name: string }

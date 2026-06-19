@@ -39,3 +39,27 @@ export const memberDetailRecipe: ScreenRecipe = {
 export const MODULE_PERMISSION: Record<string, string> = {
   members: "team_members",
 }
+
+/** The in-code BASE recipe for each screen key — the shipped default every team
+ * inherits. A team can OVERRIDE one via the config store (per-team `screens`
+ * table); the resolver merges override-over-base. Keys are `<module>.<view>`. */
+export const BASE_RECIPES: Record<string, ScreenRecipe> = {
+  "members.detail": memberDetailRecipe,
+}
+
+/** Resolve the recipe for a screen key: a team's JSON override (if present AND
+ * valid) wins over the in-code base. Defensive — a missing/malformed override
+ * falls back to the base, so a bad override can never break the screen. */
+export function resolveRecipe(
+  key: string,
+  overrides: Record<string, string> | undefined
+): ScreenRecipe | null {
+  const base = BASE_RECIPES[key] ?? null
+  const raw = overrides?.[key]
+  if (!raw) return base
+  try {
+    return JSON.parse(raw) as ScreenRecipe
+  } catch {
+    return base
+  }
+}

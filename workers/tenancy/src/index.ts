@@ -27,6 +27,8 @@
 //   POST /api/tenancy/invites/revoke       -> revoke ("redact") a pending invite
 //   GET  /api/tenancy/invitations          -> invites I've RECEIVED (any signed-in user)
 //   POST /api/tenancy/invitations/accept   -> accept a received invite (join + switch)
+//   GET  /api/tenancy/config/screens       -> a team's screen-recipe overrides (any member)
+//   POST /api/tenancy/config/screens       -> set a screen override (teams:edit; agent-callable)
 //   POST /api/tenancy/admin/migrate-teams  -> roll team-schema migrations (x-admin-key)
 //   GET  /api/tenancy/admin/db-sizes       -> size every team DB + open alarms
 //   POST /api/tenancy/admin/move-module    -> relocate a heavy module (the mover)
@@ -66,6 +68,7 @@ import {
   postCreateInvite,
   postRevokeInvite,
 } from "./routes/invites"
+import { getScreens, postScreen } from "./routes/config"
 import { dbSizes, migrateTeams, moveModule } from "./routes/admin"
 
 export default {
@@ -121,6 +124,10 @@ export default {
           return await getReceivedInvitations(request, env)
         case "POST /api/tenancy/invitations/accept":
           return await postAcceptInvitation(request, env)
+        case "GET /api/tenancy/config/screens":
+          return await getScreens(request, env)
+        case "POST /api/tenancy/config/screens":
+          return await postScreen(request, env)
         case "POST /api/tenancy/admin/migrate-teams":
           return await migrateTeams(request, env)
         case "GET /api/tenancy/admin/db-sizes":
