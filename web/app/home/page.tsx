@@ -16,17 +16,24 @@ import { Users, Settings, ChevronRight } from "lucide-react"
 import { AppShell, ShellLoading } from "@/components/app-shell"
 import { useActiveTeam } from "@/lib/use-active-team"
 
-const LINKS = [
-  { title: "Team", desc: "Members, roles and invites", icon: Users, href: "/settings/team" },
-  { title: "Settings", desc: "Your account and teams", icon: Settings, href: "/settings" },
-] as const
-
 export default function HomePage() {
   const active = useActiveTeam()
   const router = useRouter()
   const { loading, ctx } = active
 
   if (loading || !ctx) return <ShellLoading />
+
+  // The team area lives at /t/<teamId> now (members / roles / invites are its
+  // sections); Settings is your account + teams.
+  const LINKS = [
+    {
+      title: "Team",
+      desc: "Members, roles and invites",
+      icon: Users,
+      href: ctx.team ? `/t/${ctx.team.id}` : "/settings",
+    },
+    { title: "Settings", desc: "Your account and teams", icon: Settings, href: "/settings" },
+  ]
 
   return (
     <AppShell active={active}>

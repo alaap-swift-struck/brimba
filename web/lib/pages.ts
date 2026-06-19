@@ -29,21 +29,22 @@ export function bottomNavItems(items: NavItem[]): NavItem[] {
   return [...rest.slice(0, mid), home, ...rest.slice(mid)]
 }
 
-/** Tabs inside a team's detail screen. `module` is the right needed to see the
- * tab (read); `soon` marks a not-yet-built tab. */
-export type TeamTab = {
-  key: "overview" | "members" | "roles" | "invites" | "activity"
+/** The sections of a team's area (the switcher across /t/<teamId>/…). `module` is
+ * the read-right needed to see it; `segment` is the URL segment under the team
+ * (empty = the team overview at /t/<teamId> itself). Activity lives as a tab on
+ * the Overview screen, so it isn't a separate section. */
+export type TeamSection = {
+  key: "overview" | "members" | "roles" | "invites"
   title: string
   module: string
-  soon?: boolean
+  segment: string
 }
 
-export const TEAM_TABS: TeamTab[] = [
-  { key: "overview", title: "Overview", module: "teams" },
-  { key: "members", title: "Members", module: "team_members" },
-  { key: "roles", title: "Member roles", module: "member_roles" },
-  { key: "invites", title: "Invites", module: "team_members" },
-  { key: "activity", title: "Activity", module: "team_members" },
+export const TEAM_SECTIONS: TeamSection[] = [
+  { key: "overview", title: "Overview", module: "teams", segment: "" },
+  { key: "members", title: "Members", module: "team_members", segment: "members" },
+  { key: "roles", title: "Member roles", module: "member_roles", segment: "roles" },
+  { key: "invites", title: "Invites", module: "team_members", segment: "invites" },
 ]
 
 /** A breadcrumb step. `href` omitted = the current (non-link) page. */

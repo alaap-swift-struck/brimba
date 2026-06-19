@@ -10,16 +10,11 @@
 import * as React from "react"
 import { useRouter, usePathname } from "next/navigation"
 
+import { Breadcrumbs } from "@swift-struck/ui/registry/primitives/breadcrumbs/breadcrumbs"
 import { ModeToggle } from "@swift-struck/ui/registry/primitives/mode-toggle/mode-toggle"
 import { Skeleton } from "@swift-struck/ui/registry/primitives/skeleton/skeleton"
 import { toast } from "@swift-struck/ui/registry/primitives/sonner/sonner"
-import {
-  Home,
-  Settings,
-  ChevronRight,
-  PanelLeftClose,
-  PanelLeftOpen,
-} from "lucide-react"
+import { Home, Settings, PanelLeftClose, PanelLeftOpen } from "lucide-react"
 
 import type { ActiveTeam } from "@/lib/use-active-team"
 import { useRealtime } from "@/lib/realtime"
@@ -71,6 +66,8 @@ export function AppShell({
     invalidate(`activity:team:${teamId}`)
     if (event.resource === "members") {
       invalidate(`members:${teamId}`)
+      invalidate(`member_roles:${teamId}`) // per-role member counts changed too
+      if (event.id) invalidate(`activity:user:${event.id}`) // that member's feed gained a row
       void active.refresh()
     } else if (event.resource === "member_roles") {
       invalidate(`member_roles:${teamId}`)
@@ -153,31 +150,12 @@ export function AppShell({
           </div>
         </header>
 
-        {/* Breadcrumbs */}
+        {/* Breadcrumbs — URL-derived, collapsing on small screens (library
+         * primitive). The host owns the router, so links route through onNavigate. */}
         {breadcrumbs && breadcrumbs.length > 0 && (
-          <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 px-4 pt-4 text-sm">
-            {breadcrumbs.map((c, i) => {
-              const last = i === breadcrumbs.length - 1
-              return (
-                <React.Fragment key={i}>
-                  {i > 0 && <ChevronRight className="text-muted-foreground size-3.5 shrink-0" />}
-                  {c.href && !last ? (
-                    <button
-                      type="button"
-                      onClick={() => router.push(c.href as string)}
-                      className="text-muted-foreground hover:text-foreground truncate transition-colors"
-                    >
-                      {c.label}
-                    </button>
-                  ) : (
-                    <span className={last ? "truncate font-medium" : "text-muted-foreground truncate"}>
-                      {c.label}
-                    </span>
-                  )}
-                </React.Fragment>
-              )
-            })}
-          </nav>
+          <div className="px-4 pt-4">
+            <Breadcrumbs items={breadcrumbs} onNavigate={(href) => router.push(href)} />
+          </div>
         )}
 
         <main className="min-w-0 flex-1 overflow-x-hidden px-4 py-6 pb-24 md:pb-8">

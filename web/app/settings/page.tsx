@@ -42,7 +42,7 @@ export default function SettingsPage() {
 
   async function openTeam(teamId: string) {
     if (teamId !== ctx?.team?.id) await active.switchTeam(teamId)
-    router.push("/settings/team")
+    router.push(`/t/${teamId}`)
   }
 
   if (loading || !ctx) return <ShellLoading />

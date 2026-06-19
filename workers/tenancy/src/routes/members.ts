@@ -24,7 +24,9 @@ export async function postMemberRole(request: Request, env: Env): Promise<Respon
   if (!body.userId || !body.roleId)
     return fail(400, "invalid_input", "userId and roleId are required.")
   await changeMemberRole(env, cfg, guard, actor, body.userId, body.roleId)
-  await publishChange(env.REALTIME, guard.teamId, "members")
+  // Carry the affected userId so other clients can refresh that member's
+  // activity feed (activity:user:<id>) in addition to the member + role lists.
+  await publishChange(env.REALTIME, guard.teamId, "members", body.userId)
   return json({ members: await listMembers(env, cfg, guard) })
 }
 
@@ -34,6 +36,6 @@ export async function postMemberRemove(request: Request, env: Env): Promise<Resp
   const body = (await request.json().catch(() => ({}))) as { userId?: string }
   if (!body.userId) return fail(400, "invalid_input", "userId is required.")
   await removeMember(env, cfg, guard, actor, body.userId)
-  await publishChange(env.REALTIME, guard.teamId, "members")
+  await publishChange(env.REALTIME, guard.teamId, "members", body.userId)
   return json({ members: await listMembers(env, cfg, guard) })
 }
