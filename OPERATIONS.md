@@ -30,6 +30,7 @@ The /reset-all skill reads this. DESTRUCTIVE — wipes data back to empty.
 | gateway (`workers/gateway`) | brimba-staging | brimba | The front door: serves web/out (marks `/_next/static/**` immutable) + routes /api/* (incl. the /api/realtime WebSocket) via service bindings |
 | auth (`workers/auth`) | brimba-auth-staging | brimba-auth | Login (strict email codes only), sessions, users |
 | realtime (`workers/realtime`) | brimba-realtime-staging | brimba-realtime | The live switchboard: per-team `TeamChannel` Durable Object broadcasts change pings over WebSockets. Binds AUTH + the core DB (to gate connections); holds no app data |
+| tenancy (`workers/tenancy`) | brimba-tenancy-staging | brimba-tenancy | Members/roles/invites/config: team membership, role permissions, invitations + the nightly team-DB sizing cron + the per-team screen-recipe config store (served at GET/POST `/api/tenancy/config/screens`). UPDATED 2026-06-21: the planned `workers/config` worker was folded into tenancy — there is NO separate config worker |
 
 | D1 database | Bound to | Migrations |
 |---|---|---|
@@ -44,7 +45,7 @@ New migrations must be applied to BOTH databases before deploying workers that n
 
 - `cd workers/auth && npx wrangler secret put RESEND_API_KEY --env staging` (and again without `--env` for production)
 - `CF_D1_TOKEN` (Account→D1→Edit) on brimba-tenancy + brimba-tenancy-staging — SET 2026-06-12 (team creation live). `ADMIN_KEY` (maintenance endpoints: migrate-teams, db-sizes, move-module) — SET on both envs 2026-06-12; rotate anytime with `wrangler secret put ADMIN_KEY`.
-- `INTERNAL_KEY` — shared secret guarding auth's `/internal/send-email` (tenancy sends it; auth enforces it when set). Must MATCH on `brimba-auth*` + `brimba-tenancy*`. Defense-in-depth alongside `workers_dev:false`.
+- `INTERNAL_KEY` — shared secret guarding auth's `/internal/send-email` (tenancy sends it; auth enforces it). UPDATED 2026-06-21: when `INTERNAL_KEY` is set, auth REJECTS any `/internal/send-email` whose key does not match — a mismatch is a HARD 401 reject, NOT a silent pass. The key MUST match across `brimba-auth*` + `brimba-tenancy*`, and it MUST be set in EVERY env before the member-notification email feature ships (so "when set" is not an optional/skippable path in production). Defense-in-depth alongside `workers_dev:false`.
 
 ### Public surface (LOCKED): only the gateway is public
 
@@ -70,7 +71,7 @@ both owner-only:
 
 ## Verify before shipping
 
-- npm run check   (type-checks web + all 5 workers, runs all 51 unit/integration tests)
+- npm run check   (type-checks web + the 4 built workers — auth, tenancy, realtime, gateway — and runs all unit/integration tests). UPDATED 2026-06-21: 4 workers are on disk; content + data-ops are PLANNED, not built, so "all 5 workers" / "~6" no longer applies. The recipe config store lives in tenancy, not a separate worker.
 - CI runs the same on every push (.github/workflows/ci.yml)
 - deploy:staging ends with scripts/smoke-staging.mjs — the LIVE login→team journey must pass or the deploy is considered failed
 

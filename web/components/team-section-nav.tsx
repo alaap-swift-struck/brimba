@@ -45,7 +45,9 @@ export function TeamSectionNav({
             value: s.key,
             label: s.title,
             icon: CONCEPT_ICON[s.key],
-            badge: count != null ? abbreviateCount(count) : "",
+            // Hide the chip when empty (0) or still loading (undefined) — a "0"
+            // badge is noise; show it only once there's a real count.
+            badge: count ? abbreviateCount(count) : "",
             badgeVariant: "",
           }
         }),

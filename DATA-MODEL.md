@@ -52,6 +52,10 @@ Real data: `id`, `email`, `image_url`, `first_name`, `last_name`,
 `onboarding_completed_at`, `current_team_id`. Glide `Row owners/Team keys
 string` (the teams a user belongs to) = our **team_members** table.
 Dropped: all transformer/onboarding-JSON/tab-view/device columns.
+**No-name fallback (2026-06-21):** members can exist pre-onboarding, so
+`first_name`/`last_name` may both be empty — display the `email` as the name in
+that case; with no `image_url`, show initials (or a placeholder avatar when even
+initials aren't derivable).
 
 ### teams — KEEP (built)
 Real data: `id`, `name` (`Identity/Team name`), `logo_url`. Brimba adds
@@ -64,11 +68,16 @@ role ID` + `webhook complete` were async-webhook scaffolding — **dropped**;
 role change is a direct server action. Membership is global (answers "which
 teams am I in?" before we open any team DB).
 
-### email_change_logs — KEEP (TO BUILD, GLOBAL — no team key in the export)
+### email_change_logs — KEEP (BUILT 2026-06-17, GLOBAL — no team key in the export; `db/core/0005_email_change.sql`)
 Purpose: change a user's email safely. Real data: audit block + `current_email`,
 `new_email`, `expires_at`, `verification_code` (numeric OTP to the NEW email),
 `user_input_code`, `email_change_successful`, `email_change_timestamp`. Flow:
 request → OTP to new email → match → swap on the user row.
+**UPDATED 2026-06-21:** shipped in Phase 2 (`db/core/0005_email_change.sql`).
+The login/email-change codes were **split out into a separate hashed
+`email_change_codes` table** (the OTP is stored hashed, not in clear on the log
+row); `email_change_logs` remains the human-readable security record (old/new
+email, outcome, timestamps). The old address is warned on change.
 
 ### account_activity — KEEP (BUILT 2026-06-18, GLOBAL — `db/core/0007`)
 Purpose: the person's OWN identity history, shown in Settings → Account. NOT
@@ -131,7 +140,8 @@ needs a user×learning join — not a single column.
 ### invite_logs — KEEP (TO BUILD, per-team) + invite_index (GLOBAL, built)
 `invite_logs` (full record in the team DB): audit + inviter snapshot
 (`user_row_id`, `email`, `full_name`, `image`), invitee (`user_row_id` if they
-exist, `email`, `proposed_member_role_id`), `created_on`, `shelf_life_in_hours`,
+exist, `email`, `proposed_member_role_id`), `created_on`, `shelf_life_in_hours`
+(default 168h = the 7-day expiry per ROADMAP),
 `invite_accepted`, `invite_acceptance_timestamp`. The GLOBAL `invite_index`
 (already built) is the thin routing copy so onboarding can find invites by email
 without opening every team DB.
@@ -161,8 +171,9 @@ import). **OPEN Q (later, when we build import).**
 
 - **Built**: users, teams, team_members, invite_index, member_roles,
   role_permissions, selectable_data, activity (table only), team_module_databases,
-  db_alerts, login_codes, sessions.
-- **To build (tables)**: email_change_logs, importable_databases,
+  db_alerts, login_codes, sessions, account_activity, email_change_logs +
+  email_change_codes (the hashed-OTP split; BUILT 2026-06-17).
+- **To build (tables)**: importable_databases,
   selectable_data_types, learning, help, help_threads, invite_logs,
   data_import_sessions — added per module as we reach it.
 

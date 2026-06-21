@@ -2,9 +2,14 @@
 
 **The multi-tenant SaaS base by Swift Struck.** Not an app for one industry —
 the reusable foundation every future app (ERP, CRM, portal…) is built on:
-login (strict email codes), teams, roles & permissions, invites, learning,
+login (strict email codes), teams, Member roles (module key `member_roles`;
+UPDATED 2026-06-21: was "roles & permissions"), invites, learning,
 help desk, dropdown management, AI-powered data import/export — all
 agent-callable via MCP, all hosted on Cloudflare.
+
+UPDATED 2026-06-21: the team area (Overview, Members, Member roles, Invites)
+now lives at `/t/<teamId>/…` deep-link URLs (rendered by the screen engine),
+not under Settings; top-level `/members` and `/roles` are thin redirects there.
 
 - **Production:** https://brimba.swift-struck.workers.dev
 - **Staging:** https://brimba-staging.swift-struck.workers.dev

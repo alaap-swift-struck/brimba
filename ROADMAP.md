@@ -31,8 +31,17 @@ Then the Foundation phase (below) resumes.
   list). Opening a team shows a **detail screen** with a header (team name ·
   member count · image · an access-gated *Edit team* button) and **tabs:
   Members · Member roles · Invites**.
+  - **SUPERSEDED 2026-06-21 →** the team area (Overview · Members · Member roles ·
+    Invites) no longer lives at `/settings` + `/settings/team`; it moved onto the
+    screen ENGINE deep links `/t/<teamId>/<module>/<id>`. The `/settings/team/*`
+    routes were retired (deleted). Navigation between team sections + records is the
+    section switcher + URL-derived collapsing breadcrumbs, not Settings tabs. See
+    SCREEN-ENGINE-PLAN §10 + CACHING.md "Navigation never reloads (single-shell SPA)".
 - The current top-level `/members` and `/roles` screens **move into** Settings →
   Teams → [team] tabs — they're no longer top-level.
+  - **SUPERSEDED 2026-06-21 →** top-level `/members` and `/roles` are now thin
+    redirects to `/t/<teamId>/members` and `/t/<teamId>/roles` (the engine), not
+    Settings tabs. See SCREEN-ENGINE-PLAN §10.
 - Rename **"Roles & permissions" → "Member roles"** everywhere (label, route
   `/member-roles` where still routed, nav, screen titles). The module key stays
   `member_roles` (no data change).
@@ -44,12 +53,28 @@ Then the Foundation phase (below) resumes.
   active team, you're redirected to **Home** — including when you deep-link to it.
   The client guard reads your rights from `GET /api/tenancy/my-permissions`;
   every API endpoint still enforces server-side too (defence in depth).
+  - **UPDATED 2026-06-21:** the guard still applies, but inside the single `/t`
+    shell it is enacted via History-API URL state (`pushState`/`replaceState`),
+    NOT a framework-router push — so a blocked deep link swaps shell state without
+    a full-page reload (canon: CACHING.md "Navigation never reloads"). The router
+    is only used for ENTERING/LEAVING the shell (Home, Settings). Deep-linking to a
+    team you are NOT a member of: the server refuses the switch, the active team
+    does not change (no partial switch), and you see a no-access screen;
+    logged-out → login.
 - **Branded email:** ONE template reads `shared/brand.ts` (name, motto, logo,
   accent + secondary) → rich HTML + plain-text fallback. Used by the login code,
   invites, and email-change. Re-skins automatically with the brand, across apps.
+  - **UPDATED 2026-06-21:** the same `brandedEmail` template also sends the new
+    **member-notification emails** — role changed, removed from a team, pending
+    invite revoked (sent via auth `/internal/send-email`). These are best-effort
+    notifications, distinct from the activity-log writer: the state change commits
+    first and is the authority; a failed/bounced email is logging-only and never
+    rolls it back.
 - **Invites:** create / list / revoke; states **pending · accepted · revoked
-  ("redacted") · expired**; 7-day shelf life; branded email; accepting
-  auto-joins (reuses the existing bootstrap invite-accept path).
+  ("redacted") · expired**; per-row shelf life (`shelf_life_in_hours`, default 168h
+  ≈ 7 days — see DATA-MODEL); branded email; accepting auto-joins (reuses the
+  existing bootstrap invite-accept path). **UPDATED 2026-06-21:** revoking a pending
+  invite emails the invitee (member-notification, best-effort).
 - **Email change:** enter a new email → 6-digit code to the **new** email →
   verify → update `users.email` + write an `email_change_logs` row.
 
@@ -73,6 +98,20 @@ Then the Foundation phase (below) resumes.
 **Web seams:** `web/lib/pages.ts` (registry) · `web/components/app-shell.tsx`
 (sidebar + bottom tabs) · a `<PageGuard>` wrapper used by guarded screens.
 
+**Product rules locked 2026-06-21 (apply to Members / Member roles / Invites):**
+- **Count badges:** when a section/tab leads with a collection (Members, Invites,
+  …) it shows a count = what the collection displays, compacted via
+  `abbreviateCount` (6 / 189 / 1.18M), HIDDEN when 0.
+- **CONCEPT_ICON vocabulary:** one distinct lucide icon per concept, centralised in
+  `web/lib/pages.ts`, reused at page / section-tab / button level.
+- **Block at every step:** the `?panel` / `?confirm` overlays (e.g. invite, role
+  change, remove member) are permission-gated on open (client) AND each action
+  re-checks `requireRight` on the SERVER — the guarantee is never UI-only.
+- **Member-notification emails:** a member is emailed when their role changes, they
+  are removed from a team, or their pending invite is revoked. Best-effort via
+  `brandedEmail` + auth `/internal/send-email`; the state change commits first and
+  is authoritative (a failed email never rolls it back).
+
 ## Phases (sequential; ship each to staging)
 
 - **F · Foundation** — SHIPPED (2026-06-15): sidebar + bottom-tab shell
@@ -81,6 +120,16 @@ Then the Foundation phase (below) resumes.
   `GET /api/tenancy/my-permissions`, the Member-roles rename, and Settings →
   Teams → [team] with tabs (Members + Member-roles panels moved in; Invites tab
   placeholder). Old `/members` `/roles` now redirect into the tabs.
+  - **SUPERSEDED 2026-06-21 → screen-engine adoption SHIPPED (M1/M2/M3).** The team
+    area moved off `/settings/team/*` onto the engine at `/t/<teamId>/<module>/<id>`
+    (see SCREEN-ENGINE-PLAN §10). **M1:** deep-link foundation + member detail via
+    engine. **M2:** per-team screen-recipe config store, served by the TENANCY
+    worker at `GET/POST /api/tenancy/config/screens` (there is NO separate
+    `workers/config` worker — that planned worker was folded into tenancy). **M3:**
+    members / roles / invites lists + detail + actions migrated onto the engine at
+    `/t` URLs, team Overview, the section switcher, and collapsing breadcrumbs. The
+    role permission grid is host-composed (no engine block yet). `/members` `/roles`
+    are now thin redirects to the `/t` URLs.
 - **1 · Branded email** — SHIPPED (2026-06-15): one `brand.ts`-driven template
   (`shared/workers/email-template.ts`); login code + invite emails use it; sent
   through auth (it owns the Resend key) via the service-binding-only

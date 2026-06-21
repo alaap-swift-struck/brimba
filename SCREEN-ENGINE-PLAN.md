@@ -11,13 +11,35 @@ The blueprint for Brimba's runtime, config-driven screen system (our own lean
 > We build this by making the library's *already config-driven* components
 > runtime-served — an extension of what exists, not a parallel system.
 
+## STATUS (2026-06-21) — what's shipped vs the plan below
+
+This plan's phases map to shipped milestones as follows:
+
+- **M1 — deep-link foundation + member detail via engine: SHIPPED.** §8-A
+  (foundation) + the §10 record-spine deep links + first record detail.
+- **M2 — per-team screen-recipe config store: SHIPPED** — but it lives in the
+  **TENANCY worker** at `GET/POST /api/tenancy/config/screens`; the planned
+  `workers/config` (§2/§5/§10) was folded into tenancy. There is no separate
+  config worker.
+- **M3 — members/roles/invites lists + detail + actions on `/t` URLs, the
+  section switcher, and collapsing breadcrumbs: SHIPPED.** §8-B…F. The role
+  permission grid is currently **host-composed** (no engine recipe block yet).
+- **Phase 3 / §8-G (custom-screen capability + live config editing) — NOT yet
+  built.** The recipe store and engine exist; runtime authoring/editing of a
+  bespoke screen by an admin or agent is the remaining work.
+
+The old `/settings/team` + `/settings/team/member` routes are RETIRED;
+top-level `/members` and `/roles` are thin redirects to `/t/<teamId>/members`
+and `/t/<teamId>/roles`.
+
 ## 1 · Why this isn't bloat
 
 The library already renders from config objects (`lib/config.ts`: BaseConfig /
 FieldConfig / CollectionConfig, the visibility rule engine, `useIsVisible`) and
 ships `collection-frame`, `detail-view`, `form`, `field`, inputs, `dialog`,
 `sheet`. The engine **composes those existing pieces from a recipe**. So the
-new surface is: one recipe schema, one engine, one config worker — each earning
+new surface is: one recipe schema, one engine, one recipe store (in the tenancy
+worker — see STATUS) — each earning
 its place by adding live-reconfigurability, per-team customization, and
 agent-editable screens. Lean *within* a robust design.
 
@@ -26,7 +48,7 @@ agent-editable screens. Lean *within* a robust design.
 | Piece | Where | What it does |
 |---|---|---|
 | **Recipe schema** | `shared/recipe.ts` | Typed, serializable shapes for a screen: type, presentation, data binding, fields, layout, actions, permission gates. The contract both the worker and the engine speak. |
-| **Config worker** | `workers/config` (new) | Stores + serves recipes. Merges GLOBAL base recipes (the shipped defaults) with a team's own custom screens/overrides. CRUD actions are agent-callable (an agent can author a screen). |
+| **Config / recipe store** | ~~`workers/config` (new)~~ → **UPDATED 2026-06-21: the TENANCY worker**, `GET/POST /api/tenancy/config/screens` (there is NO separate `workers/config`; it was folded into tenancy) | Stores + serves recipes. Merges GLOBAL base recipes (the shipped defaults) with a team's own custom screens/overrides. CRUD actions are agent-callable (an agent can author a screen). |
 | **Screen engine** | library `registry/collections/screen-*` | React components that fetch a recipe + data and render the right library pieces, permission-aware. |
 | **Tenancy actions** | `workers/tenancy` | Members / roles / invites read+write + the guard rules. |
 | **App shell** | `web/` | Top bar + team switcher + bottom tabs (mobile); renders module screens through the engine. |
@@ -45,7 +67,10 @@ A screen recipe is serializable JSON, typed in `shared/recipe.ts`:
 - **actions[]**: buttons → a **named action** (e.g. `members.changeRole`) the
   engine calls; declares confirm/before/after — same names agents call via MCP
 - **gate**: `{ module, right }` — who may see/run this; **default hide** when
-  the user lacks it; `showWhenDenied: "hidden" | "disabled"` (hidden default)
+  the user lacks it; `showWhenDenied: "hidden" | "disabled"` (hidden default).
+  **Blocked at every step**: `?panel`/`?confirm` overlays are permission-gated
+  on open (client) AND each action re-checks `requireRight` on the server, so
+  the guarantee is never UI-only.
 - **layout** (for `custom`): a tree of library components composed freely — the
   general custom-screen capability (first-class, this batch)
 - **confirm** (for `confirm`): title/body/variant for delete/deactivate/activate
@@ -63,6 +88,9 @@ blank-canvas builder.
 - Every domain action **re-checks on the server** via the existing
   `requireMember` / `requireRight` seam. The UI gate is convenience; the server
   gate is the guarantee.
+- **Blocked at every step**: `?panel`/`?confirm` overlays are permission-gated
+  on open (client) AND the action re-checks `requireRight` on the server — the
+  guarantee is never UI-only.
 
 ## 5 · Config storage (proposed — confirm)
 
@@ -72,6 +100,9 @@ blank-canvas builder.
   team's own database** (fits the per-team-DB architecture). The config worker
   serves `base ⊕ team-override` for the user's active team.
 
+> UPDATED 2026-06-21: there is no separate config worker — the recipe store
+> lives in the **TENANCY worker** at `GET/POST /api/tenancy/config/screens`.
+
 ## 6 · Data-model additions
 
 - `invite_logs` (per-team DB): full invite records (inviter, invitee, role,
@@ -80,6 +111,13 @@ blank-canvas builder.
   `screens` for custom/overrides.
 
 ## 7 · Team-management specifics
+
+> REALISED 2026-06-21: the originally-planned tabbed **Settings → Team** area
+> (Members / Roles / Invites) is now rendered by the screen ENGINE on the §10
+> `/t/<teamId>/<module>/<id>` deep-link record-spine — the section switcher +
+> URL-derived breadcrumbs replace the tabs. So §7 is shipped *through* §10, not
+> as a standalone tabbed Settings page (the old `/settings/team` routes are
+> retired). No contradiction: the same specifics, the §10 grammar.
 
 - **Members**: list (photo/name/email/role); change role; remove = deactivate.
 - **Roles**: list; create; **edit (applies to all holders live)**;
@@ -101,7 +139,9 @@ blank-canvas builder.
 - **B · Tenancy actions**: members/roles/invites read+write + guard rules +
   unit/integration tests + smoke.
 - **C · App shell**: top bar, team switcher (2-second hop), bottom tabs, Home
-  hub. Server-gated nav.
+  hub. Server-gated nav. _REALISED 2026-06-21: shipped as the §10 `/t` deep-link
+  record-spine — section switcher + URL-derived collapsing breadcrumbs in place
+  of the originally-planned tabbed Settings→Team page._
 - **D · Members** module via the engine.
 - **E · Roles + permission grid** (the bespoke custom screen).
 - **F · Invites** (send/retract; needs Resend for the email).
@@ -128,8 +168,10 @@ Decided with the user; do not relitigate without them.
   (`lib/recipe.ts` + `registry/collections/screen-renderer`), so EVERY app on
   the base inherits them. The engine **renders** a recipe + speaks the URL
   grammar; it does NOT fetch data, call APIs, store recipes, or own the router —
-  those are the host app's job (a `workers/config` recipe store + the app's
-  catch-all route + server-side permission checks).
+  those are the host app's job (a recipe store + the app's
+  catch-all route + server-side permission checks). _UPDATED 2026-06-21: the
+  recipe store is the **TENANCY worker** at `/api/tenancy/config/screens`, not a
+  separate `workers/config`._
 - **Self-describing deep links (URL grammar).** PATH = the record spine
   `/t/<teamId>/<module>/<id>/<childModule>/<childId>/…` (teamId in the URL so a
   shared link auto-resolves the tenant + auto-switches the active team for a
@@ -137,16 +179,29 @@ Decided with the user; do not relitigate without them.
   `?panel=edit|add` (+`module`), `?confirm=<action>&id=`, `?tab=`. Back closes an
   overlay. Static-export safe: ONE catch-all `web/app/t/[[...path]]/page.tsx`
   parses the path client-side + a ~3-line gateway rule serves `/t.html` for any
-  `/t/*` depth. Every deep-linked level re-checks rights (client gate +
-  server `requireRight`). Breadcrumbs are DERIVED from the URL + page registry
-  and collapse the middle on small screens (no horizontal scroll).
+  `/t/*` depth. **Blocked at every step**: every deep-linked level and every
+  `?panel`/`?confirm` overlay is permission-gated on open (client gate) AND the
+  action re-checks `requireRight` on the **server** — never UI-only.
+  In-shell hops use the **History API** (`pushState`/`replaceState` per
+  CACHING.md "Navigation never reloads"), **never** the framework `router.push`
+  (which would trigger a static-export full-page reload); the router is only for
+  entering/leaving the `/t` shell. Breadcrumbs are DERIVED from the URL + page
+  registry and collapse the middle on small screens (no horizontal scroll).
 - **Record detail = a full route per record** (members, invites, future types),
   Overview + Activity tabs, via the library `RecordDetail`/`DescriptionList`/
   `ActivityFeed`. **Invites get the full `invite_logs` audit table** (per-team:
   inviter snapshot, accepted-by, richer trail) + an `invite` activity scope.
 - **Build sequence (sequential, ship each):** the library builds the engine
-  first (the long pole). Then, in the app, Phase 2 = `workers/config` + the
+  first (the long pole). Then, in the app, Phase 2 = the recipe store (SHIPPED
+  in the **TENANCY worker** at `/api/tenancy/config/screens`, not a separate
+  `workers/config`) + the
   deep-link catch-all + gateway rule + recipe-driven screens + URL breadcrumbs;
   folded in: `invite_logs` + invite detail, migrate the remaining hand-built
   lists onto the library `List`, adopt the library search/filters. Phase 3 =
   custom-screen + live config editing. Then full cross-device test + audits.
+- **Engine/recipe UI conventions (locked 2026-06-21).** _Count badges_ — when a
+  tab/section leads with a collection it shows a count = **what the collection
+  displays**, compacted (`6` / `189` / `1.18M` via `abbreviateCount`) and
+  **HIDDEN when 0**. _Concept icons_ — one distinct lucide icon per concept,
+  centralised in `web/lib/pages.ts` `CONCEPT_ICON`, reused at page / section-tab
+  / button level (one icon per concept, everywhere).

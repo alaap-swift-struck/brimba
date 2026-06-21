@@ -20,8 +20,10 @@ trick as the swappable AI-import interface).
   can't see — the ones that otherwise show the blank "a client-side exception
   has occurred" overlay.
 - **Client render errors — `<ErrorBoundary>`** wraps risky subtrees (the team
-  panels). On a render throw it shows the **real message inline** (no white
-  screen) and calls `reportError` with the component stack.
+  panels — UPDATED 2026-06-21: the team area is now the screen-engine-rendered
+  `/t/<teamId>/<module>/<id>` subtree). On a render throw it shows the **real
+  message inline** (no white screen) and calls `reportError` with the component
+  stack.
 - **Gateway — `/api/log/client`** logs the beacon (`console.error`, capped) so
   it lands in observability. No data store.
 - **Workers** `console.error` in their `catch` blocks → observability. The
@@ -39,8 +41,14 @@ trick as the swappable AI-import interface).
 1. Every `catch` either handles the error meaningfully or calls the reporter —
    never an empty `catch {}` that hides a failure (logging-only `catch` for
    best-effort side-effects like activity writes is fine, and is commented as such).
-2. User-facing messages stay plain and safe; the detail goes to the logs.
-3. Wrap any new risky UI subtree in `<ErrorBoundary>`.
+2. **Member-notification emails (new 2026-06-21)** are best-effort, same pattern
+   as activity writes. When a role changes, a member is removed, or a pending
+   invite is revoked, the **state change is the authority and commits FIRST**;
+   the notification email is fired after and is logging-only on failure (bounce,
+   Resend 4xx/5xx, or timeout). A failed or bounced email **NEVER blocks or rolls
+   back the action** — the permission change stands regardless.
+3. User-facing messages stay plain and safe; the detail goes to the logs.
+4. Wrap any new risky UI subtree in `<ErrorBoundary>`.
 
 See [CACHING.md](CACHING.md) for the loading/feedback side (what the user sees
 *while* things are working) and [CONCURRENCY.md](CONCURRENCY.md) for write safety.

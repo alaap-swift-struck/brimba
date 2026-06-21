@@ -34,14 +34,18 @@ Do not relitigate any "LOCKED" item without the user.
 
 ## 2 · The machine — workers (LOCKED)
 
-Six domain workers, each small enough for an AI agent to hold fully in its head:
+Six domain workers, each small enough for an AI agent to hold fully in its head.
+**UPDATED 2026-06-21:** only **4 are built & on disk** — auth, tenancy, realtime,
+gateway. **content** and **data-ops** are **PLANNED / not yet on disk**. (The
+planned `workers/config` recipe store was folded into **tenancy**, not built
+separately.) `npm run check` covers web + those 4 workers + 71 tests.
 
 | Worker | Owns |
 |---|---|
 | **auth** | Strict email-OTP login — 6-digit codes via Resend (NO Clerk, NO Google; parked 2026-06-12), sessions, email-change flow (code to the NEW email) |
-| **tenancy** | teams, team members, member roles & permissions, invites |
-| **content** | learning, help + help threads, selectable data (+ types) |
-| **data-ops** | import sessions, export, the AI import agent (Workers AI, behind ONE swappable interface so the brain can change in one config edit) |
+| **tenancy** | teams, team members, Member roles (module key `member_roles`) + permissions, invites; also the per-team screen-recipe config store (`GET/POST /api/tenancy/config/screens`) |
+| **content** *(PLANNED — not yet on disk)* | learning, help + help threads, selectable data (+ types) |
+| **data-ops** *(PLANNED — not yet on disk)* | import sessions, export, the AI import agent (Workers AI, behind ONE swappable interface so the brain can change in one config edit) |
 | **realtime** | the live "switchboard" (LOCKED 2026-06-13): one **TeamChannel Durable Object** per team holds that team's members' WebSockets (hibernatable → idle teams cost ~nothing) and broadcasts coarse "X changed" pings so screens update with no refresh. Holds NO app data — the databases stay the source of truth. Channels are created on-demand by name (`team:<id>`), unlimited, and reusable as-is by any app on this base. Workers publish via `publishChange`; the client subscribes and refetches through the normal permission-checked endpoints (pings carry no data, so nothing leaks). |
 | **gateway / MCP** | the single front desk: serves the web screens (and marks `/_next/static/**` immutable so repeat loads don't re-validate), routes `/api/*` to the workers (incl. the `/api/realtime` WebSocket), exposes ONE master MCP catalog. UI and agents call the SAME doors |
 
@@ -50,8 +54,10 @@ Six domain workers, each small enough for an AI agent to hold fully in its head:
 
 The confusion to retire: **a worker count and a Durable-Object count are different things.**
 
-- A **Worker** is deployed *code*. We have ~6 (auth, tenancy, realtime, content,
-  data-ops, gateway). This number does **not** grow with teams.
+- A **Worker** is deployed *code*. We have ~6 planned (auth, tenancy, realtime,
+  content, data-ops, gateway) — **4 built today** (auth, tenancy, realtime,
+  gateway); content + data-ops are planned (UPDATED 2026-06-21). This number does
+  **not** grow with teams.
 - A **Durable Object class** is also code — a class *inside* a worker (e.g.
   `TeamChannel` in the realtime worker). We have very few (the 500-classes cap is
   irrelevant).
@@ -99,8 +105,8 @@ on top follows [CACHING.md](CACHING.md).
 | GET /api/tenancy/teams | tenancy | my teams (switcher/home) |
 | POST /api/tenancy/teams/update | tenancy | edit the active team's name + logo (teams:edit) |
 | GET /api/tenancy/members | tenancy | the active team's members (+ identity + role) |
-| POST /api/tenancy/members/role | tenancy | change a member's role (guards: not self, ≥1 admin) |
-| POST /api/tenancy/members/remove | tenancy | remove (deactivate) a member |
+| POST /api/tenancy/members/role | tenancy | change a member's role (guards: not self, ≥1 admin); also emails the member a branded role-change notification via auth `/internal/send-email` (best-effort — see below) |
+| POST /api/tenancy/members/remove | tenancy | remove (deactivate) a member; also emails the member a branded "removed from team" notification via auth `/internal/send-email` (best-effort — see below) |
 | GET /api/tenancy/my-permissions | tenancy | the caller's own rights for the active team (drives the page-visibility guard) |
 | GET /api/tenancy/roles | tenancy | the team's roles (+ member counts) |
 | POST /api/tenancy/roles | tenancy | create a new role (starts with no rights) |
@@ -111,7 +117,7 @@ on top follows [CACHING.md](CACHING.md).
 | GET /api/tenancy/team-meta | tenancy | the active team's Overview metadata (created by/when, last updated) |
 | GET /api/tenancy/invites | tenancy | the team's invites (pending/accepted/revoked/expired) |
 | POST /api/tenancy/invites | tenancy | invite by email to a role (branded email via auth) |
-| POST /api/tenancy/invites/revoke | tenancy | revoke ("redact") a pending invite |
+| POST /api/tenancy/invites/revoke | tenancy | revoke ("redact") a pending invite; also emails the invitee a branded "invite revoked" notification via auth `/internal/send-email` (best-effort — see below) |
 | GET /api/tenancy/invitations | tenancy | invites the caller has RECEIVED (by email) — the inbox; works for any signed-in user, not just teamless ones |
 | POST /api/tenancy/invitations/accept | tenancy | accept one received invite → join + switch to that team (validates email-ownership + pending + unexpired; race-safe) |
 | POST /internal/send-email | auth | send a branded email composed by another worker (service-binding only) |
@@ -127,6 +133,18 @@ on top follows [CACHING.md](CACHING.md).
 - **Every server request validates active-team membership + role rights.**
   A deep link to another team's record gets blocked/booted server-side —
   security is never just hiding UI.
+- **Deep-link access story (UPDATED 2026-06-21).** Deep links now use the
+  `/t/<teamId>/<module>/<id>` grammar, rendered by the screen engine. A deep link
+  to a team you are **NOT** a member of does **NOT** switch your active team — the
+  server refuses the switch, so there is **no partial switch**; you see a
+  no-access screen. A logged-out hit on a deep link → login. (The old
+  `/settings/team` + `/settings/team/member` routes are RETIRED/deleted; top-level
+  `/members` and `/roles` are thin redirects to `/t/<teamId>/members` and
+  `/t/<teamId>/roles`. In-shell navigation uses the History API, never the
+  framework router — see CACHING.md "Navigation never reloads".)
+- **Block at every step (LOCKED 2026-06-21).** `?panel` / `?confirm` overlays are
+  permission-gated on open (client) AND each action re-checks `requireRight` on the
+  SERVER, so the guarantee is never UI-only.
 - **Permissions: tall sheet** per team — `role | module | read/create/edit/delete`.
   New module = new rows, never a schema change. Members point at one role;
   editing a role applies instantly to every holder.
@@ -166,6 +184,13 @@ on top follows [CACHING.md](CACHING.md).
 - Invites are by email, with a shelf life. At onboarding, **all active invites
   auto-accept** (the user lands in those teams). A personal "Chris' team" is
   auto-created **only if there are no active invites**.
+- **Member-notification emails (LOCKED 2026-06-21).** A member is emailed when
+  their role changes, they are removed from a team, or their pending invite is
+  revoked — a branded email (shared `brandedEmail` template) via auth
+  `/internal/send-email`. **Best-effort:** the STATE CHANGE commits first and is the
+  authority; a failed/bounced email is logging-only and NEVER rolls it back (same
+  pattern as best-effort activity writes in §4). (email-change already warns the
+  old address — §2 auth.)
 - **Invitations inbox (BUILT 2026-06-18).** An ALREADY-onboarded user (who has a
   team) is not covered by the onboarding auto-accept, so they get an in-app
   **inbox** (`GET /api/tenancy/invitations` by their email; reachable from the
