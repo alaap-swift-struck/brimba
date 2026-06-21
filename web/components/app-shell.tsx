@@ -17,7 +17,8 @@ import { toast } from "@swift-struck/ui/registry/primitives/sonner/sonner"
 import { Home, Settings, PanelLeftClose, PanelLeftOpen } from "lucide-react"
 
 import type { ActiveTeam } from "@/lib/use-active-team"
-import { useRealtime } from "@/lib/realtime"
+import { auth } from "@/lib/api"
+import { useRealtime, useUserRealtime } from "@/lib/realtime"
 import { invalidate } from "@/lib/store"
 import { NAV, bottomNavItems, isNavActive, type Crumb } from "@/lib/pages"
 import { CreateTeamDialog } from "@/components/create-team-dialog"
@@ -83,6 +84,23 @@ export function AppShell({
     } else if (event.resource === "team") {
       invalidate(`team-meta:${teamId}`) // name/creator metadata changed
       void active.refresh() // team name/logo changed
+    }
+  })
+
+  // Your OWN identity channel — account events + a forced sign-out — open even
+  // before you join a team (teamless users still get it).
+  const userId = active.user?.id ?? null
+  useUserRealtime(userId, (event) => {
+    if (event.resource === "session") {
+      // A sign-out signal reaches ALL your devices (e.g. you changed your email
+      // elsewhere). Only the devices whose session was actually dropped should
+      // bounce to login — the acting device keeps its still-valid session, so
+      // re-check first and redirect only if the session is dead.
+      auth.me().catch(() => window.location.assign("/login"))
+      return
+    }
+    if (event.resource === "account_activity") {
+      invalidate("account-activity") // your own account feed (small) refreshes live
     }
   })
 

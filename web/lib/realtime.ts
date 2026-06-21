@@ -1,37 +1,50 @@
 "use client"
 
-// The live channel client: opens ONE WebSocket to the active team's switchboard
-// (the realtime worker's TeamChannel Durable Object) and calls `onEvent` for
-// each "X changed" ping. Reconnects with backoff; closes on unmount or team
-// change. The cookie rides along on the handshake, so the server gates it the
-// same way the API does. Pass teamId=null to stay disconnected.
+// The live channel client. A browser opens up to TWO sockets to the realtime
+// switchboard, each calling `onEvent` for every "X changed" ping:
+//   • the active TEAM's channel  (useRealtime(teamId)) — team data
+//   • your OWN user channel       (useUserRealtime(userId)) — identity data +
+//     a forced sign-out, open even before you join a team
+// Reconnects with backoff; closes on unmount or when the id changes. The cookie
+// rides the handshake, so the server gates it the same way the API does. Pass a
+// null id to stay disconnected. `onReconnect` fires after a DROPPED link is
+// re-established (not the first connect) so the host can resync what it missed.
 
 import * as React from "react"
 
-export type RealtimeEvent = { resource: string; id?: string }
+export type RealtimeEvent = { resource: string; id?: string; op?: string }
 
-export function useRealtime(
-  teamId: string | null,
-  onEvent: (event: RealtimeEvent) => void
+/** Open one live socket to `path` (e.g. "team=<id>" / "user=<id>"), reconnecting
+ * with backoff. `onReconnect` is called only on a RE-connect after a drop. */
+function useLiveChannel(
+  query: string | null,
+  onEvent: (event: RealtimeEvent) => void,
+  onReconnect?: () => void
 ): void {
-  // Keep the handler in a ref so re-renders don't churn the socket.
   const handlerRef = React.useRef(onEvent)
   handlerRef.current = onEvent
+  const reconnectRef = React.useRef(onReconnect)
+  reconnectRef.current = onReconnect
 
   React.useEffect(() => {
-    if (!teamId || typeof window === "undefined") return
+    if (!query || typeof window === "undefined") return
 
     let socket: WebSocket | null = null
     let retry = 0
+    let everConnected = false
     let timer: ReturnType<typeof setTimeout> | undefined
     let closed = false
 
-    const url = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/realtime?team=${encodeURIComponent(teamId)}`
+    const url = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/realtime?${query}`
 
     const connect = () => {
       if (closed) return
       socket = new WebSocket(url)
       socket.onopen = () => {
+        // A successful OPEN after a prior connection = we just recovered a
+        // dropped link → let the host resync the rows it's showing.
+        if (everConnected) reconnectRef.current?.()
+        everConnected = true
         retry = 0
       }
       socket.onmessage = (e) => {
@@ -57,5 +70,24 @@ export function useRealtime(
       if (timer) clearTimeout(timer)
       socket?.close()
     }
-  }, [teamId])
+  }, [query])
+}
+
+/** Subscribe to the ACTIVE team's channel (team-scoped data). */
+export function useRealtime(
+  teamId: string | null,
+  onEvent: (event: RealtimeEvent) => void,
+  onReconnect?: () => void
+): void {
+  useLiveChannel(teamId ? `team=${encodeURIComponent(teamId)}` : null, onEvent, onReconnect)
+}
+
+/** Subscribe to YOUR OWN identity channel (account events + sign-out), open for
+ * every signed-in user, including teamless ones. */
+export function useUserRealtime(
+  userId: string | null,
+  onEvent: (event: RealtimeEvent) => void,
+  onReconnect?: () => void
+): void {
+  useLiveChannel(userId ? `user=${encodeURIComponent(userId)}` : null, onEvent, onReconnect)
 }
