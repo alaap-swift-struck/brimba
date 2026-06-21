@@ -31,6 +31,40 @@ export function primeCache(key: string, value: unknown): void {
   notify(key)
 }
 
+/** ROW-LEVEL live patch: a "row X in this collection changed" ping lands → fetch
+ * just that one row (through the permission-checked endpoint) and update ONLY it
+ * in the cached list — never refetch the whole collection. The single-row read
+ * passes the SAME server filter as the list, so a row that no longer belongs
+ * (e.g. a deactivated member) comes back null and is dropped. If the collection
+ * isn't loaded (nothing on screen to patch) we do nothing; a fetch hiccup falls
+ * back to a coarse invalidate so we never sit on stale data. */
+export async function patchRow(
+  key: string,
+  idField: string,
+  id: string,
+  fetchOne: () => Promise<Record<string, unknown> | null>
+): Promise<void> {
+  const cur = cache.get(key) as Record<string, unknown>[] | undefined
+  if (cur === undefined) return // not loaded — nothing visible to patch
+  try {
+    const row = await fetchOne()
+    const latest = cache.get(key) as Record<string, unknown>[] | undefined
+    if (latest === undefined) return
+    let next: Record<string, unknown>[]
+    if (row == null) {
+      next = latest.filter((r) => r[idField] !== id) // gone / no longer belongs
+    } else {
+      const idx = latest.findIndex((r) => r[idField] === id)
+      next = idx >= 0 ? latest.map((r, i) => (i === idx ? row : r)) : [row, ...latest]
+    }
+    cache.set(key, next)
+    notify(key)
+  } catch (e) {
+    console.error("patchRow failed; invalidating", key, e)
+    invalidate(key)
+  }
+}
+
 export function useCached<T>(
   key: string | null,
   fetcher: () => Promise<T>

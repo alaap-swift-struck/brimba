@@ -132,6 +132,25 @@ export const tenancy = {
   /** Everyone on the active team (identity + role + the guard flags). */
   members: () => api<{ members: TeamMember[] }>("/api/tenancy/members"),
 
+  /** ONE member by id (for row-level live patching) — null if they're no longer
+   * an active member (the read passes the same filter as the list). */
+  member: (userId: string) =>
+    api<{ members: TeamMember[] }>(
+      `/api/tenancy/members?id=${encodeURIComponent(userId)}`
+    ).then((r) => r.members[0] ?? null),
+
+  /** ONE role by id — null if it's gone. */
+  role: (roleId: string) =>
+    api<{ roles: TeamRole[] }>(`/api/tenancy/roles?id=${encodeURIComponent(roleId)}`).then(
+      (r) => r.roles[0] ?? null
+    ),
+
+  /** ONE invite by id — null if it's gone. */
+  invite: (inviteId: string) =>
+    api<{ invites: Invite[] }>(
+      `/api/tenancy/invites?id=${encodeURIComponent(inviteId)}`
+    ).then((r) => r.invites[0] ?? null),
+
   /** YOUR own effective rights for the active team — powers the page guard. */
   myPermissions: () =>
     api<{ permissions: PermissionValue }>("/api/tenancy/my-permissions"),

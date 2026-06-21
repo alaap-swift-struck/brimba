@@ -17,15 +17,52 @@ import { toast } from "@swift-struck/ui/registry/primitives/sonner/sonner"
 import { Home, Settings, PanelLeftClose, PanelLeftOpen } from "lucide-react"
 
 import type { ActiveTeam } from "@/lib/use-active-team"
-import { auth } from "@/lib/api"
+import { auth, tenancy } from "@/lib/api"
 import { useRealtime, useUserRealtime } from "@/lib/realtime"
-import { invalidate } from "@/lib/store"
+import { invalidate, patchRow } from "@/lib/store"
 import { NAV, bottomNavItems, isNavActive, type Crumb } from "@/lib/pages"
 import { CreateTeamDialog } from "@/components/create-team-dialog"
 import { ProfileMenu } from "@/components/profile-menu"
 import { TeamSwitcher } from "@/components/team-switcher"
 
 const NAV_ICONS = { home: Home, settings: Settings } as const
+
+// Row-level live registry: a "<resource> row <id> changed" ping → re-pull JUST
+// that row and patch it into the cached list (never refetch the whole list);
+// then refresh the small dependent aggregations/feeds coarsely (cheap — a 50-row
+// feed or a role-count list, not the big collection). Adding a module = ONE
+// entry here; the handler stays generic (no bespoke per-resource code).
+const TEAM_RESOURCES: Record<
+  string,
+  {
+    key: (teamId: string) => string
+    idField: string
+    fetchOne: (id: string) => Promise<Record<string, unknown> | null>
+    /** small dependent caches to coarse-invalidate (aggregations / feeds). */
+    deps?: (teamId: string, id: string) => string[]
+    /** refresh the active-team context (e.g. the section member count). */
+    refreshCtx?: boolean
+  }
+> = {
+  members: {
+    key: (t) => `members:${t}`,
+    idField: "userId",
+    fetchOne: (id) => tenancy.member(id),
+    deps: (t, id) => [`member_roles:${t}`, `activity:user:${id}`],
+    refreshCtx: true,
+  },
+  member_roles: {
+    key: (t) => `member_roles:${t}`,
+    idField: "id",
+    fetchOne: (id) => tenancy.role(id),
+    deps: (t, id) => [`my-perms:${t}`, `role-perms:${id}`],
+  },
+  invites: {
+    key: (t) => `invites:${t}`,
+    idField: "id",
+    fetchOne: (id) => tenancy.invite(id),
+  },
+}
 
 export function AppShell({
   active,
@@ -64,28 +101,43 @@ export function AppShell({
   const accessibleNav = NAV.filter((i) => !i.need)
   const bottomNav = bottomNavItems(accessibleNav)
 
-  // One live channel for the active team → refresh caches when data changes.
-  useRealtime(teamId, (event) => {
-    if (!teamId) return
-    // Any change can add an activity row — refresh the team feed (cheap when the
-    // Activity tab isn't open: no subscriber, so it just clears the cache).
-    invalidate(`activity:team:${teamId}`)
-    if (event.resource === "members") {
-      invalidate(`members:${teamId}`)
-      invalidate(`member_roles:${teamId}`) // per-role member counts changed too
-      if (event.id) invalidate(`activity:user:${event.id}`) // that member's feed gained a row
-      void active.refresh()
-    } else if (event.resource === "member_roles") {
-      invalidate(`member_roles:${teamId}`)
-      invalidate(`my-perms:${teamId}`) // a role's rights changed — maybe mine
-      if (event.id) invalidate(`role-perms:${event.id}`)
-    } else if (event.resource === "invites") {
-      invalidate(`invites:${teamId}`)
-    } else if (event.resource === "team") {
-      invalidate(`team-meta:${teamId}`) // name/creator metadata changed
-      void active.refresh() // team name/logo changed
+  // The active team's live channel. A ping patches ONLY the changed row in place
+  // (row-level), via the generic registry above — no full-collection refetch.
+  useRealtime(
+    teamId,
+    (event) => {
+      if (!teamId) return
+      // The team activity feed is append-only + small — refresh it on any change.
+      invalidate(`activity:team:${teamId}`)
+      if (event.resource === "team") {
+        invalidate(`team-meta:${teamId}`)
+        void active.refresh() // team name/logo
+        return
+      }
+      const r = TEAM_RESOURCES[event.resource]
+      if (!r) return
+      if (!event.id) {
+        // No row id on the ping → coarse-refetch just that collection (still
+        // scoped, never a page reload). Row-level kicks in once the publisher
+        // carries the id.
+        invalidate(r.key(teamId))
+        if (r.refreshCtx) void active.refresh()
+        return
+      }
+      const id = event.id
+      void patchRow(r.key(teamId), r.idField, id, () => r.fetchOne(id))
+      for (const k of r.deps?.(teamId, id) ?? []) invalidate(k)
+      if (r.refreshCtx) void active.refresh()
+    },
+    () => {
+      // Reconnect after a dropped link: re-pull only the collections we hold (no
+      // page reload), so nothing missed stays stale. (Precise per-id catch-up is
+      // a planned refinement.)
+      if (!teamId) return
+      for (const r of Object.values(TEAM_RESOURCES)) invalidate(r.key(teamId))
+      invalidate(`activity:team:${teamId}`)
     }
-  })
+  )
 
   // Your OWN identity channel — account events + a forced sign-out — open even
   // before you join a team (teamless users still get it).

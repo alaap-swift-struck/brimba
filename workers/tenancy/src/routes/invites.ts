@@ -12,7 +12,9 @@ import type { Env } from "../env"
 export async function getInvites(request: Request, env: Env): Promise<Response> {
   const { cfg, guard } = await teamContext(request, env)
   await requireRight(cfg, guard, "team_members", "read")
-  return json({ invites: await listInvites(env, cfg, guard) })
+  const invites = await listInvites(env, cfg, guard)
+  const id = new URL(request.url).searchParams.get("id") // ?id= → one invite
+  return json({ invites: id ? invites.filter((i) => i.id === id) : invites })
 }
 
 export async function postCreateInvite(request: Request, env: Env): Promise<Response> {

@@ -27,7 +27,9 @@ export async function getMyPerms(request: Request, env: Env): Promise<Response> 
 export async function getRoles(request: Request, env: Env): Promise<Response> {
   const { cfg, guard } = await teamContext(request, env)
   await requireRight(cfg, guard, "member_roles", "read")
-  return json({ roles: await listRoles(env, cfg, guard) })
+  const roles = await listRoles(env, cfg, guard)
+  const id = new URL(request.url).searchParams.get("id") // ?id= → one role
+  return json({ roles: id ? roles.filter((r) => r.id === id) : roles })
 }
 
 export async function getRolePerms(request: Request, env: Env): Promise<Response> {

@@ -11,7 +11,11 @@ import type { Env } from "../env"
 export async function getMembers(request: Request, env: Env): Promise<Response> {
   const { cfg, guard } = await teamContext(request, env)
   await requireRight(cfg, guard, "team_members", "read")
-  return json({ members: await listMembers(env, cfg, guard) })
+  const members = await listMembers(env, cfg, guard)
+  // ?id=<userId> → just that member (for row-level live patching); same filter
+  // as the list, so a no-longer-active member yields [] and the client drops it.
+  const id = new URL(request.url).searchParams.get("id")
+  return json({ members: id ? members.filter((m) => m.userId === id) : members })
 }
 
 export async function postMemberRole(request: Request, env: Env): Promise<Response> {
