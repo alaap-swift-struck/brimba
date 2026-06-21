@@ -91,20 +91,35 @@ export default {
 
     if (url.pathname === "/api/realtime/health") return json({ ok: true })
 
-    // Public: a browser joins its team's live channel (WebSocket only).
+    // Public: a browser joins a live channel (WebSocket only). Two scopes:
+    //   ?user=<id>  — your OWN identity channel (account events + sign-out),
+    //                 open for every signed-in user, even before joining a team.
+    //   ?team=<id>  — a team's channel, gated by active membership of THAT team.
     if (url.pathname === "/api/realtime") {
       if (request.headers.get("Upgrade") !== "websocket")
         return fail(426, "upgrade_required", "This endpoint is WebSocket-only.")
-      const teamId = url.searchParams.get("team")
-      if (!teamId) return fail(400, "invalid_input", "team is required.")
 
-      // SAME gate as the API: signed in + an active member of THIS team.
+      // Signed-in gate first (same session system as the API — one master).
       const user = await whoAmI(request, env)
       if (!user) return fail(401, "signed_out", "Not signed in.")
-      if (!(await isActiveMember(env.DB, user.id, teamId)))
-        return fail(403, "not_member", "You're not a member of this team.")
 
-      return env.CHANNELS.getByName(`team:${teamId}`).fetch(request)
+      const userId = url.searchParams.get("user")
+      if (userId) {
+        // Identity channel: you may only join your OWN.
+        if (userId !== user.id)
+          return fail(403, "forbidden", "That isn't your channel.")
+        return env.CHANNELS.getByName(`user:${userId}`).fetch(request)
+      }
+
+      const teamId = url.searchParams.get("team")
+      if (teamId) {
+        // Team channel: must be an active member of THIS team.
+        if (!(await isActiveMember(env.DB, user.id, teamId)))
+          return fail(403, "not_member", "You're not a member of this team.")
+        return env.CHANNELS.getByName(`team:${teamId}`).fetch(request)
+      }
+
+      return fail(400, "invalid_input", "team or user is required.")
     }
 
     return fail(404, "not_found", "No such realtime action.")

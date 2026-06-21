@@ -7,6 +7,7 @@
 
 import type { SessionUser } from "../../../../shared/types"
 import { ulid } from "../../../../shared/workers/id"
+import { publishSignOut } from "../../../../shared/workers/realtime"
 import type { Env } from "../env"
 import { logAccountActivity } from "./account-activity"
 import { randomCode, sha256Hex } from "./crypto"
@@ -132,6 +133,9 @@ export async function verifyEmailChange(
 
   // Chosen behavior: drop other devices, then warn the old address (best-effort).
   await signOutOtherSessions(env, user.id, currentTokenHash)
+  // Live: push the OTHER devices to login instantly (the acting device keeps its
+  // still-valid session). Best-effort.
+  await publishSignOut(env.REALTIME, user.id)
   await sendEmailChangedNotice(env, oldEmail, newEmail).catch((e) =>
     console.error("email-change notice failed:", e)
   )

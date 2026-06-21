@@ -3,10 +3,14 @@ export type Env = {
   DB: D1Database
   /** Profile photos (and other uploads) — served by the gateway at /media/*. */
   MEDIA: R2Bucket
+  /** The live switchboard — auth publishes identity events (account activity,
+   * profile, forced sign-out) to a user's OWN channel. */
+  REALTIME: Fetcher
 
   /** The app's public address — used in login emails and redirects. */
   APP_ORIGIN: string
-  /** From-address for code emails, e.g. "Brimba <onboarding@resend.dev>". */
+  /** Verified-sender from-address for transactional email
+   * (e.g. "noreply@updates.swiftstruck.com"). */
   EMAIL_FROM: string
   /** "1" = include the login code in the API response (staging/dev ONLY). */
   DEV_ECHO_CODES: string
