@@ -107,3 +107,18 @@ screen and action:
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the live layer (the realtime worker +
 the Durable Object model) that powers rule 3.
+
+## Navigation never reloads (single-shell SPA)
+
+In-app navigation must **swap the screen, never reload the document**. A full page
+reload re-runs the session check, refetches every screen, AND wipes the in-memory
+cache (rule 6) — defeating cache-first entirely and multiplying server calls (this
+is rule 2's "no spinner on navigation", enforced).
+
+The deep-link team area (`/t/<teamId>/…`) is ONE static shell. Move WITHIN it with
+the **History API** (`window.history.pushState` / `replaceState`) — Next observes
+it, the route segment never changes, nothing reloads, the cache stays warm — then
+re-render from URL state. NEVER use the framework router (`router.push`) for an
+in-shell hop: in a static export it has no data file for an arbitrary `/t/<…>`
+path and falls back to a full-page reload. The router is only for ENTERING /
+LEAVING the shell (Home, Settings). (Bug found + fixed 2026-06-21.)

@@ -32,6 +32,7 @@ import { defaultFieldConfig } from "@swift-struck/ui/lib/config"
 
 import type { TeamRole } from "@shared/types"
 import { ApiFailure } from "@/lib/api"
+import { reportError } from "@/lib/log"
 
 const emailField = { ...defaultFieldConfig, label: "Email", required: true }
 const roleField = { ...defaultFieldConfig, label: "Role", required: true }
@@ -67,7 +68,13 @@ export function InviteDialog({
       await onSubmit(email.trim(), roleId)
       onOpenChange(false)
     } catch (err) {
-      toast.error(err instanceof ApiFailure ? err.message : "Couldn't send the invite.")
+      // ApiFailure carries the server's specific reason (e.g. "They're already on
+      // this team."). Anything else is a network/runtime fault — log it so a
+      // generic toast is never mistaken for a permission block.
+      if (!(err instanceof ApiFailure)) reportError("invite:send", err)
+      toast.error(
+        err instanceof ApiFailure ? err.message : "Couldn't send the invite — please try again."
+      )
     } finally {
       setBusy(false)
     }

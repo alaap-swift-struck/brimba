@@ -9,6 +9,7 @@ import { logActivity, type Actor } from "../../../../shared/workers/activity"
 import { d1Query, type D1Rest } from "../../../../shared/workers/d1-rest"
 import type { Env } from "../env"
 import { GuardError, type MemberGuard } from "./permissions"
+import { notifyRemoved, notifyRoleChanged } from "./notify"
 
 type RoleRow = {
   id: string
@@ -209,6 +210,9 @@ export async function changeMemberRole(
     relatedTable: "users",
     relatedRowId: targetUserId,
   })
+
+  // Tell the member — they didn't make this change but it affects them.
+  await notifyRoleChanged(env, guard.teamId, t.email, actor.name, roles[0].title)
 }
 
 /** Remove a member = deactivate the membership (reversible; never hard-delete).
@@ -254,4 +258,7 @@ export async function removeMember(
     relatedTable: "users",
     relatedRowId: targetUserId,
   })
+
+  // Tell the removed member — they didn't make this change but it affects them.
+  await notifyRemoved(env, guard.teamId, t.email, actor.name)
 }

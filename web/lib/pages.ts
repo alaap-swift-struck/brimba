@@ -47,6 +47,23 @@ export const TEAM_SECTIONS: TeamSection[] = [
   { key: "invites", title: "Invites", module: "team_members", segment: "invites" },
 ]
 
+/** The ONE icon vocabulary for the app — each concept (page / section / record
+ * kind) gets a single, distinct lucide icon (kebab-case name), reused at the
+ * page, section-tab and button level so "members" always looks the same wherever
+ * it appears. Add a concept here, not a one-off icon at a call site. */
+export const CONCEPT_ICON = {
+  home: "home",
+  settings: "settings",
+  team: "building",
+  overview: "layout-dashboard",
+  members: "users",
+  roles: "shield-half",
+  invites: "mail",
+  activity: "history",
+} as const
+
+export type ConceptKey = keyof typeof CONCEPT_ICON
+
 /** A breadcrumb step. `href` omitted = the current (non-link) page. */
 export type Crumb = { label: string; href?: string }
 

@@ -163,9 +163,10 @@ export function DeepLinkScreen() {
   const rolesQ = useCached(enabled ? `member_roles:${teamId}` : null, () =>
     tenancy.roles().then((r) => r.roles)
   )
-  const invitesQ = useCached(
-    enabled && module === "invites" ? `invites:${teamId}` : null,
-    () => tenancy.invites().then((r) => r.invites)
+  // Invites back the invites list AND the section-tab count badge, so load them
+  // across the team area (cache-first + live, so the count stays honest).
+  const invitesQ = useCached(enabled ? `invites:${teamId}` : null, () =>
+    tenancy.invites().then((r) => r.invites)
   )
   const metaQ = useCached(enabled && module === "team" ? `team-meta:${teamId}` : null, () =>
     tenancy.teamMeta()
@@ -194,21 +195,36 @@ export function DeepLinkScreen() {
   const sectionPath = module && module !== "team" ? `/t/${teamId}/${module}` : teamPath
   const currentPath = recordId ? `/t/${teamId}/${module}/${recordId}` : sectionPath
 
-  // Push a destination AND reflect it immediately (a query-only push won't
-  // re-fire the pathname effect). Opening a panel is a push so Back closes it.
+  // Navigate. The ENTIRE /t/* tree is one static shell (this component never
+  // unmounts), so moving WITHIN it must NOT use the framework router: in a static
+  // export the router has no data file for an arbitrary /t/<…> path and falls
+  // back to a full-page reload (re-runs the session check, refetches everything,
+  // wipes the in-memory cache). Instead we change the URL with the History API —
+  // Next observes pushState, the route segment never changes, nothing reloads,
+  // and the cache stays warm — then swap the screen from `route` state. Leaving
+  // /t (Home/Settings) is a real route change, so use the router there.
   const go = React.useCallback(
     (path: string, q?: ScreenQuery) => {
       navigatedRef.current = true
       const search = q ? buildScreenQuery(q) : ""
-      router.push(path + search)
-      setRoute(parseRoute(path, search))
+      const url = path + search
+      if (path.startsWith("/t")) {
+        window.history.pushState(null, "", url)
+        setRoute(parseRoute(path, search))
+      } else {
+        router.push(url)
+      }
     },
     [router]
   )
   const replace = React.useCallback(
     (path: string) => {
-      router.replace(path)
-      setRoute(parseRoute(path, ""))
+      if (path.startsWith("/t")) {
+        window.history.replaceState(null, "", path)
+        setRoute(parseRoute(path, ""))
+      } else {
+        router.replace(path)
+      }
     },
     [router]
   )
@@ -306,6 +322,15 @@ export function DeepLinkScreen() {
   const teamName = active.ctx.team?.name ?? "Team"
   const section: SectionKey =
     module === "members" || module === "roles" || module === "invites" ? module : "overview"
+
+  // Section-tab count badges — the count of what each section's collection shows
+  // (Overview leads with team metadata, not a collection, so it has no count).
+  // Members uses the active-member count from context (no extra fetch).
+  const sectionCounts: Partial<Record<SectionKey, number>> = {
+    members: active.ctx.memberCount,
+    roles: rolesQ.data?.length,
+    invites: invitesQ.data?.length,
+  }
 
   // Breadcrumbs derived from the URL spine; the library Breadcrumbs collapses the
   // middle on small screens. The last crumb is the current page (no href).
@@ -487,15 +512,28 @@ export function DeepLinkScreen() {
       : null
 
   return (
-    <AppShell active={active} breadcrumbs={crumbs}>
+    <AppShell active={active} breadcrumbs={crumbs} onNavigate={go}>
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
-        <TeamSectionNav teamId={teamId as string} current={section} perms={perms} onNavigate={(href) => go(href)} />
+        <TeamSectionNav
+          teamId={teamId as string}
+          current={section}
+          perms={perms}
+          counts={sectionCounts}
+          onNavigate={(href) => go(href)}
+        />
         {content()}
       </div>
 
-      {/* Change a member's role (?panel=edit&module=members&id) */}
+      {/* Change a member's role (?panel=edit&module=members&id). Gated by the
+       * edit right — a deep link can't reach a form the action would hide
+       * (block at every step, incl. deep-link entry — not just at submit). */}
       <RolePickerDialog
-        open={query.panel === "edit" && query.module === "members" && !!query.id}
+        open={
+          query.panel === "edit" &&
+          query.module === "members" &&
+          !!query.id &&
+          can("team_members", "edit")
+        }
         onOpenChange={(o) => !o && closePanel()}
         roles={activeRoles}
         currentRoleId={changeTarget?.roleId ?? null}
@@ -503,32 +541,34 @@ export function DeepLinkScreen() {
         onPick={(roleId) => runAction("members.changeRole", { userId: query.id ?? "", roleId })}
       />
 
-      {/* Invite someone (?panel=add&module=invites) */}
+      {/* Invite someone (?panel=add&module=invites) — gated by create. */}
       <InviteDialog
-        open={query.panel === "add" && query.module === "invites"}
+        open={query.panel === "add" && query.module === "invites" && can("team_members", "create")}
         onOpenChange={(o) => !o && closePanel()}
         roles={activeRoles}
         onSubmit={(email, roleId) => runAction("invites.create", { email, roleId })}
       />
 
-      {/* Create a role (?panel=add&module=roles) */}
+      {/* Create a role (?panel=add&module=roles) — gated by create. */}
       <RoleFormDialog
-        open={query.panel === "add" && query.module === "roles"}
+        open={query.panel === "add" && query.module === "roles" && can("member_roles", "create")}
         onOpenChange={(o) => !o && closePanel()}
         onSubmit={(title, description) => runAction("roles.create", { title, description })}
       />
 
-      {/* Edit the team (?panel=edit&module=team) */}
+      {/* Edit the team (?panel=edit&module=team) — gated by teams:edit. */}
       <TeamEditDialog
-        open={query.panel === "edit" && query.module === "team"}
+        open={query.panel === "edit" && query.module === "team" && can("teams", "edit")}
         onOpenChange={(o) => !o && closePanel()}
         team={active.ctx.team}
         onSaved={active.refresh}
       />
 
-      {/* Destructive confirms (?confirm=members.remove | invites.revoke) */}
+      {/* Destructive confirms (?confirm=members.remove | invites.revoke) — both
+       * need team_members:delete, gated so a deep link can't reach them. */}
       <ConfirmAction
         query={query}
+        canRun={can("team_members", "delete")}
         memberName={
           query.confirm === "members.remove"
             ? (membersQ.data?.find((m) => m.userId === query.id) ?? null)
@@ -606,17 +646,21 @@ function SectionWithCreate({
  * by ?confirm. Owns its in-flight state; the parent does the mutation + nav. */
 function ConfirmAction({
   query,
+  canRun,
   memberName,
   onCancel,
   onConfirm,
 }: {
   query: ScreenQuery
+  /** false → the viewer lacks the delete right; never open (block at every step). */
+  canRun: boolean
   memberName: TeamMember | null
   onCancel: () => void
   onConfirm: () => Promise<void>
 }) {
   const [busy, setBusy] = React.useState(false)
-  const open = query.confirm === "members.remove" || query.confirm === "invites.revoke"
+  const open =
+    canRun && (query.confirm === "members.remove" || query.confirm === "invites.revoke")
   const isRemove = query.confirm === "members.remove"
   const title = isRemove
     ? `Remove ${memberName ? fullName(memberName) : "this member"}?`

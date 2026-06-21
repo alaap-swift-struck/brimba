@@ -30,10 +30,15 @@ export function AppShell({
   active,
   children,
   breadcrumbs,
+  onNavigate,
 }: {
   active: ActiveTeam
   children: React.ReactNode
   breadcrumbs?: Crumb[]
+  /** How a breadcrumb link navigates. The deep-link host passes its History-API
+   * `go` so in-team crumbs don't trigger a full reload; other pages fall back to
+   * the router. */
+  onNavigate?: (href: string) => void
 }) {
   const router = useRouter()
   const pathname = usePathname()
@@ -154,7 +159,10 @@ export function AppShell({
          * primitive). The host owns the router, so links route through onNavigate. */}
         {breadcrumbs && breadcrumbs.length > 0 && (
           <div className="px-4 pt-4">
-            <Breadcrumbs items={breadcrumbs} onNavigate={(href) => router.push(href)} />
+            <Breadcrumbs
+              items={breadcrumbs}
+              onNavigate={onNavigate ?? ((href) => router.push(href))}
+            />
           </div>
         )}
 

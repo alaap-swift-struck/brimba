@@ -14,6 +14,8 @@ import {
   type CollectionConfig,
 } from "@swift-struck/ui/lib/config"
 
+import { CONCEPT_ICON } from "@/lib/pages"
+
 /** A plain text column/field for a recipe (label only — the host supplies the
  * already-formatted value in the row/record). */
 function field(column: string, label: string): RecipeField {
@@ -59,6 +61,7 @@ export const teamDetailRecipe: ScreenRecipe = {
     {
       key: "overview",
       label: "Overview",
+      icon: CONCEPT_ICON.overview,
       block: {
         kind: "description",
         columns: 1,
@@ -69,7 +72,12 @@ export const teamDetailRecipe: ScreenRecipe = {
         ],
       },
     },
-    { key: "activity", label: "Activity", block: { kind: "activity", source: "activity" } },
+    {
+      key: "activity",
+      label: "Activity",
+      icon: CONCEPT_ICON.activity,
+      block: { kind: "activity", source: "activity" },
+    },
   ],
 }
 
@@ -116,6 +124,7 @@ export const memberDetailRecipe: ScreenRecipe = {
     {
       key: "overview",
       label: "Overview",
+      icon: CONCEPT_ICON.overview,
       block: {
         kind: "description",
         columns: 1,
@@ -126,7 +135,12 @@ export const memberDetailRecipe: ScreenRecipe = {
         ],
       },
     },
-    { key: "activity", label: "Activity", block: { kind: "activity", source: "activity" } },
+    {
+      key: "activity",
+      label: "Activity",
+      icon: CONCEPT_ICON.activity,
+      block: { kind: "activity", source: "activity" },
+    },
   ],
 }
 
@@ -179,6 +193,7 @@ export const inviteDetailRecipe: ScreenRecipe = {
     {
       key: "overview",
       label: "Overview",
+      icon: CONCEPT_ICON.overview,
       block: {
         kind: "description",
         columns: 1,

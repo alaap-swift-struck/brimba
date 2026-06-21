@@ -11,6 +11,7 @@ import { ulid } from "../../../../shared/workers/id"
 import type { Invite } from "../../../../shared/types"
 import type { Env } from "../env"
 import { GuardError, type MemberGuard } from "./permissions"
+import { notifyInviteRevoked } from "./notify"
 
 const INVITE_TTL_DAYS = 7
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
@@ -169,9 +170,12 @@ export async function revokeInvite(
     .bind(inviteId, guard.teamId)
     .run()
 
-  if (res.meta?.changes)
+  if (res.meta?.changes) {
     await logActivity(cfg, guard.databaseId, actor, {
       type: "Invite revoked",
       description: `${actor.name} revoked the invite${row?.email ? ` for ${row.email}` : ""}`,
     })
+    // Tell the invitee their pending invite was withdrawn (best-effort).
+    await notifyInviteRevoked(env, guard.teamId, row?.email ?? "", actor.name)
+  }
 }
