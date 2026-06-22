@@ -14,17 +14,13 @@ import {
 import { ulid } from "../../../../shared/workers/id"
 import { MAX_IMAGE_BYTES, parseDataUrl } from "../../../../shared/workers/image"
 import { publishChange, publishUserChange } from "../../../../shared/workers/realtime"
+import { d1ConfigFrom } from "../../../../shared/workers/gating"
 import type { Env } from "../env"
 import { GuardError } from "./permissions"
 import { buildTeamSeed, TEAM_MIGRATIONS, type Actor } from "../team-schema"
 
 export function d1Config(env: Env): D1Rest {
-  if (!env.CF_D1_TOKEN) {
-    throw new Error(
-      "cloud_key_missing: the Cloudflare D1 token isn't set yet, so team databases can't be created."
-    )
-  }
-  return { accountId: env.CF_ACCOUNT_ID, apiToken: env.CF_D1_TOKEN }
+  return d1ConfigFrom(env)
 }
 
 /** Apply ONE migration to a team database and stamp it in _migrations. */
