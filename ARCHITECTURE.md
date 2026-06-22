@@ -47,7 +47,7 @@ unit/integration suite (web + the workers).
 | **tenancy** | teams, team members, Member roles (module key `member_roles`) + permissions, invites; also the per-team screen-recipe config store (`GET/POST /api/tenancy/config/screens`) |
 | **content** *(PLANNED — not yet on disk)* | learning, help + help threads, selectable data (+ types) |
 | **data-ops** *(PLANNED — not yet on disk)* | import sessions, export, the AI import agent (Workers AI, behind ONE swappable interface so the brain can change in one config edit) |
-| **realtime** | the live "switchboard" (LOCKED 2026-06-13; ROW-LEVEL 2026-06-22): one **TeamChannel Durable Object** per channel holds its open WebSockets (hibernatable → idle channels cost ~nothing) and fans out tiny **row-level** change pings `{resource, id, op}` so screens patch just the changed row — no refetch. Holds NO app data — the databases stay the source of truth. **Two channel scopes**, both gated like the API: `team:<id>` (every active member; gated by active membership of THAT team) and `user:<id>` (one person's devices — identity/membership events + a forced sign-out; gated to your OWN id, open even when teamless). Channels are created on-demand by name, unlimited, reusable as-is. Workers publish via `publishChange` / `publishUserChange` / `publishSignOut`; the client re-pulls the one changed row through the normal permission-checked endpoint (pings carry no data, so nothing leaks). |
+| **realtime** | the live "switchboard" (LOCKED 2026-06-13; ROW-LEVEL 2026-06-22): one **TeamChannel Durable Object** per channel holds its open WebSockets (hibernatable → idle channels cost ~nothing) and fans out tiny **row-level** change pings `{resource, id, op}` so screens patch just the changed row — no refetch. Holds NO app data — the databases stay the source of truth. **Two channel scopes**, both gated like the API: `team:<id>` (every active member; gated by active membership of THAT team) and `user:<id>` (one person's devices — identity/membership events + a forced sign-out; gated to your OWN id, open even when teamless). Channels are created on-demand by name, unlimited, reusable as-is. Workers publish via `publishChange` / `publishUserChange` / `publishSignOut`; the client re-pulls the one changed row through the normal permission-checked endpoint. The ping carries no row CONTENT (just `{resource,id,op}`), and the socket is gated at connect, so a listener never receives data it couldn't already fetch. |
 | **gateway / MCP** | the single front desk: serves the web screens (and marks `/_next/static/**` immutable so repeat loads don't re-validate), routes `/api/*` to the workers (incl. the `/api/realtime` WebSocket), exposes ONE master MCP catalog. UI and agents call the SAME doors |
 
 
@@ -175,9 +175,11 @@ on top follows [CACHING.md](CACHING.md).
   surfaces four ways — the whole team, one user, one role, or one invite.
 - **Every record screen has an Overview tab + an Activity tab** (LOCKED
   2026-06-17): Overview = the audit block (created/edited/deactivated + who);
-  Activity = that record's slice of the log. Built from two reusable components
-  (`web/components/metadata-overview.tsx`, `activity-feed.tsx`). See the activity
-  read path in `workers/tenancy/src/lib/activity-read.ts`.
+  Activity = that record's slice of the log. Both tabs render from LIBRARY
+  collections (`RecordDetail` / `DescriptionList` / `ActivityFeed` in
+  `@swift-struck/ui`) through the screen engine — never a hand-built app
+  component (UI comes only from the library, §6). See the activity read path in
+  `workers/tenancy/src/lib/activity-read.ts`.
 - Race-safety for invariant writes follows [CONCURRENCY.md](CONCURRENCY.md);
   failures follow [ERROR-HANDLING.md](ERROR-HANDLING.md).
 

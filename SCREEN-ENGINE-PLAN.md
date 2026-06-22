@@ -47,7 +47,7 @@ agent-editable screens. Lean *within* a robust design.
 
 | Piece | Where | What it does |
 |---|---|---|
-| **Recipe schema** | `shared/recipe.ts` | Typed, serializable shapes for a screen: type, presentation, data binding, fields, layout, actions, permission gates. The contract both the worker and the engine speak. |
+| **Recipe schema** | library `@swift-struck/ui` `lib/recipe.ts` (`ScreenRecipe`) | Typed, serializable shapes for a screen: type, presentation, data binding, fields, layout, actions, permission gates. The contract both the worker and the engine speak. The LIBRARY owns it (see §10), so the app + engine import the same type. |
 | **Config / recipe store** | ~~`workers/config` (new)~~ → **UPDATED 2026-06-21: the TENANCY worker**, `GET/POST /api/tenancy/config/screens` (there is NO separate `workers/config`; it was folded into tenancy) | Stores + serves recipes. Merges GLOBAL base recipes (the shipped defaults) with a team's own custom screens/overrides. CRUD actions are agent-callable (an agent can author a screen). |
 | **Screen engine** | library `registry/collections/screen-*` | React components that fetch a recipe + data and render the right library pieces, permission-aware. |
 | **Tenancy actions** | `workers/tenancy` | Members / roles / invites read+write + the guard rules. |
@@ -55,7 +55,7 @@ agent-editable screens. Lean *within* a robust design.
 
 ## 3 · The recipe schema (the heart)
 
-A screen recipe is serializable JSON, typed in `shared/recipe.ts`:
+A screen recipe is serializable JSON, typed in the library (`@swift-struck/ui` `lib/recipe.ts`, `ScreenRecipe` — see §10):
 
 - **type**: `list` | `detail` | `edit` | `add` | `confirm` | `custom`
 - **presentation**: `responsive` (default — overlay on desktop, full-screen/

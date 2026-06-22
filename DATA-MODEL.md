@@ -209,7 +209,12 @@ are resolved when those modules are built.
   changes and matches our anti-bloat rule. (Supersedes the earlier
   "edits/deactivations only" rule.)
 - **Q4 Roles → Admin locked + team always keeps ≥1 Admin; Viewer is a normal
-  editable/deactivatable role.** Role changes are direct, instant server
+  editable/deactivatable role.** EDGE — sole admin: the server REFUSES any change
+  that would drop a team below one active Admin, and no one can remove or demote
+  themselves, so a SOLE admin can't currently leave or be offboarded until they
+  promote another member to Admin first. An explicit transfer-ownership /
+  leave-team flow (and what becomes of a fully-empty team) is future work
+  (ROADMAP) — until then the team simply never reaches zero admins. Role changes are direct, instant server
   actions — Glide's async "updated role id + webhook complete" two-step is
   dropped (it was a Glide limitation we don't have).
 

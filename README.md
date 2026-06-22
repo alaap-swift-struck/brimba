@@ -21,8 +21,8 @@ not under Settings; top-level `/members` and `/roles` are thin redirects there.
    before building anything; do not relitigate without the user.
 2. **[OPERATIONS.md](OPERATIONS.md)** — how it builds and ships.
 3. **[CACHING.md](CACHING.md)** — the system-wide caching + loading/feedback
-   ruleset (cache-first, live-channel invalidation, examples). Follow it for
-   every screen/module.
+   ruleset (cache-first, row-level live-sync — patch the changed row, never
+   refetch the list — examples). Follow it for every screen/module.
 4. **[CONCURRENCY.md](CONCURRENCY.md)** — the race-safety ruleset (atomic writes,
    unique indexes, when a Durable Object is the lock). Follow it for any write
    that protects an invariant (counts, balances, uniqueness).

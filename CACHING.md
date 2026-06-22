@@ -103,10 +103,13 @@ const { members } = await tenancy.setMemberRole(userId, roleId)
 primeCache(`members:${teamId}`, members)   // instant for the actor
 ```
 
-### 8 · Pings carry "what", never the data
-The ping says only `{ resource, id, op }`. The re-pull goes through the normal
-**permission-checked endpoint**, so a cache can never hold data the viewer isn't
-allowed to see. (This is why a viewer with no rights simply gets nothing back.)
+### 8 · Pings carry "what", never the content
+The ping says only `{ resource, id, op }` — that a row of some resource changed,
+never the row's CONTENT. (The id/op/timing ARE visible to anyone already on the
+channel — which is exactly why the socket itself is gated at connect, rule 5.)
+The re-pull then goes through the normal **permission-checked endpoint**, so a
+cache can never hold data the viewer isn't allowed to see. (A viewer with no
+rights simply gets nothing back.)
 
 ### 9 · Lifetime: in-memory per session
 The cache lives in module memory, cleared on sign-out / team switch (different
