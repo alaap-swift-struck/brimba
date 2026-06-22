@@ -29,6 +29,7 @@ import { defaultFieldConfig } from "@swift-struck/ui/lib/config"
 
 import type { SessionUser } from "@shared/types"
 import { ApiFailure, auth } from "@/lib/api"
+import { personInitials } from "@/lib/identity"
 import { fileToDataUrl } from "@/lib/image"
 
 const firstField = { ...defaultFieldConfig, label: "First name", required: true }
@@ -88,8 +89,7 @@ export function ProfileDialog({
     }
   }
 
-  const initials =
-    `${firstName[0] ?? ""}${lastName[0] ?? ""}`.toUpperCase() || "?"
+  const initials = personInitials(firstName, lastName)
 
   return (
     <Dialog open={open} onOpenChange={(o) => !busy && onOpenChange(o)}>

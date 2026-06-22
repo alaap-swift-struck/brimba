@@ -3,6 +3,7 @@
 // and are served by the gateway at /media/users/<id>.
 
 import { MAX_IMAGE_BYTES, parseDataUrl } from "../../../../shared/workers/image"
+import { publishChange, publishUserChange } from "../../../../shared/workers/realtime"
 import type { Env } from "../env"
 import { logAccountActivity } from "./account-activity"
 import { toSessionUser, type UserRow } from "./users"
@@ -75,6 +76,23 @@ export async function updateProfile(
         type: "photo_changed",
         description: "Updated your profile photo",
       })
+  }
+
+  // Identity fan-out (decision D): name/photo is read FRESH from this one global
+  // users row everywhere it's shown, so one edit must live-update the person in
+  // every place at once. Best-effort:
+  //   • their OWN devices refresh their identity (profile event → re-pull me);
+  //   • every team they're in re-pulls their member row, so OTHER members see the
+  //     new name/photo (a row-level "members" edit on each team's channel).
+  if (nameChanged || photoChanged) {
+    await publishUserChange(env.REALTIME, user.id, "profile", user.id, "edit")
+    const teams = await env.DB.prepare(
+      "SELECT team_id FROM team_members WHERE user_id = ? AND deactivated_at IS NULL"
+    )
+      .bind(user.id)
+      .all<{ team_id: string }>()
+    for (const t of teams.results ?? [])
+      await publishChange(env.REALTIME, t.team_id, "members", user.id, "edit")
   }
 
   const updated = await env.DB.prepare("SELECT * FROM users WHERE id = ?")

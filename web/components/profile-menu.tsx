@@ -22,11 +22,8 @@ import {
 import { LogOut, UserRound } from "lucide-react"
 
 import { auth } from "@/lib/api"
+import { personName, personInitials } from "@/lib/identity"
 import type { ActiveTeam } from "@/lib/use-active-team"
-
-function userInitials(first?: string | null, last?: string | null) {
-  return `${first?.[0] ?? ""}${last?.[0] ?? ""}`.toUpperCase() || "?"
-}
 
 export function ProfileMenu({ active }: { active: ActiveTeam }) {
   const router = useRouter()
@@ -38,7 +35,7 @@ export function ProfileMenu({ active }: { active: ActiveTeam }) {
           <Avatar className="size-8">
             {user?.imageUrl && <AvatarImage src={user.imageUrl} alt="You" />}
             <AvatarFallback className="text-xs">
-              {userInitials(user?.firstName, user?.lastName)}
+              {personInitials(user?.firstName, user?.lastName)}
             </AvatarFallback>
           </Avatar>
         </button>
@@ -46,7 +43,7 @@ export function ProfileMenu({ active }: { active: ActiveTeam }) {
       <DropdownMenuContent align="end" className="w-56">
         <DropdownMenuLabel className="flex flex-col">
           <span className="truncate">
-            {[user?.firstName, user?.lastName].filter(Boolean).join(" ")}
+            {personName({ firstName: user?.firstName, lastName: user?.lastName })}
           </span>
           <span className="text-muted-foreground truncate text-xs font-normal">
             {user?.email}

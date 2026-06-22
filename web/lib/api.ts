@@ -6,6 +6,7 @@ import type {
   ActivityItem,
   ApiError,
   Invite,
+  InviteAudit,
   PermissionValue,
   ReceivedInvite,
   RolePermissions,
@@ -151,6 +152,13 @@ export const tenancy = {
       `/api/tenancy/invites?id=${encodeURIComponent(inviteId)}`
     ).then((r) => r.invites[0] ?? null),
 
+  /** The per-team invite_logs audit for one invite (inviter snapshot +
+   * acceptance + shelf life) — null if there's no audit row. For the detail. */
+  inviteAudit: (inviteId: string): Promise<InviteAudit | null> =>
+    api<{ audit: InviteAudit | null }>(
+      `/api/tenancy/invites/audit?id=${encodeURIComponent(inviteId)}`
+    ).then((r) => r.audit),
+
   /** YOUR own effective rights for the active team — powers the page guard. */
   myPermissions: () =>
     api<{ permissions: PermissionValue }>("/api/tenancy/my-permissions"),
@@ -236,8 +244,9 @@ export const tenancy = {
       { method: "POST", body: JSON.stringify({ inviteId }) }
     ),
 
-  /** The team's activity feed, or one record's (scope = team | user | role). */
-  activity: (scope: "team" | "user" | "role" = "team", id?: string) =>
+  /** The team's activity feed, or one record's (scope = team | user | role |
+   * invite). For invite scope, `id` is the GLOBAL invite id (server maps it). */
+  activity: (scope: "team" | "user" | "role" | "invite" = "team", id?: string) =>
     api<{ activity: ActivityItem[] }>(
       `/api/tenancy/activity?scope=${scope}${id ? `&id=${encodeURIComponent(id)}` : ""}`
     ),

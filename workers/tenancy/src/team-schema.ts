@@ -103,6 +103,31 @@ CREATE TABLE screens (
 );
 `,
   },
+  {
+    // Per-team invite audit (DATA-MODEL §invite_logs). The full record for an
+    // invite lives HERE in the team DB: a frozen inviter snapshot + the invitee +
+    // the proposed role + shelf life + acceptance stamp. The GLOBAL invite_index
+    // stays the thin routing copy (find invites by email without opening team DBs);
+    // its `invite_row_id` is this row's id. `shelf_life_in_hours` defaults to 168
+    // (the 7-day expiry). Acceptance is stamped when the invite is accepted.
+    version: "0003_invite_logs",
+    sql: `
+CREATE TABLE invite_logs (
+  id TEXT PRIMARY KEY,                       -- = invite_index.invite_row_id
+  inviter_user_row_id TEXT,
+  inviter_email TEXT,
+  inviter_full_name TEXT,
+  inviter_image TEXT,
+  invitee_user_row_id TEXT,                  -- null if they have no account yet
+  invitee_email TEXT NOT NULL,
+  proposed_member_role_id TEXT NOT NULL,
+  created_on TEXT NOT NULL,
+  shelf_life_in_hours INTEGER NOT NULL DEFAULT 168,
+  invite_accepted INTEGER NOT NULL DEFAULT 0,
+  invite_acceptance_timestamp TEXT
+);
+`,
+  },
 ]
 
 export type Actor = { id: string; email: string; name: string }

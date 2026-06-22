@@ -23,6 +23,7 @@ import { defaultFieldConfig } from "@swift-struck/ui/lib/config"
 
 import { ApiFailure, auth, tenancy } from "@/lib/api"
 import { BrandMark } from "@/components/brand-mark"
+import { personInitials } from "@/lib/identity"
 import { fileToDataUrl } from "@/lib/image"
 
 const firstNameField = { ...defaultFieldConfig, label: "First name", required: true }
@@ -97,7 +98,7 @@ export default function OnboardingPage() {
     )
   }
 
-  const initials = `${firstName[0] ?? ""}${lastName[0] ?? ""}`.toUpperCase() || "?"
+  const initials = personInitials(firstName, lastName)
 
   return (
     <main className="flex min-h-[100svh] items-center justify-center p-6">

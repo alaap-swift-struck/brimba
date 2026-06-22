@@ -200,10 +200,18 @@ export const inviteDetailRecipe: ScreenRecipe = {
         rows: [
           { label: "Role", column: "role" },
           { label: "Status", column: "status" },
+          { label: "Invited by", column: "invitedBy" },
           { label: "Invited", column: "invited" },
           { label: "Expires", column: "expires" },
+          { label: "Accepted", column: "accepted" },
         ],
       },
+    },
+    {
+      key: "activity",
+      label: "Activity",
+      icon: CONCEPT_ICON.activity,
+      block: { kind: "activity", source: "activity" },
     },
   ],
 }

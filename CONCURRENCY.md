@@ -35,10 +35,14 @@ stock-on-hand, a uniqueness rule) must be made race-safe by ONE of:
 ## What is NOT a lock
 
 The **realtime `TeamChannel` Durable Object is pub/sub only** — it broadcasts
-"X changed" pings and holds no data. It is **not** in any write path and
-serializes nothing. Don't reach for a DO just because a write touches shared
-data: plain D1 rows + (1) or (2) above cover almost everything (team name,
-member list, roles…). A DO instance is for the rare contended hot entity.
+row-level "X changed" pings and holds no data. This is true for **both** channel
+scopes (`team:<id>` and the per-user `user:<id>`): neither is in any write path
+and neither serializes anything. Each is just **gated** at connect time the same
+way the API is — a `team:` socket requires active membership of THAT team, a
+`user:` socket must be your OWN id — but a gate is an auth check, not a lock.
+Don't reach for a DO just because a write touches shared data: plain D1 rows +
+(1) or (2) above cover almost everything (team name, member list, roles…). A DO
+instance is for the rare contended hot entity.
 
 ## Picking the tool
 - Single-statement invariant (count/floor) → **atomic conditional SQL** (1).

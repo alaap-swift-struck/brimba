@@ -14,10 +14,16 @@ cross-cutting so every screen + future phase inherits them:
   `max-age=1yr, immutable`.
 - **Cache-first data layer** (`web/lib/store.ts` + module-cached session in
   `use-active-team.ts`) — screens paint instantly, revalidate in the background.
-- **Live layer** — new `realtime` worker (`TeamChannel` Durable Object, one per
-  team, hibernatable), `publishChange` on every tenancy write, `web/lib/realtime.ts`
-  client hook wired in `AppShell` → invalidates the matching cache so data
-  updates with no refresh. See ARCHITECTURE.md (workers table, LOCKED 2026-06-13).
+- **Live layer** — new `realtime` worker (`TeamChannel` Durable Object,
+  hibernatable), `web/lib/realtime.ts` client hook wired in `AppShell`. See
+  ARCHITECTURE.md (workers table, LOCKED 2026-06-13).
+  **UPDATED 2026-06-22 — now ROW-LEVEL + two channels:** pings carry
+  `{resource, id, op}`; the client re-pulls just the changed row and patches it
+  in place (never invalidate-the-whole-collection). Two channel scopes —
+  `team:<id>` and the per-user `user:<id>` (identity/membership events + forced
+  sign-out) — published via `publishChange` / `publishUserChange` /
+  `publishSignOut`. "Every mutation publishes" is now a guard-tested invariant.
+  See CACHING.md rules 3–8 + the ARCHITECTURE realtime row.
 - **Skeletons** replace spinners. The "Roles & permissions" screen is renamed
   **Member roles**.
 
@@ -169,7 +175,7 @@ Then the Foundation phase (below) resumes.
   CONCURRENCY.md.
 - **Activity + metadata:** one reusable writer logs created/edited/role-changed/
   invite/removed events to each team's `activity` table; a read endpoint
-  (`GET /api/tenancy/activity?scope=team|user|role`) + `GET /api/tenancy/team-meta`;
+  (`GET /api/tenancy/activity?scope=team|user|role|invite`) + `GET /api/tenancy/team-meta`;
   reusable `MetadataOverview` + `ActivityFeed`; team-detail **Overview** + **Activity**
   tabs and a **member-detail dialog** (Overview + Activity). Email-change flow live.
 

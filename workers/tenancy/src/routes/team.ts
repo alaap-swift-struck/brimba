@@ -108,9 +108,22 @@ export async function postUpdateTeam(request: Request, env: Env): Promise<Respon
 export async function getActivityFeed(request: Request, env: Env): Promise<Response> {
   const { cfg, guard } = await teamContext(request, env)
   const url = new URL(request.url)
-  const scope = (url.searchParams.get("scope") ?? "team") as "team" | "user" | "role"
-  const id = url.searchParams.get("id") ?? undefined
+  const scope = (url.searchParams.get("scope") ?? "team") as "team" | "user" | "role" | "invite"
+  let id = url.searchParams.get("id") ?? undefined
   await requireRight(cfg, guard, scope === "role" ? "member_roles" : "team_members", "read")
+  // Invite scope: the client passes the GLOBAL invite id; map it to the team-local
+  // invite_logs row id the activity rows reference. Bail to an empty feed if it
+  // doesn't resolve, so a bad/missing id never falls through to the whole-team feed.
+  if (scope === "invite") {
+    if (!id) return json({ activity: [] })
+    const idx = await env.DB.prepare(
+      "SELECT invite_row_id FROM invite_index WHERE id = ? AND team_id = ?"
+    )
+      .bind(id, guard.teamId)
+      .first<{ invite_row_id: string }>()
+    if (!idx?.invite_row_id) return json({ activity: [] })
+    id = idx.invite_row_id
+  }
   return json({ activity: await getActivity(cfg, guard, scope, id) })
 }
 

@@ -8,11 +8,12 @@ import {
   d1DeleteDatabase,
   d1ExecScript,
   d1Query,
+  sqlString,
   type D1Rest,
 } from "../../../../shared/workers/d1-rest"
 import { ulid } from "../../../../shared/workers/id"
 import { MAX_IMAGE_BYTES, parseDataUrl } from "../../../../shared/workers/image"
-import { publishChange } from "../../../../shared/workers/realtime"
+import { publishChange, publishUserChange } from "../../../../shared/workers/realtime"
 import type { Env } from "../env"
 import { GuardError } from "./permissions"
 import { buildTeamSeed, TEAM_MIGRATIONS, type Actor } from "../team-schema"
@@ -46,6 +47,35 @@ export async function applyTeamSchema(
 ): Promise<string> {
   for (const m of TEAM_MIGRATIONS) await applyMigration(cfg, databaseId, m)
   return TEAM_MIGRATIONS[TEAM_MIGRATIONS.length - 1].version
+}
+
+/**
+ * Stamp the per-team invite_logs audit row as accepted (M4). The global
+ * invite_index is the routing truth; this is the team-DB audit copy, so it's
+ * BEST-EFFORT — a missing cloud key or team-DB hiccup must never block a join.
+ * `inviteRowId` is invite_index.invite_row_id (= the invite_logs row id).
+ */
+async function stampInviteAccepted(
+  env: Env,
+  teamId: string,
+  inviteRowId: string | null,
+  acceptedAt: string
+): Promise<void> {
+  if (!inviteRowId) return
+  try {
+    const cfg = d1Config(env)
+    const row = await env.DB.prepare("SELECT database_id FROM teams WHERE id = ?")
+      .bind(teamId)
+      .first<{ database_id: string | null }>()
+    if (!row?.database_id) return
+    await d1ExecScript(
+      cfg,
+      row.database_id,
+      `UPDATE invite_logs SET invite_accepted = 1, invite_acceptance_timestamp = ${sqlString(acceptedAt)} WHERE id = ${sqlString(inviteRowId)};`
+    )
+  } catch (e) {
+    console.error("invite_logs accept stamp failed (audit only):", e)
+  }
 }
 
 /**
@@ -101,6 +131,11 @@ export async function createTeam(
     await env.DB.prepare("UPDATE users SET current_team_id = ?, updated_at = ? WHERE id = ?")
       .bind(teamId, now, actor.id)
       .run()
+
+    // Cross-team live event: the creator's OTHER devices should see the new team
+    // appear in their switcher without a refetch. Rides the per-user channel
+    // (the team channel doesn't exist for them yet). The client reacts in B.
+    await publishUserChange(env.REALTIME, actor.id, "teams", teamId, "add")
 
     return { teamId }
   } catch (e) {
@@ -167,12 +202,12 @@ export async function acceptPendingInvites(
 ): Promise<number> {
   const now = new Date().toISOString()
   const pending = await env.DB.prepare(
-    `SELECT i.id, i.team_id, i.role_id FROM invite_index i
+    `SELECT i.id, i.team_id, i.role_id, i.invite_row_id FROM invite_index i
      JOIN teams t ON t.id = i.team_id AND t.deactivated_at IS NULL
      WHERE i.email = ? AND i.status = 'pending' AND i.expires_at > ?`
   )
     .bind(actor.email, now)
-    .all<{ id: string; team_id: string; role_id: string }>()
+    .all<{ id: string; team_id: string; role_id: string; invite_row_id: string }>()
 
   const invites = pending.results ?? []
   for (const invite of invites) {
@@ -190,6 +225,7 @@ export async function acceptPendingInvites(
     await env.DB.prepare("UPDATE invite_index SET status = 'accepted' WHERE id = ?")
       .bind(invite.id)
       .run()
+    await stampInviteAccepted(env, invite.team_id, invite.invite_row_id, now)
   }
 
   if (invites.length > 0) {
@@ -200,12 +236,18 @@ export async function acceptPendingInvites(
       .run()
 
     // Ping each affected team's live channel so members/invites screens that are
-    // open update instantly (best-effort; publishChange swallows errors).
+    // open update instantly (best-effort; publishChange swallows errors). Row-
+    // level: the new member is this user (actor.id); each invite flips to
+    // 'accepted' in place (carry its own id).
+    for (const invite of invites) {
+      await publishChange(env.REALTIME, invite.team_id, "invites", invite.id, "edit")
+    }
     const affected = [...new Set(invites.map((i) => i.team_id))]
     for (const teamId of affected) {
-      await publishChange(env.REALTIME, teamId, "invites")
-      await publishChange(env.REALTIME, teamId, "members")
+      await publishChange(env.REALTIME, teamId, "members", actor.id, "add")
     }
+    // Cross-team: the joiner's other devices pick up the newly-joined team(s).
+    await publishUserChange(env.REALTIME, actor.id, "teams", affected[0], "add")
   }
   return invites.length
 }
@@ -271,12 +313,12 @@ export async function acceptInvite(
   // Validate the invite is theirs (email), still pending, unexpired, to a live
   // team — and grab its team + role for the join.
   const invite = await env.DB.prepare(
-    `SELECT i.id, i.team_id, i.role_id FROM invite_index i
+    `SELECT i.id, i.team_id, i.role_id, i.invite_row_id FROM invite_index i
      JOIN teams t ON t.id = i.team_id AND t.deactivated_at IS NULL AND t.db_status = 'ready'
      WHERE i.id = ? AND i.email = ? AND i.status = 'pending' AND i.expires_at > ?`
   )
     .bind(inviteId, actor.email, now)
-    .first<{ id: string; team_id: string; role_id: string }>()
+    .first<{ id: string; team_id: string; role_id: string; invite_row_id: string }>()
   if (!invite) return null
 
   // CLAIM IT FIRST, atomically: only the request that flips pending→accepted may
@@ -308,8 +350,14 @@ export async function acceptInvite(
     .bind(invite.team_id, now, actor.id)
     .run()
 
-  await publishChange(env.REALTIME, invite.team_id, "invites")
-  await publishChange(env.REALTIME, invite.team_id, "members")
+  await stampInviteAccepted(env, invite.team_id, invite.invite_row_id, now)
+
+  // Row-level: the joiner becomes a member (added) and the invite flips to
+  // 'accepted' in place — carry both ids so open lists patch just those rows.
+  await publishChange(env.REALTIME, invite.team_id, "members", actor.id, "add")
+  await publishChange(env.REALTIME, invite.team_id, "invites", inviteId, "edit")
+  // Cross-team: the joiner's OTHER devices add the new team to their switcher.
+  await publishUserChange(env.REALTIME, actor.id, "teams", invite.team_id, "add")
   return invite.team_id
 }
 

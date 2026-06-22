@@ -15,6 +15,7 @@ vi.mock("../../../shared/workers/activity", () => ({
 }))
 vi.mock("../../../shared/workers/realtime", () => ({
   publishChange: vi.fn().mockResolvedValue(undefined),
+  publishUserChange: vi.fn().mockResolvedValue(undefined),
 }))
 
 import { changeMemberRole, removeMember } from "../src/lib/members"

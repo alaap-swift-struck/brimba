@@ -62,8 +62,9 @@ export async function postCreateRole(request: Request, env: Env): Promise<Respon
     description?: string
   }
   if (!body.title?.trim()) return fail(400, "invalid_input", "A role needs a name.")
-  await createRole(cfg, guard, actor, body.title, body.description ?? "")
-  await publishChange(env.REALTIME, guard.teamId, "member_roles")
+  const roleId = await createRole(cfg, guard, actor, body.title, body.description ?? "")
+  // Row-level: carry the new role's id so open role lists patch just that row.
+  await publishChange(env.REALTIME, guard.teamId, "member_roles", roleId, "add")
   return json({ roles: await listRoles(env, cfg, guard) })
 }
 

@@ -25,11 +25,8 @@ import { toast } from "@swift-struck/ui/registry/primitives/sonner/sonner"
 import { Check, ChevronsUpDown, Inbox, Plus } from "lucide-react"
 
 import { useReceivedInvites } from "@/components/invitations"
+import { letterMark } from "@/lib/identity"
 import type { ActiveTeam } from "@/lib/use-active-team"
-
-function teamInitial(name?: string | null) {
-  return name?.[0]?.toUpperCase() ?? "?"
-}
 
 export function TeamSwitcher({
   active,
@@ -61,14 +58,14 @@ export function TeamSwitcher({
           >
             <Avatar className="size-8">
               {ctx?.team?.logoUrl && <AvatarImage src={ctx.team.logoUrl} alt={ctx.team.name} />}
-              <AvatarFallback className="text-xs">{teamInitial(ctx?.team?.name)}</AvatarFallback>
+              <AvatarFallback className="text-xs">{letterMark(ctx?.team?.name)}</AvatarFallback>
             </Avatar>
           </button>
         ) : (
           <Button variant="ghost" className="hover-lift-none h-auto w-full justify-start gap-2 px-2 py-1.5">
             <Avatar className="size-7">
               {ctx?.team?.logoUrl && <AvatarImage src={ctx.team.logoUrl} alt={ctx.team.name} />}
-              <AvatarFallback className="text-xs">{teamInitial(ctx?.team?.name)}</AvatarFallback>
+              <AvatarFallback className="text-xs">{letterMark(ctx?.team?.name)}</AvatarFallback>
             </Avatar>
             <span className="min-w-0 flex-1 truncate text-left text-sm font-semibold">
               {ctx?.team?.name ?? "No team"}
@@ -97,7 +94,7 @@ export function TeamSwitcher({
           <DropdownMenuItem key={team.id} onSelect={() => void handleSwitch(team.id)} className="gap-2">
             <Avatar className="size-6">
               {team.logoUrl && <AvatarImage src={team.logoUrl} alt={team.name} />}
-              <AvatarFallback className="text-[10px]">{teamInitial(team.name)}</AvatarFallback>
+              <AvatarFallback className="text-[10px]">{letterMark(team.name)}</AvatarFallback>
             </Avatar>
             <span className="min-w-0 flex-1 truncate">{team.name}</span>
             {team.id === ctx.team?.id && <Check className="size-4" />}

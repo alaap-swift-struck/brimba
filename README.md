@@ -32,9 +32,15 @@ not under Settings; top-level `/members` and `/roles` are thin redirects there.
    type/endpoint contracts each phase plugs into.
 7. **[SEARCH.md](SEARCH.md)** — the search + in-app-filter ruleset (the layered
    client-side → server `?q=` → per-team FTS5 model; recipe-declared).
-8. The UI comes ONLY from **[@swift-struck/ui](https://swift-struck-ui.pages.dev/documentation)**
-   (installed from GitHub). Missing a component? Add it to the LIBRARY first —
-   never build one-off UI here.
+8. **[DATA-MODEL.md](DATA-MODEL.md)** — every table (global core + per-team), what's
+   built vs. to build, and the cross-cutting model resolutions.
+9. **[SCREEN-ENGINE-PLAN.md](SCREEN-ENGINE-PLAN.md)** — the screen-recipe engine and
+   the `/t/<teamId>/<module>/<id>` deep-link grammar the team area runs on.
+10. **[UI-GAPS.md](UI-GAPS.md)** — the running list of library gaps to close (UI is
+    fixed in the library, not per-app).
+11. The UI comes ONLY from **[@swift-struck/ui](https://swift-struck-ui.pages.dev/documentation)**
+    (installed from GitHub). Missing a component? Add it to the LIBRARY first —
+    never build one-off UI here.
 
 ## Develop
 

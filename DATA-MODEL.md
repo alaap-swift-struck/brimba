@@ -137,22 +137,28 @@ needs a user×learning join — not a single column.
 `help_threads` (messages): audit + `parent_record_id` (the help row),
 `tagged_team_member_user_ids`, `message_body`. A ticket with a conversation.
 
-### invite_logs — KEEP (TO BUILD, per-team) + invite_index (GLOBAL, built)
-`invite_logs` (full record in the team DB): audit + inviter snapshot
-(`user_row_id`, `email`, `full_name`, `image`), invitee (`user_row_id` if they
-exist, `email`, `proposed_member_role_id`), `created_on`, `shelf_life_in_hours`
-(default 168h = the 7-day expiry per ROADMAP),
-`invite_accepted`, `invite_acceptance_timestamp`. The GLOBAL `invite_index`
+### invite_logs — BUILT (per-team, team migration `0003_invite_logs`) + invite_index (GLOBAL, built)
+`invite_logs` (full record in the team DB): audit + a FROZEN inviter snapshot
+(`inviter_user_row_id`, `inviter_email`, `inviter_full_name`, `inviter_image`),
+invitee (`invitee_user_row_id` if they have an account, `invitee_email`,
+`proposed_member_role_id`), `created_on`, `shelf_life_in_hours` (default 168h =
+the 7-day expiry), `invite_accepted`, `invite_acceptance_timestamp`. Its `id` =
+`invite_index.invite_row_id`. Written on invite-create, stamped accepted on
+accept (both best-effort — the global index is the routing truth, so a team-DB
+hiccup never fails the invite/join). Surfaced on the invite detail (inviter +
+acceptance) and as the `invite` activity scope. The GLOBAL `invite_index`
 (already built) is the thin routing copy so onboarding can find invites by email
 without opening every team DB.
 
-### activity (Glide "All activity") — KEEP (TO BUILD) — **OPEN Q3 (design)**
+### activity (Glide "All activity") — KEEP (table BUILT, per-team; feed + read path shipped). **Q3 RESOLVED.**
 Purpose: the human-readable change feed. Glide referenced the subject row via
 **one relation column per table** (`Invite logs/Teams/Member roles/Team members/
 Data import sessions Row ID`). Brimba uses a generic `(related_table,
-related_row_id)` pair instead → scales to any module without new columns. Glide
-logged creations + milestones ("New team created", "New member joined", import
-stages); the user's rule is edits/activations/deactivations only. (Q3.)
+related_row_id)` pair instead → scales to any module without new columns. Per the
+Q3 resolution below — **log EVERYTHING** (creations, edits, activations/
+deactivations, milestones), superseding the earlier "edits/deactivations only" —
+the SAME rows are surfaced four ways by the read path
+(`?scope=team|user|role|invite`).
 
 ### data_import_sessions — KEEP (TO BUILD, per-team) — the 3-stage import
 Real data: audit + `table_id`, `table_name`, `required_columns_json_schema`,
@@ -172,9 +178,10 @@ import). **OPEN Q (later, when we build import).**
 - **Built**: users, teams, team_members, invite_index, member_roles,
   role_permissions, selectable_data, activity (table only), team_module_databases,
   db_alerts, login_codes, sessions, account_activity, email_change_logs +
-  email_change_codes (the hashed-OTP split; BUILT 2026-06-17).
+  email_change_codes (the hashed-OTP split; BUILT 2026-06-17), invite_logs
+  (per-team audit; BUILT 2026-06-22, M4).
 - **To build (tables)**: importable_databases,
-  selectable_data_types, learning, help, help_threads, invite_logs,
+  selectable_data_types, learning, help, help_threads,
   data_import_sessions — added per module as we reach it.
 
 Open questions Q1–Q4 (audit scope, selectable types, activity design, role

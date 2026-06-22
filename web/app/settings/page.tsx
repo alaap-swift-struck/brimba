@@ -12,6 +12,7 @@ import {
 } from "@swift-struck/ui/registry/primitives/avatar/avatar"
 import { Badge } from "@swift-struck/ui/registry/primitives/badge/badge"
 import { Button } from "@swift-struck/ui/registry/primitives/button/button"
+import { List } from "@swift-struck/ui/registry/collections/list/list"
 import { Skeleton } from "@swift-struck/ui/registry/primitives/skeleton/skeleton"
 import {
   ActivityFeed,
@@ -26,6 +27,7 @@ import { InvitationsPanel, useReceivedInvites } from "@/components/invitations"
 import { ProfileDialog } from "@/components/profile-dialog"
 import { auth } from "@/lib/api"
 import { formatDateTime } from "@/lib/format"
+import { personName, personInitials, letterMark } from "@/lib/identity"
 import { useCached } from "@/lib/store"
 import { useActiveTeam } from "@/lib/use-active-team"
 
@@ -47,7 +49,7 @@ export default function SettingsPage() {
 
   if (loading || !ctx) return <ShellLoading />
 
-  const name = [user?.firstName, user?.lastName].filter(Boolean).join(" ") || "You"
+  const name = personName({ firstName: user?.firstName, lastName: user?.lastName }) || "You"
 
   return (
     <AppShell active={active} breadcrumbs={[{ label: "Settings" }]}>
@@ -68,34 +70,43 @@ export default function SettingsPage() {
           <h2 className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
             Account
           </h2>
-          <div className="divide-border/60 flex flex-col divide-y overflow-hidden rounded-xl border">
-            <div className="flex items-center gap-3 px-2 py-3">
-              <Avatar className="size-9">
-                {user?.imageUrl && <AvatarImage src={user.imageUrl} alt={name} />}
-                <AvatarFallback>
-                  {`${user?.firstName?.[0] ?? ""}${user?.lastName?.[0] ?? ""}`.toUpperCase() || "?"}
-                </AvatarFallback>
-              </Avatar>
-              <div className="min-w-0 flex-1">
-                <div className="truncate font-medium">{name}</div>
-              </div>
-              <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
-                Edit profile
-              </Button>
-            </div>
-            <div className="flex items-center gap-3 px-2 py-3">
-              <div className="text-muted-foreground flex size-9 shrink-0 items-center justify-center">
-                <Mail className="size-4" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="text-muted-foreground text-xs">Email</div>
-                <div className="truncate text-sm">{user?.email}</div>
-              </div>
-              <Button variant="outline" size="sm" onClick={() => setChangingEmail(true)}>
-                Change email
-              </Button>
-            </div>
-          </div>
+          <List
+            surface="none"
+            className="rounded-xl border"
+            items={[
+              {
+                id: "profile",
+                leading: (
+                  <Avatar className="size-9">
+                    {user?.imageUrl && <AvatarImage src={user.imageUrl} alt={name} />}
+                    <AvatarFallback>
+                      {personInitials(user?.firstName, user?.lastName)}
+                    </AvatarFallback>
+                  </Avatar>
+                ),
+                title: name,
+                trailing: (
+                  <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
+                    Edit profile
+                  </Button>
+                ),
+              },
+              {
+                id: "email",
+                leading: (
+                  <div className="text-muted-foreground flex size-9 items-center justify-center">
+                    <Mail className="size-4" />
+                  </div>
+                ),
+                title: user?.email,
+                trailing: (
+                  <Button variant="outline" size="sm" onClick={() => setChangingEmail(true)}>
+                    Change email
+                  </Button>
+                ),
+              },
+            ]}
+          />
         </section>
 
         {/* Account activity — your own identity history (name / photo / email
@@ -129,37 +140,33 @@ export default function SettingsPage() {
           <h2 className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
             Teams
           </h2>
-          <div className="divide-border/60 flex flex-col divide-y overflow-hidden rounded-xl border">
-            {ctx.teams.map((team) => {
-              const current = team.id === ctx.team?.id
-              return (
-                <button
-                  key={team.id}
-                  type="button"
-                  onClick={() => void openTeam(team.id)}
-                  className="hover:bg-muted/40 flex w-full items-center gap-3 px-2 py-3 text-left transition-colors"
-                >
-                  <Avatar className="size-9">
-                    {team.logoUrl && <AvatarImage src={team.logoUrl} alt={team.name} />}
-                    <AvatarFallback className="text-xs">
-                      {team.name[0]?.toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 font-medium">
-                      <span className="truncate">{team.name}</span>
-                      {current && (
-                        <Badge variant="secondary" className="text-[10px]">
-                          Active
-                        </Badge>
-                      )}
-                    </div>
-                  </div>
-                  <ChevronRight className="text-muted-foreground size-4 shrink-0" />
-                </button>
-              )
-            })}
-          </div>
+          <List
+            surface="none"
+            className="rounded-xl border"
+            onItemClick={(item) => void openTeam(item.id)}
+            items={ctx.teams.map((team) => ({
+              id: team.id,
+              leading: (
+                <Avatar className="size-9">
+                  {team.logoUrl && <AvatarImage src={team.logoUrl} alt={team.name} />}
+                  <AvatarFallback className="text-xs">
+                    {letterMark(team.name)}
+                  </AvatarFallback>
+                </Avatar>
+              ),
+              title: (
+                <span className="flex items-center gap-2">
+                  <span className="truncate">{team.name}</span>
+                  {team.id === ctx.team?.id && (
+                    <Badge variant="secondary" className="text-[10px]">
+                      Active
+                    </Badge>
+                  )}
+                </span>
+              ),
+              trailing: <ChevronRight className="text-muted-foreground size-4" />,
+            }))}
+          />
         </section>
       </div>
 

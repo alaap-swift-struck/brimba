@@ -3,7 +3,12 @@
 
 import { fail, json } from "../../../../shared/workers/http"
 import { publishChange } from "../../../../shared/workers/realtime"
-import { createInvite, listInvites, revokeInvite } from "../lib/invites"
+import {
+  createInvite,
+  getInviteAudit as readInviteAudit,
+  listInvites,
+  revokeInvite,
+} from "../lib/invites"
 import { acceptInvite, listReceivedInvites } from "../lib/teams"
 import { requireRight } from "../lib/permissions"
 import { teamContext, toActor, whoAmI } from "../context"
@@ -26,8 +31,11 @@ export async function postCreateInvite(request: Request, env: Env): Promise<Resp
   }
   if (!body.email || !body.roleId)
     return fail(400, "invalid_input", "email and roleId are required.")
-  await createInvite(env, cfg, guard, actor, body.email, body.roleId, new URL(request.url).origin)
-  await publishChange(env.REALTIME, guard.teamId, "invites")
+  const inviteId = await createInvite(
+    env, cfg, guard, actor, body.email, body.roleId, new URL(request.url).origin
+  )
+  // Row-level: carry the new invite's id so open invite lists patch just that row.
+  await publishChange(env.REALTIME, guard.teamId, "invites", inviteId, "add")
   return json({ invites: await listInvites(env, cfg, guard) })
 }
 
@@ -37,8 +45,20 @@ export async function postRevokeInvite(request: Request, env: Env): Promise<Resp
   const body = (await request.json().catch(() => ({}))) as { inviteId?: string }
   if (!body.inviteId) return fail(400, "invalid_input", "inviteId is required.")
   await revokeInvite(env, cfg, guard, actor, body.inviteId)
-  await publishChange(env.REALTIME, guard.teamId, "invites")
+  // Revoke is an in-place edit (the row stays, status → 'revoked'), so re-pulling
+  // this one id keeps the list live without a full refetch.
+  await publishChange(env.REALTIME, guard.teamId, "invites", body.inviteId, "edit")
   return json({ invites: await listInvites(env, cfg, guard) })
+}
+
+/** The per-team invite_logs audit for one invite (M4): inviter snapshot +
+ * acceptance + shelf life, for the invite detail. Gated by team_members:read. */
+export async function getInviteAudit(request: Request, env: Env): Promise<Response> {
+  const { cfg, guard } = await teamContext(request, env)
+  await requireRight(cfg, guard, "team_members", "read")
+  const id = new URL(request.url).searchParams.get("id")
+  if (!id) return fail(400, "invalid_input", "id is required.")
+  return json({ audit: await readInviteAudit(env, cfg, guard, id) })
 }
 
 /**

@@ -19,30 +19,14 @@ import * as React from "react"
 import { useRouter, usePathname } from "next/navigation"
 
 import { Skeleton } from "@swift-struck/ui/registry/primitives/skeleton/skeleton"
-import { Button } from "@swift-struck/ui/registry/primitives/button/button"
-import { Spinner } from "@swift-struck/ui/registry/primitives/spinner/spinner"
 import { toast } from "@swift-struck/ui/registry/primitives/sonner/sonner"
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@swift-struck/ui/registry/primitives/alert-dialog/alert-dialog"
-import { Plus, Mail } from "lucide-react"
-import {
   ScreenRenderer,
-  type ScreenData,
   type ScreenActionContext,
   type ScreenIntent,
 } from "@swift-struck/ui/registry/collections/screen-renderer/screen-renderer"
 import {
   buildScreenQuery,
-  parseScreenPath,
-  parseScreenQuery,
   type ScreenQuery,
   type ScreenRights,
 } from "@swift-struck/ui/lib/recipe"
@@ -54,53 +38,26 @@ import { RolePickerDialog } from "@/components/role-picker-dialog"
 import { RoleFormDialog } from "@/components/role-form-dialog"
 import { InviteDialog } from "@/components/invite-dialog"
 import { TeamEditDialog } from "@/components/team-edit-dialog"
+import { ConfirmAction } from "@/components/deep-link/confirm-action"
+import { NoAccess, NotFound, LoadError, SectionWithCreate } from "@/components/deep-link/screen-bits"
+import { parseRoute, sectionTitle, type Route, type SectionKey } from "@/components/deep-link/route"
+import {
+  shapeInviteDetail,
+  shapeInvitesList,
+  shapeMemberDetail,
+  shapeMembersList,
+  shapeRolesList,
+  shapeTeamDetail,
+} from "@/components/deep-link/shape"
 import { ApiFailure, tenancy } from "@/lib/api"
-import { formatDate, formatDateTime } from "@/lib/format"
 import { usePermissions } from "@/lib/perms"
 import { invalidate, primeCache, useCached } from "@/lib/store"
 import { useActiveTeam } from "@/lib/use-active-team"
 import { reportError } from "@/lib/log"
+import { personName } from "@/lib/identity"
 import { MODULE_PERMISSION, resolveRecipe, withoutActions } from "@/lib/screens"
-import { TEAM_SECTIONS, type Crumb } from "@/lib/pages"
-import type { Invite, TeamMember } from "@shared/types"
-
-const STATUS: Record<Invite["status"], string> = {
-  pending: "Pending",
-  accepted: "Accepted",
-  revoked: "Revoked",
-  expired: "Expired",
-}
-
-function fullName(m: TeamMember): string {
-  return [m.firstName, m.lastName].filter(Boolean).join(" ") || m.email
-}
-
-type SectionKey = "overview" | "members" | "roles" | "invites"
-
-type Route = {
-  teamId: string
-  /** friendly URL module segment: team | members | roles | invites (| unknown) */
-  module: string
-  /** "" = the list / overview level (no record selected) */
-  recordId: string
-  query: ScreenQuery
-}
-
-function parseRoute(pathname: string, search: string): Route {
-  const segs = pathname.split("/").filter(Boolean) // ["t", teamId, module?, id?, …]
-  const teamId = segs[1] ?? ""
-  const levels = parseScreenPath(segs.slice(2)) // [{module,id}, …]
-  return {
-    teamId,
-    module: levels[0]?.module || "team",
-    recordId: levels[0]?.id || "",
-    query: parseScreenQuery(new URLSearchParams(search)),
-  }
-}
-
-function sectionTitle(module: string): string {
-  return TEAM_SECTIONS.find((s) => s.segment === module)?.title ?? "Team"
-}
+import { type Crumb } from "@/lib/pages"
+import type { TeamMember } from "@shared/types"
 
 export function DeepLinkScreen() {
   const active = useActiveTeam()
@@ -130,21 +87,35 @@ export function DeepLinkScreen() {
   const recordId = route?.recordId ?? null
   const query = route?.query ?? {}
 
-  // If the link points at a team we're not in, switch (server validates
-  // membership; a non-member switch fails → no access). Reset noAccess each time
-  // the target team changes — this is ONE persistent shell, so a stale latched
-  // flag would otherwise strand a later valid team on the no-access screen. Dep
-  // on the primitive team id (not the whole `active` object, which is a fresh
-  // literal every render → would re-fire + re-dispatch the switch each render).
+  // Resolve which team this URL points at. Three cases, all keyed off PRIMITIVES
+  // (not the whole `active` object, which is a fresh literal every render → would
+  // re-fire + re-dispatch every render):
+  //   • not (or no longer) a member → leave the dead /t screen for safety;
+  //   • a member but not the active team → switch to it (server re-validates);
+  //   • the active team → nothing to do.
+  // isMemberOfUrlTeam flips the instant a live membership ping (decision #8)
+  // refreshes ctx.teams, so a removed user is routed away automatically.
   const activeTeamId = active.ctx?.team?.id ?? null
+  const teamCount = active.ctx?.teams.length ?? 0
+  const isMemberOfUrlTeam = teamId
+    ? (active.ctx?.teams.some((t) => t.id === teamId) ?? false)
+    : true
   const switchTeam = active.switchTeam
   React.useEffect(() => {
-    if (!teamId || !activeTeamId) return
+    if (active.loading || !teamId) return
+    if (!isMemberOfUrlTeam) {
+      // Removed from this team. Go to the active team's home if one remains;
+      // if teamless, use-active-team has already routed us to onboarding.
+      if (teamCount > 0) router.replace("/home")
+      return
+    }
     setNoAccess(false)
-    if (activeTeamId !== teamId) {
+    // A member whose team is still provisioning (db not 'ready') fails the switch
+    // → that's the genuine no-access case the screen still covers.
+    if (activeTeamId && activeTeamId !== teamId) {
       switchTeam(teamId).catch(() => setNoAccess(true))
     }
-  }, [teamId, activeTeamId, switchTeam])
+  }, [teamId, activeTeamId, isMemberOfUrlTeam, teamCount, active.loading, switchTeam, router])
 
   const onTeam = active.ctx?.team?.id === teamId
   const enabled = Boolean(teamId && onTeam)
@@ -171,18 +142,30 @@ export function DeepLinkScreen() {
   const metaQ = useCached(enabled && module === "team" ? `team-meta:${teamId}` : null, () =>
     tenancy.teamMeta()
   )
-  const activityScope: "team" | "user" | null =
-    module === "team" ? "team" : module === "members" && recordId ? "user" : null
+  const activityScope: "team" | "user" | "invite" | null =
+    module === "team"
+      ? "team"
+      : module === "members" && recordId
+        ? "user"
+        : module === "invites" && recordId
+          ? "invite"
+          : null
   const activityKey =
     !enabled || !activityScope
       ? null
       : activityScope === "team"
         ? `activity:team:${teamId}`
-        : `activity:user:${recordId}`
+        : `activity:${activityScope}:${recordId}`
   const activityQ = useCached(activityKey, () =>
     tenancy
-      .activity(activityScope ?? "team", activityScope === "user" ? (recordId ?? undefined) : undefined)
+      .activity(activityScope ?? "team", activityScope === "team" ? undefined : (recordId ?? undefined))
       .then((r) => r.activity)
+  )
+  // The invite-detail audit (inviter snapshot + acceptance) — only when viewing
+  // one invite. Cache-first + live (a revoke/accept ping refreshes its invite row).
+  const inviteAuditQ = useCached(
+    enabled && module === "invites" && recordId ? `invite-audit:${recordId}` : null,
+    () => tenancy.inviteAudit(recordId as string)
   )
 
   const roles = rolesQ.data ?? []
@@ -319,6 +302,12 @@ export function DeepLinkScreen() {
 
   if (active.loading || !active.ctx || !route) return <ShellLoading />
 
+  // About to be redirected: the membership effect sends us to /home when the URL
+  // points at a team we're no longer in (we still have others). Show the loading
+  // frame — NOT the shell bound to the auto-fallback team — so we never flash the
+  // wrong team's name/logo in the header/breadcrumb during the hop.
+  if (teamId && !isMemberOfUrlTeam && teamCount > 0) return <ShellLoading />
+
   const teamName = active.ctx.team?.name ?? "Team"
   const section: SectionKey =
     module === "members" || module === "roles" || module === "invites" ? module : "overview"
@@ -346,7 +335,7 @@ export function DeepLinkScreen() {
   function recordLabel(): string {
     if (module === "members")
       return membersQ.data?.find((m) => m.userId === recordId)
-        ? fullName(membersQ.data.find((m) => m.userId === recordId) as TeamMember)
+        ? personName(membersQ.data.find((m) => m.userId === recordId) as TeamMember)
         : "Member"
     if (module === "roles") return roles.find((r) => r.id === recordId)?.title ?? "Role"
     if (module === "invites")
@@ -367,18 +356,13 @@ export function DeepLinkScreen() {
       const recipe = resolveRecipe("team.detail", overridesQ.data)
       if (!recipe) return <NotFound />
       if (metaQ.data === undefined) return <Skeleton variant="list" lines={3} />
-      const m = metaQ.data
-      const data: ScreenData = {
-        record: {
-          id: teamId,
-          name: teamName,
-          image: active.ctx?.team?.logoUrl ?? "",
-          created: formatDateTime(m.createdAt),
-          createdBy: m.creatorName || m.creatorEmail || "",
-          updated: m.updatedAt ? formatDateTime(m.updatedAt) : "—",
-        },
-        sets: { activity: activityRows() },
-      }
+      const data = shapeTeamDetail({
+        teamId: teamId as string,
+        name: teamName,
+        logoUrl: active.ctx?.team?.logoUrl ?? null,
+        meta: metaQ.data,
+        activity: activityQ.data ?? [],
+      })
       return (
         <ScreenRenderer recipe={recipe} data={data} rights={rights} onAction={onAction} onIntent={onIntent} />
       )
@@ -391,25 +375,13 @@ export function DeepLinkScreen() {
       if (module === "members") {
         if (membersQ.error) return <LoadError what="members" />
         if (membersQ.data === undefined) return <Skeleton variant="list" lines={4} />
-        const data: ScreenData = {
-          rows: membersQ.data.map((m) => ({
-            id: m.userId,
-            name: fullName(m),
-            detail: `${m.roleTitle} · joined ${formatDate(m.joinedAt)}`,
-          })),
-        }
+        const data = shapeMembersList(membersQ.data)
         return <ScreenRenderer recipe={recipe} data={data} rights={rights} onAction={onAction} onIntent={onIntent} />
       }
       if (module === "roles") {
         if (rolesQ.error) return <LoadError what="roles" />
         if (rolesQ.data === undefined) return <Skeleton variant="list" lines={4} />
-        const data: ScreenData = {
-          rows: roles.map((r) => ({
-            id: r.id,
-            name: r.active ? r.title : `${r.title} (inactive)`,
-            detail: r.description || `${r.memberCount} member${r.memberCount === 1 ? "" : "s"}`,
-          })),
-        }
+        const data = shapeRolesList(roles)
         return (
           <SectionWithCreate
             show={can("member_roles", "create")}
@@ -424,13 +396,7 @@ export function DeepLinkScreen() {
       if (module === "invites") {
         if (invitesQ.error) return <LoadError what="invites" />
         if (invitesQ.data === undefined) return <Skeleton variant="list" lines={4} />
-        const data: ScreenData = {
-          rows: invitesQ.data.map((i) => ({
-            id: i.id,
-            email: i.email,
-            detail: `${i.roleTitle} · ${STATUS[i.status]}`,
-          })),
-        }
+        const data = shapeInvitesList(invitesQ.data)
         return (
           <SectionWithCreate
             show={can("team_members", "create")}
@@ -455,17 +421,7 @@ export function DeepLinkScreen() {
       if (!recipe) return <NotFound />
       // You can't change your own role or remove yourself here.
       if (member.isYou) recipe = withoutActions(recipe, ["members.changeRole", "members.remove"])
-      const data: ScreenData = {
-        record: {
-          id: member.userId,
-          name: fullName(member),
-          email: member.email,
-          role: member.roleTitle,
-          joined: formatDate(member.joinedAt),
-          image: member.imageUrl ?? "",
-        },
-        sets: { activity: activityRows() },
-      }
+      const data = shapeMemberDetail(member, activityQ.data ?? [])
       return <ScreenRenderer recipe={recipe} data={data} rights={rights} onAction={onAction} onIntent={onIntent} />
     }
     if (module === "invites") {
@@ -477,32 +433,13 @@ export function DeepLinkScreen() {
       if (!recipe) return <NotFound />
       // Revoke only makes sense while the invite is still pending.
       if (invite.status !== "pending") recipe = withoutActions(recipe, ["invites.revoke"])
-      const data: ScreenData = {
-        record: {
-          id: invite.id,
-          email: invite.email,
-          role: invite.roleTitle,
-          status: STATUS[invite.status],
-          invited: formatDate(invite.createdAt),
-          expires: formatDate(invite.expiresAt),
-        },
-      }
+      const data = shapeInviteDetail(invite, inviteAuditQ.data ?? null, activityQ.data ?? [])
       return <ScreenRenderer recipe={recipe} data={data} rights={rights} onAction={onAction} onIntent={onIntent} />
     }
     if (module === "roles") {
       return <RoleDetailScreen teamId={teamId as string} roleId={recordId} />
     }
     return <NotFound />
-  }
-
-  // Activity rows for the team / member feeds → the engine's item shape.
-  function activityRows(): Record<string, unknown>[] {
-    return (activityQ.data ?? []).map((a) => ({
-      id: a.id,
-      description: a.description,
-      actor: a.actorName ?? undefined,
-      timestamp: formatDateTime(a.createdAt),
-    }))
   }
 
   // The change-role target (for the picker) + confirm targets, from the URL id.
@@ -537,7 +474,7 @@ export function DeepLinkScreen() {
         onOpenChange={(o) => !o && closePanel()}
         roles={activeRoles}
         currentRoleId={changeTarget?.roleId ?? null}
-        subjectName={changeTarget ? fullName(changeTarget) : null}
+        subjectName={changeTarget ? personName(changeTarget) : null}
         onPick={(roleId) => runAction("members.changeRole", { userId: query.id ?? "", roleId })}
       />
 
@@ -595,102 +532,3 @@ export function DeepLinkScreen() {
   )
 }
 
-/* -------------------------------- helpers -------------------------------- */
-
-function NoAccess() {
-  return (
-    <p className="text-muted-foreground text-sm">
-      You don&apos;t have access to this, or it doesn&apos;t exist.
-    </p>
-  )
-}
-function NotFound() {
-  return <p className="text-muted-foreground text-sm">That screen doesn&apos;t exist.</p>
-}
-function LoadError({ what }: { what: string }) {
-  return <p className="text-destructive text-sm">Couldn&apos;t load {what}.</p>
-}
-
-/** A list screen with a host-rendered create button above it (the engine list
- * has no "add" affordance — creating opens a ?panel form). */
-function SectionWithCreate({
-  show,
-  label,
-  icon,
-  onCreate,
-  children,
-}: {
-  show: boolean
-  label: string
-  icon: "plus" | "mail"
-  onCreate: () => void
-  children: React.ReactNode
-}) {
-  const Icon = icon === "plus" ? Plus : Mail
-  return (
-    <div className="flex flex-col gap-4">
-      {show && (
-        <div className="flex justify-end">
-          <Button onClick={onCreate} className="gap-1.5">
-            <Icon className="size-4" />
-            {label}
-          </Button>
-        </div>
-      )}
-      {children}
-    </div>
-  )
-}
-
-/** The destructive-confirm AlertDialog for remove-member / revoke-invite, driven
- * by ?confirm. Owns its in-flight state; the parent does the mutation + nav. */
-function ConfirmAction({
-  query,
-  canRun,
-  memberName,
-  onCancel,
-  onConfirm,
-}: {
-  query: ScreenQuery
-  /** false → the viewer lacks the delete right; never open (block at every step). */
-  canRun: boolean
-  memberName: TeamMember | null
-  onCancel: () => void
-  onConfirm: () => Promise<void>
-}) {
-  const [busy, setBusy] = React.useState(false)
-  const open =
-    canRun && (query.confirm === "members.remove" || query.confirm === "invites.revoke")
-  const isRemove = query.confirm === "members.remove"
-  const title = isRemove
-    ? `Remove ${memberName ? fullName(memberName) : "this member"}?`
-    : "Revoke this invite?"
-  const body = isRemove
-    ? "They lose access to this team right away. You can invite them back later."
-    : "They won't be able to join with this invite. You can send a new one later."
-
-  return (
-    <AlertDialog open={open} onOpenChange={(o) => !busy && !o && onCancel()}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>{title}</AlertDialogTitle>
-          <AlertDialogDescription>{body}</AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
-          <AlertDialogAction
-            onClick={(e) => {
-              e.preventDefault()
-              setBusy(true)
-              void onConfirm().finally(() => setBusy(false))
-            }}
-            disabled={busy}
-          >
-            {busy ? <Spinner /> : null}
-            {isRemove ? "Remove" : "Revoke"}
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
-  )
-}

@@ -19,7 +19,7 @@ import { Home, Settings, PanelLeftClose, PanelLeftOpen } from "lucide-react"
 import type { ActiveTeam } from "@/lib/use-active-team"
 import { auth, tenancy } from "@/lib/api"
 import { useRealtime, useUserRealtime } from "@/lib/realtime"
-import { invalidate, patchRow } from "@/lib/store"
+import { invalidate, patchRow, reconcile } from "@/lib/store"
 import { NAV, bottomNavItems, isNavActive, type Crumb } from "@/lib/pages"
 import { CreateTeamDialog } from "@/components/create-team-dialog"
 import { ProfileMenu } from "@/components/profile-menu"
@@ -38,6 +38,8 @@ const TEAM_RESOURCES: Record<
     key: (teamId: string) => string
     idField: string
     fetchOne: (id: string) => Promise<Record<string, unknown> | null>
+    /** re-pull the WHOLE list — used by reconnect catch-up to diff-patch it. */
+    fetchList: () => Promise<Record<string, unknown>[]>
     /** small dependent caches to coarse-invalidate (aggregations / feeds). */
     deps?: (teamId: string, id: string) => string[]
     /** refresh the active-team context (e.g. the section member count). */
@@ -48,6 +50,7 @@ const TEAM_RESOURCES: Record<
     key: (t) => `members:${t}`,
     idField: "userId",
     fetchOne: (id) => tenancy.member(id),
+    fetchList: () => tenancy.members().then((r) => r.members),
     deps: (t, id) => [`member_roles:${t}`, `activity:user:${id}`],
     refreshCtx: true,
   },
@@ -55,12 +58,17 @@ const TEAM_RESOURCES: Record<
     key: (t) => `member_roles:${t}`,
     idField: "id",
     fetchOne: (id) => tenancy.role(id),
+    fetchList: () => tenancy.roles().then((r) => r.roles),
     deps: (t, id) => [`my-perms:${t}`, `role-perms:${id}`],
   },
   invites: {
     key: (t) => `invites:${t}`,
     idField: "id",
     fetchOne: (id) => tenancy.invite(id),
+    fetchList: () => tenancy.invites().then((r) => r.invites),
+    // The invite detail also shows the invite_logs audit + that invite's activity;
+    // refresh both when the invite row changes (revoke/accept) so the detail stays live.
+    deps: (_t, id) => [`invite-audit:${id}`, `activity:invite:${id}`],
   },
 }
 
@@ -82,6 +90,7 @@ export function AppShell({
   const pathname = usePathname()
   const [creating, setCreating] = React.useState(false)
   const teamId = active.ctx?.team?.id ?? null
+  const userId = active.user?.id ?? null
 
   // Desktop sidebar collapse (icon rail), remembered across sessions.
   const [collapsed, setCollapsed] = React.useState(false)
@@ -127,21 +136,29 @@ export function AppShell({
       const id = event.id
       void patchRow(r.key(teamId), r.idField, id, () => r.fetchOne(id))
       for (const k of r.deps?.(teamId, id) ?? []) invalidate(k)
+      // If MY membership row changed (e.g. an admin swapped my role), my own
+      // effective rights may differ now — refresh the permission gate so my
+      // nav/buttons reflect it live, not just how others see my row.
+      if (event.resource === "members" && id === userId) invalidate(`my-perms:${teamId}`)
       if (r.refreshCtx) void active.refresh()
     },
     () => {
-      // Reconnect after a dropped link: re-pull only the collections we hold (no
-      // page reload), so nothing missed stays stale. (Precise per-id catch-up is
-      // a planned refinement.)
+      // Reconnect after a dropped link: catch up on everything we missed, with
+      // no page reload. The row-level lists are DIFF-PATCHED in place (reconcile:
+      // only changed rows re-render, new rows appear in order, gone rows drop) —
+      // catching adds too, not just edits. The small derived feeds/gates are
+      // cheap, so coarse-invalidate them; active.refresh() re-pulls team name,
+      // member count + my role.
       if (!teamId) return
-      for (const r of Object.values(TEAM_RESOURCES)) invalidate(r.key(teamId))
+      for (const r of Object.values(TEAM_RESOURCES)) void reconcile(r.key(teamId), r.idField, r.fetchList)
       invalidate(`activity:team:${teamId}`)
+      invalidate(`my-perms:${teamId}`)
+      void active.refresh()
     }
   )
 
   // Your OWN identity channel — account events + a forced sign-out — open even
   // before you join a team (teamless users still get it).
-  const userId = active.user?.id ?? null
   useUserRealtime(userId, (event) => {
     if (event.resource === "session") {
       // A sign-out signal reaches ALL your devices (e.g. you changed your email
@@ -153,6 +170,19 @@ export function AppShell({
     }
     if (event.resource === "account_activity") {
       invalidate("account-activity") // your own account feed (small) refreshes live
+    }
+    if (event.resource === "profile") {
+      // You edited your name/photo on another device — refresh your identity so
+      // the sidebar/profile menu update here too (member rows others see update
+      // via each team's own channel).
+      void active.refresh()
+    }
+    if (event.resource === "teams") {
+      // Cross-team membership changed (you joined, were removed, or created a
+      // team). Refresh the switcher + active context. If this drops your LAST
+      // team, use-active-team routes you to onboarding; if it drops the team
+      // you're VIEWING, deep-link-screen routes you home (decision #8).
+      void active.refresh()
     }
   })
 

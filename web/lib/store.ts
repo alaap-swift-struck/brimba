@@ -65,6 +65,43 @@ export async function patchRow(
   }
 }
 
+function shallowEqualRow(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
+  const ak = Object.keys(a)
+  if (ak.length !== Object.keys(b).length) return false
+  for (const k of ak) if (a[k] !== b[k]) return false
+  return true
+}
+
+/** RECONNECT catch-up (decision #10): after a dropped link, re-pull a whole
+ * collection and PATCH the cached array by id rather than replacing it — update
+ * the rows that actually changed, ADD ones that appeared while we were offline,
+ * DROP ones that vanished, all in the server's order. Unchanged rows keep their
+ * object identity, so React re-renders only what truly changed (no full-list
+ * flush). No-op if the collection isn't loaded (nothing on screen to catch up);
+ * a fetch hiccup falls back to a coarse invalidate so we never sit on stale data. */
+export async function reconcile(
+  key: string,
+  idField: string,
+  fetchList: () => Promise<Record<string, unknown>[]>
+): Promise<void> {
+  if (cache.get(key) === undefined) return // not loaded — nothing visible to catch up
+  try {
+    const rows = await fetchList()
+    const prev = cache.get(key) as Record<string, unknown>[] | undefined
+    if (prev === undefined) return
+    const prevById = new Map(prev.map((r) => [r[idField], r]))
+    const next = rows.map((row) => {
+      const old = prevById.get(row[idField])
+      return old && shallowEqualRow(old, row) ? old : row // reuse identity if unchanged
+    })
+    cache.set(key, next)
+    notify(key)
+  } catch (e) {
+    console.error("reconcile failed; invalidating", key, e)
+    invalidate(key)
+  }
+}
+
 export function useCached<T>(
   key: string | null,
   fetcher: () => Promise<T>
@@ -94,6 +131,25 @@ export function useCached<T>(
     }
   }, [key])
 
+  // What a live ping (`notify`) does to a MOUNTED subscriber. If the cache still
+  // holds the key, the new value was written by `patchRow` / `reconcile` /
+  // `primeCache` — so just re-render from it, NO refetch. This is what makes the
+  // row-level patch actually stick: without it, every patch would be immediately
+  // clobbered by a full-list GET (the subscriber refetching), defeating the whole
+  // "patch the one row, never refetch the collection" goal. Only a cache MISS
+  // (an `invalidate` cleared the key) falls through to a real refetch.
+  const sync = React.useCallback(() => {
+    if (!key) return
+    if (cache.has(key)) {
+      if (aliveRef.current) {
+        setData(cache.get(key) as T)
+        setLoading(false)
+      }
+    } else {
+      void load()
+    }
+  }, [key, load])
+
   React.useEffect(() => {
     aliveRef.current = true
     if (!key) return
@@ -105,16 +161,16 @@ export function useCached<T>(
       setData(undefined)
       setLoading(true)
     }
-    void load()
+    void load() // revalidate-on-mount (first load / navigation / team switch)
 
     const subs = subscribers.get(key) ?? new Set<() => void>()
-    subs.add(load)
+    subs.add(sync)
     subscribers.set(key, subs)
     return () => {
       aliveRef.current = false
-      subs.delete(load)
+      subs.delete(sync)
     }
-  }, [key, load])
+  }, [key, load, sync])
 
   const refresh = React.useCallback(() => void load(), [load])
   return { data, loading, error, refresh }

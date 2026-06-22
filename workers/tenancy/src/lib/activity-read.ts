@@ -18,13 +18,15 @@ type ActivityRow = {
 const LIMIT = 50
 
 /** The team's activity, newest first — optionally scoped to one record:
- *  • team  → everything that happened in the team
- *  • user  → events about that member (role changes, removal, join)
- *  • role  → events about that role (created, renamed, permissions changed) */
+ *  • team   → everything that happened in the team
+ *  • user   → events about that member (role changes, removal, join)
+ *  • role   → events about that role (created, renamed, permissions changed)
+ *  • invite → events about that invite (sent, revoked) — `id` is the team-local
+ *             invite_logs row id (the caller maps invite_index.id → it first) */
 export async function getActivity(
   cfg: D1Rest,
   guard: MemberGuard,
-  scope: "team" | "user" | "role",
+  scope: "team" | "user" | "role" | "invite",
   id?: string
 ): Promise<ActivityItem[]> {
   let sql = "SELECT id, type, description, created_at, creator_name FROM activity"
@@ -34,6 +36,9 @@ export async function getActivity(
     params.push(id)
   } else if (scope === "role" && id) {
     sql += " WHERE related_table = 'member_roles' AND related_row_id = ?"
+    params.push(id)
+  } else if (scope === "invite" && id) {
+    sql += " WHERE related_table = 'invite_logs' AND related_row_id = ?"
     params.push(id)
   }
   sql += " ORDER BY created_at DESC LIMIT ?"

@@ -16,12 +16,14 @@ import {
   AvatarImage,
 } from "@swift-struck/ui/registry/primitives/avatar/avatar"
 import { Button } from "@swift-struck/ui/registry/primitives/button/button"
+import { List } from "@swift-struck/ui/registry/collections/list/list"
 import { Skeleton } from "@swift-struck/ui/registry/primitives/skeleton/skeleton"
 import { Spinner } from "@swift-struck/ui/registry/primitives/spinner/spinner"
 import { toast } from "@swift-struck/ui/registry/primitives/sonner/sonner"
 
 import type { ReceivedInvite } from "@shared/types"
 import { ApiFailure, tenancy } from "@/lib/api"
+import { letterMark } from "@/lib/identity"
 import { primeCache, useCached } from "@/lib/store"
 import type { ActiveTeam } from "@/lib/use-active-team"
 
@@ -61,43 +63,38 @@ export function InvitationsPanel({ active }: { active: ActiveTeam }) {
   if (invitesQ.error)
     return <p className="text-destructive text-sm">Couldn&apos;t load your invitations.</p>
   if (invites === undefined) return <Skeleton variant="list" lines={2} />
-  if (invites.length === 0)
-    return (
-      <p className="text-muted-foreground border-border/60 rounded-xl border py-8 text-center text-sm">
-        No pending invitations.
-      </p>
-    )
 
+  // Library List (flat surface + a border to match the design language). Rows
+  // aren't clickable — the trailing Accept button is the only action.
   return (
-    <div className="divide-border/60 overflow-hidden rounded-xl border divide-y">
-      {invites.map((inv) => (
-        <div
-          key={inv.id}
-          className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center"
-        >
-          <div className="flex min-w-0 flex-1 items-center gap-3">
-            <Avatar className="size-9 shrink-0">
-              {inv.teamLogoUrl && <AvatarImage src={inv.teamLogoUrl} alt={inv.teamName} />}
-              <AvatarFallback className="text-xs">
-                {inv.teamName[0]?.toUpperCase() ?? "?"}
-              </AvatarFallback>
-            </Avatar>
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-sm font-medium">{inv.teamName}</div>
-              <div className="text-muted-foreground text-xs">Invited to join this team.</div>
-            </div>
-          </div>
+    <List
+      surface="none"
+      className="rounded-xl border"
+      empty="No pending invitations."
+      items={invites.map((inv) => ({
+        id: inv.id,
+        leading: (
+          <Avatar className="size-9">
+            {inv.teamLogoUrl && <AvatarImage src={inv.teamLogoUrl} alt={inv.teamName} />}
+            <AvatarFallback className="text-xs">
+              {letterMark(inv.teamName)}
+            </AvatarFallback>
+          </Avatar>
+        ),
+        title: inv.teamName,
+        subtitle: "Invited to join this team.",
+        trailing: (
           <Button
             size="sm"
             onClick={() => void accept(inv)}
             disabled={accepting !== null}
-            className="w-full gap-1.5 sm:w-auto sm:shrink-0"
+            className="gap-1.5"
           >
             {accepting === inv.id ? <Spinner /> : null}
             {accepting === inv.id ? "Joining…" : "Accept"}
           </Button>
-        </div>
-      ))}
-    </div>
+        ),
+      }))}
+    />
   )
 }

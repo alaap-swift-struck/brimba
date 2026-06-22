@@ -10,10 +10,12 @@ import {
   AvatarImage,
 } from "@swift-struck/ui/registry/primitives/avatar/avatar"
 import { Badge } from "@swift-struck/ui/registry/primitives/badge/badge"
+import { List } from "@swift-struck/ui/registry/collections/list/list"
 import { useRouter } from "next/navigation"
 import { Users, Settings, ChevronRight } from "lucide-react"
 
 import { AppShell, ShellLoading } from "@/components/app-shell"
+import { letterMark } from "@/lib/identity"
 import { useActiveTeam } from "@/lib/use-active-team"
 
 export default function HomePage() {
@@ -42,7 +44,7 @@ export default function HomePage() {
           <Avatar className="size-14">
             {ctx.team?.logoUrl && <AvatarImage src={ctx.team.logoUrl} alt={ctx.team.name} />}
             <AvatarFallback className="text-xl">
-              {ctx.team?.name?.[0]?.toUpperCase() ?? "?"}
+              {letterMark(ctx.team?.name)}
             </AvatarFallback>
           </Avatar>
           <div className="min-w-0">
@@ -58,28 +60,25 @@ export default function HomePage() {
           </div>
         </div>
 
-        <div className="animate-rise divide-border/60 flex flex-col divide-y overflow-hidden rounded-xl border">
-          {LINKS.map((l) => {
+        <List
+          surface="none"
+          className="animate-rise rounded-xl border"
+          onItemClick={(item) => router.push(item.id)}
+          items={LINKS.map((l) => {
             const Icon = l.icon
-            return (
-              <button
-                key={l.href}
-                type="button"
-                onClick={() => router.push(l.href)}
-                className="hover:bg-muted/40 flex w-full items-center gap-3 px-4 py-3.5 text-left transition-colors"
-              >
-                <span className="bg-secondary text-secondary-foreground flex size-10 shrink-0 items-center justify-center rounded-lg">
+            return {
+              id: l.href,
+              leading: (
+                <span className="bg-secondary text-secondary-foreground flex size-10 items-center justify-center rounded-lg">
                   <Icon className="size-5" />
                 </span>
-                <div className="min-w-0 flex-1">
-                  <div className="font-medium">{l.title}</div>
-                  <div className="text-muted-foreground truncate text-sm">{l.desc}</div>
-                </div>
-                <ChevronRight className="text-muted-foreground size-4 shrink-0" />
-              </button>
-            )
+              ),
+              title: l.title,
+              subtitle: l.desc,
+              trailing: <ChevronRight className="text-muted-foreground size-4" />,
+            }
           })}
-        </div>
+        />
       </div>
     </AppShell>
   )

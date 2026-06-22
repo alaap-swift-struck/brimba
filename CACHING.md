@@ -1,4 +1,4 @@
-# Caching — the system-wide ruleset (LOCKED 2026-06-15)
+# Caching — the system-wide ruleset (LOCKED 2026-06-15; ROW-LEVEL live-sync added 2026-06-22)
 
 How Brimba (and every app built on this base) caches data on the client. These
 rules make caching **safe** because the live channel keeps it honest: you never
@@ -6,83 +6,128 @@ sit on stale data, and a cache can never hold something you're not allowed to
 see. Follow them for every new screen and module.
 
 The whole layer is tiny and dependency-free:
-[`web/lib/store.ts`](web/lib/store.ts) (the cache + `useCached`/`invalidate`/`primeCache`),
-[`web/lib/realtime.ts`](web/lib/realtime.ts) (the live channel client), and the
-publish side in workers via [`shared/workers/realtime.ts`](shared/workers/realtime.ts).
+- [`web/lib/store.ts`](web/lib/store.ts) — the cache + `useCached` / `invalidate` /
+  `primeCache`, plus `patchRow` (row-level: patch ONE row in a cached list) and
+  `reconcile` (reconnect catch-up: diff-patch a whole list back in place).
+- [`web/lib/realtime.ts`](web/lib/realtime.ts) — the live channel client. A browser
+  opens **two** sockets: the active **team** channel and its **own user** channel.
+- [`shared/workers/realtime.ts`](shared/workers/realtime.ts) — the publish side:
+  `publishChange` (team channel), `publishUserChange` (one user's devices),
+  `publishSignOut` (forced sign-out).
 
-## The seven rules
+## The rules
 
 ### 1 · Cache-first reads (stale-while-revalidate)
 Every list/record read shows the cached copy **instantly** and revalidates in
 the background. First view = skeleton; every revisit = instant.
 
 ```tsx
-// members-panel.tsx
 const membersQ = useCached(`members:${teamId}`, () =>
   tenancy.members().then((r) => r.members)
 )
 // membersQ.data is the cached value (or undefined on a true first load)
 ```
 
-### 2 · Key by tenant + resource (+ id)
-Keys are `resource:<teamId>` or `resource:<rowId>`. **Never** share a key across
-teams — switching teams uses different keys, so one team's data can't leak into
-another's view.
+### 2 · Key by SCOPE + resource (+ id)
+Team data is keyed `resource:<teamId>` (or `resource:<rowId>`); identity data
+(yours across devices) is keyed by the user — e.g. `account-activity`,
+`invitations`. **Never** share a key across teams — switching teams uses
+different keys, so one team's data can't leak into another's view.
 
 ```
-members:<teamId>          member_roles:<teamId>       my-perms:<teamId>
-role-perms:<roleId>       (future) products:<teamId>   product:<productId>
+members:<teamId>     member_roles:<teamId>   my-perms:<teamId>   invites:<teamId>
+role-perms:<roleId>  invite-audit:<inviteId> activity:user:<userId>  account-activity
 ```
 
-### 3 · The live channel is the invalidator — not timers
-A write publishes a "changed" ping; only the matching key refetches. **No
-polling, no guessing TTLs.** Freshness comes from events.
+### 3 · ROW-LEVEL live updates — patch the changed row, never refetch the list
+A write publishes a ping `{ resource, id, op }`; the client re-pulls **just that
+one row** through the gated single-row endpoint and patches it into the cached
+list in place (`patchRow`) — it does **not** refetch the whole collection. The
+single-row read passes the **same server filter** as the list, so a row that no
+longer belongs (deactivated member, etc.) comes back `null` and is dropped. One
+mechanism covers add / edit / remove / soft-delete. A full-collection refetch
+happens only on **first load** and **team switch**.
+
+The client handler is **registry-driven**, not a per-resource `switch`: adding a
+module = one entry in `TEAM_RESOURCES` (app-shell.tsx). Two channels:
 
 ```ts
-// after a successful write, in the worker (tenancy/src/index.ts):
-await publishChange(env.REALTIME, guard.teamId, "member_roles", body.roleId)
+// worker, after a successful write — carry the affected row id:
+await publishChange(env.REALTIME, guard.teamId, "member_roles", roleId, "edit")
 
-// the browser side, once per active team (app-shell.tsx):
-useRealtime(teamId, (event) => {
-  if (event.resource === "member_roles") {
-    invalidate(`member_roles:${teamId}`)
-    if (event.id) invalidate(`role-perms:${event.id}`)
-  }
-})
+// client registry (app-shell.tsx) — one line per module, generic handler:
+member_roles: {
+  key: (t) => `member_roles:${t}`,
+  idField: "id",
+  fetchOne: (id) => tenancy.role(id),         // gated single-row read
+  fetchList: () => tenancy.roles()...,        // used by reconnect catch-up
+  deps: (t, id) => [`my-perms:${t}`, `role-perms:${id}`], // small derived caches
+}
 ```
 
-### 4 · Mutations prime the cache
+Computed values (count badges, "N members", relative times) **recompute
+client-side** from the patched rows — never refetch a collection for a derived
+number.
+
+### 4 · Every mutation publishes (structurally can't-forget)
+Every state-changing route broadcasts a change ping — it is **not** per-call
+discipline. In the tenancy worker each route is classified `read` / `mutation` /
+`housekeeping` in a declarative table (`ROUTES` in `index.ts`), and a guard test
+(`publish-seam.test.ts`) turns the build **red** if a `mutation` doesn't publish
+or a new route is left unclassified. The only writes that broadcast nothing are
+the explicit housekeeping deny-list (a private session pointer, ops-only admin
+actions) — matching login_codes / sessions / db_alerts / the nightly size cron.
+
+### 5 · Identity scope — your changes follow YOU everywhere
+Identity is read fresh from one global `users` row wherever it's shown, so a
+name/photo edit fans out on **two** axes: `publishUserChange(userId, "profile")`
+refreshes your own devices, and a `members` ping on **every team you belong to**
+refreshes how others see your member row. Cross-team membership (joined / removed
+/ new team) rides your **user** channel (`teams` event) so the switcher updates
+without that team's socket. A forced sign-out is a `session` event on the user
+channel (other devices re-check auth, dead ones bounce to login).
+
+### 6 · Reconnect re-syncs (no missed changes after a drop)
+After a dropped socket reconnects, the client doesn't trust that it saw every
+ping: it **diff-patches** each on-screen list back in place (`reconcile` re-pulls
+the list, updates changed rows, adds new ones, drops gone ones, keeping unchanged
+rows' identity so only real changes re-render) and refreshes the small derived
+caches. No page reload.
+
+### 7 · Mutations prime the cache (instant for the actor)
 After a write, drop the fresh result straight in, so the person who made the
-change sees it with **zero refetch**; everyone else gets the ping (rule 3).
+change sees it with **zero refetch**; everyone else gets the ping (rules 3–6).
 
 ```ts
 const { members } = await tenancy.setMemberRole(userId, roleId)
 primeCache(`members:${teamId}`, members)   // instant for the actor
 ```
 
-### 5 · Pings carry "what", never the data
-The ping says only `{ resource, id? }`. The refetch goes through the normal
+### 8 · Pings carry "what", never the data
+The ping says only `{ resource, id, op }`. The re-pull goes through the normal
 **permission-checked endpoint**, so a cache can never hold data the viewer isn't
 allowed to see. (This is why a viewer with no rights simply gets nothing back.)
 
-### 6 · Lifetime: in-memory per session
+### 9 · Lifetime: in-memory per session
 The cache lives in module memory, cleared on sign-out / team switch (different
 keys). Cross-reload persistence (`sessionStorage`) is an **opt-in** we can add
 later — the live channel keeps it correct while the tab is open.
 
-### 7 · Edge / server
+### 10 · Edge / server
 - Content-hashed assets (`/_next/static/**`) → cached **forever, immutable**
   (set in [`web/public/_headers`](web/public/_headers)).
 - HTML → revalidated (`max-age=0, must-revalidate`).
 - Per-user API responses → **private, never edge-cached**. The client cache
-  (rules 1–6) handles them.
+  (rules 1–9) handles them.
 
 ## Checklist for a new screen / module
 1. Read with `useCached("<resource>:<scopeId>", fetcher)`.
-2. On every server write, call `publishChange(env.REALTIME, teamId, "<resource>", id?)`.
-3. In `AppShell`'s `useRealtime` handler, map that `resource` → `invalidate(...)`.
+2. On every server write, `publishChange(env.REALTIME, teamId, "<resource>", id, op)`
+   **with the affected row id** (classify the route `mutation` so the seam test passes).
+3. Add ONE `TEAM_RESOURCES` entry (key / idField / fetchOne / fetchList / deps) — the
+   generic handler does row-level patch + reconnect catch-up; no bespoke code.
 4. After a client mutation, `primeCache` the fresh result.
-5. Never cache cross-tenant; never trust the ping for data — always refetch through the gated endpoint.
+5. Never cache cross-tenant; never trust the ping for data — always re-pull through the gated endpoint.
 
 ## Loading & feedback (the rule for "something's happening")
 
@@ -93,7 +138,7 @@ screen and action:
    bare spinner for a whole screen). `useCached` returns `undefined` until the
    first fetch lands.
 2. **Revisit → instant.** Cache-first means a revisit paints immediately and
-   revalidates in the background (rules 1–6 above). No spinner on navigation.
+   revalidates in the background (rules 1–9 above). No spinner on navigation.
 3. **A write in flight → button spinner + disabled.** The button that triggered
    it shows a `Spinner` and disables (and the dialog blocks close) so it can't be
    double-fired. This also covers the rare case where a write serializes behind a
@@ -112,8 +157,8 @@ the Durable Object model) that powers rule 3.
 
 In-app navigation must **swap the screen, never reload the document**. A full page
 reload re-runs the session check, refetches every screen, AND wipes the in-memory
-cache (rule 6) — defeating cache-first entirely and multiplying server calls (this
-is rule 2's "no spinner on navigation", enforced).
+cache (rule 9) — defeating cache-first entirely and multiplying server calls (this
+enforces "no spinner on navigation" from Loading rule 2 above).
 
 The deep-link team area (`/t/<teamId>/…`) is ONE static shell. Move WITHIN it with
 the **History API** (`window.history.pushState` / `replaceState`) — Next observes

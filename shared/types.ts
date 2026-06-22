@@ -92,6 +92,20 @@ export type ReceivedInvite = {
   expiresAt: string
 }
 
+/** The per-team invite_logs audit for ONE invite (M4) — surfaced on the invite
+ * detail beside the routing data. The inviter snapshot is FROZEN at invite time
+ * (it won't change if the inviter later edits their profile). */
+export type InviteAudit = {
+  inviterName: string | null
+  inviterEmail: string | null
+  inviterImageUrl: string | null
+  /** did the invitee already have an account when invited? */
+  inviteeHasAccount: boolean
+  accepted: boolean
+  acceptedAt: string | null
+  shelfLifeHours: number
+}
+
 /** One role in a team (from the team's own member_roles table). */
 export type TeamRole = {
   id: string

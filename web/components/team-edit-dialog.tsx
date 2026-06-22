@@ -28,6 +28,7 @@ import { defaultFieldConfig } from "@swift-struck/ui/lib/config"
 
 import type { TeamSummary } from "@shared/types"
 import { ApiFailure, tenancy } from "@/lib/api"
+import { letterMark } from "@/lib/identity"
 import { fileToDataUrl } from "@/lib/image"
 
 const nameField = { ...defaultFieldConfig, label: "Team name", required: true }
@@ -94,7 +95,7 @@ export function TeamEditDialog({
                 <AvatarImage src={logo || (team?.logoUrl as string)} alt="Team logo" />
               )}
               <AvatarFallback className="text-xl">
-                {name[0]?.toUpperCase() ?? "?"}
+                {letterMark(name)}
               </AvatarFallback>
             </Avatar>
             <FileUpload accept="image/*" multiple={false} onChange={handlePhoto} />

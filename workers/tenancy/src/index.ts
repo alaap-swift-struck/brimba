@@ -23,6 +23,7 @@
 //   GET  /api/tenancy/activity             -> activity feed (?scope=team|user|role&id=)
 //   GET  /api/tenancy/team-meta            -> the active team's Overview metadata
 //   GET  /api/tenancy/invites              -> the team's invites (all statuses)
+//   GET  /api/tenancy/invites/audit        -> one invite's invite_logs audit (?id)
 //   POST /api/tenancy/invites              -> invite someone by email + role
 //   POST /api/tenancy/invites/revoke       -> revoke ("redact") a pending invite
 //   GET  /api/tenancy/invitations          -> invites I've RECEIVED (any signed-in user)
@@ -62,6 +63,7 @@ import {
   postUpdateRole,
 } from "./routes/roles"
 import {
+  getInviteAudit,
   getInvites,
   getReceivedInvitations,
   postAcceptInvitation,
@@ -71,74 +73,66 @@ import {
 import { getScreens, postScreen } from "./routes/config"
 import { dbSizes, migrateTeams, moveModule } from "./routes/admin"
 
+/**
+ * THE LIVE-SYNC SEAM (locked, CACHING.md "Every mutation publishes"). Every
+ * route is classified so a new one CAN'T be added without consciously deciding
+ * how it goes live — that's the structural can't-forget guarantee (a guard test,
+ * publish-seam.test.ts, enforces it):
+ *   • "read"        — a GET; changes nothing, broadcasts nothing.
+ *   • "mutation"    — changes state, so it MUST broadcast a change ping
+ *                     (publishChange / publishUserChange — directly or via a lib).
+ *   • "housekeeping" — the deny-list: a write that intentionally broadcasts
+ *                      NOTHING (a private session pointer, or an ops-only action
+ *                      with no client-visible row). Adding one is a reviewed choice.
+ */
+type RouteKind = "read" | "mutation" | "housekeeping"
+type Handler = (request: Request, env: Env) => Promise<Response>
+export const ROUTES: Record<string, { handler: Handler; kind: RouteKind }> = {
+  "POST /api/tenancy/bootstrap": { handler: bootstrap, kind: "mutation" },
+  "GET /api/tenancy/active": { handler: active, kind: "read" },
+  // switch-team flips only the caller's own current_team pointer — no shared row
+  // changes, and we deliberately don't force the caller's OTHER devices to follow.
+  "POST /api/tenancy/switch-team": { handler: switchActiveTeam, kind: "housekeeping" },
+  "POST /api/tenancy/teams": { handler: createNamedTeam, kind: "mutation" },
+  "POST /api/tenancy/teams/update": { handler: postUpdateTeam, kind: "mutation" },
+  "GET /api/tenancy/teams": { handler: myTeams, kind: "read" },
+  "GET /api/tenancy/members": { handler: getMembers, kind: "read" },
+  "POST /api/tenancy/members/role": { handler: postMemberRole, kind: "mutation" },
+  "POST /api/tenancy/members/remove": { handler: postMemberRemove, kind: "mutation" },
+  "GET /api/tenancy/my-permissions": { handler: getMyPerms, kind: "read" },
+  "GET /api/tenancy/roles": { handler: getRoles, kind: "read" },
+  "POST /api/tenancy/roles": { handler: postCreateRole, kind: "mutation" },
+  "POST /api/tenancy/roles/update": { handler: postUpdateRole, kind: "mutation" },
+  "POST /api/tenancy/roles/active": { handler: postSetRoleActive, kind: "mutation" },
+  "GET /api/tenancy/roles/permissions": { handler: getRolePerms, kind: "read" },
+  "POST /api/tenancy/roles/permissions": { handler: postRolePerms, kind: "mutation" },
+  "GET /api/tenancy/activity": { handler: getActivityFeed, kind: "read" },
+  "GET /api/tenancy/team-meta": { handler: getTeamMetaFeed, kind: "read" },
+  "GET /api/tenancy/invites": { handler: getInvites, kind: "read" },
+  "GET /api/tenancy/invites/audit": { handler: getInviteAudit, kind: "read" },
+  "POST /api/tenancy/invites": { handler: postCreateInvite, kind: "mutation" },
+  "POST /api/tenancy/invites/revoke": { handler: postRevokeInvite, kind: "mutation" },
+  "GET /api/tenancy/invitations": { handler: getReceivedInvitations, kind: "read" },
+  "POST /api/tenancy/invitations/accept": { handler: postAcceptInvitation, kind: "mutation" },
+  "GET /api/tenancy/config/screens": { handler: getScreens, kind: "read" },
+  "POST /api/tenancy/config/screens": { handler: postScreen, kind: "mutation" },
+  // admin/* are ops-only (roll migrations, relocate a module's DB) — they touch
+  // no client-visible app row, so they broadcast nothing.
+  "POST /api/tenancy/admin/migrate-teams": { handler: migrateTeams, kind: "housekeeping" },
+  "GET /api/tenancy/admin/db-sizes": { handler: dbSizes, kind: "read" },
+  "POST /api/tenancy/admin/move-module": { handler: moveModule, kind: "housekeeping" },
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const { pathname } = new URL(request.url)
     const route = `${request.method} ${pathname}`
 
     try {
-      switch (route) {
-        case "POST /api/tenancy/bootstrap":
-          return await bootstrap(request, env)
-        case "GET /api/tenancy/active":
-          return await active(request, env)
-        case "POST /api/tenancy/switch-team":
-          return await switchActiveTeam(request, env)
-        case "POST /api/tenancy/teams":
-          return await createNamedTeam(request, env)
-        case "POST /api/tenancy/teams/update":
-          return await postUpdateTeam(request, env)
-        case "GET /api/tenancy/teams":
-          return await myTeams(request, env)
-        case "GET /api/tenancy/members":
-          return await getMembers(request, env)
-        case "POST /api/tenancy/members/role":
-          return await postMemberRole(request, env)
-        case "POST /api/tenancy/members/remove":
-          return await postMemberRemove(request, env)
-        case "GET /api/tenancy/my-permissions":
-          return await getMyPerms(request, env)
-        case "GET /api/tenancy/roles":
-          return await getRoles(request, env)
-        case "POST /api/tenancy/roles":
-          return await postCreateRole(request, env)
-        case "POST /api/tenancy/roles/update":
-          return await postUpdateRole(request, env)
-        case "POST /api/tenancy/roles/active":
-          return await postSetRoleActive(request, env)
-        case "GET /api/tenancy/roles/permissions":
-          return await getRolePerms(request, env)
-        case "POST /api/tenancy/roles/permissions":
-          return await postRolePerms(request, env)
-        case "GET /api/tenancy/activity":
-          return await getActivityFeed(request, env)
-        case "GET /api/tenancy/team-meta":
-          return await getTeamMetaFeed(request, env)
-        case "GET /api/tenancy/invites":
-          return await getInvites(request, env)
-        case "POST /api/tenancy/invites":
-          return await postCreateInvite(request, env)
-        case "POST /api/tenancy/invites/revoke":
-          return await postRevokeInvite(request, env)
-        case "GET /api/tenancy/invitations":
-          return await getReceivedInvitations(request, env)
-        case "POST /api/tenancy/invitations/accept":
-          return await postAcceptInvitation(request, env)
-        case "GET /api/tenancy/config/screens":
-          return await getScreens(request, env)
-        case "POST /api/tenancy/config/screens":
-          return await postScreen(request, env)
-        case "POST /api/tenancy/admin/migrate-teams":
-          return await migrateTeams(request, env)
-        case "GET /api/tenancy/admin/db-sizes":
-          return await dbSizes(request, env)
-        case "POST /api/tenancy/admin/move-module":
-          return await moveModule(request, env)
-        case "GET /api/tenancy/health":
-          return json({ ok: true })
-        default:
-          return fail(404, "not_found", "No such tenancy action.")
-      }
+      if (route === "GET /api/tenancy/health") return json({ ok: true })
+      const def = ROUTES[route]
+      if (!def) return fail(404, "not_found", "No such tenancy action.")
+      return await def.handler(request, env)
     } catch (e) {
       if (e instanceof GuardError) return fail(e.status, e.code, e.message)
       console.error("tenancy worker error:", e)

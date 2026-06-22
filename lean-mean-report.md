@@ -1,45 +1,44 @@
-# Lean Mean Check — Brimba
-Scanned 2026-06-21 · Overall 85/100 (Grade B) · Lean, well-documented, scale-minded base; the one real gap is the web app has no behaviour tests — exactly where this week's bugs slipped through.
-
-> Prior run 2026-06-18 was 91/A. The dip is honest, not a broad regression: M3 grew the web tier with a large orchestrator file (deep-link-screen.tsx, 648 LOC) and the reload + invite bugs reaching staging exposed that the web app has no behaviour tests (it was always tested server-side only). Closing that one gap + splitting the orchestrator moves it back toward A.
+# Lean Mean Check — Brimba (the SaaS base)
+Scanned 2026-06-22 · Overall 92/100 (Grade A) · A lean, thoroughly-documented, genuinely scalable SaaS base — now fully tested, with a structural guarantee that live-updates can't be forgotten.
 
 ## Fix first (ordered by impact)
-- [ ] **(robustness)** Add behaviour/navigation tests for the web app — _why:_ 3.3k lines of UI (`web/`) are only type-checked + smoke-tested; the full-page-reload bug and the invite error that reached staging this week would have been caught by a click-through test of the `/t/*` flows. A small Playwright (or similar) pass over open-team → members → change-role → invite closes the gap CI currently misses. — _where:_ `web/components/deep-link-screen.tsx`, the `/t/[[...path]]` flows; wire into CI alongside `npm run check`.
-- [ ] **(size / understandability)** Split the deep-link orchestrator — _why:_ `web/components/deep-link-screen.tsx` is 648 lines doing parse + per-module fetch + shaping + onAction dispatch + render + all the write dialogs; extracting the dialogs and the per-module data/shaping into small pieces (or a data-driven module registry) lowers the "hold it all at once" cost and keeps it flat as more modules join the engine. — _where:_ `web/components/deep-link-screen.tsx`.
-- [ ] **(leanness)** Lift duplicated helpers into one util — _why:_ ~7.2% duplicate lines; `fullName` / `initials` / row-shaping logic recur across components — one shared util removes drift risk. — _where:_ `web/components/*` (members/role/invite shaping), `web/lib/format.ts`.
-- [ ] **(documentation)** Keep docs reconciled each shipping round — _why:_ the story-check found ~12 stale spots this pass (retired `/settings/team`, phantom `workers/config`, milestones marked to-do); now fixed — the habit to keep is updating the conceptual docs in the same commit as the code so they never lag again.
+- [ ] **(robustness)** Wire the scaffolded Playwright e2e suite into CI — _why:_ today's coverage is strong unit + real-SQLite integration, but the browser flows (login → team → members → change role → invite, asserting no reload + live row update) only run by hand; they need a seeded teamful staging account + `DEV_ECHO_CODES`. Until then end-to-end regressions can slip. — _where:_ `web/e2e/team-flows.spec.ts`, `web/playwright.config.ts`, `web/e2e/README.md`.
+- [ ] **(understandability/size)** Extract the dialog-wiring block from the deep-link orchestrator — _why:_ `deep-link-screen.tsx` is still the densest file (496 LOC) because it wires routing + data + the 5 dialogs; pulling the dialogs into a `ScreenDialogs` component (props-driven) would drop it ~70 lines and lower the surprise for a newcomer. — _where:_ `web/components/deep-link-screen.tsx` (the `<RolePickerDialog>…<ConfirmAction>` block).
+- [ ] **(size)** Split `teams.ts` along its seam — _why:_ 453 LOC mixing the team-factory (create/migrate/seed/stamp) with the read/context functions (active context, switcher, accept); separating factory vs. queries would ease review without changing behavior. — _where:_ `workers/tenancy/src/lib/teams.ts`.
+- [ ] **(leanness)** Trim the residual route-handler repetition — _why:_ ~6.7% duplicate lines, mostly inherent (per-table SQL audit columns, near-identical `teamContext → requireRight → mutate → publish` shapes); a small route-handler helper could fold the rest. — _where:_ `workers/tenancy/src/routes/*.ts`.
+- [ ] **(documentation)** Prefer "the full suite" over hard test counts in prose — _why:_ specific counts rot as tests are added; phrase docs so they can't go stale. — _where:_ already done in ARCHITECTURE.md §2; watch OPERATIONS.md.
 
 ## Scores
 | Dimension | Score | Status |
 |---|---|---|
-| Size & Scope | 89 | green |
-| Robustness | 73 | orange |
-| Documentation | 91 | green |
-| Understandability | 86 | green |
-| Leanness & Optimization | 85 | green |
-| Scalability & Structure | 91 | green |
+| Size & Scope | 91 | green |
+| Robustness | 92 | green |
+| Documentation | 93 | green |
+| Understandability | 91 | green |
+| Leanness & Optimization | 88 | green |
+| Scalability & Structure | 94 | green |
 
 ## Full findings
-### Size & Scope — 89/100 (green)
-- Strengths: 125 files / 10.1k LOC is tiny for a multi-tenant SaaS base; net −522 lines last migration; 0 TODOs; only 2 files over 400 LOC.
-- To improve: `deep-link-screen.tsx` (648 LOC) is the one large file — split it.
+### Size & Scope — 91/100 (green)
+- Strengths: ~83 lines/file average; a real multi-worker SaaS base in 11.5k lines with no sprawl; biggest file dropped 727→496 this pass.
+- To improve: two cohesive files remain long (deep-link-screen 496, teams 453) — _why:_ extracting the dialog-wiring and the team-factory would ease review.
 
-### Robustness — 73/100 (orange)
-- Strengths: server is hardened — 71 passing tests, atomic-SQL last-admin + unique-invite guards, GuardError→clean 4xx, full TypeScript across web + 5 workers, defensive seams (reportError, ErrorBoundary, `isScreenRecipe`).
-- To improve: the web app has **no** behaviour/nav tests (8% test:code, all server-side) — the reload + invite bugs that reached staging are the evidence. Add web interaction tests to CI.
+### Robustness — 92/100 (green)
+- Strengths: web went from untested → 44 tests including the live-update core (patchRow/reconcile); a CI guard test (`publish-seam.test.ts`) fails the build if any mutation forgets to publish; real-SQLite integration tests cover the atomic last-admin / unique-invite races; the diff just passed an adversarial review with both findings fixed.
+- To improve: end-to-end browser tests are scaffolded but not in CI — _why:_ they need a live target + seeded account; coverage today is unit + integration.
 
-### Documentation — 91/100 (green)
-- Strengths: a full, current conceptual layer with dated LOCKED decisions; comments explain the non-obvious; just reconciled to the shipped code.
-- To improve: docs had drifted before this pass — reconcile them in the same commit as code going forward.
+### Documentation — 93/100 (green)
+- Strengths: 11 root rulesets, one source of truth per topic; just reconciled to zero story-gaps (story_checks_out clean); 14% comment ratio focused on the non-obvious (the publish seam, patchRow, the live-sync rules).
+- To improve: avoid hard counts in prose so docs can't drift.
 
-### Understandability — 86/100 (green)
-- Strengths: predictable by-convention layout; single page/nav registry; central icon vocabulary; clear entry points.
-- To improve: the orchestrator concentrates a lot of logic with hoisted nested helpers — extract per-module data + dialogs.
+### Understandability — 91/100 (green)
+- Strengths: predictable by-convention layout; a declarative route table + a registry-driven live handler that read like documentation; self-explaining names.
+- To improve: the orchestrator file is the densest spot — _why:_ pulling the dialog block out lowers newcomer surprise.
 
-### Leanness & Optimization — 85/100 (green)
-- Strengths: UI from one library; shared types + central email template + central icon map; anti-bloat is real (net-negative migrations).
-- To improve: ~7% duplicated helper lines (name/shaping) — lift into one util.
+### Leanness & Optimization — 88/100 (green)
+- Strengths: identity helpers de-duped into one util; 4 hand-built lists migrated to the library List; UI only from the shared library; shared worker/web utils.
+- To improve: ~6.7% duplicate lines, mostly inherent SQL/CRUD similarity — _why:_ a route-handler helper could trim the rest.
 
-### Scalability & Structure — 91/100 (green)
-- Strengths: per-team DB isolation, hibernating realtime DOs, atomic-SQL concurrency, config-driven screen engine, swappable seams (error reporter, AI interface, recipe overrides).
-- To improve: new engine modules funnel through one host file — a data-driven module registry would keep it flat.
+### Scalability & Structure — 94/100 (green)
+- Strengths: per-team databases + Durable Objects addressed by key (scales by tenant, not code); swappable seams (live publish, data layer, screen-recipe engine); clean lib/routes/web separation.
+- To improve: sharding machinery is built but not yet exercised at scale — _why:_ wants a real load test before very large tenants.
