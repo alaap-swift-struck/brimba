@@ -1,0 +1,54 @@
+// The CONTENT worker — team-DB content modules (Learning today; Help next).
+// Secrets (wrangler secret put): CF_D1_TOKEN (Account→D1→Edit API token) so it
+// can reach per-team databases over the one REST door.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "brimba-content",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-06-01",
+  // Only the gateway is public — this worker is reachable only via bindings.
+  "workers_dev": false,
+  "observability": { "enabled": true },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "brimba-core",
+      "database_id": "7196438c-5572-4317-b1e4-48084ab6e3ad",
+      "migrations_dir": "../../db/core"
+    }
+  ],
+  "services": [
+    { "binding": "AUTH", "service": "brimba-auth" },
+    { "binding": "REALTIME", "service": "brimba-realtime" }
+  ],
+  "r2_buckets": [
+    { "binding": "LEARNING_MEDIA", "bucket_name": "brimba-learning-media" },
+    { "binding": "HELP_MEDIA", "bucket_name": "brimba-help-media" }
+  ],
+  "vars": { "CF_ACCOUNT_ID": "af3f1bf82aa34512f4f6630091358439" },
+  // No cron — content modules have no nightly housekeeping.
+  "env": {
+    "staging": {
+      "name": "brimba-content-staging",
+      "workers_dev": false,
+      "observability": { "enabled": true },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "brimba-core-staging",
+          "database_id": "68a9a2f6-13af-4d73-932e-ab38b40cc5b6",
+          "migrations_dir": "../../db/core"
+        }
+      ],
+      "services": [
+        { "binding": "AUTH", "service": "brimba-auth-staging" },
+        { "binding": "REALTIME", "service": "brimba-realtime-staging" }
+      ],
+      "r2_buckets": [
+        { "binding": "LEARNING_MEDIA", "bucket_name": "brimba-learning-media-staging" },
+        { "binding": "HELP_MEDIA", "bucket_name": "brimba-help-media-staging" }
+      ],
+      "vars": { "CF_ACCOUNT_ID": "af3f1bf82aa34512f4f6630091358439" }
+    }
+  }
+}
