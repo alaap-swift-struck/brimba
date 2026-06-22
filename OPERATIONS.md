@@ -37,7 +37,7 @@ The /reset-all skill reads this. DESTRUCTIVE — wipes data back to empty.
 | brimba-core-staging | brimba-auth-staging | `cd workers/auth && npx wrangler d1 migrations apply brimba-core-staging --env staging --remote` |
 | brimba-core | brimba-auth | `cd workers/auth && npx wrangler d1 migrations apply brimba-core --remote` |
 
-Deploy order when several change: auth → realtime → tenancy → gateway (root scripts do this — realtime before the workers that bind it). The realtime worker defines the `TeamChannel` Durable Object (a one-time `migrations` tag in its wrangler.jsonc; no team-DB migration involved — the DO holds no app data). Durable Objects need the Workers Paid plan.
+Deploy order when several change: **realtime → auth → tenancy → gateway** (root scripts do this — realtime FIRST because every other worker service-binds it: auth/tenancy publish change pings, the gateway routes the WebSocket. Deploying a binder before its target fails with "Worker not found" — this bit us on the first production deploy, when `brimba-realtime` didn't exist yet; FIXED 2026-06-22). NOTE: realtime also binds AUTH, so on a truly fresh account (neither exists) the auth↔realtime cycle must be broken once — deploy the pre-existing side first; in practice auth already exists by the time realtime is added. The realtime worker defines the `TeamChannel` Durable Object (a one-time `migrations` tag in its wrangler.jsonc; no team-DB migration involved — the DO holds no app data). Durable Objects need the Workers Paid plan.
 A nightly cron (03:10 UTC, tenancy worker) sizes every team DB and alarms at 80% of the 10GB cap.
 New migrations must be applied to BOTH databases before deploying workers that need them.
 
