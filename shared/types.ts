@@ -159,3 +159,102 @@ export type ApiError = {
   /** plain-English message safe to show the user */
   message: string
 }
+
+/* ----------------------------- next-build modules ----------------------------- */
+
+/** A learning (how-to) item. `body` is the in-app text the agent reads to answer
+ * help; `done` is the viewing user's own progress (merged in by the read). */
+export type Learning = {
+  id: string
+  category: string | null
+  title: string
+  description: string | null
+  contentType: string | null
+  contentLink: string | null
+  body: string | null
+  sequence: number
+  required: boolean
+  active: boolean
+  createdAt: string
+  done?: boolean
+}
+
+/** One member's completion of one learning item (for the curator progress view). */
+export type LearningProgressEntry = {
+  learningId: string
+  userId: string
+  done: boolean
+  doneAt: string | null
+}
+
+/** A support ticket (team-wide; the My/All tabs filter by raiser). The built-in
+ * `status` is the source of truth; `helpType` is a cosmetic selectable value. */
+export type HelpTicket = {
+  id: string
+  helpType: string | null
+  description: string
+  screenRecordingLink: string | null
+  sourceScreen: string | null
+  status: "open" | "in_progress" | "resolved" | "reopened"
+  resolved: boolean
+  resolvedAt: string | null
+  raiserId: string
+  raiserName: string | null
+  createdAt: string
+  updatedAt: string | null
+}
+
+/** One reply on a ticket. `isAgent` marks the AI-drafted first reply; a mention
+ * is notification-only (every member can see every ticket via the All tab). */
+export type HelpMessage = {
+  id: string
+  ticketId: string
+  body: string
+  taggedUserIds: string[]
+  isAgent: boolean
+  authorId: string
+  authorName: string | null
+  createdAt: string
+}
+
+/** A target in the owner-maintained global import catalog. */
+export type ImportableTarget = {
+  id: string
+  tableKey: string
+  displayName: string
+  description: string | null
+  requiredColumns: { key: string; label: string; required: boolean }[]
+  active: boolean
+}
+
+/** A 3-stage data-import session (file validation → extraction → import). */
+export type ImportSession = {
+  id: string
+  tableId: string
+  tableName: string | null
+  overallStatus: string
+  fileValidated: boolean
+  extractionComplete: boolean
+  importComplete: boolean
+  createdAt: string
+}
+
+/** A saved agent conversation thread (per team — the agent's memory). */
+export type AgentThread = {
+  id: string
+  title: string | null
+  lastMessageAt: string | null
+  createdAt: string
+}
+
+/** One message in an agent thread. `toolCalls` records the actions the agent took
+ * (and their status); `source` is in-app vs which MCP client. */
+export type AgentMessage = {
+  id: string
+  threadId: string
+  role: "user" | "assistant" | "tool"
+  content: string | null
+  toolCalls?: { tool: string; status: "pending" | "done" | "failed"; summary?: string }[]
+  source: string | null
+  createdAt: string
+}

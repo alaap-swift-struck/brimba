@@ -20,7 +20,7 @@ describe("buildTeamSeed", () => {
     expect(inserts.length).toBe(2 + 2 * TEAM_MODULES.length + DEFAULT_SELECTABLE.length)
   })
 
-  it("Admin gets every switch, Viewer is read-only", () => {
+  it("Admin gets every switch; Viewer is read-only except the agent (use)", () => {
     const adminRows = seed.script
       .split("\n")
       .filter((l) => l.includes("role_permissions") && l.includes(seed.adminRoleId))
@@ -30,7 +30,12 @@ describe("buildTeamSeed", () => {
     expect(adminRows).toHaveLength(TEAM_MODULES.length)
     expect(viewerRows).toHaveLength(TEAM_MODULES.length)
     for (const row of adminRows) expect(row).toContain("1, 1, 1, 1")
-    for (const row of viewerRows) expect(row).toContain("1, 0, 0, 0")
+    // Viewer is read-only everywhere, EXCEPT the agent: everyone may USE it
+    // (read+create) — still capped by their other rights.
+    for (const row of viewerRows) {
+      if (row.includes("'agent'")) expect(row).toContain("1, 1, 0, 0")
+      else expect(row).toContain("1, 0, 0, 0")
+    }
   })
 
   it("escapes quotes in names (O'Brien) so the script can't break", () => {
@@ -57,6 +62,8 @@ describe("team schema", () => {
       "learning",
       "help",
       "selectable_data",
+      "screens",
+      "agent",
     ])
   })
 })

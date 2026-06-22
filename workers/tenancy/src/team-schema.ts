@@ -15,6 +15,8 @@ export const TEAM_MODULES = [
   "learning",
   "help",
   "selectable_data",
+  "screens",
+  "agent",
 ] as const
 
 /** Plain-English label for each module, shown as the rows of the permission
@@ -27,6 +29,8 @@ const MODULE_LABELS: Record<(typeof TEAM_MODULES)[number], string> = {
   learning: "Learning",
   help: "Help",
   selectable_data: "Dropdown data",
+  screens: "Screens",
+  agent: "AI agent",
 }
 
 /** The matrix rows: { key, label } per module, in display order. */
@@ -291,9 +295,13 @@ export function buildTeamSeed(
   ]
 
   for (const module of TEAM_MODULES) {
+    // Default Viewer rights are read-only everywhere, EXCEPT the agent: everyone
+    // may USE it out of the box (read+create) — it still can't exceed the user's
+    // other rights, so a Viewer's agent is read-only in practice anyway.
+    const [vr, vc, ve, vd] = module === "agent" ? [1, 1, 0, 0] : [1, 0, 0, 0]
     statements.push(
       `INSERT INTO role_permissions (id, role_id, module, can_read, can_create, can_edit, can_delete) VALUES (${sqlString(ulid())}, ${sqlString(adminRoleId)}, ${sqlString(module)}, 1, 1, 1, 1);`,
-      `INSERT INTO role_permissions (id, role_id, module, can_read, can_create, can_edit, can_delete) VALUES (${sqlString(ulid())}, ${sqlString(viewerRoleId)}, ${sqlString(module)}, 1, 0, 0, 0);`
+      `INSERT INTO role_permissions (id, role_id, module, can_read, can_create, can_edit, can_delete) VALUES (${sqlString(ulid())}, ${sqlString(viewerRoleId)}, ${sqlString(module)}, ${vr}, ${vc}, ${ve}, ${vd});`
     )
   }
 
