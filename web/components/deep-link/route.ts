@@ -7,7 +7,7 @@ import { parseScreenPath, parseScreenQuery, type ScreenQuery } from "@swift-stru
 import { TEAM_SECTIONS } from "@/lib/pages"
 
 /** The team-area sections (the tab spine across /t/<teamId>/…). */
-export type SectionKey = "overview" | "members" | "roles" | "invites"
+export type SectionKey = "overview" | "members" | "roles" | "invites" | "learning" | "help"
 
 export type Route = {
   teamId: string

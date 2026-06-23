@@ -34,7 +34,7 @@ export function bottomNavItems(items: NavItem[]): NavItem[] {
  * (empty = the team overview at /t/<teamId> itself). Activity lives as a tab on
  * the Overview screen, so it isn't a separate section. */
 export type TeamSection = {
-  key: "overview" | "members" | "roles" | "invites"
+  key: "overview" | "members" | "roles" | "invites" | "learning" | "help"
   title: string
   module: string
   segment: string
@@ -45,6 +45,10 @@ export const TEAM_SECTIONS: TeamSection[] = [
   { key: "members", title: "Members", module: "team_members", segment: "members" },
   { key: "roles", title: "Member roles", module: "member_roles", segment: "roles" },
   { key: "invites", title: "Invites", module: "team_members", segment: "invites" },
+  // The next-build content modules — the URL segment IS the permission module
+  // (no friendly alias), so members/roles' segment≠module split doesn't apply.
+  { key: "learning", title: "Learning", module: "learning", segment: "learning" },
+  { key: "help", title: "Help", module: "help", segment: "help" },
 ]
 
 /** The ONE icon vocabulary for the app — each concept (page / section / record
@@ -59,6 +63,8 @@ export const CONCEPT_ICON = {
   members: "users",
   roles: "shield-half",
   invites: "mail",
+  learning: "graduation-cap",
+  help: "life-buoy",
   activity: "history",
 } as const
 

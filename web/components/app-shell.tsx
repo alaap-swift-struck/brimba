@@ -17,7 +17,7 @@ import { toast } from "@swift-struck/ui/registry/primitives/sonner/sonner"
 import { Home, Settings, PanelLeftClose, PanelLeftOpen } from "lucide-react"
 
 import type { ActiveTeam } from "@/lib/use-active-team"
-import { auth, tenancy } from "@/lib/api"
+import { auth, content, tenancy } from "@/lib/api"
 import { useRealtime, useUserRealtime } from "@/lib/realtime"
 import { invalidate, patchRow, reconcile } from "@/lib/store"
 import { NAV, bottomNavItems, isNavActive, type Crumb } from "@/lib/pages"
@@ -69,6 +69,15 @@ const TEAM_RESOURCES: Record<
     // The invite detail also shows the invite_logs audit + that invite's activity;
     // refresh both when the invite row changes (revoke/accept) so the detail stays live.
     deps: (_t, id) => [`invite-audit:${id}`, `activity:invite:${id}`],
+  },
+  // Learning content — row-level live. An edit / (de)activate elsewhere patches
+  // just that article in the cached list; the row read passes the team filter so a
+  // genuinely-gone item drops out. (Done toggles are personal, not broadcast.)
+  learning: {
+    key: (t) => `learning:${t}`,
+    idField: "id",
+    fetchOne: (id) => content.learningOne(id),
+    fetchList: () => content.learning().then((r) => r.learning),
   },
 }
 

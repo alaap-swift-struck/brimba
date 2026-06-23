@@ -36,6 +36,9 @@ export const MODULE_PERMISSION: Record<string, string> = {
   members: "team_members",
   roles: "member_roles",
   invites: "team_members",
+  // The content modules' URL segment IS their permission module (no alias).
+  learning: "learning",
+  help: "help",
 }
 
 /* --------------------------------- team --------------------------------- */
@@ -216,6 +219,21 @@ export const inviteDetailRecipe: ScreenRecipe = {
   ],
 }
 
+/* -------------------------------- learning ------------------------------- */
+
+/** Learning list — clean rows (title + a category / description summary line).
+ * Tapping a row opens the article (its body + the done toggle + edit/deactivate
+ * live there). "New article" is host-rendered above, gated by learning:create. */
+export const learningListRecipe: ScreenRecipe = {
+  type: "list",
+  display: "list",
+  binding: { module: "learning" },
+  gate: { module: "learning", right: "read" },
+  fields: [field("name", "Article"), field("detail", "Details")],
+  actions: [],
+  collection: listCollection("No learning yet."),
+}
+
 /* ------------------------------ the registry ------------------------------ */
 
 /** The in-code BASE recipe for each screen key — the shipped default every team
@@ -230,6 +248,7 @@ export const BASE_RECIPES: Record<string, ScreenRecipe> = {
   "roles.list": rolesListRecipe,
   "invites.list": invitesListRecipe,
   "invites.detail": inviteDetailRecipe,
+  "learning.list": learningListRecipe,
 }
 
 /** A structural guard for a parsed override. The config store treats a recipe as

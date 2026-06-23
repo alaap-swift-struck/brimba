@@ -18,6 +18,7 @@
 import * as React from "react"
 import { useRouter, usePathname } from "next/navigation"
 
+import { Button } from "@swift-struck/ui/registry/primitives/button/button"
 import { Skeleton } from "@swift-struck/ui/registry/primitives/skeleton/skeleton"
 import { toast } from "@swift-struck/ui/registry/primitives/sonner/sonner"
 import {
@@ -34,6 +35,9 @@ import {
 import { AppShell, ShellLoading } from "@/components/app-shell"
 import { TeamSectionNav } from "@/components/team-section-nav"
 import { RoleDetailScreen } from "@/components/role-detail"
+import { LearningDetailScreen } from "@/components/learning-detail"
+import { LearningProgressScreen } from "@/components/learning-progress"
+import { LearningFormDialog, type LearningFormValues } from "@/components/learning-form-dialog"
 import { RolePickerDialog } from "@/components/role-picker-dialog"
 import { RoleFormDialog } from "@/components/role-form-dialog"
 import { InviteDialog } from "@/components/invite-dialog"
@@ -44,12 +48,14 @@ import { parseRoute, sectionTitle, type Route, type SectionKey } from "@/compone
 import {
   shapeInviteDetail,
   shapeInvitesList,
+  shapeLearningList,
   shapeMemberDetail,
   shapeMembersList,
   shapeRolesList,
   shapeTeamDetail,
 } from "@/components/deep-link/shape"
-import { ApiFailure, tenancy } from "@/lib/api"
+// Aliased: the local `content()` dispatcher (below) shadows the api namespace.
+import { ApiFailure, content as contentApi, tenancy } from "@/lib/api"
 import { usePermissions } from "@/lib/perms"
 import { invalidate, primeCache, useCached } from "@/lib/store"
 import { useActiveTeam } from "@/lib/use-active-team"
@@ -141,6 +147,11 @@ export function DeepLinkScreen() {
   )
   const metaQ = useCached(enabled && module === "team" ? `team-meta:${teamId}` : null, () =>
     tenancy.teamMeta()
+  )
+  // Learning backs its list, the breadcrumb label and the article detail; load it
+  // for the whole learning area (cache-first + row-level live, decision below).
+  const learningQ = useCached(enabled && module === "learning" ? `learning:${teamId}` : null, () =>
+    contentApi.learning().then((r) => r.learning)
   )
   const activityScope: "team" | "user" | "invite" | null =
     module === "team"
@@ -267,6 +278,26 @@ export function DeepLinkScreen() {
     [teamId]
   )
 
+  // Create a learning article — its own handler (a rich payload, not the flat
+  // string map runAction takes). Primes the list so the new article appears at
+  // once; the realtime "add" ping refreshes it for everyone else.
+  const createLearning = React.useCallback(
+    async (values: LearningFormValues) => {
+      if (!teamId) return
+      const { learning: next } = await contentApi.createLearning({
+        title: values.title,
+        category: values.category || null,
+        description: values.description || null,
+        contentType: values.contentType || null,
+        contentLink: values.contentLink || null,
+        body: values.body || null,
+      })
+      primeCache(`learning:${teamId}`, next)
+      toast.success(`Created "${values.title}".`)
+    },
+    [teamId]
+  )
+
   /* ------------------------- engine intent + action ------------------------ */
 
   function onIntent(intent: ScreenIntent) {
@@ -310,7 +341,13 @@ export function DeepLinkScreen() {
 
   const teamName = active.ctx.team?.name ?? "Team"
   const section: SectionKey =
-    module === "members" || module === "roles" || module === "invites" ? module : "overview"
+    module === "members" ||
+    module === "roles" ||
+    module === "invites" ||
+    module === "learning" ||
+    module === "help"
+      ? module
+      : "overview"
 
   // Section-tab count badges — the count of what each section's collection shows
   // (Overview leads with team metadata, not a collection, so it has no count).
@@ -319,6 +356,7 @@ export function DeepLinkScreen() {
     members: active.ctx.memberCount,
     roles: rolesQ.data?.length,
     invites: invitesQ.data?.length,
+    learning: learningQ.data?.length,
   }
 
   // Breadcrumbs derived from the URL spine; the library Breadcrumbs collapses the
@@ -340,6 +378,8 @@ export function DeepLinkScreen() {
     if (module === "roles") return roles.find((r) => r.id === recordId)?.title ?? "Role"
     if (module === "invites")
       return invitesQ.data?.find((i) => i.id === recordId)?.email ?? "Invite"
+    if (module === "learning")
+      return learningQ.data?.find((l) => l.id === recordId)?.title ?? "Article"
     return ""
   }
 
@@ -408,6 +448,33 @@ export function DeepLinkScreen() {
           </SectionWithCreate>
         )
       }
+      if (module === "learning") {
+        // ?tab=progress → the curator completion grid (gated by learning:edit);
+        // a deep link without the right falls through to the plain list.
+        if (query.tab === "progress" && can("learning", "edit")) {
+          return <LearningProgressScreen teamId={teamId as string} />
+        }
+        if (learningQ.error) return <LoadError what="learning" />
+        if (learningQ.data === undefined) return <Skeleton variant="list" lines={4} />
+        const data = shapeLearningList(learningQ.data)
+        return (
+          <SectionWithCreate
+            show={can("learning", "create")}
+            label="New article"
+            icon="plus"
+            onCreate={() => go(sectionPath, { panel: "add", module: "learning" })}
+          >
+            {can("learning", "edit") && (
+              <div className="flex justify-end">
+                <Button variant="outline" size="sm" onClick={() => go(sectionPath, { tab: "progress" })}>
+                  Team progress
+                </Button>
+              </div>
+            )}
+            <ScreenRenderer recipe={recipe} data={data} rights={rights} onAction={onAction} onIntent={onIntent} />
+          </SectionWithCreate>
+        )
+      }
       return <NotFound />
     }
 
@@ -438,6 +505,9 @@ export function DeepLinkScreen() {
     }
     if (module === "roles") {
       return <RoleDetailScreen teamId={teamId as string} roleId={recordId} />
+    }
+    if (module === "learning") {
+      return <LearningDetailScreen teamId={teamId as string} learningId={recordId} />
     }
     return <NotFound />
   }
@@ -491,6 +561,13 @@ export function DeepLinkScreen() {
         open={query.panel === "add" && query.module === "roles" && can("member_roles", "create")}
         onOpenChange={(o) => !o && closePanel()}
         onSubmit={(title, description) => runAction("roles.create", { title, description })}
+      />
+
+      {/* Create a learning article (?panel=add&module=learning) — gated by create. */}
+      <LearningFormDialog
+        open={query.panel === "add" && query.module === "learning" && can("learning", "create")}
+        onOpenChange={(o) => !o && closePanel()}
+        onSubmit={createLearning}
       />
 
       {/* Edit the team (?panel=edit&module=team) — gated by teams:edit. */}

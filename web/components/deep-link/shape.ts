@@ -11,6 +11,7 @@ import type {
   ActivityItem,
   Invite,
   InviteAudit,
+  Learning,
   TeamMeta,
   TeamMember,
   TeamRole,
@@ -80,6 +81,18 @@ export function shapeInvitesList(invites: Invite[]): ScreenData {
       id: i.id,
       email: i.email,
       detail: `${i.roleTitle} · ${INVITE_STATUS[i.status]}`,
+    })),
+  }
+}
+
+export function shapeLearningList(items: Learning[]): ScreenData {
+  return {
+    rows: items.map((l) => ({
+      id: l.id,
+      // Inactive items stay visible to curators (deactivate-not-delete) — flag it
+      // in the title, matching how roles show "(inactive)".
+      name: l.active ? l.title : `${l.title} (inactive)`,
+      detail: l.category || l.description || "—",
     })),
   }
 }
