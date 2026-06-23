@@ -10,6 +10,8 @@ type Env = {
   AUTH: Fetcher
   TENANCY: Fetcher
   REALTIME: Fetcher
+  CONTENT: Fetcher
+  DATAOPS: Fetcher
   MEDIA: R2Bucket
 }
 
@@ -19,6 +21,9 @@ export default {
 
     if (pathname.startsWith("/api/auth/")) return env.AUTH.fetch(request)
     if (pathname.startsWith("/api/tenancy/")) return env.TENANCY.fetch(request)
+    // Content modules (Learning, Help) and data-ops (import + the AI agent).
+    if (pathname.startsWith("/api/content/")) return env.CONTENT.fetch(request)
+    if (pathname.startsWith("/api/data-ops/")) return env.DATAOPS.fetch(request)
     // Live channels (WebSocket upgrade + health) → the realtime switchboard.
     if (pathname.startsWith("/api/realtime")) return env.REALTIME.fetch(request)
 
