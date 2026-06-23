@@ -10,6 +10,8 @@
 //   GET  /api/data-ops/import/preview   -> the session's current preview (?id=)
 //   POST /api/data-ops/import/confirm   -> write every mapped row (insert-only)
 //   POST /api/data-ops/admin/seed-targets -> owner-only: seed the import catalog
+//   GET  /api/data-ops/agent/usage      -> the team's AI quota (free + credits)
+//   POST /api/data-ops/admin/grant-credits -> owner-only: top up a team's credits
 //   GET  /api/data-ops/health
 
 import { brand } from "../../../shared/brand"
@@ -25,6 +27,7 @@ import {
   postImportStart,
 } from "./routes/import"
 import { postSeedTargets } from "./routes/admin"
+import { getAgentUsage, postGrantCredits } from "./routes/agent"
 
 /**
  * THE LIVE-SYNC SEAM (locked, CACHING.md "Every mutation publishes"). Every route is
@@ -49,6 +52,8 @@ export const ROUTES: Record<string, { handler: Handler; kind: RouteKind }> = {
   "POST /api/data-ops/import/mapping": { handler: postImportMapping, kind: "housekeeping" },
   "POST /api/data-ops/import/confirm": { handler: postImportConfirm, kind: "mutation" },
   "POST /api/data-ops/admin/seed-targets": { handler: postSeedTargets, kind: "housekeeping" },
+  "GET /api/data-ops/agent/usage": { handler: getAgentUsage, kind: "read" },
+  "POST /api/data-ops/admin/grant-credits": { handler: postGrantCredits, kind: "mutation" },
 }
 
 export default {

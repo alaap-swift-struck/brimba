@@ -258,3 +258,15 @@ export type AgentMessage = {
   source: string | null
   createdAt: string
 }
+
+/** A team's AI quota snapshot (the credit-based model): a free daily allowance plus
+ * a purchasable credit balance. `remaining` = free left today + credits; `blocked`
+ * means both are exhausted (the agent warns, then hard-stops for the day). */
+export type AgentQuota = {
+  freeDaily: number
+  freeUsedToday: number
+  freeRemaining: number
+  creditBalance: number
+  remaining: number
+  blocked: boolean
+}
