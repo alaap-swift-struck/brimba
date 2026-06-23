@@ -4,8 +4,18 @@
 the reusable foundation every future app (ERP, CRM, portal…) is built on:
 login (strict email codes), teams, Member roles (module key `member_roles`;
 UPDATED 2026-06-21: was "roles & permissions"), invites, learning,
-help desk, dropdown management, AI-powered data import/export — all
-agent-callable via MCP, all hosted on Cloudflare.
+help desk, dropdown management, CSV data import, and an in-app **AI agent** that
+acts AS the signed-in user through the same gated endpoints (never exceeding
+their rights), all hosted on Cloudflare.
+
+UPDATED 2026-06-23: the **agent-modules build** landed (branch `agent-modules`) —
+learning, help, CSV import, and the AI agent are all BUILT. **Six workers are on
+disk**: auth, tenancy, realtime, gateway, **content** (learning + help) and
+**data-ops** (import + the AI agent). The external **mcp** worker (machine-facing
+tool surface) is the one remaining piece — PLANNED, not yet built. The agent's
+model is swappable: Claude when `ANTHROPIC_API_KEY` is set, else Cloudflare
+Workers AI; it confirms on destructive/dangerous actions and is metered by a
+credit quota (free 25/day + a purchasable balance).
 
 UPDATED 2026-06-21: the team area (Overview, Members, Member roles, Invites)
 now lives at `/t/<teamId>/…` deep-link URLs (rendered by the screen engine),

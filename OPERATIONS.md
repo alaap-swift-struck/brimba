@@ -31,25 +31,50 @@ The /reset-all skill reads this. DESTRUCTIVE — wipes data back to empty.
 | auth (`workers/auth`) | brimba-auth-staging | brimba-auth | Login (strict email codes only), sessions, users |
 | realtime (`workers/realtime`) | brimba-realtime-staging | brimba-realtime | The live switchboard: one `TeamChannel` Durable Object per **channel** fans out row-level `{resource,id,op}` pings over WebSockets. TWO channel scopes — `team:<id>` (per active team) and `user:<id>` (per signed-in user) — so each open browser holds two sockets; idle channels hibernate (≈ free). Binds AUTH + the core DB (to gate connections); holds no app data |
 | tenancy (`workers/tenancy`) | brimba-tenancy-staging | brimba-tenancy | Members/roles/invites/config: team membership, role permissions, invitations + the nightly team-DB sizing cron + the per-team screen-recipe config store (served at GET/POST `/api/tenancy/config/screens`). UPDATED 2026-06-21: the planned `workers/config` worker was folded into tenancy — there is NO separate config worker |
+| content (`workers/content`) | brimba-content-staging | brimba-content | BUILT 2026-06-23. The team-DB content modules: **Learning** (how-to items + per-user "mark done" progress) + **Help** (team-wide tickets + threaded replies, fixed status lifecycle). Routes `/api/content/*`. Binds AUTH + REALTIME + the core DB (gating) + two R2 buckets (`LEARNING_MEDIA`, `HELP_MEDIA`). No cron |
+| data-ops (`workers/data-ops`) | brimba-data-ops-staging | brimba-data-ops | BUILT 2026-06-23. **CSV import** (the 3-stage session against the global `importable_databases` catalog, INSERT-ONLY, act-as-user through the gated create endpoints) + **the AI agent** (swappable model, act-as-user executor, confirm rule, identity blocks, fenced data, step cap, saved threads, credit quota). Routes `/api/data-ops/*`. Binds AUTH + REALTIME + CONTENT + TENANCY + the Workers AI binding (`AI`) + the core DB. No cron |
 
 | D1 database | Bound to | Migrations |
 |---|---|---|
 | brimba-core-staging | brimba-auth-staging | `cd workers/auth && npx wrangler d1 migrations apply brimba-core-staging --env staging --remote` |
 | brimba-core | brimba-auth | `cd workers/auth && npx wrangler d1 migrations apply brimba-core --remote` |
 
-Deploy order when several change: **realtime → auth → tenancy → gateway** (root scripts do this — realtime FIRST because every other worker service-binds it: auth/tenancy publish change pings, the gateway routes the WebSocket. Deploying a binder before its target fails with "Worker not found" — this bit us on the first production deploy, when `brimba-realtime` didn't exist yet; FIXED 2026-06-22). NOTE: realtime also binds AUTH, so on a truly fresh account (neither exists) the auth↔realtime cycle must be broken once — deploy the pre-existing side first; in practice auth already exists by the time realtime is added. The realtime worker defines the `TeamChannel` Durable Object (a one-time `migrations` tag in its wrangler.jsonc; no team-DB migration involved — the DO holds no app data). Durable Objects need the Workers Paid plan.
+Deploy order when several change: **realtime → auth → tenancy → content → data-ops → gateway** (root scripts do this — realtime FIRST because every other worker service-binds it: auth/tenancy/content/data-ops publish change pings, the gateway routes the WebSocket. Deploying a binder before its target fails with "Worker not found" — this bit us on the first production deploy, when `brimba-realtime` didn't exist yet; FIXED 2026-06-22). content and data-ops slot in before the gateway because the gateway routes `/api/content/*` and `/api/data-ops/*` to them, and **data-ops binds CONTENT + TENANCY** (so both must exist before data-ops). NOTE: realtime also binds AUTH, so on a truly fresh account (neither exists) the auth↔realtime cycle must be broken once — deploy the pre-existing side first; in practice auth already exists by the time realtime is added. The realtime worker defines the `TeamChannel` Durable Object (a one-time `migrations` tag in its wrangler.jsonc; no team-DB migration involved — the DO holds no app data). Durable Objects need the Workers Paid plan.
 A nightly cron (03:10 UTC, tenancy worker) sizes every team DB and alarms at 80% of the 10GB cap.
-New migrations must be applied to BOTH databases before deploying workers that need them.
+New migrations must be applied to BOTH databases before deploying workers that need them. The agent-modules build (2026-06-23) adds **core migrations 0008 (`importable_databases`) / 0009 (`agent_usage`) / 0010 (`agent_credits`)** — apply them to `brimba-core` + `brimba-core-staging` (same command as below, any of the core-bound workers can run it) — and **team-schema migration `0004_modules`** (learning, learning_progress, help, help_threads, data_import_sessions, agent_threads, agent_messages) — rolled to every team DB via `POST /api/tenancy/admin/migrate-teams` (x-admin-key). Apply BOTH before deploying content/data-ops.
 
 ## Secrets (set once per env, never in git)
 
 - `cd workers/auth && npx wrangler secret put RESEND_API_KEY --env staging` (and again without `--env` for production)
 - `CF_D1_TOKEN` (Account→D1→Edit) on brimba-tenancy + brimba-tenancy-staging — SET 2026-06-12 (team creation live). `ADMIN_KEY` (maintenance endpoints: migrate-teams, db-sizes, move-module) — SET on both envs 2026-06-12; rotate anytime with `wrangler secret put ADMIN_KEY`.
-- `INTERNAL_KEY` — shared secret guarding auth's `/internal/send-email` (tenancy sends it; auth enforces it). UPDATED 2026-06-21: when `INTERNAL_KEY` is set, auth REJECTS any `/internal/send-email` whose key does not match — a mismatch is a HARD 401 reject, NOT a silent pass. The key MUST match across `brimba-auth*` + `brimba-tenancy*`, and it MUST be set in EVERY env before the member-notification email feature ships (so "when set" is not an optional/skippable path in production). Defense-in-depth alongside `workers_dev:false`.
+- `INTERNAL_KEY` — shared secret guarding auth's `/internal/send-email` (tenancy sends it; auth enforces it). UPDATED 2026-06-21: when `INTERNAL_KEY` is set, auth REJECTS any `/internal/send-email` whose key does not match — a mismatch is a HARD 401 reject, NOT a silent pass. The key MUST match across `brimba-auth*` + `brimba-tenancy*` (+ `brimba-content*`, which also sends help/notify emails via auth), and it MUST be set in EVERY env before the member-notification email feature ships (so "when set" is not an optional/skippable path in production). Defense-in-depth alongside `workers_dev:false`.
+
+### Agent-modules secrets + vars (BUILT 2026-06-23 — `brimba-content*` + `brimba-data-ops*`)
+
+- `CF_D1_TOKEN` (Account→D1→Edit) on **brimba-content + brimba-content-staging** AND **brimba-data-ops + brimba-data-ops-staging** — both reach per-team databases over the one REST door, same as tenancy. Set per env: `cd workers/content && npx wrangler secret put CF_D1_TOKEN` (and `--env staging`); same for `workers/data-ops`.
+- `INTERNAL_KEY` on **brimba-content*** (it calls auth's `/internal/send-email` for help reply/@mention notifications) — same value as auth/tenancy.
+- `ADMIN_KEY` on **brimba-data-ops*** (guards the two owner-only endpoints below) — same as the tenancy maintenance key. data-ops also forwards the caller's session cookie to content/tenancy (act-as-user), so no extra cross-worker secret is needed for the import/agent executor.
+- `ANTHROPIC_API_KEY` on **brimba-data-ops*** — OPTIONAL. When set, the AI agent uses Claude (full tool use, so it can ACT); when unset, it falls back to Cloudflare Workers AI (text-only — it can answer, but acting needs the key). Set per env with `wrangler secret put ANTHROPIC_API_KEY`.
+- **Vars (in `workers/data-ops/wrangler.jsonc`, not secrets):** `AGENT_MODEL` (the Claude model id, default `claude-sonnet-4-6`) + `WORKERS_AI_MODEL` (the cheap/fallback model id, default `@cf/meta/llama-3.1-8b-instruct`). `cheapText` (inline jobs — classification, the help-draft fallback) ALWAYS uses Workers AI regardless of the key.
+- **Workers AI binding:** `brimba-data-ops*` declares `"ai": { "binding": "AI" }` in its wrangler.jsonc — no secret, just the binding (Workers AI is metered on the account). This is what powers the swappable model's fallback path + every `cheapText` call.
+
+### R2 buckets (BUILT 2026-06-23 — bound to `brimba-content*`)
+
+One bucket PER MODULE, per-team key prefix inside (the R2 golden rule). Create both per env before deploying content:
+
+- `brimba-learning-media` + `brimba-learning-media-staging` — learning item media (bound `LEARNING_MEDIA`).
+- `brimba-help-media` + `brimba-help-media-staging` — help attachments (bound `HELP_MEDIA`; the attachment UI hook itself is deferred — see AGENT-MODULES-PLAN).
+
+Create with `npx wrangler r2 bucket create <name>` (run once per bucket per account). (Import has NO bucket of its own — CSV text is uploaded into the import session, not R2.)
+
+### Owner-only endpoints (data-ops, x-admin-key — same key as the tenancy maintenance actions)
+
+- `POST /api/data-ops/admin/seed-targets` — seed/refresh the GLOBAL `importable_databases` import catalog (which target tables can be imported). Run once per env after the core 0008 migration.
+- `POST /api/data-ops/admin/grant-credits` — top up a team's AI credit balance (the purchasable half of the agent quota; the free half is 25/day). This is the seam real payments wire into later.
 
 ### Public surface (LOCKED): only the gateway is public
 
-auth, tenancy and realtime set `"workers_dev": false` (top-level AND env.staging — envs don't inherit), so they have NO public `*.workers.dev` URL and are reachable ONLY via service bindings. The **gateway** (`brimba` / `brimba-staging`) is the single public address. This is what makes `/internal/send-email` safe (no public route can reach it). Never add a public route/`workers_dev` to a non-gateway worker.
+auth, tenancy, realtime, content and data-ops all set `"workers_dev": false` (top-level AND env.staging — envs don't inherit), so they have NO public `*.workers.dev` URL and are reachable ONLY via service bindings. The **gateway** (`brimba` / `brimba-staging`) is the single public address. This is what makes `/internal/send-email` (and the agent/import act-as-user surface) safe (no public route can reach it). Never add a public route/`workers_dev` to a non-gateway worker.
 - Until RESEND_API_KEY is set: staging echoes login codes in the API response (DEV_ECHO_CODES=1); production refuses email login.
 
 ### Resend (real login emails) — production wiring
@@ -71,7 +96,7 @@ both owner-only:
 
 ## Verify before shipping
 
-- npm run check   (type-checks web + the 4 built workers — auth, tenancy, realtime, gateway — and runs all unit/integration tests). UPDATED 2026-06-21: 4 workers are on disk; content + data-ops are PLANNED, not built, so "all 5 workers" / "~6" no longer applies. The recipe config store lives in tenancy, not a separate worker.
+- npm run check   (type-checks web + the 6 built workers — auth, tenancy, realtime, gateway, content, data-ops — and runs all unit/integration tests). UPDATED 2026-06-23: 6 workers are on disk (content + data-ops landed in the agent-modules build); the external `mcp` worker is still PLANNED, not built. The recipe config store lives in tenancy, not a separate worker.
 - CI runs the same on every push (.github/workflows/ci.yml)
 - deploy:staging ends with scripts/smoke-staging.mjs — the LIVE login→team journey must pass or the deploy is considered failed
 

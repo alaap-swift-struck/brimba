@@ -34,31 +34,33 @@ Do not relitigate any "LOCKED" item without the user.
 
 ## 2 · The machine — workers (LOCKED)
 
-Six domain workers, each small enough for an AI agent to hold fully in its head.
-**UPDATED 2026-06-21:** only **4 are built & on disk** — auth, tenancy, realtime,
-gateway. **content** and **data-ops** are **PLANNED / not yet on disk**. (The
-planned `workers/config` recipe store was folded into **tenancy**, not built
-separately.) `npm run check` type-checks web + those 4 workers and runs the full
-unit/integration suite (web + the workers).
+Domain workers, each small enough for an AI agent to hold fully in its head.
+**UPDATED 2026-06-23:** **6 are built & on disk** — auth, tenancy, realtime,
+gateway, **content**, **data-ops** (the agent-modules build landed; branch
+`agent-modules`, 139 tests green). The external **mcp** worker is the one remaining
+piece — **PLANNED / not yet on disk** (personal access tokens → session bridge →
+opt-in tool catalog). (The planned `workers/config` recipe store was folded into
+**tenancy**, not built separately.) `npm run check` type-checks web + the built
+workers and runs the full unit/integration suite (web + the workers).
 
 | Worker | Owns |
 |---|---|
 | **auth** | Strict email-OTP login — 6-digit codes via Resend (NO Clerk, NO Google; parked 2026-06-12), sessions, email-change flow (code to the NEW email) |
 | **tenancy** | teams, team members, Member roles (module key `member_roles`) + permissions, invites; also the per-team screen-recipe config store (`GET/POST /api/tenancy/config/screens`) |
-| **content** *(PLANNED — not yet on disk)* | learning, help + help threads, selectable data (+ types) |
-| **data-ops** *(PLANNED — not yet on disk)* | import sessions, export, the AI import agent (Workers AI, behind ONE swappable interface so the brain can change in one config edit) |
+| **content** *(BUILT 2026-06-23; `brimba-content`)* | **Learning** (how-to articles, in-app body, manual sequence, pick-or-create category → `selectable_data`, per-user `mark done` progress, deactivate-not-delete) + **Help** (team-wide tickets + threaded replies, fixed status lifecycle `open/in_progress/resolved/reopened`, raiser-can-reopen, @mention + reply email notify, source screen/record capture). Routes under `/api/content/*`. Binds AUTH (whoami) + REALTIME (live pings) + the core DB (gating) + per-module R2 (`LEARNING_MEDIA`, `HELP_MEDIA`). Gated by the `learning` / `help` permission modules; not public (`workers_dev:false`) |
+| **data-ops** *(BUILT 2026-06-23; `brimba-data-ops`)* | **(a) CSV import** — the 3-stage session (file → mapping → confirm) against the GLOBAL owner-maintained `importable_databases` catalog, **INSERT-ONLY**, gated by the **target's `create` right** (no key of its own), writing **act-as-user** through the gated create endpoints (currently two targets: `member_roles` + `learning`). **(b) the AI agent** — a swappable model seam, an opt-in tool catalog, an act-as-user executor, the confirm rule, identity-act blocks, fenced tool results, a step cap, saved per-team threads (audit), and a credit-based quota (see §7). Routes under `/api/data-ops/*`. Binds AUTH/REALTIME/CONTENT/TENANCY + Workers AI (`AI`) + the core DB; not public (`workers_dev:false`) |
 | **realtime** | the live "switchboard" (LOCKED 2026-06-13; ROW-LEVEL 2026-06-22): one **TeamChannel Durable Object** per channel holds its open WebSockets (hibernatable → idle channels cost ~nothing) and fans out tiny **row-level** change pings `{resource, id, op}` so screens patch just the changed row — no refetch. Holds NO app data — the databases stay the source of truth. **Two channel scopes**, both gated like the API: `team:<id>` (every active member; gated by active membership of THAT team) and `user:<id>` (one person's devices — identity/membership events + a forced sign-out; gated to your OWN id, open even when teamless). Channels are created on-demand by name, unlimited, reusable as-is. Workers publish via `publishChange` / `publishUserChange` / `publishSignOut`; the client re-pulls the one changed row through the normal permission-checked endpoint. The ping carries no row CONTENT (just `{resource,id,op}`), and the socket is gated at connect, so a listener never receives data it couldn't already fetch. |
-| **gateway / MCP** | the single front desk: serves the web screens (and marks `/_next/static/**` immutable so repeat loads don't re-validate), routes `/api/*` to the workers (incl. the `/api/realtime` WebSocket), exposes ONE master MCP catalog. UI and agents call the SAME doors |
+| **gateway / MCP** | the single front desk: serves the web screens (and marks `/_next/static/**` immutable so repeat loads don't re-validate), routes `/api/*` to the workers (incl. `/api/content/*`, `/api/data-ops/*`, and the `/api/realtime` WebSocket), exposes ONE master MCP catalog. UI and agents call the SAME doors |
+| **mcp** *(PLANNED — not yet on disk)* | the external machine surface: personal access tokens (hashed, shown-once, revocable, pinned to one team, live role-check) bridged to a real session → the OPT-IN tool catalog (only tagged actions), abuse bounded by the agent quota |
 
 
 ### Durable Objects — code vs runtime, and how they scale (LOCKED 2026-06-15)
 
 The confusion to retire: **a worker count and a Durable-Object count are different things.**
 
-- A **Worker** is deployed *code*. We have ~6 planned (auth, tenancy, realtime,
-  content, data-ops, gateway) — **4 built today** (auth, tenancy, realtime,
-  gateway); content + data-ops are planned (UPDATED 2026-06-21). This number does
-  **not** grow with teams.
+- A **Worker** is deployed *code*. We have **6 built today** (auth, tenancy,
+  realtime, gateway, content, data-ops) + the external **mcp** worker still planned
+  (UPDATED 2026-06-23). This number does **not** grow with teams.
 - A **Durable Object class** is also code — a class *inside* a worker (e.g.
   `TeamChannel` in the realtime worker). We have very few (the 500-classes cap is
   irrelevant).
@@ -67,7 +69,7 @@ The confusion to retire: **a worker count and a Durable-Object count are differe
   — addressing one by name conjures it; idle ones hibernate (≈ free). **An
   instance is not a worker.**
 
-So 10,000 teams + their members = still ~6 workers + one `TeamChannel` class, but
+So 10,000 teams + their members = still 6 workers + one `TeamChannel` class, but
 that many *instances* (one per team **and** one per signed-in user), almost all
 hibernating. Exactly like OOP: one `class` (code), millions of objects (runtime).
 
@@ -128,6 +130,31 @@ on top follows [CACHING.md](CACHING.md).
 | POST /api/tenancy/admin/migrate-teams | tenancy | roll team-schema migrations to every team DB (x-admin-key) |
 | GET /api/tenancy/admin/db-sizes | tenancy | size check + open 80% alarms (x-admin-key) |
 | POST /api/tenancy/admin/move-module | tenancy | the mover: relocate a module to its own DB (x-admin-key) |
+| GET /api/content/learning | content | list the team's learning items (caller's own `done` state merged in); `?id=` → one item |
+| GET /api/content/learning/progress | content | curator dashboard — every member's done state across items |
+| POST /api/content/learning | content | create a learning item (`learning:create`; pick-or-create category → `selectable_data`) |
+| POST /api/content/learning/update | content | edit a learning item (`learning:edit`) |
+| POST /api/content/learning/active | content | deactivate/reactivate an item (`learning:delete`; never hard-deleted, progress survives) |
+| POST /api/content/learning/done | content | mark an item done/not-done for the caller (own progress; `learning:read`) |
+| GET /api/content/help | content | list the team's tickets (`?scope=mine\|all`; `?id=` → one) |
+| GET /api/content/help/thread | content | one ticket's reply thread, oldest-first (`?id=`) |
+| POST /api/content/help | content | raise a ticket (`help:create`; always opens `open`) |
+| POST /api/content/help/update | content | edit a ticket (`help:edit`) |
+| POST /api/content/help/status | content | move along the fixed lifecycle (`help:edit`; raiser may reopen without it) |
+| POST /api/content/help/reply | content | add a reply (`help:read`); @mention + raiser get a best-effort email |
+| GET /api/data-ops/import/targets | data-ops | list active, code-supported import targets from the global catalog |
+| POST /api/data-ops/import | data-ops | start a 3-stage import session (gated on the target's `create` right) |
+| POST /api/data-ops/import/file | data-ops | upload CSV text; auto-map columns + build a preview |
+| POST /api/data-ops/import/mapping | data-ops | adjust the column mapping; re-build the preview |
+| GET /api/data-ops/import/preview | data-ops | the session's current preview (`?id=`) |
+| POST /api/data-ops/import/confirm | data-ops | write every mapped row INSERT-ONLY through the gated create endpoint; one list-ping |
+| POST /api/data-ops/admin/seed-targets | data-ops | seed the global import catalog (owner-only, x-admin-key) |
+| POST /api/data-ops/admin/grant-credits | data-ops | top up a team's AI credits (owner-only, x-admin-key) |
+| GET /api/data-ops/agent/usage | data-ops | the team's AI quota snapshot (free + credits) |
+| POST /api/data-ops/agent/chat | data-ops | run one agent turn (answer, or propose/take an action act-as-you) |
+| POST /api/data-ops/agent/confirm | data-ops | approve/decline a proposed dangerous action; resume the turn |
+| GET /api/data-ops/agent/threads | data-ops | the caller's saved agent conversations |
+| GET /api/data-ops/agent/thread | data-ops | one conversation's messages (`?id=`) |
 | GET /media/* | gateway | serve uploaded files from R2 |
 | (WebSocket) /api/realtime?team= | realtime | join a team's live channel; receive row-level `{resource,id,op}` pings (gated by active membership of THAT team) |
 | (WebSocket) /api/realtime?user= | realtime | join your OWN identity channel (account/membership events + forced sign-out); gated to your own id, open even when teamless |

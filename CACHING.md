@@ -1,4 +1,4 @@
-# Caching — the system-wide ruleset (LOCKED 2026-06-15; ROW-LEVEL live-sync added 2026-06-22)
+# Caching — the system-wide ruleset (LOCKED 2026-06-15; ROW-LEVEL live-sync added 2026-06-22; agent-modules resources added 2026-06-23)
 
 How Brimba (and every app built on this base) caches data on the client. These
 rules make caching **safe** because the live channel keeps it honest: you never
@@ -122,6 +122,30 @@ later — the live channel keeps it correct while the tab is open.
 - HTML → revalidated (`max-age=0, must-revalidate`).
 - Per-user API responses → **private, never edge-cached**. The client cache
   (rules 1–9) handles them.
+
+## The agent-modules resources (BUILT 2026-06-23)
+
+The agent + modules build adds these resources; each follows the rules above.
+
+- **Learning, help, help_threads → ROW-LEVEL pings** (rule 3). Every CRUD write in
+  the content worker publishes `publishChange(env.REALTIME, teamId, "<resource>",
+  id, op)` carrying the affected row id, so open lists patch just that one row.
+  (A reply both pings `help_threads` (add) and the parent `help` row (edit) so the
+  ticket and its thread stay in sync.)
+- **Import → ONE coarse list-ping per table.** A bulk write is the explicit
+  exception to row-level: `confirm` writes every mapped row INSERT-ONLY, then
+  publishes a SINGLE id-less ping on the **target table** (e.g. `member_roles` or
+  `learning`) — one ping, not one per row — and the client refetches that one list
+  (rule 6's reconcile). One list-ping per imported table.
+- **agent_usage → a coarse list-ping** too: after an agent turn spends quota, the
+  data-ops worker publishes an id-less `agent_usage` ping so the team's quota
+  meter refreshes (no row content; just "the meter moved").
+- **The agent chat / confirm endpoints are "housekeeping"** (rule 4): one person's
+  private conversation, so the chat turn itself publishes NOTHING. The TEAM-VISIBLE
+  EFFECTS of an action the agent takes still publish normally — because the agent
+  acts AS the user through the SAME gated endpoints (rule 8), the executor it calls
+  is the one that fires the row-level ping. So a private turn stays private, but
+  the moment it changes a real row, that row's ping fans out like any other write.
 
 ## Checklist for a new screen / module
 1. Read with `useCached("<resource>:<scopeId>", fetcher)`.
