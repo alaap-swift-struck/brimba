@@ -17,6 +17,7 @@
 
 import * as React from "react"
 import { useRouter, usePathname } from "next/navigation"
+import { Sparkles } from "lucide-react"
 
 import { Button } from "@swift-struck/ui/registry/primitives/button/button"
 import { Skeleton } from "@swift-struck/ui/registry/primitives/skeleton/skeleton"
@@ -41,6 +42,7 @@ import { LearningFormDialog, type LearningFormValues } from "@/components/learni
 import { HelpDetailScreen } from "@/components/help-detail"
 import { HelpFormDialog } from "@/components/help-form-dialog"
 import { ImportScreen } from "@/components/import-screen"
+import { AgentPanel } from "@/components/agent-panel"
 import { RolePickerDialog } from "@/components/role-picker-dialog"
 import { RoleFormDialog } from "@/components/role-form-dialog"
 import { InviteDialog } from "@/components/invite-dialog"
@@ -80,6 +82,8 @@ export function DeepLinkScreen() {
   // the effect). This avoids useSearchParams (which complicates static export).
   const [route, setRoute] = React.useState<Route | null>(null)
   const [noAccess, setNoAccess] = React.useState(false)
+  // The app-wide AI co-pilot sheet (a launcher opens it; gated by agent:create).
+  const [agentOpen, setAgentOpen] = React.useState(false)
   // True once we've navigated in-app (a go() push). Lets close be history-aware:
   // an in-app panel closes by popping that push (Back also closes it); a panel
   // reached by a fresh deep link has no entry to pop, so it closes by replacing
@@ -688,6 +692,24 @@ export function DeepLinkScreen() {
           }
         }}
       />
+
+      {/* The app-wide AI co-pilot. A floating launcher (gated by agent:create)
+       * opens the right-side sheet; the panel itself re-checks the right and the
+       * server enforces every action. Mounted here so the co-pilot sits over any
+       * /t screen and can drive real navigation/actions through this host. */}
+      {can("agent", "create") && (
+        <>
+          <button
+            type="button"
+            onClick={() => setAgentOpen(true)}
+            aria-label="Open the assistant"
+            className="bg-primary text-primary-foreground hover:bg-primary/90 fixed right-4 bottom-20 z-30 flex size-12 items-center justify-center rounded-full shadow-lg transition-colors md:bottom-6"
+          >
+            <Sparkles className="size-5" />
+          </button>
+          <AgentPanel teamId={teamId} open={agentOpen} onOpenChange={setAgentOpen} />
+        </>
+      )}
     </AppShell>
   )
 }
