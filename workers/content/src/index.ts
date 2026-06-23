@@ -10,6 +10,12 @@
 //   POST /api/content/learning/active     -> deactivate / reactivate an item (never deleted)
 //   POST /api/content/learning/done       -> mark an item done / not-done (your own progress)
 //   GET  /api/content/learning/progress   -> curator dashboard (every member's done state)
+//   GET  /api/content/help                -> the team's tickets (?scope=mine|all, ?id → one)
+//   GET  /api/content/help/thread         -> one ticket's replies (?id=<ticketId>)
+//   POST /api/content/help                -> raise a ticket
+//   POST /api/content/help/update         -> edit a ticket
+//   POST /api/content/help/status         -> move a ticket along its fixed lifecycle
+//   POST /api/content/help/reply          -> add a reply to a ticket's thread
 //   GET  /api/content/health
 
 import { brand } from "../../../shared/brand"
@@ -24,6 +30,14 @@ import {
   postSetLearningActive,
   postUpdateLearning,
 } from "./routes/learning"
+import {
+  getHelp,
+  getHelpThread,
+  postCreateHelp,
+  postHelpReply,
+  postHelpStatus,
+  postUpdateHelp,
+} from "./routes/help"
 
 /**
  * THE LIVE-SYNC SEAM (locked, CACHING.md "Every mutation publishes"). Every
@@ -46,6 +60,12 @@ export const ROUTES: Record<string, { handler: Handler; kind: RouteKind }> = {
   "POST /api/content/learning/active": { handler: postSetLearningActive, kind: "mutation" },
   "POST /api/content/learning/done": { handler: postLearningDone, kind: "mutation" },
   "GET /api/content/learning/progress": { handler: getLearningProgress, kind: "read" },
+  "GET /api/content/help": { handler: getHelp, kind: "read" },
+  "GET /api/content/help/thread": { handler: getHelpThread, kind: "read" },
+  "POST /api/content/help": { handler: postCreateHelp, kind: "mutation" },
+  "POST /api/content/help/update": { handler: postUpdateHelp, kind: "mutation" },
+  "POST /api/content/help/status": { handler: postHelpStatus, kind: "mutation" },
+  "POST /api/content/help/reply": { handler: postHelpReply, kind: "mutation" },
 }
 
 export default {
