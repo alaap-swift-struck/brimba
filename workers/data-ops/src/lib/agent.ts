@@ -5,7 +5,7 @@
 // tool RESULTS go back as fenced DATA, never instructions; a mid-run failure STOPS
 // and reports; a step cap prevents runaways; every turn is saved (the audit trail).
 
-import type { AgentQuota } from "../../../../shared/types"
+import type { AgentQuota, ChatOutcome, PendingCall } from "../../../../shared/types"
 import { consumeAiUnit, getQuota } from "./credits"
 import type { Actor, MemberGuard } from "../../../../shared/workers/gating"
 import type { D1Rest } from "../../../../shared/workers/d1-rest"
@@ -49,10 +49,7 @@ function replayable(history: { role: string; content: string | null }[]): ChatMe
     .map((m) => ({ role: m.role as "user" | "assistant", content: m.content as string }))
 }
 
-export type PendingCall = { name: string; input: Record<string, unknown>; summary: string }
-export type ChatOutcome =
-  | { done: true; threadId: string; reply: string; quota: AgentQuota; overQuota?: boolean }
-  | { done: false; threadId: string; assistantText: string; needsConfirm: PendingCall[]; quota: AgentQuota }
+export type { ChatOutcome, PendingCall }
 
 export async function runChat(
   env: Env,

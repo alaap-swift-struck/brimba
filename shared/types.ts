@@ -270,3 +270,28 @@ export type AgentQuota = {
   remaining: number
   blocked: boolean
 }
+
+/** One column an import maps a file onto (matches a catalog target's columns). */
+export type ImportColumn = { key: string; label: string; required: boolean }
+
+/** The preview an import session produces — a capped sample of mapped rows + issues. */
+export type ImportPreview = {
+  columns: ImportColumn[]
+  rows: Record<string, string>[]
+  totalCount: number
+  issues: string[]
+}
+
+/** One action the agent proposes that needs the user's confirmation before it runs. */
+export type PendingCall = { name: string; input: Record<string, unknown>; summary: string }
+
+/** The result of one agent chat turn: a finished reply, or a pause for confirmation. */
+export type ChatOutcome =
+  | { done: true; threadId: string; reply: string; quota: AgentQuota; overQuota?: boolean }
+  | {
+      done: false
+      threadId: string
+      assistantText: string
+      needsConfirm: PendingCall[]
+      quota: AgentQuota
+    }

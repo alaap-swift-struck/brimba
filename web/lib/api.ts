@@ -4,9 +4,21 @@
 import type {
   ActiveContext,
   ActivityItem,
+  AgentMessage,
+  AgentQuota,
+  AgentThread,
   ApiError,
+  ChatOutcome,
+  HelpMessage,
+  HelpTicket,
+  ImportColumn,
+  ImportableTarget,
+  ImportPreview,
   Invite,
   InviteAudit,
+  Learning,
+  LearningProgressEntry,
+  PendingCall,
   PermissionValue,
   ReceivedInvite,
   RolePermissions,
@@ -16,6 +28,20 @@ import type {
   TeamRole,
   TeamSummary,
 } from "@shared/types"
+
+/** The import session as the data-ops worker returns it (a view, not the raw row). */
+export type ImportSessionView = {
+  id: string
+  tableKey: string
+  tableName: string | null
+  status: string
+  fileValidated: boolean
+  extractionComplete: boolean
+  importComplete: boolean
+  createdAt: string
+}
+export type ImportResultView = { created: number; skipped: number; failed: number; errors: string[] }
+export type ImportTargetView = { tableKey: string; displayName: string; columns: ImportColumn[] }
 
 export class ApiFailure extends Error {
   constructor(
@@ -266,4 +292,77 @@ export const tenancy = {
       method: "POST",
       body: JSON.stringify({ module, recipe }),
     }),
+}
+
+const enc = encodeURIComponent
+const post = (body: unknown): RequestInit => ({ method: "POST", body: JSON.stringify(body) })
+
+/** Content worker — Learning + Help (team-DB content modules). */
+export const content = {
+  learning: () => api<{ learning: Learning[] }>("/api/content/learning"),
+  learningOne: (id: string) =>
+    api<{ learning: Learning[] }>(`/api/content/learning?id=${enc(id)}`).then((r) => r.learning[0] ?? null),
+  createLearning: (input: Partial<Learning>) =>
+    api<{ learning: Learning[] }>("/api/content/learning", post(input)),
+  updateLearning: (input: Partial<Learning> & { id: string }) =>
+    api<{ learning: Learning[] }>("/api/content/learning/update", post(input)),
+  setLearningActive: (id: string, active: boolean) =>
+    api<{ learning: Learning[] }>("/api/content/learning/active", post({ id, active })),
+  markLearningDone: (id: string, done: boolean) =>
+    api<{ ok: true }>("/api/content/learning/done", post({ id, done })),
+  learningProgress: () =>
+    api<{ progress: LearningProgressEntry[] }>("/api/content/learning/progress"),
+
+  help: (scope: "mine" | "all" = "all") =>
+    api<{ tickets: HelpTicket[] }>(`/api/content/help?scope=${scope}`),
+  helpOne: (id: string) =>
+    api<{ tickets: HelpTicket[] }>(`/api/content/help?id=${enc(id)}`).then((r) => r.tickets[0] ?? null),
+  helpThread: (id: string) =>
+    api<{ replies: HelpMessage[] }>(`/api/content/help/thread?id=${enc(id)}`),
+  createHelp: (input: { description: string; helpType?: string; sourceScreen?: string }) =>
+    api<{ tickets: HelpTicket[] }>("/api/content/help", post(input)),
+  updateHelp: (input: { id: string; description: string; helpType?: string }) =>
+    api<{ tickets: HelpTicket[] }>("/api/content/help/update", post(input)),
+  setHelpStatus: (id: string, status: HelpTicket["status"]) =>
+    api<{ tickets: HelpTicket[] }>("/api/content/help/status", post({ id, status })),
+  replyHelp: (helpId: string, body: string, taggedUserIds?: string[]) =>
+    api<{ replies: HelpMessage[] }>("/api/content/help/reply", post({ helpId, body, taggedUserIds })),
+}
+
+/** Data-ops worker — the 3-stage import + the AI agent. */
+export const dataOps = {
+  importTargets: () => api<{ targets: ImportableTarget[] }>("/api/data-ops/import/targets"),
+  startImport: (tableKey: string) =>
+    api<{ session: ImportSessionView; target: ImportTargetView }>("/api/data-ops/import", post({ tableKey })),
+  uploadCsv: (sessionId: string, fileName: string, csv: string) =>
+    api<{ session: ImportSessionView; preview: ImportPreview }>(
+      "/api/data-ops/import/file",
+      post({ sessionId, fileName, csv })
+    ),
+  setMapping: (sessionId: string, mapping: Record<string, string>) =>
+    api<{ session: ImportSessionView; preview: ImportPreview }>(
+      "/api/data-ops/import/mapping",
+      post({ sessionId, mapping })
+    ),
+  importPreview: (id: string) =>
+    api<{ session: ImportSessionView; preview: ImportPreview | null; columns: ImportColumn[] }>(
+      `/api/data-ops/import/preview?id=${enc(id)}`
+    ),
+  confirmImport: (sessionId: string) =>
+    api<{ session: ImportSessionView; result: ImportResultView }>(
+      "/api/data-ops/import/confirm",
+      post({ sessionId })
+    ),
+
+  agentUsage: () => api<{ quota: AgentQuota }>("/api/data-ops/agent/usage"),
+  agentChat: (message: string, threadId?: string) =>
+    api<ChatOutcome>("/api/data-ops/agent/chat", post({ message, threadId })),
+  agentConfirm: (threadId: string, approve: boolean, calls: PendingCall[]) =>
+    api<{ reply: string; quota: AgentQuota; overQuota?: boolean }>(
+      "/api/data-ops/agent/confirm",
+      post({ threadId, approve, calls })
+    ),
+  agentThreads: () => api<{ threads: AgentThread[] }>("/api/data-ops/agent/threads"),
+  agentThread: (id: string) =>
+    api<{ messages: AgentMessage[] }>(`/api/data-ops/agent/thread?id=${enc(id)}`),
 }

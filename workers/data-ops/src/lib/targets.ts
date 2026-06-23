@@ -5,7 +5,9 @@
 // to (act-as-user). A table is importable ONLY if it appears here AND is active in
 // the catalog. Locked for now (owner's call): member roles + learning content only.
 
-export type ImportColumn = { key: string; label: string; required: boolean }
+import type { ImportColumn } from "../../../../shared/types"
+
+export type { ImportColumn }
 
 export type TargetDef = {
   tableKey: string

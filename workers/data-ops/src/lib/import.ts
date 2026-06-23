@@ -14,8 +14,9 @@ import { d1ExecScript, d1Query, sqlString, type D1Rest } from "../../../../share
 import { ulid } from "../../../../shared/workers/id"
 import { GuardError, type Actor, type MemberGuard } from "../../../../shared/workers/gating"
 import type { Env } from "../env"
+import type { ImportColumn, ImportPreview } from "../../../../shared/types"
 import { parseCsv } from "./csv"
-import { autoMap, TARGETS, type ImportColumn, type TargetDef } from "./targets"
+import { autoMap, TARGETS, type TargetDef } from "./targets"
 
 /** Hard cap on rows per import — keeps a single confirm bounded (each row is one
  * gated write). Larger files are rejected with a clear message. */
@@ -29,13 +30,6 @@ export type CatalogTarget = {
   displayName: string
   description: string | null
   requiredColumns: ImportColumn[]
-}
-
-export type ImportPreview = {
-  columns: ImportColumn[]
-  rows: Record<string, string>[]
-  totalCount: number
-  issues: string[]
 }
 
 export type ImportSessionSummary = {
