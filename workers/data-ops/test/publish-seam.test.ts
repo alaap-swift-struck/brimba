@@ -38,6 +38,10 @@ const HOUSEKEEPING = new Set<string>([
   "POST /api/data-ops/import/file",
   "POST /api/data-ops/import/mapping",
   "POST /api/data-ops/admin/seed-targets",
+  // The agent's chat/confirm write only the caller's own private conversation; any
+  // team-visible effect is published by the gated endpoint the executor calls.
+  "POST /api/data-ops/agent/chat",
+  "POST /api/data-ops/agent/confirm",
 ])
 
 describe("live-sync seam: every mutation publishes", () => {

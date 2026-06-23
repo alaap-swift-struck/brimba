@@ -12,6 +12,10 @@
 //   POST /api/data-ops/admin/seed-targets -> owner-only: seed the import catalog
 //   GET  /api/data-ops/agent/usage      -> the team's AI quota (free + credits)
 //   POST /api/data-ops/admin/grant-credits -> owner-only: top up a team's credits
+//   POST /api/data-ops/agent/chat       -> run one agent turn (answer or act)
+//   POST /api/data-ops/agent/confirm    -> approve/decline a proposed action, resume
+//   GET  /api/data-ops/agent/threads    -> the caller's saved conversations
+//   GET  /api/data-ops/agent/thread     -> one conversation's messages (?id=)
 //   GET  /api/data-ops/health
 
 import { brand } from "../../../shared/brand"
@@ -27,7 +31,14 @@ import {
   postImportStart,
 } from "./routes/import"
 import { postSeedTargets } from "./routes/admin"
-import { getAgentUsage, postGrantCredits } from "./routes/agent"
+import {
+  getAgentThread,
+  getAgentThreads,
+  getAgentUsage,
+  postAgentChat,
+  postAgentConfirm,
+  postGrantCredits,
+} from "./routes/agent"
 
 /**
  * THE LIVE-SYNC SEAM (locked, CACHING.md "Every mutation publishes"). Every route is
@@ -54,6 +65,13 @@ export const ROUTES: Record<string, { handler: Handler; kind: RouteKind }> = {
   "POST /api/data-ops/admin/seed-targets": { handler: postSeedTargets, kind: "housekeeping" },
   "GET /api/data-ops/agent/usage": { handler: getAgentUsage, kind: "read" },
   "POST /api/data-ops/admin/grant-credits": { handler: postGrantCredits, kind: "mutation" },
+  "GET /api/data-ops/agent/threads": { handler: getAgentThreads, kind: "read" },
+  "GET /api/data-ops/agent/thread": { handler: getAgentThread, kind: "read" },
+  // Housekeeping: the agent's chat/confirm only write the caller's OWN private
+  // conversation (agent_threads/messages); any team-visible change is published by
+  // the gated endpoint the executor calls act-as-user, not by these handlers.
+  "POST /api/data-ops/agent/chat": { handler: postAgentChat, kind: "housekeeping" },
+  "POST /api/data-ops/agent/confirm": { handler: postAgentConfirm, kind: "housekeeping" },
 }
 
 export default {

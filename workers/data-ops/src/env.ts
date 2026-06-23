@@ -26,4 +26,15 @@ export type Env = {
   INTERNAL_KEY?: string
   /** Owner-only key guarding the import-catalog seed/maintenance endpoints. */
   ADMIN_KEY?: string
+
+  /** Cloudflare Workers AI — the cheap/default model (help drafts, classification,
+   *  and the no-key answer path). Always available, no external key. */
+  AI: Ai
+  /** The agentic model id used WHEN a Claude key is set (one config swap). */
+  AGENT_MODEL?: string
+  /** The Workers AI model id for the cheap/fallback path. */
+  WORKERS_AI_MODEL?: string
+  // Secret (wrangler secret put): when set, the agentic path upgrades to Claude;
+  // when absent, the agent answers via Workers AI (acting is limited).
+  ANTHROPIC_API_KEY?: string
 }
