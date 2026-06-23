@@ -29,6 +29,27 @@ function intOr(v: unknown, fallback: number): number {
   return Number.isFinite(n) ? Math.trunc(n) : fallback
 }
 
+/** Allow only safe link schemes (http/https/mailto). A `javascript:` / `data:` /
+ * `vbscript:` content_link is a stored-XSS payload the moment a reader clicks it, so
+ * anything else is dropped (defence-in-depth beside the renderer's own check). */
+function safeLink(url: unknown): string | null {
+  const v = typeof url === "string" ? url.trim() : ""
+  if (!v) return null
+  try {
+    const u = new URL(v, "https://x.invalid")
+    return ["http:", "https:", "mailto:"].includes(u.protocol) ? v : null
+  } catch {
+    return null
+  }
+}
+
+/** Neutralise dangerous-scheme markdown links in an article body (e.g.
+ * `[click](javascript:…)`) — the body counterpart to safeLink. */
+function safeBody(body: unknown): string | null {
+  if (typeof body !== "string") return null
+  return body.replace(/\]\(\s*(javascript|data|vbscript)\s*:/gi, "](#")
+}
+
 /** Raw learning row (DB column names) joined with the caller's own progress. */
 type LearningRow = {
   id: string
@@ -156,7 +177,7 @@ export async function createLearning(
     cfg,
     guard.databaseId,
     `INSERT INTO learning (id, category, content_title, content_description, content_type, content_link, content_body, sequence, is_required, created_at, creator_id, creator_email, creator_name)
-VALUES (${sqlString(id)}, ${sqlString(category)}, ${sqlString(title)}, ${sqlString(input.description?.trim() || null)}, ${sqlString(input.contentType?.trim() || null)}, ${sqlString(input.contentLink?.trim() || null)}, ${sqlString(input.body ?? null)}, ${intOr(input.sequence, 0)}, ${input.required ? 1 : 0}, ${sqlString(now)}, ${sqlString(actor.id)}, ${sqlString(actor.email)}, ${sqlString(actor.name)});`
+VALUES (${sqlString(id)}, ${sqlString(category)}, ${sqlString(title)}, ${sqlString(input.description?.trim() || null)}, ${sqlString(input.contentType?.trim() || null)}, ${sqlString(safeLink(input.contentLink))}, ${sqlString(safeBody(input.body))}, ${intOr(input.sequence, 0)}, ${input.required ? 1 : 0}, ${sqlString(now)}, ${sqlString(actor.id)}, ${sqlString(actor.email)}, ${sqlString(actor.name)});`
   )
 
   await logActivity(cfg, guard.databaseId, actor, {
@@ -189,7 +210,7 @@ export async function updateLearning(
   await d1ExecScript(
     cfg,
     guard.databaseId,
-    `UPDATE learning SET category = ${sqlString(category)}, content_title = ${sqlString(title)}, content_description = ${sqlString(input.description?.trim() || null)}, content_type = ${sqlString(input.contentType?.trim() || null)}, content_link = ${sqlString(input.contentLink?.trim() || null)}, content_body = ${sqlString(input.body ?? null)}, sequence = ${intOr(input.sequence, 0)}, is_required = ${input.required ? 1 : 0}, updated_at = ${sqlString(now)}, editor_id = ${sqlString(actor.id)}, editor_email = ${sqlString(actor.email)}, editor_name = ${sqlString(actor.name)} WHERE id = ${sqlString(id)};`
+    `UPDATE learning SET category = ${sqlString(category)}, content_title = ${sqlString(title)}, content_description = ${sqlString(input.description?.trim() || null)}, content_type = ${sqlString(input.contentType?.trim() || null)}, content_link = ${sqlString(safeLink(input.contentLink))}, content_body = ${sqlString(safeBody(input.body))}, sequence = ${intOr(input.sequence, 0)}, is_required = ${input.required ? 1 : 0}, updated_at = ${sqlString(now)}, editor_id = ${sqlString(actor.id)}, editor_email = ${sqlString(actor.email)}, editor_name = ${sqlString(actor.name)} WHERE id = ${sqlString(id)};`
   )
 
   await logActivity(cfg, guard.databaseId, actor, {

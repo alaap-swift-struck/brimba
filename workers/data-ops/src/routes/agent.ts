@@ -8,13 +8,14 @@ import { fail, json } from "../../../../shared/workers/http"
 import { publishChange } from "../../../../shared/workers/realtime"
 import { adminGuard, requireRight, teamContext } from "../../../../shared/workers/gating"
 import { getQuota, grantCredits } from "../lib/credits"
-import { confirmAndRun, runChat, type PendingCall } from "../lib/agent"
+import { confirmAndRun, runChat } from "../lib/agent"
 import { listMessages, listThreads } from "../lib/threads"
 import type { Env } from "../env"
 
 /** GET /api/data-ops/agent/usage — the active team's AI quota (free + credits). */
 export async function getAgentUsage(request: Request, env: Env): Promise<Response> {
-  const { guard } = await teamContext(request, env)
+  const { cfg, guard } = await teamContext(request, env)
+  await requireRight(cfg, guard, "agent", "read")
   return json({ quota: await getQuota(env, guard.teamId) })
 }
 
@@ -50,22 +51,14 @@ export async function postAgentChat(request: Request, env: Env): Promise<Respons
 export async function postAgentConfirm(request: Request, env: Env): Promise<Response> {
   const { actor, cfg, guard } = await teamContext(request, env)
   await requireRight(cfg, guard, "agent", "create")
-  const body = (await request.json().catch(() => ({}))) as {
-    threadId?: string
-    approve?: boolean
-    calls?: PendingCall[]
-  }
+  const body = (await request.json().catch(() => ({}))) as { threadId?: string; approve?: boolean }
   if (!body.threadId || typeof body.approve !== "boolean")
     return fail(400, "invalid_input", "threadId and approve are required.")
-  const calls: PendingCall[] = Array.isArray(body.calls)
-    ? body.calls
-        .filter((c) => c && typeof c.name === "string" && c.input && typeof c.input === "object")
-        .map((c) => ({ name: c.name, input: c.input as Record<string, unknown>, summary: String(c.summary ?? "") }))
-    : []
+  // What runs comes from the server's stored proposal (in confirmAndRun), not the
+  // client — any client-supplied `calls` are ignored, so nothing un-proposed executes.
   const out = await confirmAndRun(env, request, cfg, guard, actor, {
     threadId: body.threadId,
     approve: body.approve,
-    calls,
     source: "in-app",
   })
   return json(out)

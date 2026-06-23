@@ -20,6 +20,10 @@ import {
 import { TARGETS } from "../lib/targets"
 import type { Env } from "../env"
 
+/** Reject oversized CSV uploads BEFORE parsing/persisting — a huge file would
+ * otherwise exhaust the worker and bloat the team DB before the row cap is reached. */
+const MAX_CSV_BYTES = 5_000_000
+
 /** GET /api/data-ops/import/targets — the active, supported import targets. */
 export async function getImportTargets(request: Request, env: Env): Promise<Response> {
   await teamContext(request, env) // any signed-in member may see the catalog
@@ -50,6 +54,8 @@ export async function postImportFile(request: Request, env: Env): Promise<Respon
   }
   if (!body.sessionId || typeof body.csv !== "string")
     return fail(400, "invalid_input", "sessionId and csv are required.")
+  if (body.csv.length > MAX_CSV_BYTES)
+    return fail(413, "file_too_large", "That file is too large to import. Export a smaller CSV (up to about 5 MB).")
   const { target } = await targetForSession(env, cfg, guard, body.sessionId)
   await requireRight(cfg, guard, target.module, "create")
   const out = await applyFile(env, cfg, guard, body.sessionId, body.fileName ?? "", body.csv)

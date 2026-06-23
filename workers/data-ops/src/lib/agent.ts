@@ -12,7 +12,7 @@ import type { D1Rest } from "../../../../shared/workers/d1-rest"
 import type { Env } from "../env"
 import { selectModel, type ChatMessage, type ToolCall } from "./model"
 import { executeTool, getTool, requiresConfirm, toolSpecs, type ToolResult } from "./tools"
-import { appendMessage, createThread, listMessages } from "./threads"
+import { appendMessage, createThread, getPendingProposal, listMessages } from "./threads"
 
 const MAX_STEPS = 5
 
@@ -83,6 +83,35 @@ export async function runChat(
       return { done: true, threadId, reply: reply.text, quota }
     }
 
+    const valid = reply.toolCalls.filter((tc) => getTool(tc.name))
+    const anyConfirm = valid.some((tc) => requiresConfirm(getTool(tc.name)!))
+
+    if (anyConfirm) {
+      // Store the FULL proposal (name + input) server-side so /confirm runs EXACTLY
+      // what the model proposed — a client can't approve a call it was never shown.
+      await appendMessage(cfg, guard, actor, threadId, {
+        role: "assistant",
+        content: reply.text,
+        toolCallsJson: JSON.stringify(
+          valid.map((tc) => ({ tool: tc.name, input: tc.input, status: "proposed" }))
+        ),
+        source: opts.source,
+      })
+      // Surface ALL of the turn's calls (not just the dangerous subset) so a mixed
+      // turn doesn't silently drop its non-confirm calls.
+      return {
+        done: false,
+        threadId,
+        assistantText: reply.text,
+        quota,
+        needsConfirm: valid.map((tc) => ({
+          name: tc.name,
+          input: tc.input,
+          summary: getTool(tc.name)!.summarize(tc.input),
+        })),
+      }
+    }
+
     await appendMessage(cfg, guard, actor, threadId, {
       role: "assistant",
       content: reply.text,
@@ -90,24 +119,6 @@ export async function runChat(
       source: opts.source,
     })
     convo.push({ role: "assistant", content: reply.text, toolCalls: reply.toolCalls })
-
-    const pending = reply.toolCalls.filter((tc) => {
-      const t = getTool(tc.name)
-      return t && requiresConfirm(t)
-    })
-    if (pending.length) {
-      return {
-        done: false,
-        threadId,
-        assistantText: reply.text,
-        quota,
-        needsConfirm: pending.map((tc) => ({
-          name: tc.name,
-          input: tc.input,
-          summary: getTool(tc.name)!.summarize(tc.input),
-        })),
-      }
-    }
 
     let failed = false
     for (const tc of reply.toolCalls) {
@@ -132,14 +143,17 @@ export async function runChat(
   return { done: true, threadId, reply: note, quota }
 }
 
-/** Resume after the client confirms (or declines) the proposed dangerous calls. */
+/** Resume after the client approves (or declines). The calls executed come from the
+ * SERVER's stored proposal (the last turn's needsConfirm), NOT the client — so a
+ * client can't approve actions the model never proposed. Meters one credit up front
+ * (before any write) so an out-of-credit team can't run confirmed actions for free. */
 export async function confirmAndRun(
   env: Env,
   request: Request,
   cfg: D1Rest,
   guard: MemberGuard,
   actor: Actor,
-  opts: { threadId: string; approve: boolean; calls: PendingCall[]; source: string }
+  opts: { threadId: string; approve: boolean; source: string }
 ): Promise<{ reply: string; quota: AgentQuota; overQuota?: boolean }> {
   const history = await listMessages(cfg, guard, opts.threadId) // also asserts ownership
 
@@ -149,8 +163,24 @@ export async function confirmAndRun(
     return { reply: msg, quota: await getQuota(env, guard.teamId) }
   }
 
-  // Execute the approved calls AS the caller (re-validated against the catalog + gated).
-  const calls: ToolCall[] = opts.calls.map((c, i) => ({ id: `call_${i}`, name: c.name, input: c.input }))
+  const proposed = await getPendingProposal(cfg, guard, opts.threadId)
+  if (!proposed.length) {
+    const msg = "There's nothing waiting for your approval."
+    await appendMessage(cfg, guard, actor, opts.threadId, { role: "assistant", content: msg, source: opts.source })
+    return { reply: msg, quota: await getQuota(env, guard.teamId) }
+  }
+
+  // Meter ONE unit up front — covers this whole confirm turn — BEFORE any write, so a
+  // team that's out of credits can't drive confirmed actions for free.
+  const c = await consumeAiUnit(env, guard.teamId)
+  if (!c.ok) {
+    const msg = "You're out of AI requests for now, so I didn't run that. They reset tomorrow, or an admin can add credits."
+    await appendMessage(cfg, guard, actor, opts.threadId, { role: "assistant", content: msg, source: opts.source })
+    return { reply: msg, quota: c.quota, overQuota: true }
+  }
+
+  // Execute the SERVER-RECORDED proposal AS the caller (each call re-gated downstream).
+  const calls: ToolCall[] = proposed.map((p, i) => ({ id: `call_${i}`, name: p.name, input: p.input }))
   const toolMsgs: ChatMessage[] = []
   let failed = false
   for (const tc of calls) {
@@ -166,20 +196,21 @@ export async function confirmAndRun(
   if (failed) {
     const note = "I ran into an error doing that and stopped. The result above shows what happened."
     await appendMessage(cfg, guard, actor, opts.threadId, { role: "assistant", content: note, source: opts.source })
-    return { reply: note, quota: await getQuota(env, guard.teamId) }
+    return { reply: note, quota: c.quota }
   }
 
-  const c = await consumeAiUnit(env, guard.teamId)
-  if (!c.ok) {
-    const msg = "Done — though you're now out of AI requests for the day."
-    await appendMessage(cfg, guard, actor, opts.threadId, { role: "assistant", content: msg, source: opts.source })
-    return { reply: msg, quota: c.quota, overQuota: true }
-  }
+  // Reattach the tool_use to the ORIGINAL proposing assistant turn (the last history
+  // message) instead of emitting a second, empty assistant turn — two consecutive
+  // assistant messages are rejected by the Claude API.
+  const last = history[history.length - 1]
+  const proposingText = last && last.role === "assistant" ? (last.content ?? "") : ""
+  const replayHistory = last && last.role === "assistant" ? history.slice(0, -1) : history
+
   const model = selectModel(env)
   const convo: ChatMessage[] = [
     { role: "system", content: SYSTEM },
-    ...replayable(history),
-    { role: "assistant", content: "", toolCalls: calls },
+    ...replayable(replayHistory),
+    { role: "assistant", content: proposingText, toolCalls: calls },
     ...toolMsgs,
   ]
   const reply = await model.complete(convo, model.canActWithTools ? toolSpecs() : [])

@@ -162,11 +162,14 @@ export async function seedDefaultCatalog(
 /* ------------------------------ sessions (team DB) ------------------------------ */
 
 async function loadSession(cfg: D1Rest, guard: MemberGuard, id: string): Promise<SessionRow> {
+  // Creator-scoped (like agent threads): a session belongs to the member who started
+  // it — another member can't resume, read, or confirm it even with the same create
+  // right. The 404 covers both "missing" and "not yours" without leaking existence.
   const rows = await d1Query<SessionRow>(
     cfg,
     guard.databaseId,
-    `SELECT ${SESSION_COLS} FROM data_import_sessions WHERE id = ?`,
-    [id]
+    `SELECT ${SESSION_COLS} FROM data_import_sessions WHERE id = ? AND creator_id = ?`,
+    [id, guard.userId]
   )
   if (!rows[0]) throw new GuardError(404, "session_not_found", "That import session doesn't exist.")
   return rows[0]
@@ -274,6 +277,8 @@ export async function applyFile(
   const parsed = parseCsv(csvText)
   if (!parsed.headers.length)
     throw new GuardError(400, "empty_file", "That file has no readable columns. Export it as CSV and try again.")
+  if (parsed.rows.length > MAX_IMPORT_ROWS)
+    throw new GuardError(400, "too_many_rows", `Imports are limited to ${MAX_IMPORT_ROWS} rows at a time.`)
   const mapping = autoMap(parsed.headers, target.columns)
   const preview = buildPreview(parsed.headers, parsed.rows, mapping, target.columns)
   await storePreview(

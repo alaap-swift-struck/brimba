@@ -117,3 +117,35 @@ UPDATE agent_threads SET last_message_at = ${sqlString(now)} WHERE id = ${sqlStr
   )
   return id
 }
+
+/** The dangerous calls the LAST turn proposed for this thread (name + input), read
+ * from the most recent assistant message's stored proposal. The confirm path runs
+ * exactly these — not whatever the client sends — so a client can't approve a call
+ * the model never proposed. Owner-scoped (ownThreadOrThrow). */
+export async function getPendingProposal(
+  cfg: D1Rest,
+  guard: MemberGuard,
+  threadId: string
+): Promise<{ name: string; input: Record<string, unknown> }[]> {
+  await ownThreadOrThrow(cfg, guard, threadId)
+  const rows = await d1Query<{ tool_calls_json: string | null }>(
+    cfg,
+    guard.databaseId,
+    "SELECT tool_calls_json FROM agent_messages WHERE thread_id = ? AND role = 'assistant' AND tool_calls_json IS NOT NULL ORDER BY created_at DESC LIMIT 1",
+    [threadId]
+  )
+  const raw = rows[0]?.tool_calls_json
+  if (!raw) return []
+  try {
+    const arr = JSON.parse(raw) as { tool?: string; input?: unknown; status?: string }[]
+    if (!Array.isArray(arr)) return []
+    return arr
+      .filter((x) => x && x.status === "proposed" && typeof x.tool === "string")
+      .map((x) => ({
+        name: x.tool as string,
+        input: (x.input && typeof x.input === "object" ? x.input : {}) as Record<string, unknown>,
+      }))
+  } catch {
+    return []
+  }
+}

@@ -20,10 +20,13 @@ async function teamName(env: Env, teamId: string): Promise<string> {
   return row?.name ?? "your team"
 }
 
-/** Look up email + display name for a set of user ids from the global users table
- * (the one place identity lives). Returns a map id → {email, name}. */
+/** Look up email + display name for tagged ids — restricted to ACTIVE members of
+ * THIS team (join team_members). A @mention can only notify a teammate, never an
+ * arbitrary platform user, so it can't leak the team name + reply text to outsiders
+ * or be used to spam from Brimba's trusted sender. Returns a map id → {email, name}. */
 async function lookupUsers(
   env: Env,
+  teamId: string,
   ids: string[]
 ): Promise<Map<string, { email: string; name: string }>> {
   const out = new Map<string, { email: string; name: string }>()
@@ -31,9 +34,12 @@ async function lookupUsers(
   if (!unique.length) return out
   const placeholders = unique.map(() => "?").join(", ")
   const { results } = await env.DB.prepare(
-    `SELECT id, email, first_name, last_name FROM users WHERE id IN (${placeholders})`
+    `SELECT u.id, u.email, u.first_name, u.last_name
+       FROM users u
+       JOIN team_members tm ON tm.user_id = u.id
+      WHERE tm.team_id = ? AND tm.deactivated_at IS NULL AND u.id IN (${placeholders})`
   )
-    .bind(...unique)
+    .bind(teamId, ...unique)
     .all<{ id: string; email: string; first_name: string | null; last_name: string | null }>()
   for (const r of results ?? []) {
     out.set(r.id, {
@@ -83,7 +89,7 @@ export async function notifyReplyAndMentions(
     if (!recipients.size) return
 
     const name = await teamName(env, teamId)
-    const users = await lookupUsers(env, [...recipients])
+    const users = await lookupUsers(env, teamId, [...recipients])
     const who = author.name || "Someone"
     const preview = snippet(body)
 

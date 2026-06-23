@@ -132,10 +132,13 @@ export async function d1ExecScript(
 }
 
 /** Escape a value for inlining into a seed/copy script ('' doubling). Only
- * used where the REST API forbids params (multi-statement scripts). */
-export function sqlString(value: string | null): string {
-  if (value === null) return "NULL"
-  return `'${value.replaceAll("'", "''")}'`
+ * used where the REST API forbids params (multi-statement scripts). Coerces any
+ * non-string runtime value to its string form FIRST (defence-in-depth: route bodies
+ * are `as`-cast, so a field typed `string` can arrive as a number/object/array —
+ * String() it so the one SQL door never throws a 500, and the escaping still holds). */
+export function sqlString(value: unknown): string {
+  if (value === null || value === undefined) return "NULL"
+  return `'${String(value).replaceAll("'", "''")}'`
 }
 
 /** Inline any copied cell value into a script (numbers, NULLs, strings). */
