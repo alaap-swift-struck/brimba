@@ -234,6 +234,22 @@ export const learningListRecipe: ScreenRecipe = {
   collection: listCollection("No learning yet."),
 }
 
+/* ---------------------------------- help --------------------------------- */
+
+/** Help list — clean rows (a truncated description + a type · status line). The
+ * My/All scope is a host-owned toggle (the server filters by raiser); tapping a
+ * row opens the ticket thread. "Raise ticket" is host-rendered above, gated by
+ * help:create. */
+export const helpListRecipe: ScreenRecipe = {
+  type: "list",
+  display: "list",
+  binding: { module: "help" },
+  gate: { module: "help", right: "read" },
+  fields: [field("name", "Ticket"), field("detail", "Details")],
+  actions: [],
+  collection: listCollection("No tickets yet."),
+}
+
 /* ------------------------------ the registry ------------------------------ */
 
 /** The in-code BASE recipe for each screen key — the shipped default every team
@@ -249,6 +265,7 @@ export const BASE_RECIPES: Record<string, ScreenRecipe> = {
   "invites.list": invitesListRecipe,
   "invites.detail": inviteDetailRecipe,
   "learning.list": learningListRecipe,
+  "help.list": helpListRecipe,
 }
 
 /** A structural guard for a parsed override. The config store treats a recipe as

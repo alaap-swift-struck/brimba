@@ -19,6 +19,24 @@ export function formatDateTime(iso?: string | null): string {
     : d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
 }
 
+/** "just now" · "5m ago" · "3h ago" · "2d ago", then falls back to a date — for
+ * conversation timestamps (ticket replies) where recency matters more than the
+ * exact clock time. ONE source, like the other formatters. */
+export function formatRelative(iso?: string | null): string {
+  if (!iso) return ""
+  const then = new Date(iso).getTime()
+  if (Number.isNaN(then)) return ""
+  const secs = Math.round((Date.now() - then) / 1000)
+  if (secs < 60) return "just now"
+  const mins = Math.round(secs / 60)
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.round(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  const days = Math.round(hrs / 24)
+  if (days < 7) return `${days}d ago`
+  return formatDate(iso)
+}
+
 /** Compact a count for a badge: 6 → "6", 189 → "189", 1180000 → "1.18M". Keeps
  * tab/section count chips short even when a collection grows into the millions
  * (the server lazy-loads rows; the badge is just the total). */

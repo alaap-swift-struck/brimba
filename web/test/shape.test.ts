@@ -1,5 +1,6 @@
 import type {
   ActivityItem,
+  HelpTicket,
   Invite,
   InviteAudit,
   Learning,
@@ -10,8 +11,10 @@ import type {
 import { describe, expect, it } from "vitest"
 
 import {
+  HELP_STATUS,
   INVITE_STATUS,
   shapeActivity,
+  shapeHelpList,
   shapeInviteDetail,
   shapeInvitesList,
   shapeLearningList,
@@ -77,6 +80,21 @@ const learning: Learning = {
   required: false,
   active: true,
   createdAt: "2026-06-13T10:00:00.000Z",
+}
+
+const ticket: HelpTicket = {
+  id: "h1",
+  helpType: "Bug",
+  description: "The invite button is greyed out and I can't add anyone to the team at all.",
+  screenRecordingLink: null,
+  sourceScreen: "members",
+  status: "in_progress",
+  resolved: false,
+  resolvedAt: null,
+  raiserId: "u1",
+  raiserName: "Alaap",
+  createdAt: "2026-06-13T10:00:00.000Z",
+  updatedAt: null,
 }
 
 const meta: TeamMeta = {
@@ -184,6 +202,36 @@ describe("shapeLearningList", () => {
     expect(
       shapeLearningList([{ ...learning, category: null, description: null }]).rows?.[0].detail
     ).toBe("—")
+  })
+})
+
+describe("HELP_STATUS", () => {
+  it("maps every status (underscore form) to a friendly label", () => {
+    expect(HELP_STATUS).toMatchObject({
+      open: "Open",
+      in_progress: "In progress",
+      resolved: "Resolved",
+      reopened: "Reopened",
+    })
+  })
+})
+
+describe("shapeHelpList", () => {
+  it("maps id, a truncated description→name, and a 'type · status' detail", () => {
+    const { rows } = shapeHelpList([ticket])
+    expect(rows?.[0].id).toBe("h1")
+    expect(String(rows?.[0].name).length).toBeLessThanOrEqual(80)
+    expect(rows?.[0].detail).toBe(`Bug · ${HELP_STATUS.in_progress}`)
+  })
+
+  it("ends a long description with an ellipsis", () => {
+    const long = { ...ticket, description: "x".repeat(200) }
+    expect(String(shapeHelpList([long]).rows?.[0].name).endsWith("…")).toBe(true)
+  })
+
+  it('falls back the type to "Help" when helpType is null', () => {
+    const { rows } = shapeHelpList([{ ...ticket, helpType: null }])
+    expect(String(rows?.[0].detail).startsWith("Help · ")).toBe(true)
   })
 })
 

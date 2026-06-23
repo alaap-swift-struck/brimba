@@ -79,6 +79,16 @@ const TEAM_RESOURCES: Record<
     fetchOne: (id) => content.learningOne(id),
     fetchList: () => content.learning().then((r) => r.learning),
   },
+  // Help tickets — row-level live. A status change / new reply (postHelpReply
+  // pings `help` too) patches just that ticket in the cached "all" set. The
+  // thread (help_threads) isn't in the registry — it refreshes when the detail is
+  // (re)opened; the brief defers live thread patching.
+  help: {
+    key: (t) => `help:${t}`,
+    idField: "id",
+    fetchOne: (id) => content.helpOne(id),
+    fetchList: () => content.help().then((r) => r.tickets),
+  },
 }
 
 export function AppShell({

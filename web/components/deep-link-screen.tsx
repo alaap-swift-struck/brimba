@@ -38,6 +38,8 @@ import { RoleDetailScreen } from "@/components/role-detail"
 import { LearningDetailScreen } from "@/components/learning-detail"
 import { LearningProgressScreen } from "@/components/learning-progress"
 import { LearningFormDialog, type LearningFormValues } from "@/components/learning-form-dialog"
+import { HelpDetailScreen } from "@/components/help-detail"
+import { HelpFormDialog } from "@/components/help-form-dialog"
 import { RolePickerDialog } from "@/components/role-picker-dialog"
 import { RoleFormDialog } from "@/components/role-form-dialog"
 import { InviteDialog } from "@/components/invite-dialog"
@@ -46,6 +48,7 @@ import { ConfirmAction } from "@/components/deep-link/confirm-action"
 import { NoAccess, NotFound, LoadError, SectionWithCreate } from "@/components/deep-link/screen-bits"
 import { parseRoute, sectionTitle, type Route, type SectionKey } from "@/components/deep-link/route"
 import {
+  shapeHelpList,
   shapeInviteDetail,
   shapeInvitesList,
   shapeLearningList,
@@ -153,6 +156,13 @@ export function DeepLinkScreen() {
   const learningQ = useCached(enabled && module === "learning" ? `learning:${teamId}` : null, () =>
     contentApi.learning().then((r) => r.learning)
   )
+  // Help backs its list (All set), the breadcrumb label and the ticket thread.
+  // ONE cache holds the whole team's tickets (the live registry patches it
+  // row-by-row); the My/All toggle filters that set client-side by raiser.
+  const helpQ = useCached(enabled && module === "help" ? `help:${teamId}` : null, () =>
+    contentApi.help("all").then((r) => r.tickets)
+  )
+  const [helpScope, setHelpScope] = React.useState<"mine" | "all">("all")
   const activityScope: "team" | "user" | "invite" | null =
     module === "team"
       ? "team"
@@ -298,6 +308,19 @@ export function DeepLinkScreen() {
     [teamId]
   )
 
+  // Raise a help ticket — its own handler (a small object payload). Primes the
+  // list so the ticket shows at once; the realtime "add" ping refreshes everyone
+  // else.
+  const createHelp = React.useCallback(
+    async (input: { description: string; helpType?: string }) => {
+      if (!teamId) return
+      const { tickets } = await contentApi.createHelp(input)
+      primeCache(`help:${teamId}`, tickets)
+      toast.success("Ticket raised.")
+    },
+    [teamId]
+  )
+
   /* ------------------------- engine intent + action ------------------------ */
 
   function onIntent(intent: ScreenIntent) {
@@ -340,6 +363,7 @@ export function DeepLinkScreen() {
   if (teamId && !isMemberOfUrlTeam && teamCount > 0) return <ShellLoading />
 
   const teamName = active.ctx.team?.name ?? "Team"
+  const myUserId = active.user?.id ?? null
   const section: SectionKey =
     module === "members" ||
     module === "roles" ||
@@ -357,6 +381,7 @@ export function DeepLinkScreen() {
     roles: rolesQ.data?.length,
     invites: invitesQ.data?.length,
     learning: learningQ.data?.length,
+    help: helpQ.data?.length,
   }
 
   // Breadcrumbs derived from the URL spine; the library Breadcrumbs collapses the
@@ -380,6 +405,7 @@ export function DeepLinkScreen() {
       return invitesQ.data?.find((i) => i.id === recordId)?.email ?? "Invite"
     if (module === "learning")
       return learningQ.data?.find((l) => l.id === recordId)?.title ?? "Article"
+    if (module === "help") return "Ticket"
     return ""
   }
 
@@ -475,6 +501,39 @@ export function DeepLinkScreen() {
           </SectionWithCreate>
         )
       }
+      if (module === "help") {
+        if (helpQ.error) return <LoadError what="tickets" />
+        if (helpQ.data === undefined) return <Skeleton variant="list" lines={4} />
+        // My/All is a client-side raiser filter over the one cached set (so it
+        // never desyncs from the live-patched detail). "Mine" needs my id.
+        const visible =
+          helpScope === "mine" && myUserId
+            ? helpQ.data.filter((t) => t.raiserId === myUserId)
+            : helpQ.data
+        const data = shapeHelpList(visible)
+        return (
+          <SectionWithCreate
+            show={can("help", "create")}
+            label="Raise ticket"
+            icon="plus"
+            onCreate={() => go(sectionPath, { panel: "add", module: "help" })}
+          >
+            <div className="flex justify-start gap-1">
+              {(["all", "mine"] as const).map((s) => (
+                <Button
+                  key={s}
+                  variant={helpScope === s ? "secondary" : "ghost"}
+                  size="sm"
+                  onClick={() => setHelpScope(s)}
+                >
+                  {s === "all" ? "All tickets" : "My tickets"}
+                </Button>
+              ))}
+            </div>
+            <ScreenRenderer recipe={recipe} data={data} rights={rights} onAction={onAction} onIntent={onIntent} />
+          </SectionWithCreate>
+        )
+      }
       return <NotFound />
     }
 
@@ -508,6 +567,9 @@ export function DeepLinkScreen() {
     }
     if (module === "learning") {
       return <LearningDetailScreen teamId={teamId as string} learningId={recordId} />
+    }
+    if (module === "help") {
+      return <HelpDetailScreen teamId={teamId as string} helpId={recordId} myUserId={myUserId} />
     }
     return <NotFound />
   }
@@ -568,6 +630,13 @@ export function DeepLinkScreen() {
         open={query.panel === "add" && query.module === "learning" && can("learning", "create")}
         onOpenChange={(o) => !o && closePanel()}
         onSubmit={createLearning}
+      />
+
+      {/* Raise a help ticket (?panel=add&module=help) — gated by create. */}
+      <HelpFormDialog
+        open={query.panel === "add" && query.module === "help" && can("help", "create")}
+        onOpenChange={(o) => !o && closePanel()}
+        onSubmit={createHelp}
       />
 
       {/* Edit the team (?panel=edit&module=team) — gated by teams:edit. */}

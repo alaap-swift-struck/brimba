@@ -9,6 +9,7 @@ import { formatDate, formatDateTime } from "@/lib/format"
 import { personName } from "@/lib/identity"
 import type {
   ActivityItem,
+  HelpTicket,
   Invite,
   InviteAudit,
   Learning,
@@ -81,6 +82,32 @@ export function shapeInvitesList(invites: Invite[]): ScreenData {
       id: i.id,
       email: i.email,
       detail: `${i.roleTitle} · ${INVITE_STATUS[i.status]}`,
+    })),
+  }
+}
+
+/** Display label per ticket status (server's underscore form → friendly text).
+ * One source for the list detail line; the thread's own status badge uses the
+ * library's hyphen labels. */
+export const HELP_STATUS: Record<HelpTicket["status"], string> = {
+  open: "Open",
+  in_progress: "In progress",
+  resolved: "Resolved",
+  reopened: "Reopened",
+}
+
+/** Trim a ticket description to a single readable list line. */
+function truncate(text: string, max = 80): string {
+  const clean = text.trim().replace(/\s+/g, " ")
+  return clean.length > max ? `${clean.slice(0, max - 1)}…` : clean
+}
+
+export function shapeHelpList(tickets: HelpTicket[]): ScreenData {
+  return {
+    rows: tickets.map((t) => ({
+      id: t.id,
+      name: truncate(t.description),
+      detail: `${t.helpType || "Help"} · ${HELP_STATUS[t.status]}`,
     })),
   }
 }
