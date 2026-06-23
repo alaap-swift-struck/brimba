@@ -1,44 +1,46 @@
-# Lean Mean Check — Brimba (the SaaS base)
-Scanned 2026-06-22 · Overall 92/100 (Grade A) · A lean, thoroughly-documented, genuinely scalable SaaS base — now fully tested, with a structural guarantee that live-updates can't be forgotten.
+# Lean Mean Check — Brimba
+Scanned 2026-06-23 · Overall 91/100 (Grade A) · An A-grade base that held its quality through a major build (5 modules + an AI agent); robustness up via 139 tests + a security pass.
 
 ## Fix first (ordered by impact)
-- [ ] **(robustness)** Wire the scaffolded Playwright e2e suite into CI — _why:_ today's coverage is strong unit + real-SQLite integration, but the browser flows (login → team → members → change role → invite, asserting no reload + live row update) only run by hand; they need a seeded teamful staging account + `DEV_ECHO_CODES`. Until then end-to-end regressions can slip. — _where:_ `web/e2e/team-flows.spec.ts`, `web/playwright.config.ts`, `web/e2e/README.md`.
-- [ ] **(understandability/size)** Extract the dialog-wiring block from the deep-link orchestrator — _why:_ `deep-link-screen.tsx` is still the densest file (496 LOC) because it wires routing + data + the 5 dialogs; pulling the dialogs into a `ScreenDialogs` component (props-driven) would drop it ~70 lines and lower the surprise for a newcomer. — _where:_ `web/components/deep-link-screen.tsx` (the `<RolePickerDialog>…<ConfirmAction>` block).
-- [ ] **(size)** Split `teams.ts` along its seam — _why:_ 453 LOC mixing the team-factory (create/migrate/seed/stamp) with the read/context functions (active context, switcher, accept); separating factory vs. queries would ease review without changing behavior. — _where:_ `workers/tenancy/src/lib/teams.ts`.
-- [ ] **(leanness)** Trim the residual route-handler repetition — _why:_ ~6.7% duplicate lines, mostly inherent (per-table SQL audit columns, near-identical `teamContext → requireRight → mutate → publish` shapes); a small route-handler helper could fold the rest. — _where:_ `workers/tenancy/src/routes/*.ts`.
-- [ ] **(documentation)** Prefer "the full suite" over hard test counts in prose — _why:_ specific counts rot as tests are added; phrase docs so they can't go stale. — _where:_ already done in ARCHITECTURE.md §2; watch OPERATIONS.md.
+- [ ] **(Security/Leanness)** Library: make `ArticleBody` reject `javascript:`/`data:`/`vbscript:` link schemes — _why:_ it's the real stored-XSS sink; the Brimba server is already patched (`workers/content/src/lib/learning.ts` `safeLink`/`safeBody`), but the renderer is the proper fix — _where:_ `swift-struck-ui` `registry/collections/article-body/` (owner runs the library — paste-ready prompt provided).
+- [ ] **(Size/Understandability)** Split `web/components/deep-link-screen.tsx` (671 LOC) — _why:_ it holds data-fetch + dispatch + dialogs for every module; extracting per-module pieces lowers surprise and speeds edits/review — _where:_ `web/components/deep-link-screen.tsx`.
+- [ ] **(Leanness)** Factor the repeated route-handler shape (`teamContext → requireRight → parse → publish`) into a thin wrapper — _why:_ ~7.3% duplication; a wrapper trims it and removes the risk of an inconsistently-gated route — _where:_ `workers/*/src/routes/*`.
+- [ ] **(Robustness)** Add regression tests for the agent confirm-resume rebuild + the credit race — _why:_ both are covered by the review but not yet locked by a test — _where:_ `workers/data-ops/test/`.
+- [ ] **(Documentation)** Add a short "start here" map to the root README linking the rulesets — _why:_ orients a new reader (or agent) faster than diving into ARCHITECTURE cold — _where:_ `README.md`.
+- [ ] **(Scalability)** Build the external `mcp` worker on the existing gating seam — _why:_ it's the one remaining worker (the external auth surface); reusing the seam keeps the structure clean — _where:_ `workers/mcp/` (new).
+- [ ] **(Robustness, carried)** Wire the scaffolded Playwright e2e into CI with a seeded staging account — _why:_ browser flows still run by hand; carried from the base report — _where:_ `web/e2e/`.
 
 ## Scores
 | Dimension | Score | Status |
 |---|---|---|
-| Size & Scope | 91 | green |
+| Size & Scope | 88 | green |
 | Robustness | 92 | green |
-| Documentation | 93 | green |
-| Understandability | 91 | green |
+| Documentation | 92 | green |
+| Understandability | 90 | green |
 | Leanness & Optimization | 88 | green |
-| Scalability & Structure | 94 | green |
+| Scalability & Structure | 92 | green |
 
 ## Full findings
-### Size & Scope — 91/100 (green)
-- Strengths: ~83 lines/file average; a real multi-worker SaaS base in 11.5k lines with no sprawl; biggest file dropped 727→496 this pass.
-- To improve: two cohesive files remain long (deep-link-screen 496, teams 453) — _why:_ extracting the dialog-wiring and the team-factory would ease review.
+### Size & Scope — 88/100 (green)
+- Strengths: 16.6k LOC for a whole multi-tenant base + 5 modules + an AI agent; only 2 files over 400 LOC.
+- To improve: split the 671-line `deep-link-screen.tsx`.
 
 ### Robustness — 92/100 (green)
-- Strengths: web went from untested → 44 tests including the live-update core (patchRow/reconcile); a CI guard test (`publish-seam.test.ts`) fails the build if any mutation forgets to publish; real-SQLite integration tests cover the atomic last-admin / unique-invite races; the diff just passed an adversarial review with both findings fixed.
-- To improve: end-to-end browser tests are scaffolded but not in CI — _why:_ they need a live target + seeded account; coverage today is unit + integration.
+- Strengths: a publish-seam "can't-forget" test per worker; gating + runtime validation on every route; race-safe invariants (>=1 admin, never-negative credits); 12 adversarial-review findings fixed (stored-XSS, quota bypass, confirm-binding, import caps).
+- To improve: add regression tests for the agent confirm-resume conversation rebuild and the credit race.
 
-### Documentation — 93/100 (green)
-- Strengths: 11 root rulesets, one source of truth per topic; just reconciled to zero story-gaps (story_checks_out clean); 14% comment ratio focused on the non-obvious (the publish seam, patchRow, the live-sync rules).
-- To improve: avoid hard counts in prose so docs can't drift.
+### Documentation — 92/100 (green)
+- Strengths: 14 dense rulesets (ARCHITECTURE/DATA-MODEL/CACHING/CONCURRENCY/OPERATIONS) + 14% meaningful "why" comments; docs reconciled to the build (story-check clean).
+- To improve: a short README "start here" map linking the rulesets.
 
-### Understandability — 91/100 (green)
-- Strengths: predictable by-convention layout; a declarative route table + a registry-driven live handler that read like documentation; self-explaining names.
-- To improve: the orchestrator file is the densest spot — _why:_ pulling the dialog block out lowers newcomer surprise.
+### Understandability — 90/100 (green)
+- Strengths: every worker mirrors one shape (switchboard + routes + lib + shared gating); declarative ROUTES + screen recipes make intent obvious.
+- To improve: split the host file so each module's wiring is local.
 
 ### Leanness & Optimization — 88/100 (green)
-- Strengths: identity helpers de-duped into one util; 4 hand-built lists migrated to the library List; UI only from the shared library; shared worker/web utils.
-- To improve: ~6.7% duplicate lines, mostly inherent SQL/CRUD similarity — _why:_ a route-handler helper could trim the rest.
+- Strengths: 9 shared worker seams; UI primitives from one library (no copied markup); ~zero TODOs.
+- To improve: factor the per-route boilerplate (~7% duplication); the library-side `ArticleBody` scheme fix.
 
-### Scalability & Structure — 94/100 (green)
-- Strengths: per-team databases + Durable Objects addressed by key (scales by tenant, not code); swappable seams (live publish, data layer, screen-recipe engine); clean lib/routes/web separation.
-- To improve: sharding machinery is built but not yet exercised at scale — _why:_ wants a real load test before very large tenants.
+### Scalability & Structure — 92/100 (green)
+- Strengths: per-team D1 + a sharding seam, a swappable model interface, a registry-driven live-sync layer; clean web / shared / workers / db separation.
+- To improve: build the `mcp` worker on the existing seam.

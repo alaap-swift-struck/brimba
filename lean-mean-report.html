@@ -100,41 +100,151 @@
 </div>
 
 <script>
-/* DATA:START — the lean_mean_check skill replaces this whole block with the real report data */
+/* DATA:START */
 window.LEAN_MEAN_DATA = {
-  project: "Brimba (the SaaS base)", scannedAt: "2026-06-22",
-  overall: { score: 92, grade: "A", verdict: "A lean, thoroughly-documented, genuinely scalable SaaS base — now fully tested, with a structural guarantee that live-updates can't be forgotten.",
-    sub: "139 files · 11.5k lines · 119 tests · row-level live-sync centerpiece" },
+  project: "Brimba",
+  scannedAt: "2026-06-23",
+  overall: {
+    score: 91,
+    grade: "A",
+    verdict: "An A-grade, lean, well-tested multi-tenant base that held its quality through a major build — five new modules plus an AI agent — with robustness up (139 tests + a security pass) and the review findings already fixed."
+  },
   dimensions: [
-    { key:"size", title:"Size & Scope", icon:"📦", score:91, status:"green", headline:"Compact & focused",
-      metrics:[{label:"Files",value:"139"},{label:"Lines",value:"11.5k"},{label:"Files >400 LOC",value:"2"}],
-      strengths:["~83 lines/file average — every file earns its place.","Real multi-worker SaaS base in 11.5k lines, no sprawl.","Biggest file dropped 727→496 this pass."],
-      improvements:[{what:"Two files are still on the long side.",why:"deep-link-screen.tsx (496) and teams.ts (453) are cohesive but large; extracting the dialog-wiring and the team-factory would ease review."}] },
-    { key:"robustness", title:"Robustness", icon:"🛡️", score:92, status:"green", headline:"Tested top to bottom",
-      metrics:[{label:"Tests",value:"119"},{label:"Test files",value:"17"},{label:"Type-safe",value:"strict TS"}],
-      strengths:["Web went from untested → 44 tests incl. the live-update core (patchRow/reconcile).","A CI guard test fails the build if any mutation forgets to publish a live update.","Real-SQLite integration tests cover the atomic last-admin / unique-invite races; just passed an adversarial review."],
-      improvements:[{what:"End-to-end browser tests are scaffolded but don't run in CI yet.",why:"Playwright specs exist (web/e2e) but need a live target + seeded account; today's coverage is unit + integration, not full e2e."}] },
-    { key:"documentation", title:"Documentation", icon:"📖", score:93, status:"green", headline:"Thorough & current",
-      metrics:[{label:"Docs",value:"11"},{label:"Comment ratio",value:"14%"},{label:"Story-check",value:"clean"}],
-      strengths:["11 root rulesets (ARCHITECTURE, CACHING, CONCURRENCY, DATA-MODEL…) — one source of truth per topic.","Just reconciled to zero story-gaps (story_checks_out clean).","Comments explain the non-obvious (the publish seam, patchRow, the live-sync rules)."],
-      improvements:[{what:"A couple of specific counts can still drift.",why:"Prefer 'the full suite' over hard test counts in prose so docs can't go stale as tests are added."}] },
-    { key:"understandability", title:"Understandability", icon:"🧭", score:91, status:"green", headline:"Easy to follow",
-      metrics:[{label:"Naming",value:"clear"},{label:"Layout",value:"by convention"},{label:"Live handler",value:"1 line/module"}],
-      strengths:["Predictable layout: workers/<name>/src/{routes,lib}, web/{app,components,lib}, shared/.","Declarative route table + registry-driven live handler read like documentation.","Self-explaining names (patchRow, reconcile, publishUserChange, shapeMembersList)."],
-      improvements:[{what:"The orchestrator file is still the densest spot.",why:"deep-link-screen.tsx wires routing+data+dialogs; pulling the dialog block into its own component would lower the surprise for a newcomer."}] },
-    { key:"leanness", title:"Leanness & Optimization", icon:"♻️", score:88, status:"green", headline:"Lean, lightly repetitive",
-      metrics:[{label:"Duplication",value:"6.7%"},{label:"Dead code",value:"~none"},{label:"TODOs",value:"1"}],
-      strengths:["Identity helpers de-duped into one util; 4 hand-built lists migrated to the library List.","UI comes only from the shared library — no one-off components.","Shared worker/web utils (realtime, http, store) — single source of truth."],
-      improvements:[{what:"Some repetition remains.",why:"~6.7% duplicate lines — mostly inherent (per-table SQL audit columns, similar CRUD route shapes); a route-handler helper could trim the rest."}] },
-    { key:"scalability", title:"Scalability & Structure", icon:"📐", score:94, status:"green", headline:"Built to scale",
-      metrics:[{label:"Tenancy",value:"per-team DB"},{label:"Live",value:"DO by key"},{label:"Screens",value:"data-driven"}],
-      strengths:["Per-team databases + Durable Objects addressed by key — scales by tenant, not by code.","Swappable seams: the live publish layer, the data layer, the screen-recipe engine.","Clean separation: lib (data+guards) · routes (wire) · web (shape+render via the engine)."],
-      improvements:[{what:"Sharding machinery is built but not yet exercised at scale.",why:"The shard-resolve path exists; it'll want a real load test before very large tenants land."}] }
+    {
+      key: "size",
+      title: "Size & Scope",
+      icon: "📦",
+      score: 88,
+      status: "green",
+      headline: "Compact & focused",
+      metrics: [
+        { label: "Files", value: "183" },
+        { label: "Lines", value: "16.6k" },
+        { label: "Files >400 LOC", value: "2" }
+      ],
+      strengths: [
+        "16.6k lines for a whole multi-tenant SaaS base + 5 modules + an AI agent — every file earns its place.",
+        "Only two files exceed 400 lines."
+      ],
+      improvements: [
+        { what: "The screen host file is getting big.", why: "web/components/deep-link-screen.tsx is 671 lines after wiring four modules; extracting per-module data + dispatch would speed edits and review." }
+      ]
+    },
+    {
+      key: "robustness",
+      title: "Robustness",
+      icon: "🛡️",
+      score: 92,
+      status: "green",
+      headline: "Tested & defended",
+      metrics: [
+        { label: "Tests", value: "139" },
+        { label: "Test files", value: "17" },
+        { label: "Review fixes", value: "12" }
+      ],
+      strengths: [
+        "A 'can't-forget' publish-seam test per worker turns CI red if a mutation forgets to go live.",
+        "Gating on every route + runtime input validation; race-safe invariants (>=1 admin, never-negative credits).",
+        "A full adversarial security review just landed — 12 findings fixed (stored-XSS, quota bypass, confirm-binding, import caps)."
+      ],
+      improvements: [
+        { what: "A couple of agent edge cases aren't yet unit-tested.", why: "the confirm-resume conversation rebuild and the credit race are covered by review but lack a regression test to lock them in." }
+      ]
+    },
+    {
+      key: "documentation",
+      title: "Documentation",
+      icon: "📘",
+      score: 92,
+      status: "green",
+      headline: "Thorough & current",
+      metrics: [
+        { label: "Doc files", value: "14" },
+        { label: "Comment ratio", value: "14%" },
+        { label: "Story-check", value: "clean" }
+      ],
+      strengths: [
+        "14 dense rulesets (ARCHITECTURE, DATA-MODEL, CACHING, CONCURRENCY, OPERATIONS) plus meaningful 'why' comments.",
+        "Docs were just reconciled to the finished build — the story-check is clean."
+      ],
+      improvements: [
+        { what: "The root README is brief next to the deep design docs.", why: "a short 'start here' map linking the rulesets would orient a new reader (or agent) faster." }
+      ]
+    },
+    {
+      key: "understandability",
+      title: "Understandability",
+      icon: "🧭",
+      score: 90,
+      status: "green",
+      headline: "Predictable by convention",
+      metrics: [
+        { label: "Worker shape", value: "uniform" },
+        { label: "Data seam", value: "1 door" },
+        { label: "Naming", value: "clear" }
+      ],
+      strengths: [
+        "Every worker mirrors one shape (switchboard + routes + lib + shared gating) — an agent finds things by convention.",
+        "Declarative ROUTES and screen recipes make intent obvious without reading the body."
+      ],
+      improvements: [
+        { what: "One host file carries a lot.", why: "deep-link-screen.tsx holds data-fetch + dispatch + dialogs for every module; splitting per-module lowers surprise for new readers." }
+      ]
+    },
+    {
+      key: "leanness",
+      title: "Leanness & Optimization",
+      icon: "✂️",
+      score: 88,
+      status: "green",
+      headline: "DRY via shared seams",
+      metrics: [
+        { label: "Shared seams", value: "9" },
+        { label: "Duplication", value: "7.3%" },
+        { label: "UI source", value: "1 library" }
+      ],
+      strengths: [
+        "9 shared worker seams (gating, d1-rest, realtime, activity, ...) — one door per cross-cutting concern.",
+        "UI primitives come from one library; no copied markup across screens."
+      ],
+      improvements: [
+        { what: "Some route-handler boilerplate repeats across modules.", why: "the teamContext -> requireRight -> parse -> publish shape is copy-similar per route; a thin wrapper would cut the ~7% duplication and the risk of an inconsistent gate." }
+      ]
+    },
+    {
+      key: "scalability",
+      title: "Scalability & Structure",
+      icon: "📈",
+      score: 92,
+      status: "green",
+      headline: "Clean layers, room to grow",
+      metrics: [
+        { label: "DB per team", value: "yes" },
+        { label: "Model", value: "swappable" },
+        { label: "Layers", value: "clean" }
+      ],
+      strengths: [
+        "Per-team D1 + a sharding seam, a swappable model interface, a registry-driven live-sync layer — modules plug in with clear contracts.",
+        "Clean web / shared / workers / db separation; no coupling beyond Cloudflare (by design)."
+      ],
+      improvements: [
+        { what: "The external MCP door is still to build.", why: "the one remaining worker (mcp) is the external auth surface; building it on the existing gating seam keeps the structure clean." }
+      ]
+    }
   ],
-  callouts:{
-    strong:["Live-updates can't be silently forgotten — a CI guard enforces it.","Per-team-DB + DO-by-key architecture scales by tenant.","Docs are thorough and just verified consistent."],
-    watch:["Two cohesive files are on the long side (deep-link-screen, teams).","~6.7% duplication, mostly inherent SQL/CRUD similarity."],
-    fix:["Wire the scaffolded Playwright e2e into CI once a seeded staging account exists."]
+  callouts: {
+    strong: [
+      "A 'can't-forget' live-sync seam + gating on every route.",
+      "9 shared seams + one UI library — very little repetition.",
+      "Docs are thorough and current."
+    ],
+    watch: [
+      "deep-link-screen.tsx is 671 lines — the one file worth splitting.",
+      "~7% route-handler duplication across modules."
+    ],
+    fix: [
+      "Library-side: ArticleBody should reject javascript:/data: link schemes (the server side is already patched)."
+    ]
   }
 };
 /* DATA:END */
