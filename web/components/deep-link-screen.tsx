@@ -40,6 +40,7 @@ import { LearningProgressScreen } from "@/components/learning-progress"
 import { LearningFormDialog, type LearningFormValues } from "@/components/learning-form-dialog"
 import { HelpDetailScreen } from "@/components/help-detail"
 import { HelpFormDialog } from "@/components/help-form-dialog"
+import { ImportScreen } from "@/components/import-screen"
 import { RolePickerDialog } from "@/components/role-picker-dialog"
 import { RoleFormDialog } from "@/components/role-form-dialog"
 import { InviteDialog } from "@/components/invite-dialog"
@@ -364,12 +365,16 @@ export function DeepLinkScreen() {
 
   const teamName = active.ctx.team?.name ?? "Team"
   const myUserId = active.user?.id ?? null
+  // Import has no read-right of its own — it's gated per-target. You can reach it
+  // if you can CREATE into any supported target (member_roles or learning).
+  const canImport = can("member_roles", "create") || can("learning", "create")
   const section: SectionKey =
     module === "members" ||
     module === "roles" ||
     module === "invites" ||
     module === "learning" ||
-    module === "help"
+    module === "help" ||
+    module === "import"
       ? module
       : "overview"
 
@@ -412,9 +417,17 @@ export function DeepLinkScreen() {
   function content(): React.ReactNode {
     if (noAccess) return <NoAccess />
     if (!enabled) return <Skeleton variant="list" lines={4} />
+    if (perms === undefined) return <Skeleton variant="list" lines={4} />
+
+    // Import — no permission KEY of its own (gated per-target). Handle it before
+    // the MODULE_PERMISSION lookup, which would otherwise NotFound it.
+    if (module === "import") {
+      if (!canImport) return <NoAccess />
+      return <ImportScreen teamId={teamId as string} />
+    }
+
     const permKey = module ? MODULE_PERMISSION[module] : undefined
     if (!permKey) return <NotFound />
-    if (perms === undefined) return <Skeleton variant="list" lines={4} />
     if (!can(permKey, "read")) return <NoAccess />
 
     // Team overview ----------------------------------------------------------
@@ -588,6 +601,7 @@ export function DeepLinkScreen() {
           current={section}
           perms={perms}
           counts={sectionCounts}
+          extraVisible={canImport ? ["import"] : []}
           onNavigate={(href) => go(href)}
         />
         {content()}
