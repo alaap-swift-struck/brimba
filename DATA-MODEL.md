@@ -260,6 +260,7 @@ owner-maintained catalog).
   actions — Glide's async "updated role id + webhook complete" two-step is
   dropped (it was a Glide limitation we don't have).
 
-Deferred to their module builds: learning `Seen` (needs a user×learning join),
-import-session details, and whether `importable_databases` merges into the
-recipe/config system.
+Resolved in the agent-modules build (2026-06-23): learning `Seen` shipped as the
+`learning_progress` user×learning join; the import-session details shipped as
+`data_import_sessions` (the 3-stage session); and `importable_databases` stayed
+SEPARATE from the recipe/config system (the locked decision above).
