@@ -1,0 +1,73 @@
+// Brimba DATA-OPS worker — bulk data import today (the AI agent brain lands here
+// next). This file is the SWITCHBOARD: it maps each route to a handler and centrally
+// turns thrown GuardErrors into clean HTTP responses. The shared opening (whoAmI /
+// teamContext / requireRight) lives in the shared gating seam.
+//
+//   GET  /api/data-ops/import/targets   -> the active, supported import targets
+//   POST /api/data-ops/import           -> start a session for a target
+//   POST /api/data-ops/import/file      -> upload CSV text; auto-map + preview
+//   POST /api/data-ops/import/mapping   -> adjust the column mapping; re-preview
+//   GET  /api/data-ops/import/preview   -> the session's current preview (?id=)
+//   POST /api/data-ops/import/confirm   -> write every mapped row (insert-only)
+//   POST /api/data-ops/admin/seed-targets -> owner-only: seed the import catalog
+//   GET  /api/data-ops/health
+
+import { brand } from "../../../shared/brand"
+import { fail, json } from "../../../shared/workers/http"
+import { GuardError } from "../../../shared/workers/gating"
+import type { Env } from "./env"
+import {
+  getImportPreview,
+  getImportTargets,
+  postImportConfirm,
+  postImportFile,
+  postImportMapping,
+  postImportStart,
+} from "./routes/import"
+import { postSeedTargets } from "./routes/admin"
+
+/**
+ * THE LIVE-SYNC SEAM (locked, CACHING.md "Every mutation publishes"). Every route is
+ * classified so a new one CAN'T be added without consciously deciding how it goes live
+ * (publish-seam.test.ts enforces it):
+ *   • "read"        — a GET; changes nothing, broadcasts nothing.
+ *   • "mutation"    — a write other clients can see, so it MUST broadcast a ping.
+ *   • "housekeeping" — the reviewed deny-list: a write that intentionally broadcasts
+ *                      NOTHING. The import session steps (start/file/mapping) only
+ *                      shape the CALLER's own draft, returned synchronously in the
+ *                      same response — no other screen needs a ping. The owner seed
+ *                      writes the global catalog (no team channel). Only confirm,
+ *                      which actually creates rows in a shared table, broadcasts.
+ */
+type RouteKind = "read" | "mutation" | "housekeeping"
+type Handler = (request: Request, env: Env) => Promise<Response>
+export const ROUTES: Record<string, { handler: Handler; kind: RouteKind }> = {
+  "GET /api/data-ops/import/targets": { handler: getImportTargets, kind: "read" },
+  "GET /api/data-ops/import/preview": { handler: getImportPreview, kind: "read" },
+  "POST /api/data-ops/import": { handler: postImportStart, kind: "housekeeping" },
+  "POST /api/data-ops/import/file": { handler: postImportFile, kind: "housekeeping" },
+  "POST /api/data-ops/import/mapping": { handler: postImportMapping, kind: "housekeeping" },
+  "POST /api/data-ops/import/confirm": { handler: postImportConfirm, kind: "mutation" },
+  "POST /api/data-ops/admin/seed-targets": { handler: postSeedTargets, kind: "housekeeping" },
+}
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const { pathname } = new URL(request.url)
+    const route = `${request.method} ${pathname}`
+
+    try {
+      if (route === "GET /api/data-ops/health") return json({ ok: true })
+      const def = ROUTES[route]
+      if (!def) return fail(404, "not_found", "No such data-ops action.")
+      return await def.handler(request, env)
+    } catch (e) {
+      if (e instanceof GuardError) return fail(e.status, e.code, e.message)
+      console.error("data-ops worker error:", e)
+      const message = e instanceof Error ? e.message : ""
+      if (message.startsWith("cloud_key_missing:"))
+        return fail(503, "cloud_key_missing", `${brand.name}'s cloud key isn't set up yet — imports are paused.`)
+      return fail(500, "internal", "Something went wrong on our side. Try again.")
+    }
+  },
+} satisfies ExportedHandler<Env>

@@ -1,0 +1,17 @@
+{
+  "name": "brimba-data-ops",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Brimba's data-ops worker: bulk data import (and, next, the AI agent brain).",
+  "scripts": {
+    "dev": "wrangler dev --env staging --port 8790 --inspector-port 9233 --local --persist-to ../../.dev-state",
+    "test": "vitest run",
+    "deploy:staging": "wrangler deploy --env staging",
+    "deploy:production": "wrangler deploy"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260101.0",
+    "typescript": "^5.7.3",
+    "vitest": "^4.1.8"
+  }
+}
