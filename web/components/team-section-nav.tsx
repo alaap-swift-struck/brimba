@@ -19,7 +19,6 @@ export function TeamSectionNav({
   current,
   perms,
   counts,
-  extraVisible,
   onNavigate,
 }: {
   teamId: string
@@ -27,19 +26,12 @@ export function TeamSectionNav({
   perms: PermissionValue | undefined
   /** Per-section collection count (omit a section to show no badge). */
   counts: Partial<Record<TeamSection["key"], number>>
-  /** Sections to show REGARDLESS of the read filter — for ones the host gates
-   * itself (e.g. Import, which has no read-right; it's gated per-target). */
-  extraVisible?: TeamSection["key"][]
   onNavigate: (href: string) => void
 }) {
   if (!perms) return null
-  const extra = new Set(extraVisible ?? [])
-  // Only "tab" sections live in this strip — Learning/Help are sidebar pages now,
-  // Import is reached contextually. Each tab is still gated by its read right
-  // (or host-forced via extraVisible, for keyless ones like Import).
-  const visible = TEAM_SECTIONS.filter(
-    (s) => s.placement === "tab" && (perms[s.module]?.read || extra.has(s.key))
-  )
+  // Only "tab" sections live in this strip — Learning/Help are sidebar pages and
+  // Import is reached contextually. Each tab is gated by its own read right.
+  const visible = TEAM_SECTIONS.filter((s) => s.placement === "tab" && perms[s.module]?.read)
   if (visible.length <= 1) return null
 
   const hrefFor = (s: TeamSection) => (s.segment ? `/t/${teamId}/${s.segment}` : `/t/${teamId}`)

@@ -37,7 +37,15 @@ import {
 import { usePermissions } from "@/lib/perms"
 import { useCached } from "@/lib/store"
 
-export function ImportScreen({ teamId }: { teamId: string }) {
+export function ImportScreen({
+  teamId,
+  initialTarget,
+}: {
+  teamId: string
+  /** A tableKey to import into straight away (from /t/<team>/import/<tableKey>) —
+   * skips the picker. Falls back to the picker if it isn't an allowed target. */
+  initialTarget?: string
+}) {
   const { can } = usePermissions(teamId)
   const targetsQ = useCached<ImportableTarget[]>(`import-targets:${teamId}`, () =>
     dataOps.importTargets().then((r) => r.targets)
@@ -54,7 +62,7 @@ export function ImportScreen({ teamId }: { teamId: string }) {
   const [previewRows, setPreviewRows] = React.useState<string[][]>([])
   const [result, setResult] = React.useState<ImportResultView | null>(null)
 
-  async function pickTarget(t: ImportableTarget) {
+  const pickTarget = React.useCallback(async (t: ImportableTarget) => {
     try {
       const { session: s, target: tv } = await dataOps.startImport(t.tableKey)
       setSession(s)
@@ -65,7 +73,22 @@ export function ImportScreen({ teamId }: { teamId: string }) {
     } catch (err) {
       toast.error(err instanceof ApiFailure ? err.message : "Couldn't start the import.")
     }
-  }
+  }, [])
+
+  // Pre-target from the URL (the "Import CSV" buttons on Learning / Member roles
+  // land on /t/<team>/import/<tableKey>) — auto-start that target once, so the
+  // user lands straight in the wizard instead of the picker.
+  const autoPicked = React.useRef(false)
+  React.useEffect(() => {
+    if (autoPicked.current || !initialTarget || targetsQ.data === undefined) return
+    const t = targetsQ.data.find(
+      (x) => x.active && x.tableKey === initialTarget && can(x.tableKey, "create")
+    )
+    if (t) {
+      autoPicked.current = true
+      void pickTarget(t)
+    }
+  }, [initialTarget, targetsQ.data, can, pickTarget])
 
   // Turn a target-keyed preview into the wizard's row[][] (target-field order).
   const toRows = React.useCallback(

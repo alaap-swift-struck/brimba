@@ -404,7 +404,10 @@ export function DeepLinkScreen() {
   ]
   if (module && module !== "team") {
     crumbs.push({ label: sectionTitle(module), href: sectionPath })
-    if (recordId) crumbs.push({ label: recordLabel() })
+    if (recordId) {
+      const label = recordLabel()
+      if (label) crumbs.push({ label })
+    }
   }
 
   function recordLabel(): string {
@@ -430,7 +433,7 @@ export function DeepLinkScreen() {
     // the MODULE_PERMISSION lookup, which would otherwise NotFound it.
     if (module === "import") {
       if (!canImport) return <NoAccess />
-      return <ImportScreen teamId={teamId as string} />
+      return <ImportScreen teamId={teamId as string} initialTarget={recordId || undefined} />
     }
 
     const permKey = module ? MODULE_PERMISSION[module] : undefined
@@ -473,6 +476,11 @@ export function DeepLinkScreen() {
             show={can("member_roles", "create")}
             label="New role"
             icon="plus"
+            secondary={{
+              show: can("member_roles", "create"),
+              label: "Import CSV",
+              onClick: () => go(`/t/${teamId}/import/member_roles`),
+            }}
             onCreate={() => go(sectionPath, { panel: "add", module: "roles" })}
           >
             <ScreenRenderer recipe={recipe} data={data} rights={rights} onAction={onAction} onIntent={onIntent} />
@@ -508,6 +516,11 @@ export function DeepLinkScreen() {
             show={can("learning", "create")}
             label="New article"
             icon="plus"
+            secondary={{
+              show: can("learning", "create"),
+              label: "Import CSV",
+              onClick: () => go(`/t/${teamId}/import/learning`),
+            }}
             onCreate={() => go(sectionPath, { panel: "add", module: "learning" })}
           >
             {can("learning", "edit") && (
@@ -609,7 +622,6 @@ export function DeepLinkScreen() {
             current={section}
             perms={perms}
             counts={sectionCounts}
-            extraVisible={canImport ? ["import"] : []}
             onNavigate={(href) => go(href)}
           />
         )}

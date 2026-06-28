@@ -57,9 +57,9 @@ export const TEAM_SECTIONS: TeamSection[] = [
   { key: "learning", title: "Learning", module: "learning", segment: "learning", placement: "sidebar" },
   { key: "help", title: "Help", module: "help", segment: "help", placement: "sidebar" },
   // Import has NO read-right of its own — it's gated per-target (create on
-  // member_roles or learning). The host decides its visibility, not the generic
-  // read filter; `module` is a placeholder it never reads.
-  { key: "import", title: "Import", module: "import", segment: "import", placement: "tab" },
+  // member_roles or learning). Reached CONTEXTUALLY from an "Import CSV" button on
+  // those pages (which land on /t/<team>/import/<tableKey>), never a tab.
+  { key: "import", title: "Import", module: "import", segment: "import", placement: "contextual" },
 ]
 
 /** The ONE icon vocabulary for the app — each concept (page / section / record

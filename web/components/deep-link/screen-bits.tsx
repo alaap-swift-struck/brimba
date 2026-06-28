@@ -5,7 +5,7 @@
 import * as React from "react"
 
 import { Button } from "@swift-struck/ui/registry/primitives/button/button"
-import { Plus, Mail } from "lucide-react"
+import { Plus, Mail, Upload } from "lucide-react"
 
 export function NoAccess() {
   return (
@@ -30,23 +30,36 @@ export function SectionWithCreate({
   label,
   icon,
   onCreate,
+  secondary,
   children,
 }: {
   show: boolean
   label: string
   icon: "plus" | "mail"
   onCreate: () => void
+  /** An optional second action beside the create button — today the contextual
+   * "Import CSV" affordance on import-target pages (Learning / Member roles). */
+  secondary?: { show: boolean; label: string; onClick: () => void }
   children: React.ReactNode
 }) {
   const Icon = icon === "plus" ? Plus : Mail
+  const showSecondary = secondary?.show ?? false
   return (
     <div className="flex flex-col gap-4">
-      {show && (
-        <div className="flex justify-end">
-          <Button onClick={onCreate} className="gap-1.5">
-            <Icon className="size-4" />
-            {label}
-          </Button>
+      {(show || showSecondary) && (
+        <div className="flex justify-end gap-2">
+          {showSecondary && secondary && (
+            <Button variant="outline" onClick={secondary.onClick} className="gap-1.5">
+              <Upload className="size-4" />
+              {secondary.label}
+            </Button>
+          )}
+          {show && (
+            <Button onClick={onCreate} className="gap-1.5">
+              <Icon className="size-4" />
+              {label}
+            </Button>
+          )}
         </div>
       )}
       {children}
