@@ -54,6 +54,16 @@ export type RightSet = {
 /** A whole role's permission sheet: one RightSet per module key. */
 export type PermissionValue = Record<string, RightSet>
 
+/** A per-team dropdown value ("selectable data"): a `value` inside a `type` group
+ * (e.g. "Video link" in "File type"). Managed on the team Settings page; powers
+ * the Learning-category / Help-type pickers. */
+export type SelectableValue = {
+  id: string
+  type: string
+  value: string
+  isDefault: boolean
+}
+
 /** A role's permission matrix as the tenancy worker returns it: the module rows
  * (key + label), the saved value, the role title, and whether it's the locked
  * Admin role (shown view-only). */

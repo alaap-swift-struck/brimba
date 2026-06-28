@@ -42,6 +42,7 @@ import { LearningFormDialog, type LearningFormValues } from "@/components/learni
 import { HelpDetailScreen } from "@/components/help-detail"
 import { HelpFormDialog } from "@/components/help-form-dialog"
 import { ImportScreen } from "@/components/import-screen"
+import { SelectableScreen } from "@/components/selectable-screen"
 import { AgentPanel } from "@/components/agent-panel"
 import { RolePickerDialog } from "@/components/role-picker-dialog"
 import { RoleFormDialog } from "@/components/role-form-dialog"
@@ -376,6 +377,7 @@ export function DeepLinkScreen() {
     module === "members" ||
     module === "roles" ||
     module === "invites" ||
+    module === "dropdowns" ||
     module === "learning" ||
     module === "help" ||
     module === "import"
@@ -434,6 +436,11 @@ export function DeepLinkScreen() {
     if (module === "import") {
       if (!canImport) return <NoAccess />
       return <ImportScreen teamId={teamId as string} initialTarget={recordId || undefined} />
+    }
+
+    if (module === "dropdowns") {
+      if (!can("selectable_data", "read")) return <NoAccess />
+      return <SelectableScreen teamId={teamId as string} />
     }
 
     const permKey = module ? MODULE_PERMISSION[module] : undefined

@@ -36,6 +36,7 @@ export const MODULE_PERMISSION: Record<string, string> = {
   members: "team_members",
   roles: "member_roles",
   invites: "team_members",
+  dropdowns: "selectable_data",
   // The content modules' URL segment IS their permission module (no alias).
   learning: "learning",
   help: "help",

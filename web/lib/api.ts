@@ -22,6 +22,7 @@ import type {
   PermissionValue,
   ReceivedInvite,
   RolePermissions,
+  SelectableValue,
   SessionUser,
   TeamMeta,
   TeamMember,
@@ -225,6 +226,32 @@ export const tenancy = {
     api<{ roles: TeamRole[] }>("/api/tenancy/roles/active", {
       method: "POST",
       body: JSON.stringify({ roleId, active }),
+    }),
+
+  /** The team's dropdown values ("selectable data"), ordered for grouping by type. */
+  selectable: () => api<{ values: SelectableValue[] }>("/api/tenancy/selectable"),
+
+  /** Add a dropdown value to a type group (pick-or-create the type). Needs
+   * selectable_data:create. Returns the refreshed value list. */
+  createSelectable: (type: string, value: string) =>
+    api<{ values: SelectableValue[] }>("/api/tenancy/selectable", {
+      method: "POST",
+      body: JSON.stringify({ type, value }),
+    }),
+
+  /** Rename a dropdown value (its type stays). Needs selectable_data:edit. */
+  updateSelectable: (id: string, value: string) =>
+    api<{ values: SelectableValue[] }>("/api/tenancy/selectable/update", {
+      method: "POST",
+      body: JSON.stringify({ id, value }),
+    }),
+
+  /** Deactivate / reactivate a dropdown value (deactivate-only). Needs
+   * selectable_data:delete. Returns the refreshed value list. */
+  setSelectableActive: (id: string, active: boolean) =>
+    api<{ values: SelectableValue[] }>("/api/tenancy/selectable/active", {
+      method: "POST",
+      body: JSON.stringify({ id, active }),
     }),
 
   /** Change a member's role; returns the refreshed member list. */

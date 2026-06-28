@@ -12,6 +12,7 @@ export type SectionKey =
   | "members"
   | "roles"
   | "invites"
+  | "dropdowns"
   | "learning"
   | "help"
   | "import"

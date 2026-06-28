@@ -71,6 +71,12 @@ import {
   postRevokeInvite,
 } from "./routes/invites"
 import { getScreens, postScreen } from "./routes/config"
+import {
+  getSelectable,
+  postCreateSelectable,
+  postSetSelectableActive,
+  postUpdateSelectable,
+} from "./routes/selectable"
 import { dbSizes, migrateTeams, moveModule } from "./routes/admin"
 
 /**
@@ -116,6 +122,10 @@ export const ROUTES: Record<string, { handler: Handler; kind: RouteKind }> = {
   "POST /api/tenancy/invitations/accept": { handler: postAcceptInvitation, kind: "mutation" },
   "GET /api/tenancy/config/screens": { handler: getScreens, kind: "read" },
   "POST /api/tenancy/config/screens": { handler: postScreen, kind: "mutation" },
+  "GET /api/tenancy/selectable": { handler: getSelectable, kind: "read" },
+  "POST /api/tenancy/selectable": { handler: postCreateSelectable, kind: "mutation" },
+  "POST /api/tenancy/selectable/update": { handler: postUpdateSelectable, kind: "mutation" },
+  "POST /api/tenancy/selectable/active": { handler: postSetSelectableActive, kind: "mutation" },
   // admin/* are ops-only (roll migrations, relocate a module's DB) — they touch
   // no client-visible app row, so they broadcast nothing.
   "POST /api/tenancy/admin/migrate-teams": { handler: migrateTeams, kind: "housekeeping" },

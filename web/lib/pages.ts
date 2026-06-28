@@ -36,7 +36,7 @@ export function bottomNavItems<T extends { slug: string }>(items: T[]): T[] {
  * (empty = the team overview at /t/<teamId> itself). Activity lives as a tab on
  * the Overview screen, so it isn't a separate section. */
 export type TeamSection = {
-  key: "overview" | "members" | "roles" | "invites" | "learning" | "help" | "import"
+  key: "overview" | "members" | "roles" | "invites" | "dropdowns" | "learning" | "help" | "import"
   title: string
   module: string
   segment: string
@@ -52,6 +52,9 @@ export const TEAM_SECTIONS: TeamSection[] = [
   { key: "members", title: "Members", module: "team_members", segment: "members", placement: "tab" },
   { key: "roles", title: "Member roles", module: "member_roles", segment: "roles", placement: "tab" },
   { key: "invites", title: "Invites", module: "team_members", segment: "invites", placement: "tab" },
+  // Dropdown values ("selectable data") — managed on the team page, a tab beside
+  // the other admin sections. Gated by the selectable_data module.
+  { key: "dropdowns", title: "Dropdown values", module: "selectable_data", segment: "dropdowns", placement: "tab" },
   // Learning + Help are first-class SIDEBAR pages (not buried tabs) — team-scoped,
   // each gated by its own read right. The URL segment IS the permission module.
   { key: "learning", title: "Learning", module: "learning", segment: "learning", placement: "sidebar" },
@@ -74,6 +77,7 @@ export const CONCEPT_ICON = {
   members: "users",
   roles: "shield-half",
   invites: "mail",
+  dropdowns: "list",
   learning: "graduation-cap",
   help: "life-buoy",
   import: "upload",
