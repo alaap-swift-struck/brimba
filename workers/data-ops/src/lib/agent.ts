@@ -10,7 +10,7 @@ import { consumeAiUnit, getQuota } from "./credits"
 import type { Actor, MemberGuard } from "../../../../shared/workers/gating"
 import type { D1Rest } from "../../../../shared/workers/d1-rest"
 import type { Env } from "../env"
-import { selectModel, type ChatMessage, type ToolCall } from "./model"
+import { selectModel, type ChatMessage, type ModelReply, type ToolCall } from "./model"
 import { executeTool, getTool, requiresConfirm, toolSpecs, type ToolResult } from "./tools"
 import { appendMessage, createThread, getPendingProposal, listMessages } from "./threads"
 
@@ -76,11 +76,21 @@ export async function runChat(
       return { done: true, threadId, reply: msg, quota, overQuota: true }
     }
 
-    const reply = await model.complete(convo, model.canActWithTools ? toolSpecs() : [])
+    let reply: ModelReply
+    try {
+      reply = await model.complete(convo, model.canActWithTools ? toolSpecs() : [])
+    } catch {
+      // A model/runtime hiccup becomes a friendly, saved turn — never an uncaught 500.
+      const msg = "The assistant had trouble just now and couldn't reply. Please try again in a moment."
+      await appendMessage(cfg, guard, actor, threadId, { role: "assistant", content: msg, source: opts.source })
+      return { done: true, threadId, reply: msg, quota }
+    }
 
     if (!reply.toolCalls.length) {
-      await appendMessage(cfg, guard, actor, threadId, { role: "assistant", content: reply.text, source: opts.source })
-      return { done: true, threadId, reply: reply.text, quota }
+      // Some models return empty text on a bare greeting — always say SOMETHING.
+      const text = reply.text?.trim() || "Hi — how can I help with your team today?"
+      await appendMessage(cfg, guard, actor, threadId, { role: "assistant", content: text, source: opts.source })
+      return { done: true, threadId, reply: text, quota }
     }
 
     const valid = reply.toolCalls.filter((tc) => getTool(tc.name))
@@ -213,7 +223,16 @@ export async function confirmAndRun(
     { role: "assistant", content: proposingText, toolCalls: calls },
     ...toolMsgs,
   ]
-  const reply = await model.complete(convo, model.canActWithTools ? toolSpecs() : [])
+  let reply: ModelReply
+  try {
+    reply = await model.complete(convo, model.canActWithTools ? toolSpecs() : [])
+  } catch {
+    // The action already ran above (a failure would have returned early) — so even if
+    // the wrap-up summary fails, tell the user it went through, never a 500.
+    const note = "Done — the change went through. (I had trouble writing a summary just now.)"
+    await appendMessage(cfg, guard, actor, opts.threadId, { role: "assistant", content: note, source: opts.source })
+    return { reply: note, quota: c.quota }
+  }
   const text = reply.text || "Done."
   await appendMessage(cfg, guard, actor, opts.threadId, { role: "assistant", content: text, source: opts.source })
   return { reply: text, quota: c.quota }

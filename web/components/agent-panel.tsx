@@ -67,28 +67,33 @@ export function AgentPanel({
     }
   }, [open, canUse])
 
-  function pushAssistant(text: string) {
-    setItems((prev) => [...prev, { id: newId(), role: "assistant", content: text }])
-  }
-
   async function send(text: string) {
     if (busy) return
-    setItems((prev) => [...prev, { id: newId(), role: "user", content: text }])
+    const thinkingId = newId()
+    // Optimistic + Intercom rhythm: the user's message appears instantly, and an
+    // empty assistant row shows the animated "thinking" dots (driven by `streaming`)
+    // until the reply lands and fills it in.
+    setItems((prev) => [
+      ...prev,
+      { id: newId(), role: "user", content: text },
+      { id: thinkingId, role: "assistant", content: "" },
+    ])
     setBusy(true)
     setPending(null)
     try {
       const out = await dataOps.agentChat(text, threadId)
       setThreadId(out.threadId)
       setQuota(out.quota)
-      if (out.done) {
-        pushAssistant(out.reply)
-      } else {
-        // Paused for confirmation — show the assistant's lead-in + the proposal.
-        if (out.assistantText) pushAssistant(out.assistantText)
-        setPending({ calls: out.needsConfirm, text })
-      }
+      const replyText = out.done ? out.reply : (out.assistantText ?? "")
+      setItems((prev) =>
+        replyText
+          ? prev.map((it) => (it.id === thinkingId ? { ...it, content: replyText } : it))
+          : prev.filter((it) => it.id !== thinkingId)
+      )
+      if (!out.done) setPending({ calls: out.needsConfirm, text })
     } catch (err) {
-      pushAssistant(err instanceof ApiFailure ? err.message : "Something went wrong. Try again.")
+      const msg = err instanceof ApiFailure ? err.message : "Something went wrong. Try again."
+      setItems((prev) => prev.map((it) => (it.id === thinkingId ? { ...it, content: msg } : it)))
     } finally {
       setBusy(false)
     }
@@ -98,7 +103,9 @@ export function AgentPanel({
     if (!pending || !threadId || busy) return
     const calls = pending.calls
     setBusy(true)
-    // Reflect each proposed action as a tool row (done on approve, else skipped).
+    const thinkingId = newId()
+    // Reflect each proposed action as a tool row (done on approve, else skipped),
+    // then a thinking bubble while the assistant wraps up.
     setItems((prev) => [
       ...prev,
       ...calls.map(
@@ -109,14 +116,20 @@ export function AgentPanel({
           status: approve ? "done" : "failed",
         })
       ),
+      { id: thinkingId, role: "assistant", content: "" },
     ])
     setPending(null)
     try {
       const r = await dataOps.agentConfirm(threadId, approve, approve ? calls : [])
       setQuota(r.quota)
-      if (r.reply) pushAssistant(r.reply)
+      setItems((prev) =>
+        r.reply
+          ? prev.map((it) => (it.id === thinkingId ? { ...it, content: r.reply } : it))
+          : prev.filter((it) => it.id !== thinkingId)
+      )
     } catch (err) {
-      pushAssistant(err instanceof ApiFailure ? err.message : "Couldn't apply those actions.")
+      const msg = err instanceof ApiFailure ? err.message : "Couldn't apply those actions."
+      setItems((prev) => prev.map((it) => (it.id === thinkingId ? { ...it, content: msg } : it)))
     } finally {
       setBusy(false)
     }
