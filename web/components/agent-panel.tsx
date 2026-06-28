@@ -135,8 +135,8 @@ export function AgentPanel({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="flex w-full flex-col gap-0 p-0 sm:max-w-md">
-        <SheetHeader className="border-b">
+      <SheetContent side="right" className="flex w-full flex-col gap-0 p-0 sm:max-w-lg">
+        <SheetHeader className="border-b p-4">
           <div className="flex items-center justify-between gap-2">
             <SheetTitle>Assistant</SheetTitle>
             {quotaLabel && (
@@ -155,7 +155,11 @@ export function AgentPanel({
         ) : (
           <div className="flex min-h-0 flex-1 flex-col">
             <div className="min-h-0 flex-1">
+              {/* Fill the sheet and shed the component's own card chrome (it ships
+               * as a standalone fixed-height card) so it reads as one panel, not a
+               * card-in-a-card with a double border. */}
               <AgentChat
+                className="h-full rounded-none border-0 bg-transparent"
                 items={items}
                 streaming={busy && !pending}
                 disabled={busy || quota?.blocked || !!pending}
@@ -166,7 +170,7 @@ export function AgentPanel({
 
             {/* A paused turn: the proposed actions + approve / decline. */}
             {pending && (
-              <div className="flex flex-col gap-3 border-t p-3">
+              <div className="flex flex-col gap-3 border-t p-4">
                 <p className="text-sm font-medium">The assistant wants to:</p>
                 <RunSteps steps={confirmSteps} />
                 <div className="flex justify-end gap-2">
