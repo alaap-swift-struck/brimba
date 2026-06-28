@@ -19,8 +19,10 @@ export const NAV: NavItem[] = [
 ]
 
 /** The mobile bottom-bar set: only destinations the user can reach, capped at 5
- * (extras would fold into a "More" entry), with Home pinned to the centre. */
-export function bottomNavItems(items: NavItem[]): NavItem[] {
+ * (extras would fold into a "More" entry), with Home pinned to the centre.
+ * Generic over the link shape so the shell can pass its composed Home + team
+ * sidebar pages + Settings list, not just the bare NAV. */
+export function bottomNavItems<T extends { slug: string }>(items: T[]): T[] {
   const capped = items.slice(0, 5)
   const home = capped.find((i) => i.slug === "home")
   if (!home) return capped
@@ -38,21 +40,26 @@ export type TeamSection = {
   title: string
   module: string
   segment: string
+  /** Where this destination appears in navigation:
+   *  - "tab": a tab on the team area (the admin sections under Settings → team)
+   *  - "sidebar": a first-class left-sidebar page (team-scoped, gated by its read right)
+   *  - "contextual": reached from a button on another page (e.g. Import) — never a tab or sidebar item */
+  placement: "tab" | "sidebar" | "contextual"
 }
 
 export const TEAM_SECTIONS: TeamSection[] = [
-  { key: "overview", title: "Overview", module: "teams", segment: "" },
-  { key: "members", title: "Members", module: "team_members", segment: "members" },
-  { key: "roles", title: "Member roles", module: "member_roles", segment: "roles" },
-  { key: "invites", title: "Invites", module: "team_members", segment: "invites" },
-  // The next-build content modules — the URL segment IS the permission module
-  // (no friendly alias), so members/roles' segment≠module split doesn't apply.
-  { key: "learning", title: "Learning", module: "learning", segment: "learning" },
-  { key: "help", title: "Help", module: "help", segment: "help" },
+  { key: "overview", title: "Overview", module: "teams", segment: "", placement: "tab" },
+  { key: "members", title: "Members", module: "team_members", segment: "members", placement: "tab" },
+  { key: "roles", title: "Member roles", module: "member_roles", segment: "roles", placement: "tab" },
+  { key: "invites", title: "Invites", module: "team_members", segment: "invites", placement: "tab" },
+  // Learning + Help are first-class SIDEBAR pages (not buried tabs) — team-scoped,
+  // each gated by its own read right. The URL segment IS the permission module.
+  { key: "learning", title: "Learning", module: "learning", segment: "learning", placement: "sidebar" },
+  { key: "help", title: "Help", module: "help", segment: "help", placement: "sidebar" },
   // Import has NO read-right of its own — it's gated per-target (create on
-  // member_roles or learning), so the host decides its visibility, not the
-  // generic read filter. `module` is left as a placeholder it never reads.
-  { key: "import", title: "Import", module: "import", segment: "import" },
+  // member_roles or learning). The host decides its visibility, not the generic
+  // read filter; `module` is a placeholder it never reads.
+  { key: "import", title: "Import", module: "import", segment: "import", placement: "tab" },
 ]
 
 /** The ONE icon vocabulary for the app — each concept (page / section / record

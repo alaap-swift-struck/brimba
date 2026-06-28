@@ -68,7 +68,7 @@ import { useActiveTeam } from "@/lib/use-active-team"
 import { reportError } from "@/lib/log"
 import { personName } from "@/lib/identity"
 import { MODULE_PERMISSION, resolveRecipe, withoutActions } from "@/lib/screens"
-import { type Crumb } from "@/lib/pages"
+import { TEAM_SECTIONS, type Crumb } from "@/lib/pages"
 import type { TeamMember } from "@shared/types"
 
 export function DeepLinkScreen() {
@@ -381,6 +381,9 @@ export function DeepLinkScreen() {
     module === "import"
       ? module
       : "overview"
+  // Learning/Help are sidebar PAGES now and Import is contextual — the team tab
+  // strip shows only on the "tab" sections (Overview / Members / Roles / Invites).
+  const showTabs = (TEAM_SECTIONS.find((s) => s.key === section)?.placement ?? "tab") === "tab"
 
   // Section-tab count badges — the count of what each section's collection shows
   // (Overview leads with team metadata, not a collection, so it has no count).
@@ -598,16 +601,18 @@ export function DeepLinkScreen() {
       : null
 
   return (
-    <AppShell active={active} breadcrumbs={crumbs} onNavigate={go}>
+    <AppShell active={active} breadcrumbs={crumbs} onNavigate={go} activePath={currentPath}>
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
-        <TeamSectionNav
-          teamId={teamId as string}
-          current={section}
-          perms={perms}
-          counts={sectionCounts}
-          extraVisible={canImport ? ["import"] : []}
-          onNavigate={(href) => go(href)}
-        />
+        {showTabs && (
+          <TeamSectionNav
+            teamId={teamId as string}
+            current={section}
+            perms={perms}
+            counts={sectionCounts}
+            extraVisible={canImport ? ["import"] : []}
+            onNavigate={(href) => go(href)}
+          />
+        )}
         {content()}
       </div>
 

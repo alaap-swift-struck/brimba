@@ -14,18 +14,21 @@ import { Breadcrumbs } from "@swift-struck/ui/registry/primitives/breadcrumbs/br
 import { ModeToggle } from "@swift-struck/ui/registry/primitives/mode-toggle/mode-toggle"
 import { Skeleton } from "@swift-struck/ui/registry/primitives/skeleton/skeleton"
 import { toast } from "@swift-struck/ui/registry/primitives/sonner/sonner"
-import { Home, Settings, PanelLeftClose, PanelLeftOpen } from "lucide-react"
+import { Home, Settings, GraduationCap, LifeBuoy, PanelLeftClose, PanelLeftOpen } from "lucide-react"
 
 import type { ActiveTeam } from "@/lib/use-active-team"
 import { auth, content, tenancy } from "@/lib/api"
 import { useRealtime, useUserRealtime } from "@/lib/realtime"
 import { invalidate, patchRow, reconcile } from "@/lib/store"
-import { NAV, bottomNavItems, isNavActive, type Crumb } from "@/lib/pages"
+import { NAV, TEAM_SECTIONS, bottomNavItems, isNavActive, type Crumb } from "@/lib/pages"
+import { usePermissions } from "@/lib/perms"
 import { CreateTeamDialog } from "@/components/create-team-dialog"
 import { ProfileMenu } from "@/components/profile-menu"
 import { TeamSwitcher } from "@/components/team-switcher"
 
 const NAV_ICONS = { home: Home, settings: Settings } as const
+// The lucide component for each team SIDEBAR page (Learning / Help) in the rail.
+const SECTION_ICONS: Record<string, typeof Home> = { learning: GraduationCap, help: LifeBuoy }
 
 // Row-level live registry: a "<resource> row <id> changed" ping → re-pull JUST
 // that row and patch it into the cached list (never refetch the whole list);
@@ -96,14 +99,19 @@ export function AppShell({
   children,
   breadcrumbs,
   onNavigate,
+  activePath,
 }: {
   active: ActiveTeam
   children: React.ReactNode
   breadcrumbs?: Crumb[]
-  /** How a breadcrumb link navigates. The deep-link host passes its History-API
-   * `go` so in-team crumbs don't trigger a full reload; other pages fall back to
-   * the router. */
+  /** How a breadcrumb / nav link navigates. The deep-link host passes its
+   * History-API `go` so in-team moves don't trigger a full reload; other pages
+   * fall back to the router. */
   onNavigate?: (href: string) => void
+  /** The live in-app path, for nav highlighting. The deep-link host moves via the
+   * History API (which `usePathname` doesn't observe), so it passes the current
+   * path here; other pages rely on `usePathname`. */
+  activePath?: string
 }) {
   const router = useRouter()
   const pathname = usePathname()
@@ -124,10 +132,36 @@ export function AppShell({
     })
   }
 
-  // Top-level destinations the user can reach (Home/Settings are universal;
-  // gated ones would be filtered here once a top-level page declares `need`).
-  const accessibleNav = NAV.filter((i) => !i.need)
-  const bottomNav = bottomNavItems(accessibleNav)
+  const { can } = usePermissions(teamId)
+  const navigate = onNavigate ?? ((href: string) => router.push(href))
+  const here = activePath ?? pathname
+
+  // The rail: the universal anchors (Home / Settings) with the team's first-class
+  // SIDEBAR pages (Learning / Help) slotted between them — each scoped to the
+  // active team and gated by its own read right, so it vanishes for anyone who
+  // can't read it (and when teamless). ONE composed list drives both the desktop
+  // rail and the mobile bottom bar.
+  type ShellLink = { slug: string; title: string; Icon: typeof Home; path: string }
+  const universal: ShellLink[] = NAV.filter((i) => !i.need).map((i) => ({
+    slug: i.slug,
+    title: i.title,
+    Icon: NAV_ICONS[i.icon],
+    path: i.path,
+  }))
+  const sidebarPages: ShellLink[] = teamId
+    ? TEAM_SECTIONS.filter((s) => s.placement === "sidebar" && can(s.module, "read")).map((s) => ({
+        slug: s.key,
+        title: s.title,
+        Icon: SECTION_ICONS[s.key] ?? Home,
+        path: `/t/${teamId}/${s.segment}`,
+      }))
+    : []
+  const homeIdx = universal.findIndex((i) => i.slug === "home")
+  const navLinks: ShellLink[] =
+    homeIdx >= 0
+      ? [...universal.slice(0, homeIdx + 1), ...sidebarPages, ...universal.slice(homeIdx + 1)]
+      : [...sidebarPages, ...universal]
+  const bottomNav = bottomNavItems(navLinks)
 
   // The active team's live channel. A ping patches ONLY the changed row in place
   // (row-level), via the generic registry above — no full-collection refetch.
@@ -219,14 +253,14 @@ export function AppShell({
           />
         </div>
         <nav className={`flex flex-col gap-1 ${collapsed ? "px-2" : "px-3"}`}>
-          {accessibleNav.map((item) => {
-            const Icon = NAV_ICONS[item.icon]
-            const activeNav = isNavActive(item.path, pathname)
+          {navLinks.map((item) => {
+            const Icon = item.Icon
+            const activeNav = isNavActive(item.path, here)
             return (
               <button
                 key={item.slug}
                 type="button"
-                onClick={() => router.push(item.path)}
+                onClick={() => navigate(item.path)}
                 aria-current={activeNav ? "page" : undefined}
                 title={collapsed ? item.title : undefined}
                 className={`flex items-center rounded-lg text-sm font-medium transition-colors ${
@@ -292,13 +326,13 @@ export function AppShell({
         {/* Mobile bottom tabs — capped at 5, Home centered, gated items hidden */}
         <nav className="glass fixed inset-x-0 bottom-0 z-20 flex items-center justify-around border-t px-2 py-1.5 md:hidden">
           {bottomNav.map((item) => {
-            const Icon = NAV_ICONS[item.icon]
-            const activeNav = isNavActive(item.path, pathname)
+            const Icon = item.Icon
+            const activeNav = isNavActive(item.path, here)
             return (
               <button
                 key={item.slug}
                 type="button"
-                onClick={() => router.push(item.path)}
+                onClick={() => navigate(item.path)}
                 aria-current={activeNav ? "page" : undefined}
                 className={`flex flex-1 flex-col items-center gap-0.5 rounded-lg py-1.5 text-[11px] font-medium transition-colors ${
                   activeNav ? "text-foreground" : "text-muted-foreground"
