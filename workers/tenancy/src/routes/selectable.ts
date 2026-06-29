@@ -4,6 +4,7 @@
 // change ping (the publish-seam test enforces this).
 
 import { fail, json } from "../../../../shared/workers/http"
+import { requireText, TEXT_LIMITS } from "../../../../shared/workers/validate"
 import { publishChange } from "../../../../shared/workers/realtime"
 import { requireRight } from "../lib/permissions"
 import {
@@ -25,9 +26,9 @@ export async function postCreateSelectable(request: Request, env: Env): Promise<
   const { actor, cfg, guard } = await teamContext(request, env)
   await requireRight(cfg, guard, "selectable_data", "create")
   const body = (await request.json().catch(() => ({}))) as { type?: string; value?: string }
-  if (!body.type?.trim() || !body.value?.trim())
-    return fail(400, "invalid_input", "A dropdown value needs a type and a value.")
-  const id = await createSelectable(cfg, guard, actor, body.type, body.value)
+  const type = requireText(body.type, "Group", TEXT_LIMITS.short)
+  const value = requireText(body.value, "Option", TEXT_LIMITS.short)
+  const id = await createSelectable(cfg, guard, actor, type, value)
   // Row-level: carry the new value's id so open lists can patch just that row.
   await publishChange(env.REALTIME, guard.teamId, "selectable_data", id, "add")
   return json({ values: await listSelectable(cfg, guard) })
@@ -37,9 +38,9 @@ export async function postUpdateSelectable(request: Request, env: Env): Promise<
   const { actor, cfg, guard } = await teamContext(request, env)
   await requireRight(cfg, guard, "selectable_data", "edit")
   const body = (await request.json().catch(() => ({}))) as { id?: string; value?: string }
-  if (!body.id || !body.value?.trim())
-    return fail(400, "invalid_input", "id and value are required.")
-  await updateSelectable(cfg, guard, actor, body.id, body.value)
+  if (!body.id) return fail(400, "invalid_input", "id and value are required.")
+  const value = requireText(body.value, "Option", TEXT_LIMITS.short)
+  await updateSelectable(cfg, guard, actor, body.id, value)
   await publishChange(env.REALTIME, guard.teamId, "selectable_data", body.id)
   return json({ values: await listSelectable(cfg, guard) })
 }

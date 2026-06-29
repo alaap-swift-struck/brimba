@@ -6,6 +6,7 @@
 // reply notify (raiser + @mentions) is best-effort in lib/notify.
 
 import { fail, json } from "../../../../shared/workers/http"
+import { requireText, TEXT_LIMITS } from "../../../../shared/workers/validate"
 import { publishChange } from "../../../../shared/workers/realtime"
 import { requireRight, teamContext } from "../../../../shared/workers/gating"
 import {
@@ -50,13 +51,12 @@ export async function postCreateHelp(request: Request, env: Env): Promise<Respon
   const { actor, cfg, guard } = await teamContext(request, env)
   await requireRight(cfg, guard, "help", "create")
   const body = (await request.json().catch(() => ({}))) as TicketInput
-  if (!body.description?.trim())
-    return fail(400, "invalid_input", "A ticket needs a description.")
+  const description = requireText(body.description, "Description", TEXT_LIMITS.long)
   const id = await createTicket(cfg, guard, actor, body)
   await publishChange(env.REALTIME, guard.teamId, "help", id, "add")
   // HOOK (Phase 3): the agent drafts the first reply here; a no-op today, so the
   // ticket simply opens awaiting a human (per "ticket always opens").
-  await maybeDraftFirstReply(cfg, guard, id, body.description)
+  await maybeDraftFirstReply(cfg, guard, id, description)
   return json({ tickets: await listTickets(cfg, guard, "all") })
 }
 
@@ -65,8 +65,8 @@ export async function postUpdateHelp(request: Request, env: Env): Promise<Respon
   const { actor, cfg, guard } = await teamContext(request, env)
   await requireRight(cfg, guard, "help", "edit")
   const body = (await request.json().catch(() => ({}))) as TicketInput & { id?: string }
-  if (!body.id || !body.description?.trim())
-    return fail(400, "invalid_input", "id and description are required.")
+  if (!body.id) return fail(400, "invalid_input", "id and description are required.")
+  requireText(body.description, "Description", TEXT_LIMITS.long)
   await updateTicket(cfg, guard, actor, body.id, body)
   await publishChange(env.REALTIME, guard.teamId, "help", body.id)
   return json({ tickets: await listTickets(cfg, guard, "all") })
@@ -101,8 +101,8 @@ export async function postHelpReply(request: Request, env: Env): Promise<Respons
     body?: string
     taggedUserIds?: unknown
   }
-  if (!body.helpId || !body.body?.trim())
-    return fail(400, "invalid_input", "helpId and a reply body are required.")
+  if (!body.helpId) return fail(400, "invalid_input", "helpId and a reply body are required.")
+  const replyBody = requireText(body.body, "Reply", TEXT_LIMITS.long)
 
   const ticket = await getTicket(cfg, guard, body.helpId)
   if (!ticket) return fail(404, "help_not_found", "That ticket doesn't exist.")
@@ -113,7 +113,7 @@ export async function postHelpReply(request: Request, env: Env): Promise<Respons
     ? body.taggedUserIds.filter((x): x is string => typeof x === "string" && x !== actor.id)
     : []
 
-  const replyId = await addReply(cfg, guard, actor, body.helpId, body.body, tagged, false)
+  const replyId = await addReply(cfg, guard, actor, body.helpId, replyBody, tagged, false)
   await publishChange(env.REALTIME, guard.teamId, "help_threads", replyId, "add")
   await publishChange(env.REALTIME, guard.teamId, "help", body.helpId, "edit")
   await notifyReplyAndMentions(
@@ -121,7 +121,7 @@ export async function postHelpReply(request: Request, env: Env): Promise<Respons
     guard.teamId,
     { id: ticket.id, raiserId: ticket.raiserId },
     { id: actor.id, name: actor.name },
-    body.body,
+    replyBody,
     tagged
   )
   return json({ replies: await listReplies(cfg, guard, body.helpId) })

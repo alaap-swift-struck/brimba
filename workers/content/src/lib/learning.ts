@@ -17,6 +17,7 @@ import {
 import { ulid } from "../../../../shared/workers/id"
 import type { Learning, LearningProgressEntry } from "../../../../shared/types"
 import { GuardError, type MemberGuard } from "../../../../shared/workers/gating"
+import { optionalText, TEXT_LIMITS } from "../../../../shared/workers/validate"
 
 /** The dropdown `type` a learning item's category is stored under. */
 const CATEGORY_TYPE = "Learning category"
@@ -168,7 +169,7 @@ export async function createLearning(
   const title = input.title?.trim()
   if (!title) throw new GuardError(400, "invalid_input", "A learning item needs a title.")
 
-  const category = input.category?.trim() || null
+  const category = optionalText(input.category, "Category", TEXT_LIMITS.short) ?? null
   if (category) await ensureCategory(cfg, guard, actor, category)
 
   const id = ulid()
@@ -177,7 +178,7 @@ export async function createLearning(
     cfg,
     guard.databaseId,
     `INSERT INTO learning (id, category, content_title, content_description, content_type, content_link, content_body, sequence, is_required, created_at, creator_id, creator_email, creator_name)
-VALUES (${sqlString(id)}, ${sqlString(category)}, ${sqlString(title)}, ${sqlString(input.description?.trim() || null)}, ${sqlString(input.contentType?.trim() || null)}, ${sqlString(safeLink(input.contentLink))}, ${sqlString(safeBody(input.body))}, ${intOr(input.sequence, 0)}, ${input.required ? 1 : 0}, ${sqlString(now)}, ${sqlString(actor.id)}, ${sqlString(actor.email)}, ${sqlString(actor.name)});`
+VALUES (${sqlString(id)}, ${sqlString(category)}, ${sqlString(title)}, ${sqlString((optionalText(input.description, "Description", TEXT_LIMITS.long) ?? null))}, ${sqlString((optionalText(input.contentType, "Content type", TEXT_LIMITS.short) ?? null))}, ${sqlString(safeLink(input.contentLink))}, ${sqlString(safeBody(input.body))}, ${intOr(input.sequence, 0)}, ${input.required ? 1 : 0}, ${sqlString(now)}, ${sqlString(actor.id)}, ${sqlString(actor.email)}, ${sqlString(actor.name)});`
   )
 
   await logActivity(cfg, guard.databaseId, actor, {
@@ -203,14 +204,14 @@ export async function updateLearning(
   const title = input.title?.trim()
   if (!title) throw new GuardError(400, "invalid_input", "A learning item needs a title.")
 
-  const category = input.category?.trim() || null
+  const category = optionalText(input.category, "Category", TEXT_LIMITS.short) ?? null
   if (category) await ensureCategory(cfg, guard, actor, category)
 
   const now = new Date().toISOString()
   await d1ExecScript(
     cfg,
     guard.databaseId,
-    `UPDATE learning SET category = ${sqlString(category)}, content_title = ${sqlString(title)}, content_description = ${sqlString(input.description?.trim() || null)}, content_type = ${sqlString(input.contentType?.trim() || null)}, content_link = ${sqlString(safeLink(input.contentLink))}, content_body = ${sqlString(safeBody(input.body))}, sequence = ${intOr(input.sequence, 0)}, is_required = ${input.required ? 1 : 0}, updated_at = ${sqlString(now)}, editor_id = ${sqlString(actor.id)}, editor_email = ${sqlString(actor.email)}, editor_name = ${sqlString(actor.name)} WHERE id = ${sqlString(id)};`
+    `UPDATE learning SET category = ${sqlString(category)}, content_title = ${sqlString(title)}, content_description = ${sqlString((optionalText(input.description, "Description", TEXT_LIMITS.long) ?? null))}, content_type = ${sqlString((optionalText(input.contentType, "Content type", TEXT_LIMITS.short) ?? null))}, content_link = ${sqlString(safeLink(input.contentLink))}, content_body = ${sqlString(safeBody(input.body))}, sequence = ${intOr(input.sequence, 0)}, is_required = ${input.required ? 1 : 0}, updated_at = ${sqlString(now)}, editor_id = ${sqlString(actor.id)}, editor_email = ${sqlString(actor.email)}, editor_name = ${sqlString(actor.name)} WHERE id = ${sqlString(id)};`
   )
 
   await logActivity(cfg, guard.databaseId, actor, {

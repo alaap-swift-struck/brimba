@@ -7,6 +7,7 @@
 // lib/learning.
 
 import { fail, json } from "../../../../shared/workers/http"
+import { requireText, TEXT_LIMITS } from "../../../../shared/workers/validate"
 import { publishChange } from "../../../../shared/workers/realtime"
 import { requireRight, teamContext } from "../../../../shared/workers/gating"
 import {
@@ -32,7 +33,7 @@ export async function postCreateLearning(request: Request, env: Env): Promise<Re
   const { actor, cfg, guard } = await teamContext(request, env)
   await requireRight(cfg, guard, "learning", "create")
   const body = (await request.json().catch(() => ({}))) as LearningInput
-  if (!body.title?.trim()) return fail(400, "invalid_input", "A learning item needs a title.")
+  requireText(body.title, "Title", TEXT_LIMITS.short)
   const id = await createLearning(cfg, guard, actor, body)
   // Row-level: carry the new item's id so open learning lists patch just that row.
   await publishChange(env.REALTIME, guard.teamId, "learning", id, "add")
@@ -43,8 +44,8 @@ export async function postUpdateLearning(request: Request, env: Env): Promise<Re
   const { actor, cfg, guard } = await teamContext(request, env)
   await requireRight(cfg, guard, "learning", "edit")
   const body = (await request.json().catch(() => ({}))) as LearningInput & { id?: string }
-  if (!body.id || !body.title?.trim())
-    return fail(400, "invalid_input", "id and title are required.")
+  if (!body.id) return fail(400, "invalid_input", "id and title are required.")
+  requireText(body.title, "Title", TEXT_LIMITS.short)
   await updateLearning(cfg, guard, actor, body.id, body)
   await publishChange(env.REALTIME, guard.teamId, "learning", body.id)
   return json({ learning: await listLearning(cfg, guard) })

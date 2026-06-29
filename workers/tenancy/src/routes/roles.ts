@@ -3,6 +3,7 @@
 // (Admin is locked, auto-flip-read) live in lib/roles.
 
 import { fail, json } from "../../../../shared/workers/http"
+import { requireText, TEXT_LIMITS } from "../../../../shared/workers/validate"
 import { publishChange } from "../../../../shared/workers/realtime"
 import { listRoles } from "../lib/members"
 import { requireRight } from "../lib/permissions"
@@ -61,8 +62,8 @@ export async function postCreateRole(request: Request, env: Env): Promise<Respon
     title?: string
     description?: string
   }
-  if (!body.title?.trim()) return fail(400, "invalid_input", "A role needs a name.")
-  const roleId = await createRole(cfg, guard, actor, body.title, body.description ?? "")
+  const title = requireText(body.title, "Name", TEXT_LIMITS.short)
+  const roleId = await createRole(cfg, guard, actor, title, body.description ?? "")
   // Row-level: carry the new role's id so open role lists patch just that row.
   await publishChange(env.REALTIME, guard.teamId, "member_roles", roleId, "add")
   return json({ roles: await listRoles(env, cfg, guard) })
@@ -76,9 +77,9 @@ export async function postUpdateRole(request: Request, env: Env): Promise<Respon
     title?: string
     description?: string
   }
-  if (!body.roleId || !body.title?.trim())
-    return fail(400, "invalid_input", "roleId and title are required.")
-  await updateRole(cfg, guard, actor, body.roleId, body.title, body.description ?? "")
+  if (!body.roleId) return fail(400, "invalid_input", "roleId and title are required.")
+  const title = requireText(body.title, "Name", TEXT_LIMITS.short)
+  await updateRole(cfg, guard, actor, body.roleId, title, body.description ?? "")
   await publishChange(env.REALTIME, guard.teamId, "member_roles", body.roleId)
   return json({ roles: await listRoles(env, cfg, guard) })
 }

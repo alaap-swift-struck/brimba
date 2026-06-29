@@ -5,6 +5,7 @@
 // real endpoint it calls (act-as-user), so it can never exceed the caller's rights.
 
 import { fail, json } from "../../../../shared/workers/http"
+import { optionalText, requireText, TEXT_LIMITS } from "../../../../shared/workers/validate"
 import { publishChange } from "../../../../shared/workers/realtime"
 import { adminGuard, requireRight, teamContext } from "../../../../shared/workers/gating"
 import { getQuota, grantCredits } from "../lib/credits"
@@ -36,11 +37,12 @@ export async function postGrantCredits(request: Request, env: Env): Promise<Resp
 export async function postAgentChat(request: Request, env: Env): Promise<Response> {
   const { actor, cfg, guard } = await teamContext(request, env)
   await requireRight(cfg, guard, "agent", "create")
-  const body = (await request.json().catch(() => ({}))) as { threadId?: string; message?: string }
-  if (!body.message?.trim()) return fail(400, "invalid_input", "Type a message for the assistant.")
+  const body = (await request.json().catch(() => ({}))) as { threadId?: unknown; message?: unknown }
+  const message = requireText(body.message, "Message", TEXT_LIMITS.message)
+  const threadId = optionalText(body.threadId, "Thread", 64)
   const outcome = await runChat(env, request, cfg, guard, actor, {
-    threadId: body.threadId,
-    message: body.message,
+    threadId,
+    message,
     source: "in-app",
   })
   return json(outcome)

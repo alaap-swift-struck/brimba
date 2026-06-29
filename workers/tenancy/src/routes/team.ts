@@ -2,6 +2,7 @@
 // switcher, creating a team, editing it, the Overview metadata + Activity feed.
 
 import { fail, json } from "../../../../shared/workers/http"
+import { requireText, TEXT_LIMITS } from "../../../../shared/workers/validate"
 import { publishChange } from "../../../../shared/workers/realtime"
 import { getActivity } from "../lib/activity-read"
 import { requireRight } from "../lib/permissions"
@@ -96,8 +97,8 @@ export async function postUpdateTeam(request: Request, env: Env): Promise<Respon
     name?: string
     logoDataUrl?: string
   }
-  if (!body.name?.trim()) return fail(400, "invalid_input", "A team needs a name.")
-  await updateTeamDetails(env, guard.teamId, body.name, body.logoDataUrl)
+  const name = requireText(body.name, "Name", TEXT_LIMITS.short)
+  await updateTeamDetails(env, guard.teamId, name, body.logoDataUrl)
   await publishChange(env.REALTIME, guard.teamId, "team")
   return json({ ok: true })
 }

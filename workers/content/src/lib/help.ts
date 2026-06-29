@@ -14,6 +14,7 @@ import { d1ExecScript, d1Query, sqlString, type D1Rest } from "../../../../share
 import { ulid } from "../../../../shared/workers/id"
 import type { HelpMessage, HelpTicket } from "../../../../shared/types"
 import { GuardError, type MemberGuard } from "../../../../shared/workers/gating"
+import { optionalText, TEXT_LIMITS } from "../../../../shared/workers/validate"
 
 /** The fixed status lifecycle the code trusts (the team-editable dropdown is
  * display-only). Anything outside this set is rejected. */
@@ -179,7 +180,7 @@ export async function createTicket(
     cfg,
     guard.databaseId,
     `INSERT INTO help (id, help_type, description, screen_recording_link, source_screen, source_related_table, source_related_row_id, status, resolved, created_at, creator_id, creator_email, creator_name)
-VALUES (${sqlString(id)}, ${sqlString(input.helpType?.trim() || null)}, ${sqlString(description)}, ${sqlString(input.screenRecordingLink?.trim() || null)}, ${sqlString(input.sourceScreen?.trim() || null)}, ${sqlString(input.sourceRelatedTable?.trim() || null)}, ${sqlString(input.sourceRelatedRowId?.trim() || null)}, 'open', 0, ${sqlString(now)}, ${sqlString(actor.id)}, ${sqlString(actor.email)}, ${sqlString(actor.name)});`
+VALUES (${sqlString(id)}, ${sqlString((optionalText(input.helpType, "Type", TEXT_LIMITS.short) ?? null))}, ${sqlString(description)}, ${sqlString((optionalText(input.screenRecordingLink, "Screen recording link", TEXT_LIMITS.link) ?? null))}, ${sqlString((optionalText(input.sourceScreen, "Source", TEXT_LIMITS.short) ?? null))}, ${sqlString((optionalText(input.sourceRelatedTable, "Source table", TEXT_LIMITS.short) ?? null))}, ${sqlString((optionalText(input.sourceRelatedRowId, "Source row", TEXT_LIMITS.short) ?? null))}, 'open', 0, ${sqlString(now)}, ${sqlString(actor.id)}, ${sqlString(actor.email)}, ${sqlString(actor.name)});`
   )
 
   await logActivity(cfg, guard.databaseId, actor, {
@@ -209,7 +210,7 @@ export async function updateTicket(
   await d1ExecScript(
     cfg,
     guard.databaseId,
-    `UPDATE help SET help_type = ${sqlString(input.helpType?.trim() || null)}, description = ${sqlString(description)}, screen_recording_link = ${sqlString(input.screenRecordingLink?.trim() || null)}, source_screen = ${sqlString(input.sourceScreen?.trim() || null)}, updated_at = ${sqlString(now)}, editor_id = ${sqlString(actor.id)}, editor_email = ${sqlString(actor.email)}, editor_name = ${sqlString(actor.name)} WHERE id = ${sqlString(id)};`
+    `UPDATE help SET help_type = ${sqlString((optionalText(input.helpType, "Type", TEXT_LIMITS.short) ?? null))}, description = ${sqlString(description)}, screen_recording_link = ${sqlString((optionalText(input.screenRecordingLink, "Screen recording link", TEXT_LIMITS.link) ?? null))}, source_screen = ${sqlString((optionalText(input.sourceScreen, "Source", TEXT_LIMITS.short) ?? null))}, updated_at = ${sqlString(now)}, editor_id = ${sqlString(actor.id)}, editor_email = ${sqlString(actor.email)}, editor_name = ${sqlString(actor.name)} WHERE id = ${sqlString(id)};`
   )
 
   await logActivity(cfg, guard.databaseId, actor, {
