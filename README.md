@@ -26,6 +26,10 @@ not under Settings; top-level `/members` and `/roles` are thin redirects there.
 
 ## The documents
 
+0. **[CLAUDE.md](CLAUDE.md)** — read first if you're an agent (or a new
+   developer): the **Laws of the Base** (machine-enforced rules), the build
+   style, and this doc map. **[RULES.md](RULES.md)** is the law-book it enforces
+   (pinned to `shared/rules/registry.ts`, checked by `web/test/rules.test.ts`).
 1. **[ARCHITECTURE.md](ARCHITECTURE.md)** — the locked decisions (incl. the
    workers, the live layer, and the Durable Object code-vs-runtime model). Read
    before building anything; do not relitigate without the user.
