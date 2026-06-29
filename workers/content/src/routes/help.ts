@@ -22,6 +22,7 @@ import {
   type TicketInput,
 } from "../lib/help"
 import { notifyReplyAndMentions } from "../lib/notify"
+import { addStakeholder, listStakeholders } from "../lib/stakeholders"
 import type { Env } from "../env"
 
 /** GET /api/content/help?scope=mine|all  (?id=<ticketId> → just that one). */
@@ -124,4 +125,30 @@ export async function postHelpReply(request: Request, env: Env): Promise<Respons
     tagged
   )
   return json({ replies: await listReplies(cfg, guard, body.helpId) })
+}
+
+/** GET /api/content/help/stakeholders?id=<ticketId> — the full derived ∪ added
+ * set (raiser + admins + @mentions + manual adds). help:read gates it. */
+export async function getHelpStakeholders(request: Request, env: Env): Promise<Response> {
+  const { cfg, guard } = await teamContext(request, env)
+  await requireRight(cfg, guard, "help", "read")
+  const id = new URL(request.url).searchParams.get("id")
+  if (!id) return fail(400, "invalid_input", "A ticket id is required.")
+  return json({ stakeholders: await listStakeholders(cfg, env, guard, id) })
+}
+
+/** POST /api/content/help/stakeholders — manually add a stakeholder (help:read;
+ * any member who can see a ticket may pull a teammate in). Add-only — never
+ * removes anyone. SEAM LAW: this mutation publishes the help row change. */
+export async function postAddStakeholder(request: Request, env: Env): Promise<Response> {
+  const { actor, cfg, guard } = await teamContext(request, env)
+  await requireRight(cfg, guard, "help", "read")
+  const body = (await request.json().catch(() => ({}))) as { id?: string; userId?: string }
+  if (!body.id || !body.userId)
+    return fail(400, "invalid_input", "id and userId are required.")
+  const ticket = await getTicket(cfg, guard, body.id)
+  if (!ticket) return fail(404, "help_not_found", "That ticket doesn't exist.")
+  const stakeholders = await addStakeholder(cfg, env, guard, actor, body.id, body.userId)
+  await publishChange(env.REALTIME, guard.teamId, "help", body.id, "edit")
+  return json({ stakeholders })
 }

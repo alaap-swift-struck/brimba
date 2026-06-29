@@ -227,6 +227,16 @@ export type HelpMessage = {
   createdAt: string
 }
 
+/** One stakeholder on a ticket. Origin tells the UI why they're here (and that
+ * derived ones can't be removed — nothing on a ticket can). No assignee. */
+export type HelpStakeholder = {
+  userId: string
+  name: string | null
+  email: string
+  imageUrl: string | null
+  origin: "raiser" | "admin" | "mentioned" | "added"
+}
+
 /** A target in the owner-maintained global import catalog. */
 export type ImportableTarget = {
   id: string

@@ -10,6 +10,7 @@ import type {
   ApiError,
   ChatOutcome,
   HelpMessage,
+  HelpStakeholder,
   HelpTicket,
   ImportColumn,
   ImportableTarget,
@@ -361,6 +362,10 @@ export const content = {
     api<{ tickets: HelpTicket[] }>("/api/content/help/status", post({ id, status })),
   replyHelp: (helpId: string, body: string, taggedUserIds?: string[]) =>
     api<{ replies: HelpMessage[] }>("/api/content/help/reply", post({ helpId, body, taggedUserIds })),
+  helpStakeholders: (id: string) =>
+    api<{ stakeholders: HelpStakeholder[] }>(`/api/content/help/stakeholders?id=${enc(id)}`),
+  addStakeholder: (id: string, userId: string) =>
+    api<{ stakeholders: HelpStakeholder[] }>("/api/content/help/stakeholders", post({ id, userId })),
 }
 
 /** Data-ops worker — the 3-stage import + the AI agent. */

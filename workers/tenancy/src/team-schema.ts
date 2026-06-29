@@ -252,6 +252,22 @@ CREATE TABLE agent_messages (
 CREATE INDEX idx_agent_messages_thread ON agent_messages (thread_id);
 `,
   },
+  {
+    // Manually-added ticket stakeholders. Add-only by design (no edit/remove path):
+    // the raiser, team admins, and thread @mentions are DERIVED at read time and are
+    // not stored here — only explicit manual adds live as rows.
+    version: "0005_help_stakeholders",
+    sql: `
+CREATE TABLE help_stakeholders (
+  id TEXT PRIMARY KEY,
+  help_id TEXT NOT NULL REFERENCES help (id),
+  user_id TEXT NOT NULL,
+  created_at TEXT NOT NULL, creator_id TEXT, creator_email TEXT, creator_name TEXT,
+  UNIQUE (help_id, user_id)              -- adding the same person twice is a no-op
+);
+CREATE INDEX idx_help_stakeholders_help ON help_stakeholders (help_id);
+`,
+  },
 ]
 
 export type Actor = { id: string; email: string; name: string }
