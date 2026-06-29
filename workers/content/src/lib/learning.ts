@@ -17,7 +17,7 @@ import {
 import { ulid } from "../../../../shared/workers/id"
 import type { Learning, LearningProgressEntry } from "../../../../shared/types"
 import { GuardError, type MemberGuard } from "../../../../shared/workers/gating"
-import { optionalText, TEXT_LIMITS } from "../../../../shared/workers/validate"
+import { optionalText, requireText, TEXT_LIMITS } from "../../../../shared/workers/validate"
 
 /** The dropdown `type` a learning item's category is stored under. */
 const CATEGORY_TYPE = "Learning category"
@@ -166,8 +166,7 @@ export async function createLearning(
   actor: Actor,
   input: LearningInput
 ): Promise<string> {
-  const title = input.title?.trim()
-  if (!title) throw new GuardError(400, "invalid_input", "A learning item needs a title.")
+  const title = requireText(input.title, "Title", TEXT_LIMITS.short)
 
   const category = optionalText(input.category, "Category", TEXT_LIMITS.short) ?? null
   if (category) await ensureCategory(cfg, guard, actor, category)
@@ -201,8 +200,7 @@ export async function updateLearning(
   input: LearningInput
 ): Promise<void> {
   await learningOrThrow(cfg, guard, id)
-  const title = input.title?.trim()
-  if (!title) throw new GuardError(400, "invalid_input", "A learning item needs a title.")
+  const title = requireText(input.title, "Title", TEXT_LIMITS.short)
 
   const category = optionalText(input.category, "Category", TEXT_LIMITS.short) ?? null
   if (category) await ensureCategory(cfg, guard, actor, category)

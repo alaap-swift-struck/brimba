@@ -14,7 +14,7 @@ import { d1ExecScript, d1Query, sqlString, type D1Rest } from "../../../../share
 import { ulid } from "../../../../shared/workers/id"
 import type { HelpMessage, HelpTicket } from "../../../../shared/types"
 import { GuardError, type MemberGuard } from "../../../../shared/workers/gating"
-import { optionalText, TEXT_LIMITS } from "../../../../shared/workers/validate"
+import { optionalText, requireText, TEXT_LIMITS } from "../../../../shared/workers/validate"
 
 /** The fixed status lifecycle the code trusts (the team-editable dropdown is
  * display-only). Anything outside this set is rejected. */
@@ -171,8 +171,7 @@ export async function createTicket(
   actor: Actor,
   input: TicketInput
 ): Promise<string> {
-  const description = input.description?.trim()
-  if (!description) throw new GuardError(400, "invalid_input", "A ticket needs a description.")
+  const description = requireText(input.description, "Description", TEXT_LIMITS.long)
 
   const id = ulid()
   const now = new Date().toISOString()
@@ -203,8 +202,7 @@ export async function updateTicket(
   input: TicketInput
 ): Promise<void> {
   await ticketOrThrow(cfg, guard, id)
-  const description = input.description?.trim()
-  if (!description) throw new GuardError(400, "invalid_input", "A ticket needs a description.")
+  const description = requireText(input.description, "Description", TEXT_LIMITS.long)
 
   const now = new Date().toISOString()
   await d1ExecScript(
