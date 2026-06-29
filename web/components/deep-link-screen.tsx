@@ -51,7 +51,13 @@ import { InviteDialog } from "@/components/invite-dialog"
 import { TeamEditDialog } from "@/components/team-edit-dialog"
 import { ConfirmAction } from "@/components/deep-link/confirm-action"
 import { NoAccess, NotFound, LoadError, SectionWithCreate } from "@/components/deep-link/screen-bits"
-import { parseRoute, sectionTitle, type Route, type SectionKey } from "@/components/deep-link/route"
+import {
+  parseRoute,
+  sectionTitle,
+  TOP_LEVEL_MODULES,
+  type Route,
+  type SectionKey,
+} from "@/components/deep-link/route"
 import {
   shapeHelpList,
   shapeInviteDetail,
@@ -98,27 +104,25 @@ export function DeepLinkScreen() {
     return () => window.removeEventListener("popstate", read)
   }, [pathname])
 
-  const teamId = route?.teamId ?? null
+  const urlTeamId = route?.teamId || null
   const module = route?.module ?? null
   const recordId = route?.recordId ?? null
   const query = route?.query ?? {}
+  const topLevel = route?.topLevel ?? false
 
-  // Resolve which team this URL points at. Three cases, all keyed off PRIMITIVES
-  // (not the whole `active` object, which is a fresh literal every render → would
-  // re-fire + re-dispatch every render):
-  //   • not (or no longer) a member → leave the dead /t screen for safety;
-  //   • a member but not the active team → switch to it (server re-validates);
-  //   • the active team → nothing to do.
-  // isMemberOfUrlTeam flips the instant a live membership ping (decision #8)
-  // refreshes ctx.teams, so a removed user is routed away automatically.
+  // Top-level pages (/learning, /help) run against the ACTIVE team (like /home);
+  // /t/<id> URLs name their team explicitly. `teamId` = the effective team for
+  // data; `urlTeamId` is set only when the URL names one — it drives the team
+  // switch + the membership guard (top-level never switches, you're already on it).
   const activeTeamId = active.ctx?.team?.id ?? null
+  const teamId = urlTeamId ?? activeTeamId
   const teamCount = active.ctx?.teams.length ?? 0
-  const isMemberOfUrlTeam = teamId
-    ? (active.ctx?.teams.some((t) => t.id === teamId) ?? false)
+  const isMemberOfUrlTeam = urlTeamId
+    ? (active.ctx?.teams.some((t) => t.id === urlTeamId) ?? false)
     : true
   const switchTeam = active.switchTeam
   React.useEffect(() => {
-    if (active.loading || !teamId) return
+    if (active.loading || !urlTeamId) return
     if (!isMemberOfUrlTeam) {
       // Removed from this team. Go to the active team's home if one remains;
       // if teamless, use-active-team has already routed us to onboarding.
@@ -128,12 +132,12 @@ export function DeepLinkScreen() {
     setNoAccess(false)
     // A member whose team is still provisioning (db not 'ready') fails the switch
     // → that's the genuine no-access case the screen still covers.
-    if (activeTeamId && activeTeamId !== teamId) {
-      switchTeam(teamId).catch(() => setNoAccess(true))
+    if (activeTeamId && activeTeamId !== urlTeamId) {
+      switchTeam(urlTeamId).catch(() => setNoAccess(true))
     }
-  }, [teamId, activeTeamId, isMemberOfUrlTeam, teamCount, active.loading, switchTeam, router])
+  }, [urlTeamId, activeTeamId, isMemberOfUrlTeam, teamCount, active.loading, switchTeam, router])
 
-  const onTeam = active.ctx?.team?.id === teamId
+  const onTeam = !!teamId && active.ctx?.team?.id === teamId
   const enabled = Boolean(teamId && onTeam)
   const { perms, can } = usePermissions(enabled ? teamId : null)
 
@@ -213,9 +217,22 @@ export function DeepLinkScreen() {
 
   /* ------------------------------ navigation ------------------------------ */
 
+  // The base URL for the current screen — a clean top-level path (/learning) or the
+  // team-scoped form (/t/<teamId>/<module>). go() / breadcrumbs / closePanel build
+  // off these, so intra-screen nav stays in whichever form you arrived through.
   const teamPath = teamId ? `/t/${teamId}` : "/"
-  const sectionPath = module && module !== "team" ? `/t/${teamId}/${module}` : teamPath
-  const currentPath = recordId ? `/t/${teamId}/${module}/${recordId}` : sectionPath
+  const moduleBase = topLevel
+    ? `/${module}`
+    : module && module !== "team"
+      ? `/t/${teamId}/${module}`
+      : teamPath
+  const sectionPath = moduleBase
+  const currentPath = recordId ? `${moduleBase}/${recordId}` : moduleBase
+
+  // A path the deep-link host owns (so go/replace use the History API, no reload):
+  // the whole /t/* tree, plus the top-level module pages (/learning, /help).
+  const isInAppPath = (p: string) =>
+    p.startsWith("/t") || TOP_LEVEL_MODULES.some((m) => p === `/${m}` || p.startsWith(`/${m}/`))
 
   // Navigate. The ENTIRE /t/* tree is one static shell (this component never
   // unmounts), so moving WITHIN it must NOT use the framework router: in a static
@@ -230,7 +247,7 @@ export function DeepLinkScreen() {
       navigatedRef.current = true
       const search = q ? buildScreenQuery(q) : ""
       const url = path + search
-      if (path.startsWith("/t")) {
+      if (isInAppPath(path)) {
         window.history.pushState(null, "", url)
         setRoute(parseRoute(path, search))
       } else {
@@ -241,7 +258,7 @@ export function DeepLinkScreen() {
   )
   const replace = React.useCallback(
     (path: string) => {
-      if (path.startsWith("/t")) {
+      if (isInAppPath(path)) {
         window.history.replaceState(null, "", path)
         setRoute(parseRoute(path, ""))
       } else {
@@ -342,7 +359,9 @@ export function DeepLinkScreen() {
   /* ------------------------- engine intent + action ------------------------ */
 
   function onIntent(intent: ScreenIntent) {
-    if (intent.kind === "open") go(`/t/${teamId}/${intent.module}/${intent.id}`)
+    if (intent.kind === "open")
+      // Open a record in the SAME URL form we're in (clean top-level or /t-scoped).
+      go(topLevel ? `/${intent.module}/${intent.id}` : `/t/${teamId}/${intent.module}/${intent.id}`)
     else if (intent.kind === "close") {
       if (query.panel || query.confirm) closePanel()
       else router.back()
@@ -412,15 +431,22 @@ export function DeepLinkScreen() {
 
   // Breadcrumbs derived from the URL spine; the library Breadcrumbs collapses the
   // middle on small screens. The last crumb is the current page (no href).
-  const crumbs: Crumb[] = [
-    { label: "Settings", href: "/settings" },
-    { label: teamName, href: teamPath },
-  ]
-  if (module && module !== "team") {
-    crumbs.push({ label: sectionTitle(module), href: sectionPath })
+  const crumbs: Crumb[] = []
+  if (topLevel) {
+    // A top-level page (Learning / Help) — its OWN page, not under Settings.
+    crumbs.push({ label: sectionTitle(module ?? ""), href: recordId ? sectionPath : undefined })
     if (recordId) {
       const label = recordLabel()
       if (label) crumbs.push({ label })
+    }
+  } else {
+    crumbs.push({ label: "Settings", href: "/settings" }, { label: teamName, href: teamPath })
+    if (module && module !== "team") {
+      crumbs.push({ label: sectionTitle(module), href: sectionPath })
+      if (recordId) {
+        const label = recordLabel()
+        if (label) crumbs.push({ label })
+      }
     }
   }
 

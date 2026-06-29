@@ -24,17 +24,37 @@ export type Route = {
   /** "" = the list / overview level (no record selected) */
   recordId: string
   query: ScreenQuery
+  /** true when reached via a clean top-level module URL (/learning, /help) rather
+   * than /t/<teamId>/… — the host resolves the team from the active context, like
+   * /home does. */
+  topLevel: boolean
 }
 
+/** Modules that have a clean top-level URL (/learning, /help) — their own pages,
+ * not nested under /t/<teamId>. They resolve the active team from context. */
+export const TOP_LEVEL_MODULES = ["learning", "help"]
+
 export function parseRoute(pathname: string, search: string): Route {
-  const segs = pathname.split("/").filter(Boolean) // ["t", teamId, module?, id?, …]
-  const teamId = segs[1] ?? ""
-  const levels = parseScreenPath(segs.slice(2)) // [{module,id}, …]
+  const segs = pathname.split("/").filter(Boolean) // ["t", teamId, module?, id?] OR [module, id?]
+  const query = parseScreenQuery(new URLSearchParams(search))
+  if (segs[0] === "t") {
+    const levels = parseScreenPath(segs.slice(2)) // [{module,id}, …]
+    return {
+      teamId: segs[1] ?? "",
+      module: levels[0]?.module || "team",
+      recordId: levels[0]?.id || "",
+      query,
+      topLevel: false,
+    }
+  }
+  // Top-level module URL: /learning, /learning/<id>, /help, /help/<id>.
+  const levels = parseScreenPath(segs)
   return {
-    teamId,
+    teamId: "",
     module: levels[0]?.module || "team",
     recordId: levels[0]?.id || "",
-    query: parseScreenQuery(new URLSearchParams(search)),
+    query,
+    topLevel: true,
   }
 }
 

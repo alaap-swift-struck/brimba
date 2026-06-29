@@ -69,6 +69,18 @@ export default {
       return env.ASSETS.fetch(new Request(shell, request))
     }
 
+    // Top-level module pages (/learning, /help) are ALSO client-resolved deep-link
+    // shells (their own clean URLs, active team from context). Serve the module's
+    // shell for any sub-path (e.g. /learning/<id>); the bare /learning is a real
+    // static file served below.
+    for (const mod of ["learning", "help"]) {
+      if (pathname.startsWith(`/${mod}/`)) {
+        const shell = new URL(request.url)
+        shell.pathname = `/${mod}`
+        return env.ASSETS.fetch(new Request(shell, request))
+      }
+    }
+
     // Static screens/assets. Long-cache headers for the content-hashed
     // /_next/static/** files are set in web/public/_headers — Workers Static
     // Assets serves matching files BEFORE this Worker runs, so per-asset headers

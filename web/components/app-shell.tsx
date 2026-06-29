@@ -156,7 +156,9 @@ export function AppShell({
         slug: s.key,
         title: s.title,
         Icon: SECTION_ICONS[s.key] ?? Home,
-        path: `/t/${teamId}/${s.segment}`,
+        // Clean top-level URL (/learning, /help) — resolves the active team from
+        // context, like Home. (The gateway serves the shell for any sub-path.)
+        path: `/${s.segment}`,
       }))
     : []
   const homeIdx = universal.findIndex((i) => i.slug === "home")

@@ -17,7 +17,7 @@
     // /t/<team>/<module>/<id> navigation before the worker sees it). Static
     // screens (/, /home, /_next/static/**) are NOT listed, so they keep the
     // fast asset path + the immutable _headers caching.
-    "run_worker_first": ["/api/*", "/media/*", "/t/*"]
+    "run_worker_first": ["/api/*", "/media/*", "/t/*", "/learning/*", "/help/*"]
   },
   "services": [
     { "binding": "AUTH", "service": "brimba-auth" },
@@ -35,7 +35,7 @@
         "directory": "../../web/out",
         "binding": "ASSETS",
         "not_found_handling": "404-page",
-        "run_worker_first": ["/api/*", "/media/*", "/t/*"]
+        "run_worker_first": ["/api/*", "/media/*", "/t/*", "/learning/*", "/help/*"]
       },
       "services": [
         { "binding": "AUTH", "service": "brimba-auth-staging" },
