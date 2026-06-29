@@ -168,6 +168,13 @@ export function DeepLinkScreen() {
   const helpQ = useCached(enabled && module === "help" ? `help:${teamId}` : null, () =>
     contentApi.help("all").then((r) => r.tickets)
   )
+  // The team's "Help type" dropdown values (for the raise-ticket Type select).
+  const helpSelectableQ = useCached(enabled && module === "help" ? `selectable:${teamId}` : null, () =>
+    tenancy.selectable().then((r) => r.values)
+  )
+  const helpTypeOptions = (helpSelectableQ.data ?? [])
+    .filter((v) => v.type === "Help type")
+    .map((v) => v.value)
   const [helpScope, setHelpScope] = React.useState<"mine" | "all">("all")
   const activityScope: "team" | "user" | "invite" | null =
     module === "team"
@@ -678,6 +685,7 @@ export function DeepLinkScreen() {
       <HelpFormDialog
         open={query.panel === "add" && query.module === "help" && can("help", "create")}
         onOpenChange={(o) => !o && closePanel()}
+        helpTypeOptions={helpTypeOptions}
         onSubmit={createHelp}
       />
 

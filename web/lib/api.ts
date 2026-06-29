@@ -304,6 +304,13 @@ export const tenancy = {
       `/api/tenancy/activity?scope=${scope}${id ? `&id=${encodeURIComponent(id)}` : ""}`
     ),
 
+  /** One record's activity slice (generic — any module's rows by table+id; e.g.
+   * a help ticket's history). Gated server-side by that module's read right. */
+  recordActivity: (table: string, id: string): Promise<ActivityItem[]> =>
+    api<{ activity: ActivityItem[] }>(
+      `/api/tenancy/activity?scope=record&table=${encodeURIComponent(table)}&id=${encodeURIComponent(id)}`
+    ).then((r) => r.activity),
+
   /** The active team's Overview metadata (created by/when, last updated). */
   teamMeta: () => api<TeamMeta>("/api/tenancy/team-meta"),
 
