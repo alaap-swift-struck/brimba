@@ -72,9 +72,10 @@ export async function postUpdateHelp(request: Request, env: Env): Promise<Respon
 }
 
 /** POST /api/content/help/status — move a ticket along its fixed lifecycle.
- * Resolving / in-progress needs help:edit; the RAISER may always reopen their own. */
+ * Gated PURELY by help:edit (every status move, including reopen — no raiser exception). */
 export async function postHelpStatus(request: Request, env: Env): Promise<Response> {
   const { actor, cfg, guard } = await teamContext(request, env)
+  await requireRight(cfg, guard, "help", "edit")
   const body = (await request.json().catch(() => ({}))) as { id?: string; status?: string }
   if (!body.id || !body.status || !(HELP_STATUSES as readonly string[]).includes(body.status))
     return fail(400, "invalid_input", "id and a valid status are required.")
@@ -82,8 +83,6 @@ export async function postHelpStatus(request: Request, env: Env): Promise<Respon
 
   const ticket = await getTicket(cfg, guard, body.id)
   if (!ticket) return fail(404, "help_not_found", "That ticket doesn't exist.")
-  const raiserReopening = status === "reopened" && ticket.raiserId === guard.userId
-  if (!raiserReopening) await requireRight(cfg, guard, "help", "edit")
 
   await setStatus(cfg, guard, actor, body.id, status)
   await publishChange(env.REALTIME, guard.teamId, "help", body.id)
@@ -107,9 +106,10 @@ export async function postHelpReply(request: Request, env: Env): Promise<Respons
   const ticket = await getTicket(cfg, guard, body.helpId)
   if (!ticket) return fail(404, "help_not_found", "That ticket doesn't exist.")
 
-  // Untrusted: only keep string ids (a mention is notify-only — never an instruction).
+  // Untrusted: only keep string ids, and never the author's own id (you can't
+  // @mention yourself). A mention is notify-only — never an instruction.
   const tagged = Array.isArray(body.taggedUserIds)
-    ? body.taggedUserIds.filter((x): x is string => typeof x === "string")
+    ? body.taggedUserIds.filter((x): x is string => typeof x === "string" && x !== actor.id)
     : []
 
   const replyId = await addReply(cfg, guard, actor, body.helpId, body.body, tagged, false)

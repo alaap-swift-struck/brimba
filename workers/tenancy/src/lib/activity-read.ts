@@ -22,12 +22,16 @@ const LIMIT = 50
  *  • user   → events about that member (role changes, removal, join)
  *  • role   → events about that role (created, renamed, permissions changed)
  *  • invite → events about that invite (sent, revoked) — `id` is the team-local
- *             invite_logs row id (the caller maps invite_index.id → it first) */
+ *             invite_logs row id (the caller maps invite_index.id → it first)
+ *  • record → GENERIC: any module's record, by (`table`, `id`). user/role/invite
+ *             are just fixed-`table` aliases of this; `record` lets a NEW module
+ *             (help, learning, products…) surface its activity with zero new code. */
 export async function getActivity(
   cfg: D1Rest,
   guard: MemberGuard,
-  scope: "team" | "user" | "role" | "invite",
-  id?: string
+  scope: "team" | "user" | "role" | "invite" | "record",
+  id?: string,
+  table?: string
 ): Promise<ActivityItem[]> {
   let sql = "SELECT id, type, description, created_at, creator_name FROM activity"
   const params: (string | number)[] = []
@@ -40,6 +44,9 @@ export async function getActivity(
   } else if (scope === "invite" && id) {
     sql += " WHERE related_table = 'invite_logs' AND related_row_id = ?"
     params.push(id)
+  } else if (scope === "record" && id && table) {
+    sql += " WHERE related_table = ? AND related_row_id = ?"
+    params.push(table, id)
   }
   sql += " ORDER BY created_at DESC LIMIT ?"
   params.push(LIMIT)

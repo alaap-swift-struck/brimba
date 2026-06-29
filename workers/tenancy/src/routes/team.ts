@@ -105,11 +105,38 @@ export async function postUpdateTeam(request: Request, env: Env): Promise<Respon
 /** The activity feed for the active team, or one record (?scope=team|user|role
  * &id=). Gated by read-right: role scope needs member_roles:read, the rest
  * team_members:read — so a viewer with read access can see the history. */
+/** Which permission module gates a generic record-activity read, keyed by the row's
+ * related_table. (member_roles / users / invite_logs keep their own fixed scopes.)
+ * A NEW module surfaces its record activity by adding one line here. */
+const TABLE_TO_MODULE: Record<string, string> = {
+  help: "help",
+  learning: "learning",
+  selectable_data: "selectable_data",
+}
+
 export async function getActivityFeed(request: Request, env: Env): Promise<Response> {
   const { cfg, guard } = await teamContext(request, env)
   const url = new URL(request.url)
-  const scope = (url.searchParams.get("scope") ?? "team") as "team" | "user" | "role" | "invite"
+  const scope = (url.searchParams.get("scope") ?? "team") as
+    | "team"
+    | "user"
+    | "role"
+    | "invite"
+    | "record"
   let id = url.searchParams.get("id") ?? undefined
+
+  // Generic record scope: any module's activity by (table, id), gated by THAT
+  // module's read right (resolved from the table — an unknown table returns empty,
+  // never the whole-team feed).
+  if (scope === "record") {
+    const table = url.searchParams.get("table") ?? undefined
+    if (!id || !table) return json({ activity: [] })
+    const module = TABLE_TO_MODULE[table]
+    if (!module) return json({ activity: [] })
+    await requireRight(cfg, guard, module, "read")
+    return json({ activity: await getActivity(cfg, guard, "record", id, table) })
+  }
+
   await requireRight(cfg, guard, scope === "role" ? "member_roles" : "team_members", "read")
   // Invite scope: the client passes the GLOBAL invite id; map it to the team-local
   // invite_logs row id the activity rows reference. Bail to an empty feed if it

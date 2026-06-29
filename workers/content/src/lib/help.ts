@@ -5,7 +5,7 @@
 //   • tickets are team-wide: the My/All tabs are just a creator filter, no
 //     row-level privacy (a mention is notify-only — see lib/notify);
 //   • resolving stamps the resolver audit block + resolved flag; reopening clears
-//     it (and the raiser may always reopen their own ticket);
+//     it. Every status move (incl. reopen) is gated purely by help:edit;
 //   • the AI agent's first-draft reply is a HOOK (maybeDraftFirstReply) left off
 //     until the agent worker exists — a ticket always opens regardless.
 
@@ -221,8 +221,8 @@ export async function updateTicket(
 }
 
 /** Move a ticket along its fixed lifecycle. Resolving stamps the resolver block +
- * resolved flag; any non-resolved status clears it. Caller-permission rules live in
- * the route (the raiser may reopen; resolving needs help:edit). */
+ * resolved flag; any non-resolved status clears it. Caller-permission lives in the
+ * route — every status move (incl. reopen) needs help:edit. */
 export async function setStatus(
   cfg: D1Rest,
   guard: MemberGuard,
