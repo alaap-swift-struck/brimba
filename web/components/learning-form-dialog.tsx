@@ -1,11 +1,10 @@
 "use client"
 
 // Learning form dialog — create a new article OR edit an existing one's content.
-// `initial` present = edit mode (prefilled). Title is required; category /
-// description / a content-type label / an external link / the in-app body are all
-// optional. The in-app body is the text the agent later reads to answer Help, so
-// it's a generous textarea. Submits a Partial<Learning> the host posts to
-// content.createLearning / content.updateLearning. Library primitives.
+// `initial` present = edit mode (prefilled). Title is required; Category and Content
+// type are PICK-OR-CREATE (choose an existing dropdown value or type a new one).
+// The in-app body is what the assistant later reads to answer Help. Uses the shared
+// FormShell layout. Library primitives.
 
 import * as React from "react"
 
@@ -14,8 +13,6 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
-  DialogHeader,
   DialogTitle,
 } from "@swift-struck/ui/registry/primitives/dialog/dialog"
 import { Field } from "@swift-struck/ui/registry/primitives/field/field"
@@ -25,8 +22,8 @@ import { Spinner } from "@swift-struck/ui/registry/primitives/spinner/spinner"
 import { toast } from "@swift-struck/ui/registry/primitives/sonner/sonner"
 import { defaultFieldConfig } from "@swift-struck/ui/lib/config"
 
-import type { Learning } from "@shared/types"
 import { ApiFailure } from "@/lib/api"
+import { FormShell, fieldSpacing } from "@/components/form-shell"
 
 const titleField = { ...defaultFieldConfig, label: "Title", required: true }
 const categoryField = { ...defaultFieldConfig, label: "Category", required: false }
@@ -50,12 +47,18 @@ export function LearningFormDialog({
   onOpenChange,
   initial,
   onSubmit,
+  categoryOptions = [],
+  contentTypeOptions = [],
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   /** present = edit mode (prefilled); absent = create mode */
   initial?: LearningFormValues | null
   onSubmit: (values: LearningFormValues) => Promise<void>
+  /** existing "Learning category" values — pick one or type a new one. */
+  categoryOptions?: string[]
+  /** existing "File type" values — pick one or type a new one. */
+  contentTypeOptions?: string[]
 }) {
   const isEdit = !!initial
   const [values, setValues] = React.useState<LearningFormValues>({
@@ -81,8 +84,10 @@ export function LearningFormDialog({
     }
   }, [open, initial])
 
-  const set = (k: keyof LearningFormValues) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
-    setValues((v) => ({ ...v, [k]: e.target.value }))
+  const set =
+    (k: keyof LearningFormValues) =>
+    (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+      setValues((v) => ({ ...v, [k]: e.target.value }))
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
@@ -107,16 +112,24 @@ export function LearningFormDialog({
   return (
     <Dialog open={open} onOpenChange={(o) => !busy && onOpenChange(o)}>
       <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{isEdit ? "Edit article" : "New article"}</DialogTitle>
-          <DialogDescription>
-            {isEdit
-              ? "Update what this article teaches. The body is what the assistant reads to answer Help."
-              : "Write a how-to your team can read in-app. The body also helps the assistant answer Help."}
-          </DialogDescription>
-        </DialogHeader>
-        <form className="flex flex-col gap-4" onSubmit={submit}>
-          <Field config={titleField} htmlFor="learning-title">
+        <FormShell
+          onSubmit={submit}
+          title={<DialogTitle>{isEdit ? "Edit this article" : "Write a how-to"}</DialogTitle>}
+          subtitle={
+            <DialogDescription>
+              {isEdit
+                ? "Update what this article teaches. The body is also what the assistant reads to help your team."
+                : "Share a how-to your team can read right here. The body also helps the assistant answer questions."}
+            </DialogDescription>
+          }
+          footer={
+            <Button type="submit" disabled={busy || !values.title.trim()}>
+              {busy ? <Spinner /> : null}
+              {busy ? "Saving…" : isEdit ? "Save changes" : "Create article"}
+            </Button>
+          }
+        >
+          <Field config={titleField} htmlFor="learning-title" className={fieldSpacing}>
             <Input
               id="learning-title"
               value={values.title}
@@ -126,16 +139,22 @@ export function LearningFormDialog({
               autoFocus
             />
           </Field>
-          <Field config={categoryField} htmlFor="learning-category">
+          <Field config={categoryField} htmlFor="learning-category" className={fieldSpacing}>
             <Input
               id="learning-category"
+              list="learning-categories"
               value={values.category}
               onChange={set("category")}
-              placeholder="Onboarding"
+              placeholder="Pick a category or type a new one"
               disabled={busy}
             />
+            <datalist id="learning-categories">
+              {categoryOptions.map((c) => (
+                <option key={c} value={c} />
+              ))}
+            </datalist>
           </Field>
-          <Field config={descField} htmlFor="learning-desc">
+          <Field config={descField} htmlFor="learning-desc" className={fieldSpacing}>
             <Input
               id="learning-desc"
               value={values.description}
@@ -144,16 +163,22 @@ export function LearningFormDialog({
               disabled={busy}
             />
           </Field>
-          <Field config={typeField} htmlFor="learning-type">
+          <Field config={typeField} htmlFor="learning-type" className={fieldSpacing}>
             <Input
               id="learning-type"
+              list="learning-content-types"
               value={values.contentType}
               onChange={set("contentType")}
               placeholder="Guide, Video, Checklist…"
               disabled={busy}
             />
+            <datalist id="learning-content-types">
+              {contentTypeOptions.map((c) => (
+                <option key={c} value={c} />
+              ))}
+            </datalist>
           </Field>
-          <Field config={linkField} htmlFor="learning-link">
+          <Field config={linkField} htmlFor="learning-link" className={fieldSpacing}>
             <Input
               id="learning-link"
               type="url"
@@ -163,7 +188,7 @@ export function LearningFormDialog({
               disabled={busy}
             />
           </Field>
-          <Field config={bodyField} htmlFor="learning-body">
+          <Field config={bodyField} htmlFor="learning-body" className={fieldSpacing}>
             <Textarea
               id="learning-body"
               value={values.body}
@@ -173,13 +198,7 @@ export function LearningFormDialog({
               rows={6}
             />
           </Field>
-          <DialogFooter>
-            <Button type="submit" disabled={busy || !values.title.trim()}>
-              {busy ? <Spinner /> : null}
-              {busy ? "Saving…" : isEdit ? "Save" : "Create article"}
-            </Button>
-          </DialogFooter>
-        </form>
+        </FormShell>
       </DialogContent>
     </Dialog>
   )

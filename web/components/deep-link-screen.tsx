@@ -22,6 +22,7 @@ import { Sparkles } from "lucide-react"
 import { Button } from "@swift-struck/ui/registry/primitives/button/button"
 import { Skeleton } from "@swift-struck/ui/registry/primitives/skeleton/skeleton"
 import { toast } from "@swift-struck/ui/registry/primitives/sonner/sonner"
+import { TabsView, defaultTabsConfig } from "@swift-struck/ui/registry/primitives/tabs/tabs"
 import {
   ScreenRenderer,
   type ScreenActionContext,
@@ -168,13 +169,17 @@ export function DeepLinkScreen() {
   const helpQ = useCached(enabled && module === "help" ? `help:${teamId}` : null, () =>
     contentApi.help("all").then((r) => r.tickets)
   )
-  // The team's "Help type" dropdown values (for the raise-ticket Type select).
-  const helpSelectableQ = useCached(enabled && module === "help" ? `selectable:${teamId}` : null, () =>
-    tenancy.selectable().then((r) => r.values)
+  // The team's dropdown values — feed the help/learning forms' Type/Category pickers.
+  const formSelectableQ = useCached(
+    enabled && (module === "help" || module === "learning") ? `selectable:${teamId}` : null,
+    () => tenancy.selectable().then((r) => r.values)
   )
-  const helpTypeOptions = (helpSelectableQ.data ?? [])
-    .filter((v) => v.type === "Help type")
+  const selectableValues = formSelectableQ.data ?? []
+  const helpTypeOptions = selectableValues.filter((v) => v.type === "Help type").map((v) => v.value)
+  const learningCategoryOptions = selectableValues
+    .filter((v) => v.type === "Learning category")
     .map((v) => v.value)
+  const contentTypeOptions = selectableValues.filter((v) => v.type === "File type").map((v) => v.value)
   const [helpScope, setHelpScope] = React.useState<"mine" | "all">("all")
   const activityScope: "team" | "user" | "invite" | null =
     module === "team"
@@ -565,18 +570,32 @@ export function DeepLinkScreen() {
             icon="plus"
             onCreate={() => go(sectionPath, { panel: "add", module: "help" })}
           >
-            <div className="flex justify-start gap-1">
-              {(["all", "mine"] as const).map((s) => (
-                <Button
-                  key={s}
-                  variant={helpScope === s ? "secondary" : "ghost"}
-                  size="sm"
-                  onClick={() => setHelpScope(s)}
-                >
-                  {s === "all" ? "All tickets" : "My tickets"}
-                </Button>
-              ))}
-            </div>
+            <TabsView
+              config={{
+                ...defaultTabsConfig,
+                variant: "line",
+                tabs: [
+                  {
+                    value: "all",
+                    label: "All tickets",
+                    icon: "inbox",
+                    badge: String(helpQ.data.length || ""),
+                    badgeVariant: "",
+                  },
+                  {
+                    value: "mine",
+                    label: "My tickets",
+                    icon: "user",
+                    badge: String(
+                      (myUserId ? helpQ.data.filter((t) => t.raiserId === myUserId).length : 0) || ""
+                    ),
+                    badgeVariant: "",
+                  },
+                ],
+              }}
+              value={helpScope}
+              onValueChange={(v) => setHelpScope(v as "mine" | "all")}
+            />
             <ScreenRenderer recipe={recipe} data={data} rights={rights} onAction={onAction} onIntent={onIntent} />
           </SectionWithCreate>
         )
@@ -678,6 +697,8 @@ export function DeepLinkScreen() {
       <LearningFormDialog
         open={query.panel === "add" && query.module === "learning" && can("learning", "create")}
         onOpenChange={(o) => !o && closePanel()}
+        categoryOptions={learningCategoryOptions}
+        contentTypeOptions={contentTypeOptions}
         onSubmit={createLearning}
       />
 

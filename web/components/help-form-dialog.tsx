@@ -13,11 +13,10 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
-  DialogHeader,
   DialogTitle,
 } from "@swift-struck/ui/registry/primitives/dialog/dialog"
 import { Field } from "@swift-struck/ui/registry/primitives/field/field"
+import { FormShell, fieldSpacing } from "@/components/form-shell"
 import { Textarea } from "@swift-struck/ui/registry/primitives/textarea/textarea"
 import {
   Select,
@@ -90,16 +89,24 @@ export function HelpFormDialog({
   return (
     <Dialog open={open} onOpenChange={(o) => !busy && onOpenChange(o)}>
       <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{isEdit ? "Edit this ticket" : "Raise a ticket"}</DialogTitle>
-          <DialogDescription>
-            {isEdit
-              ? "Update what you're asking for. Everyone on the ticket will see the change."
-              : "Describe the problem you're facing. Chat with others, or use this ticket as a forum to discuss solutions."}
-          </DialogDescription>
-        </DialogHeader>
-        <form className="flex flex-col gap-4" onSubmit={submit}>
-          <Field config={descField} htmlFor="help-desc">
+        <FormShell
+          onSubmit={submit}
+          title={<DialogTitle>{isEdit ? "Edit this ticket" : "Raise a ticket"}</DialogTitle>}
+          subtitle={
+            <DialogDescription>
+              {isEdit
+                ? "Update what you're asking for. Everyone on the ticket will see the change."
+                : "Describe the problem you're facing. Chat with others, or use this ticket as a forum to discuss solutions."}
+            </DialogDescription>
+          }
+          footer={
+            <Button type="submit" disabled={busy || !description.trim()}>
+              {busy ? <Spinner /> : null}
+              {busy ? (isEdit ? "Saving…" : "Raising…") : isEdit ? "Save changes" : "Raise ticket"}
+            </Button>
+          }
+        >
+          <Field config={descField} htmlFor="help-desc" className={fieldSpacing}>
             <Textarea
               id="help-desc"
               value={description}
@@ -110,7 +117,7 @@ export function HelpFormDialog({
               autoFocus
             />
           </Field>
-          <Field config={typeField} htmlFor="help-type">
+          <Field config={typeField} htmlFor="help-type" className={fieldSpacing}>
             <Select value={helpType} onValueChange={setHelpType} disabled={busy}>
               <SelectTrigger id="help-type">
                 <SelectValue placeholder="Choose a type (optional)" />
@@ -125,13 +132,7 @@ export function HelpFormDialog({
               </SelectContent>
             </Select>
           </Field>
-          <DialogFooter>
-            <Button type="submit" disabled={busy || !description.trim()}>
-              {busy ? <Spinner /> : null}
-              {busy ? (isEdit ? "Saving…" : "Raising…") : isEdit ? "Save changes" : "Raise ticket"}
-            </Button>
-          </DialogFooter>
-        </form>
+        </FormShell>
       </DialogContent>
     </Dialog>
   )

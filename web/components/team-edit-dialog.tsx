@@ -15,11 +15,10 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
-  DialogHeader,
   DialogTitle,
 } from "@swift-struck/ui/registry/primitives/dialog/dialog"
 import { Field } from "@swift-struck/ui/registry/primitives/field/field"
+import { FormShell, fieldSpacing } from "@/components/form-shell"
 import { FileUpload } from "@swift-struck/ui/registry/primitives/file-upload/file-upload"
 import { Input } from "@swift-struck/ui/registry/primitives/input/input"
 import { Spinner } from "@swift-struck/ui/registry/primitives/spinner/spinner"
@@ -84,11 +83,21 @@ export function TeamEditDialog({
   return (
     <Dialog open={open} onOpenChange={(o) => !busy && onOpenChange(o)}>
       <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Edit team</DialogTitle>
-          <DialogDescription>Your team&apos;s name and logo.</DialogDescription>
-        </DialogHeader>
-        <form className="flex flex-col gap-4" onSubmit={submit}>
+        <FormShell
+          onSubmit={submit}
+          title={<DialogTitle>Edit your team</DialogTitle>}
+          subtitle={
+            <DialogDescription>
+              Change your team&apos;s name or add a logo. This is what everyone sees.
+            </DialogDescription>
+          }
+          footer={
+            <Button type="submit" disabled={busy || !name.trim()}>
+              {busy ? <Spinner /> : null}
+              {busy ? "Saving…" : "Save changes"}
+            </Button>
+          }
+        >
           <div className="flex flex-col items-center gap-3">
             <Avatar className="size-20">
               {(logo || team?.logoUrl) && (
@@ -100,7 +109,7 @@ export function TeamEditDialog({
             </Avatar>
             <FileUpload accept="image/*" multiple={false} onChange={handlePhoto} />
           </div>
-          <Field config={nameField} htmlFor="team-name">
+          <Field config={nameField} htmlFor="team-name" className={fieldSpacing}>
             <Input
               id="team-name"
               value={name}
@@ -108,13 +117,7 @@ export function TeamEditDialog({
               disabled={busy}
             />
           </Field>
-          <DialogFooter>
-            <Button type="submit" disabled={busy || !name.trim()}>
-              {busy ? <Spinner /> : null}
-              {busy ? "Saving…" : "Save"}
-            </Button>
-          </DialogFooter>
-        </form>
+        </FormShell>
       </DialogContent>
     </Dialog>
   )

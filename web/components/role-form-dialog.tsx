@@ -11,11 +11,10 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
-  DialogHeader,
   DialogTitle,
 } from "@swift-struck/ui/registry/primitives/dialog/dialog"
 import { Field } from "@swift-struck/ui/registry/primitives/field/field"
+import { FormShell, fieldSpacing } from "@/components/form-shell"
 import { Input } from "@swift-struck/ui/registry/primitives/input/input"
 import { Textarea } from "@swift-struck/ui/registry/primitives/textarea/textarea"
 import { Spinner } from "@swift-struck/ui/registry/primitives/spinner/spinner"
@@ -69,16 +68,24 @@ export function RoleFormDialog({
   return (
     <Dialog open={open} onOpenChange={(o) => !busy && onOpenChange(o)}>
       <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{isEdit ? "Edit role" : "Create a role"}</DialogTitle>
-          <DialogDescription>
-            {isEdit
-              ? "Rename it or update what it's for. Permissions are set in the grid."
-              : "It starts with no access — you'll switch on what it can do next."}
-          </DialogDescription>
-        </DialogHeader>
-        <form className="flex flex-col gap-4" onSubmit={submit}>
-          <Field config={titleField} htmlFor="role-title">
+        <FormShell
+          onSubmit={submit}
+          title={<DialogTitle>{isEdit ? "Edit this role" : "Create a role"}</DialogTitle>}
+          subtitle={
+            <DialogDescription>
+              {isEdit
+                ? "Rename it or update what it's for. You set what it can do over in the grid."
+                : "It starts with no access — you'll choose what it can do in the next step."}
+            </DialogDescription>
+          }
+          footer={
+            <Button type="submit" disabled={busy || !title.trim()}>
+              {busy ? <Spinner /> : null}
+              {busy ? "Saving…" : isEdit ? "Save changes" : "Create role"}
+            </Button>
+          }
+        >
+          <Field config={titleField} htmlFor="role-title" className={fieldSpacing}>
             <Input
               id="role-title"
               value={title}
@@ -88,7 +95,7 @@ export function RoleFormDialog({
               autoFocus
             />
           </Field>
-          <Field config={descField} htmlFor="role-desc">
+          <Field config={descField} htmlFor="role-desc" className={fieldSpacing}>
             <Textarea
               id="role-desc"
               value={description}
@@ -98,13 +105,7 @@ export function RoleFormDialog({
               rows={3}
             />
           </Field>
-          <DialogFooter>
-            <Button type="submit" disabled={busy || !title.trim()}>
-              {busy ? <Spinner /> : null}
-              {busy ? "Saving…" : isEdit ? "Save" : "Create role"}
-            </Button>
-          </DialogFooter>
-        </form>
+        </FormShell>
       </DialogContent>
     </Dialog>
   )

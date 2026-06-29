@@ -12,11 +12,10 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
-  DialogHeader,
   DialogTitle,
 } from "@swift-struck/ui/registry/primitives/dialog/dialog"
 import { Field } from "@swift-struck/ui/registry/primitives/field/field"
+import { FormShell, fieldSpacing } from "@/components/form-shell"
 import { Input } from "@swift-struck/ui/registry/primitives/input/input"
 import {
   Select,
@@ -83,14 +82,22 @@ export function InviteDialog({
   return (
     <Dialog open={open} onOpenChange={(o) => !busy && onOpenChange(o)}>
       <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Invite someone</DialogTitle>
-          <DialogDescription>
-            They&apos;ll get an email to join this team in the role you pick.
-          </DialogDescription>
-        </DialogHeader>
-        <form className="flex flex-col gap-4" onSubmit={submit}>
-          <Field config={emailField} htmlFor="invite-email">
+        <FormShell
+          onSubmit={submit}
+          title={<DialogTitle>Invite someone to the team</DialogTitle>}
+          subtitle={
+            <DialogDescription>
+              We&apos;ll email them an invite to join in the role you pick.
+            </DialogDescription>
+          }
+          footer={
+            <Button type="submit" disabled={busy || !email.trim() || !roleId} className="gap-1.5">
+              {busy ? <Spinner /> : <Mail className="size-4" />}
+              {busy ? "Sending…" : "Send invite"}
+            </Button>
+          }
+        >
+          <Field config={emailField} htmlFor="invite-email" className={fieldSpacing}>
             <Input
               id="invite-email"
               type="email"
@@ -101,7 +108,7 @@ export function InviteDialog({
               autoFocus
             />
           </Field>
-          <Field config={roleField} htmlFor="invite-role">
+          <Field config={roleField} htmlFor="invite-role" className={fieldSpacing}>
             <Select value={roleId} onValueChange={setRoleId} disabled={busy}>
               <SelectTrigger id="invite-role" className="w-full">
                 <SelectValue placeholder="Role" />
@@ -115,13 +122,7 @@ export function InviteDialog({
               </SelectContent>
             </Select>
           </Field>
-          <DialogFooter>
-            <Button type="submit" disabled={busy || !email.trim() || !roleId} className="gap-1.5">
-              {busy ? <Spinner /> : <Mail className="size-4" />}
-              {busy ? "Sending…" : "Send invite"}
-            </Button>
-          </DialogFooter>
-        </form>
+        </FormShell>
       </DialogContent>
     </Dialog>
   )
