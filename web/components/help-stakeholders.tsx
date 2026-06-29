@@ -63,10 +63,10 @@ export function HelpStakeholders({
 
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-muted-foreground text-sm">These people are kept in the loop on this ticket.</p>
+      <p className="text-muted-foreground text-sm">Everyone kept in the loop on this ticket — the person who raised it, your admins, and anyone mentioned.</p>
 
       {stakeholders.length === 0 ? (
-        <p className="text-muted-foreground text-sm">Just the raiser and your team&apos;s admins so far.</p>
+        <p className="text-muted-foreground text-sm">Just the person who raised it and your admins so far.</p>
       ) : (
         <ul className="flex flex-col gap-1.5">
           {stakeholders.map((s) => (
@@ -94,7 +94,7 @@ export function HelpStakeholders({
         <div className="flex flex-col gap-2 sm:flex-row">
           <Select value={picked} onValueChange={setPicked} disabled={busy}>
             <SelectTrigger className="w-full sm:w-64">
-              <SelectValue placeholder="Choose a teammate to involve" />
+              <SelectValue placeholder="Pick someone to keep in the loop" />
             </SelectTrigger>
             <SelectContent>
               {addable.map((m) => (
@@ -106,13 +106,13 @@ export function HelpStakeholders({
           </Select>
           <Button onClick={() => void add()} disabled={busy || !picked} className="gap-1.5">
             <UserPlus className="size-4" />
-            Add someone
+            Add stakeholder
           </Button>
         </div>
       )}
 
       <p className="text-muted-foreground text-xs">
-        You can add people, but no one is ever removed from a ticket.
+        You can add people, but no one is ever removed.
       </p>
     </div>
   )

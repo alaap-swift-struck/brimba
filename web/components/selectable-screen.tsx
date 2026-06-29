@@ -52,7 +52,7 @@ export function SelectableScreen({ teamId }: { teamId: string }) {
       setNewValue("")
       toast.success(`Added "${added}".`)
     } catch (err) {
-      toast.error(err instanceof ApiFailure ? err.message : "Couldn't add that value.")
+      toast.error(err instanceof ApiFailure ? err.message : "Couldn't add that option.")
     } finally {
       setBusy(false)
     }
@@ -66,7 +66,7 @@ export function SelectableScreen({ teamId }: { teamId: string }) {
       setEditingId(null)
       toast.success("Renamed.")
     } catch (err) {
-      toast.error(err instanceof ApiFailure ? err.message : "Couldn't rename that value.")
+      toast.error(err instanceof ApiFailure ? err.message : "Couldn't rename that option.")
     }
   }
 
@@ -76,7 +76,7 @@ export function SelectableScreen({ teamId }: { teamId: string }) {
       primeCache(`selectable:${teamId}`, next)
       toast.success(`Removed "${v.value}".`)
     } catch (err) {
-      toast.error(err instanceof ApiFailure ? err.message : "Couldn't remove that value.")
+      toast.error(err instanceof ApiFailure ? err.message : "Couldn't remove that option.")
     }
   }
 
@@ -89,8 +89,8 @@ export function SelectableScreen({ teamId }: { teamId: string }) {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Dropdown values</h1>
         <p className="text-muted-foreground mt-1 text-sm">
-          The options behind your team&apos;s dropdowns — Learning categories, Help types and more.
-          Pick an existing type or name a new one.
+          The options behind your team&apos;s dropdowns — Help types, Learning categories and more.
+          Pick a group, or start a new one.
         </p>
       </div>
 
@@ -100,7 +100,7 @@ export function SelectableScreen({ teamId }: { teamId: string }) {
             list="dropdown-types"
             value={newType}
             onChange={(e) => setNewType(e.target.value)}
-            placeholder="Type (e.g. Help type)"
+            placeholder="Group (e.g. Help type)"
             disabled={busy}
             className="w-full sm:w-56"
           />
@@ -112,7 +112,7 @@ export function SelectableScreen({ teamId }: { teamId: string }) {
           <Input
             value={newValue}
             onChange={(e) => setNewValue(e.target.value)}
-            placeholder="New value"
+            placeholder="New option"
             disabled={busy}
             className="w-full"
           />
@@ -128,7 +128,7 @@ export function SelectableScreen({ teamId }: { teamId: string }) {
       )}
 
       {grouped.length === 0 ? (
-        <p className="text-muted-foreground text-sm">No dropdown values yet.</p>
+        <p className="text-muted-foreground text-sm">No options yet. Add your first above.</p>
       ) : (
         <div className="flex flex-col gap-5">
           {grouped.map((g) => (

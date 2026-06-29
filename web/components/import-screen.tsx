@@ -99,7 +99,7 @@ export function ImportScreen({
 
   async function onFile(file: File) {
     if (!session) return
-    setStageStatus({ valid: false, message: "Reading file…" })
+    setStageStatus({ valid: false, message: "Reading your file…" })
     try {
       const csv = await file.text()
       const { session: s, preview } = await dataOps.uploadCsv(session.id, file.name, csv)
@@ -109,13 +109,13 @@ export function ImportScreen({
         valid: preview.issues.length === 0,
         message:
           preview.issues.length === 0
-            ? `Looks good — ${preview.totalCount} row${preview.totalCount === 1 ? "" : "s"} ready.`
+            ? `Looks good — ${preview.totalCount} row${preview.totalCount === 1 ? "" : "s"} ready to import.`
             : preview.issues[0],
       })
     } catch (err) {
       setStageStatus({
         valid: false,
-        message: err instanceof ApiFailure ? err.message : "Couldn't read that file.",
+        message: err instanceof ApiFailure ? err.message : "I couldn't read that file. Make sure it's a CSV.",
       })
     }
   }
@@ -127,7 +127,7 @@ export function ImportScreen({
       setSession(s)
       setPreviewRows(toRows(preview.rows))
     } catch (err) {
-      toast.error(err instanceof ApiFailure ? err.message : "Couldn't apply that mapping.")
+      toast.error(err instanceof ApiFailure ? err.message : "Couldn't update the columns. Please try again.")
     }
   }
 
@@ -141,13 +141,13 @@ export function ImportScreen({
     }
   }
 
-  if (targetsQ.error) return <p className="text-destructive text-sm">Couldn&apos;t load import targets.</p>
+  if (targetsQ.error) return <p className="text-destructive text-sm">Couldn&apos;t load what you can import into.</p>
   if (targetsQ.data === undefined) return <Skeleton variant="list" lines={4} />
   if (allowed.length === 0)
     return (
       <p className="text-muted-foreground text-sm">
-        You don&apos;t have permission to import into anything yet. You need create access on a
-        supported table (Member roles or Learning).
+        There&apos;s nothing here you can import into yet. You can import once you&apos;re allowed
+        to create Roles or Learning articles.
       </p>
     )
 
@@ -155,17 +155,17 @@ export function ImportScreen({
   if (result) {
     return (
       <div className="flex flex-col gap-4">
-        <h1 className="text-2xl font-semibold tracking-tight">Import complete</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">All done</h1>
         <ul className="text-sm">
           <li>
-            <span className="font-medium">{result.created}</span> created
+            <span className="font-medium">{result.created}</span> added
           </li>
           <li>
             <span className="font-medium">{result.skipped}</span> skipped
           </li>
           {result.failed > 0 && (
             <li className="text-destructive">
-              <span className="font-medium">{result.failed}</span> failed
+              <span className="font-medium">{result.failed}</span> couldn&apos;t add
             </li>
           )}
         </ul>
@@ -185,7 +185,7 @@ export function ImportScreen({
               setResult(null)
             }}
           >
-            Import more
+            Import another file
           </Button>
         </div>
       </div>
@@ -197,9 +197,9 @@ export function ImportScreen({
     return (
       <div className="flex flex-col gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Import data</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Import from a spreadsheet</h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            Bring rows in from a CSV. Pick what you&apos;re importing into.
+            Bring rows in from a CSV file. First, pick what you&apos;re importing into.
           </p>
         </div>
         <div className="flex flex-col gap-2">
@@ -235,9 +235,9 @@ export function ImportScreen({
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-2">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Import — {target.displayName}</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Import into {target.displayName}</h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            Upload a CSV, check the preview, then import.
+            Upload your file, check the preview, then import.
           </p>
         </div>
         <Button
@@ -248,7 +248,7 @@ export function ImportScreen({
             setTarget(null)
           }}
         >
-          Change target
+          Choose something else
         </Button>
       </div>
       <ImportWizard

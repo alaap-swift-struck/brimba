@@ -186,7 +186,7 @@ export function HelpDetailScreen({
   }))
 
   const overviewItems = [
-    { label: "Type", value: ticket.helpType || "Help" },
+    { label: "Type", value: ticket.helpType || "General" },
     { label: "Status", value: STATUS_LABEL[ticket.status] },
     { label: "Raised by", value: ticket.raiserName || "—" },
     { label: "Raised", value: formatRelative(ticket.createdAt) },
@@ -267,7 +267,7 @@ export function HelpDetailScreen({
               <ActivityFeed
                 config={{
                   ...defaultActivityFeedConfig,
-                  emptyText: "Nothing's happened on this ticket yet.",
+                  emptyText: "No activity yet.",
                 }}
                 items={activityItems}
               />
@@ -285,7 +285,7 @@ export function HelpDetailScreen({
             <TicketThread
               ticket={{
                 description: ticket.description,
-                type: ticket.helpType || "Help",
+                type: ticket.helpType || "General",
                 status: TO_LIBRARY[ticket.status],
                 fromScreen: ticket.sourceScreen ? { label: ticket.sourceScreen } : undefined,
               }}

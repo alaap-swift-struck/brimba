@@ -113,7 +113,7 @@ export function LearningDetailScreen({ teamId, learningId }: { teamId: string; l
       const { learning: nextList } = await content.setLearningActive(learningId, activeNext)
       primeCache(`learning:${teamId}`, nextList)
       invalidateActivity()
-      toast.success(activeNext ? "Article reactivated." : "Article deactivated.")
+      toast.success(activeNext ? "Article switched back on." : "Article switched off.")
     } catch (err) {
       toast.error(err instanceof ApiFailure ? err.message : "Couldn't update the article.")
     } finally {
@@ -131,7 +131,7 @@ export function LearningDetailScreen({ teamId, learningId }: { teamId: string; l
     { label: "Description", value: item.description || "" },
     { label: "Link", value: item.contentLink || "" },
     { label: "Added", value: formatRelative(item.createdAt) },
-    { label: "Status", value: item.active ? "Active" : "Inactive" },
+    { label: "Status", value: item.active ? "Switched on" : "Switched off" },
   ]
 
   const activityItems: ActivityFeedItem[] = (activityQ.data ?? []).map((a) => ({
@@ -159,7 +159,7 @@ export function LearningDetailScreen({ teamId, learningId }: { teamId: string; l
             <span className="truncate">{item.title}</span>
             {!item.active && (
               <Badge variant="outline" className="text-muted-foreground text-[10px]">
-                Inactive
+                Switched off
               </Badge>
             )}
             {item.required && (
@@ -198,7 +198,7 @@ export function LearningDetailScreen({ teamId, learningId }: { teamId: string; l
           if (t.value === "activity")
             return (
               <ActivityFeed
-                config={{ ...defaultActivityFeedConfig, emptyText: "Nothing's happened with this article yet." }}
+                config={{ ...defaultActivityFeedConfig, emptyText: "No activity yet." }}
                 items={activityItems}
               />
             )
@@ -223,7 +223,7 @@ export function LearningDetailScreen({ teamId, learningId }: { teamId: string; l
                       className="text-destructive hover:text-destructive gap-1.5"
                     >
                       {busyActive ? <Spinner /> : null}
-                      Deactivate
+                      Switch off
                     </Button>
                   ) : (
                     <Button
@@ -233,7 +233,7 @@ export function LearningDetailScreen({ teamId, learningId }: { teamId: string; l
                       className="gap-1.5"
                     >
                       {busyActive ? <Spinner /> : null}
-                      Reactivate
+                      Switch on
                     </Button>
                   ))}
               </div>

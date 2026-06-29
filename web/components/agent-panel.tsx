@@ -128,7 +128,7 @@ export function AgentPanel({
           : prev.filter((it) => it.id !== thinkingId)
       )
     } catch (err) {
-      const msg = err instanceof ApiFailure ? err.message : "Couldn't apply those actions."
+      const msg = err instanceof ApiFailure ? err.message : "I couldn't make those changes. Please try again."
       setItems((prev) => prev.map((it) => (it.id === thinkingId ? { ...it, content: msg } : it)))
     } finally {
       setBusy(false)
@@ -142,8 +142,8 @@ export function AgentPanel({
 
   const quotaLabel = quota
     ? quota.blocked
-      ? "Daily limit reached"
-      : `${quota.remaining} left${quota.creditBalance > 0 ? ` (${quota.creditBalance} credits)` : ""}`
+      ? "You're out of assistant credits for today"
+      : `${quota.remaining} left today${quota.creditBalance > 0 ? ` · ${quota.creditBalance} credits` : ""}`
     : ""
 
   return (
@@ -158,12 +158,12 @@ export function AgentPanel({
               </Badge>
             )}
           </div>
-          <SheetDescription>Ask for help, or have it make a change for you.</SheetDescription>
+          <SheetDescription>Ask me anything, or tell me what to change — I&apos;ll only do what you can do.</SheetDescription>
         </SheetHeader>
 
         {!canUse ? (
           <div className="text-muted-foreground flex flex-1 items-center justify-center p-6 text-center text-sm">
-            You don&apos;t have access to the assistant on this team.
+            The assistant isn&apos;t switched on for your role here.
           </div>
         ) : (
           <div className="flex min-h-0 flex-1 flex-col">
@@ -176,7 +176,7 @@ export function AgentPanel({
                 items={items}
                 streaming={busy && !pending}
                 disabled={busy || quota?.blocked || !!pending}
-                emptyState="Ask the assistant to get started — e.g. “invite Sam as an Editor”."
+                emptyState="Try “invite sam@acme.com as an Editor” or “what changed this week?”"
                 onSend={(t) => void send(t)}
               />
             </div>
@@ -184,14 +184,14 @@ export function AgentPanel({
             {/* A paused turn: the proposed actions + approve / decline. */}
             {pending && (
               <div className="flex flex-col gap-3 border-t p-4">
-                <p className="text-sm font-medium">The assistant wants to:</p>
+                <p className="text-sm font-medium">I&apos;d like to make these changes:</p>
                 <RunSteps steps={confirmSteps} />
                 <div className="flex justify-end gap-2">
                   <Button variant="outline" size="sm" onClick={() => void resolve(false)} disabled={busy}>
-                    Decline
+                    Not now
                   </Button>
                   <Button size="sm" onClick={() => void resolve(true)} disabled={busy}>
-                    Approve
+                    Go ahead
                   </Button>
                 </div>
               </div>

@@ -50,7 +50,7 @@ export function LearningProgressScreen({ teamId }: { teamId: string }) {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Team progress</h1>
         <p className="text-muted-foreground mt-1 text-sm">
-          Who&apos;s completed each article. Only active articles are shown.
+          Who&apos;s marked each article done. Only switched-on articles are shown.
         </p>
       </div>
       <ProgressDashboard members={members} items={items} done={done} />
