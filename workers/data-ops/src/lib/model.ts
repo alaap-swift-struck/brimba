@@ -1,8 +1,8 @@
 // The swappable MODEL seam. The agent loop talks to this interface only — switching
 // providers is a one-line change in selectModel(), never a rewrite. Default: Claude
 // (Anthropic Messages API, full tool use) WHEN an ANTHROPIC_API_KEY is set; otherwise
-// Cloudflare Workers AI (text-only — the agent can answer, but acting needs the key).
-// Workers AI is also the cheap path for inline jobs (help drafts, classification).
+// Cloudflare Workers AI (which now ALSO does full tool use — the agent can answer AND
+// act on Workers AI, no key needed). Workers AI is also the cheap inline path.
 
 import type { Env } from "../env"
 
@@ -104,18 +104,24 @@ class ClaudeModel implements Model {
 }
 
 /* ------------------------------- Workers AI ------------------------------- */
-// Tool-calling on Workers AI. Native wire format (env.AI.run):
-//   request:  { messages, tools:[{name,description,parameters}], max_tokens, temperature }
-//   response: { response: string, tool_calls?: [{ name, arguments(OBJECT) }] }
-// Differences from Claude we normalise here:
-//   • tools use `parameters` (not `input_schema`)
-//   • tool_calls carry NO id and `arguments` is already an object — we mint ids
-//     (call_0,1,…) so the rest of the loop (which is id-based) is provider-agnostic
-//   • the round-trip: an assistant tool turn → content is the chosen tool as a JSON
-//     string; the result → role:"tool" with a JSON-string content
+// Tool-calling on Workers AI (env.AI.run). LEARNED LIVE (2026-06-28): models split
+// into tool-format camps — llama-3.3 took a flat tools shape, but the strong models
+// (llama-4-scout, mistral, gemma, kimi, gpt-oss) require the OpenAI-WRAPPED shape
+// `{type:"function", function:{name,description,parameters}}` (a flat shape 400s with
+// "tools[0].function required"). So we send WRAPPED (widest support) and parse BOTH
+// response shapes: native `tool_calls:[{name,arguments(object)}]` OR wrapped
+// `[{id,type,function:{name,arguments(JSON string)}}]` (also under `choices[].message`).
+// The chat template also REJECTS a replayed assistant-tool-call + role:"tool" round-
+// trip, so we FLATTEN tool history into plain messages (a result → a user message).
+// Default: @cf/meta/llama-4-scout-17b-16e-instruct (fast; chats AND calls tools well).
 // Docs: https://developers.cloudflare.com/workers-ai/function-calling/
-type WorkersAiToolCall = { name?: string; arguments?: Record<string, unknown> }
-type WorkersAiReply = { response?: string; tool_calls?: WorkersAiToolCall[] }
+type WorkersAiFn = { name?: string; arguments?: unknown }
+type WorkersAiToolCall = { id?: string; name?: string; arguments?: unknown; function?: WorkersAiFn }
+type WorkersAiReply = {
+  response?: string
+  tool_calls?: WorkersAiToolCall[]
+  choices?: { message?: { content?: string; tool_calls?: WorkersAiToolCall[] } }[]
+}
 
 class WorkersAiModel implements Model {
   readonly canActWithTools = true
@@ -125,27 +131,28 @@ class WorkersAiModel implements Model {
   ) {}
 
   async complete(messages: ChatMessage[], tools: ToolSpec[]): Promise<ModelReply> {
-    const msgs = messages.map((m) => {
-      // role:"tool" → Workers AI tool message (the result of a call); content is a string.
-      if (m.role === "tool") return { role: "tool" as const, content: m.content ?? "" }
-      // assistant turn that MADE tool calls → encode the chosen call(s) as the content
-      // string Workers AI expects on the assistant side (its own round-trip shape).
-      if (m.role === "assistant" && m.toolCalls && m.toolCalls.length) {
-        const encoded = m.toolCalls.map((tc) => ({ name: tc.name, arguments: tc.input }))
-        const body =
-          (m.content ? m.content + "\n" : "") +
-          (encoded.length === 1 ? JSON.stringify(encoded[0]) : JSON.stringify(encoded))
-        return { role: "assistant" as const, content: body }
-      }
-      return { role: m.role as "system" | "user" | "assistant", content: m.content ?? "" }
-    })
+    // Workers AI reliably ACCEPTS a tool call on a turn (we pass `tools` + parse
+    // `tool_calls` out of the reply), but its chat template REJECTS a replayed
+    // assistant-tool-call + role:"tool" round-trip (verified live — the follow-up
+    // turn threw). So we FLATTEN prior tool activity into plain messages: a tool
+    // RESULT becomes a user message the model reads to answer; an empty tool-call
+    // assistant turn is dropped. The model can still call a (further) tool on this
+    // turn — only the HISTORY is flattened.
+    const msgs = messages
+      .map((m): { role: "system" | "user" | "assistant"; content: string } | null => {
+        if (m.role === "tool")
+          return { role: "user", content: `Result from ${m.toolName ?? "tool"}: ${m.content ?? ""}` }
+        if (m.role === "assistant" && m.toolCalls && m.toolCalls.length)
+          return m.content ? { role: "assistant", content: m.content } : null
+        return { role: m.role as "system" | "user" | "assistant", content: m.content ?? "" }
+      })
+      .filter((m): m is { role: "system" | "user" | "assistant"; content: string } => m !== null)
 
     const body: Record<string, unknown> = { messages: msgs, max_tokens: 1024, temperature: 0.3 }
     if (tools.length)
       body.tools = tools.map((t) => ({
-        name: t.name,
-        description: t.description,
-        parameters: t.schema, // Workers AI calls it `parameters`, not `input_schema`
+        type: "function",
+        function: { name: t.name, description: t.description, parameters: t.schema },
       }))
 
     let out: WorkersAiReply
@@ -159,16 +166,28 @@ class WorkersAiModel implements Model {
       throw new Error(`model_error: Workers AI (${this.name}) failed. ${detail.slice(0, 200)}`)
     }
 
-    const text = out.response ?? ""
-    const raw = Array.isArray(out.tool_calls) ? out.tool_calls : []
-    // Mint ids (Workers AI returns none); keep only well-formed calls.
-    const toolCalls: ToolCall[] = raw
-      .filter((c): c is WorkersAiToolCall & { name: string } => typeof c?.name === "string")
-      .map((c, i) => ({
-        id: `call_${i}`,
-        name: c.name,
-        input: c.arguments && typeof c.arguments === "object" ? c.arguments : {},
-      }))
+    const choice = out.choices?.[0]?.message
+    const text = out.response ?? choice?.content ?? ""
+    const rawCalls = (Array.isArray(out.tool_calls) ? out.tool_calls : choice?.tool_calls) ?? []
+    const toolCalls: ToolCall[] = rawCalls
+      .map((c, i): ToolCall | null => {
+        const fn = c.function ?? c // OpenAI-wrapped vs native/flat
+        if (typeof fn.name !== "string") return null
+        let args: unknown = fn.arguments
+        if (typeof args === "string") {
+          try {
+            args = JSON.parse(args)
+          } catch {
+            args = {}
+          }
+        }
+        return {
+          id: c.id ?? `call_${i}`,
+          name: fn.name,
+          input: args && typeof args === "object" ? (args as Record<string, unknown>) : {},
+        }
+      })
+      .filter((c): c is ToolCall => c !== null)
     return { text, toolCalls }
   }
 }
@@ -181,13 +200,13 @@ class WorkersAiModel implements Model {
 export function selectModel(env: Env): Model {
   if (env.ANTHROPIC_API_KEY)
     return new ClaudeModel(env.ANTHROPIC_API_KEY, env.AGENT_MODEL || "claude-sonnet-4-6")
-  return new WorkersAiModel(env.AI, env.WORKERS_AI_MODEL || "@cf/meta/llama-3.3-70b-instruct-fp8-fast")
+  return new WorkersAiModel(env.AI, env.WORKERS_AI_MODEL || "@cf/meta/llama-4-scout-17b-16e-instruct")
 }
 
 /** One cheap text completion (no tools) — used for inline jobs like the help-reply
  * first draft and classification. Always Workers AI (cheap), regardless of the key. */
 export async function cheapText(env: Env, system: string, user: string): Promise<string> {
-  const out = (await env.AI.run((env.WORKERS_AI_MODEL || "@cf/meta/llama-3.3-70b-instruct-fp8-fast") as keyof AiModels, {
+  const out = (await env.AI.run((env.WORKERS_AI_MODEL || "@cf/meta/llama-4-scout-17b-16e-instruct") as keyof AiModels, {
     messages: [
       { role: "system", content: system },
       { role: "user", content: user },
