@@ -91,8 +91,9 @@ const TEAM_RESOURCES: Record<
     idField: "id",
     fetchOne: (id) => content.helpOne(id),
     fetchList: () => content.help().then((r) => r.tickets),
-    // A status change / edit / reply on a ticket also refreshes its Activity tab.
-    deps: (_t, id) => [`activity:record:help:${id}`],
+    // A status change / edit / reply / stakeholder-add on a ticket also refreshes
+    // its Activity tab + Stakeholders tab.
+    deps: (_t, id) => [`activity:record:help:${id}`, `help-stakeholders:${id}`],
   },
 }
 

@@ -32,13 +32,21 @@ import {
 } from "@swift-struck/ui/registry/collections/ticket-thread/ticket-thread"
 import { Pencil } from "lucide-react"
 
-import type { ActivityItem, HelpMessage, HelpTicket, SelectableValue, TeamMember } from "@shared/types"
+import type {
+  ActivityItem,
+  HelpMessage,
+  HelpStakeholder,
+  HelpTicket,
+  SelectableValue,
+  TeamMember,
+} from "@shared/types"
 import { ApiFailure, content, tenancy } from "@/lib/api"
 import { formatRelative } from "@/lib/format"
 import { personName } from "@/lib/identity"
 import { usePermissions } from "@/lib/perms"
 import { invalidate, primeCache, useCached } from "@/lib/store"
 import { HelpFormDialog } from "@/components/help-form-dialog"
+import { HelpStakeholders } from "@/components/help-stakeholders"
 import { HelpStatusStepper, type HelpStatusValue } from "@/components/help-status-stepper"
 
 // library (hyphen) ⇄ server (underscore) status — only "in progress" differs.
@@ -87,6 +95,9 @@ export function HelpDetailScreen({
   const selectableQ = useCached<SelectableValue[]>(`selectable:${teamId}`, () =>
     tenancy.selectable().then((r) => r.values)
   )
+  const stakeholdersQ = useCached<HelpStakeholder[]>(`help-stakeholders:${helpId}`, () =>
+    content.helpStakeholders(helpId).then((r) => r.stakeholders)
+  )
 
   const { can } = usePermissions(teamId)
   const canEdit = can("help", "edit") // single source — gates Edit, the stepper, and the thread's resolve
@@ -122,6 +133,12 @@ export function HelpDetailScreen({
     primeCache(`help:${teamId}`, tickets)
     invalidate(`activity:record:help:${helpId}`)
     toast.success("Ticket updated.")
+  }
+
+  async function addStakeholder(userId: string) {
+    const { stakeholders } = await content.addStakeholder(helpId, userId)
+    primeCache(`help-stakeholders:${helpId}`, stakeholders)
+    invalidate(`activity:record:help:${helpId}`)
   }
 
   async function onReply(body: string, _files: File[], mentions: TicketMember[]) {
@@ -198,6 +215,13 @@ export function HelpDetailScreen({
       },
       { value: "overview", label: "Overview", icon: "info", badge: "", badgeVariant: "" as const },
       { value: "activity", label: "Activity", icon: "history", badge: "", badgeVariant: "" as const },
+      {
+        value: "stakeholders",
+        label: "Stakeholders",
+        icon: "users",
+        badge: String(stakeholdersQ.data?.length || ""),
+        badgeVariant: "" as const,
+      },
     ],
   }
 
@@ -246,6 +270,15 @@ export function HelpDetailScreen({
                   emptyText: "Nothing's happened on this ticket yet.",
                 }}
                 items={activityItems}
+              />
+            )
+          if (t.value === "stakeholders")
+            return (
+              <HelpStakeholders
+                stakeholders={stakeholdersQ.data ?? []}
+                members={membersQ.data ?? []}
+                canAdd={can("help", "read")}
+                onAdd={addStakeholder}
               />
             )
           return (
