@@ -186,6 +186,9 @@ export type Learning = {
   required: boolean
   active: boolean
   createdAt: string
+  creatorName: string | null
+  editorName: string | null
+  updatedAt: string | null
   done?: boolean
 }
 
@@ -210,6 +213,7 @@ export type HelpTicket = {
   resolvedAt: string | null
   raiserId: string
   raiserName: string | null
+  editorName: string | null
   createdAt: string
   updatedAt: string | null
 }

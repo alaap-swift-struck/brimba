@@ -29,7 +29,7 @@ import { Pencil } from "lucide-react"
 import type { ActivityItem, Learning, SelectableValue } from "@shared/types"
 import { LearningFormDialog, type LearningFormValues } from "@/components/learning-form-dialog"
 import { ApiFailure, content, tenancy } from "@/lib/api"
-import { formatRelative } from "@/lib/format"
+import { auditItems } from "@/lib/audit-overview"
 import { RichText } from "@/components/rich-text"
 import { usePermissions } from "@/lib/perms"
 import { primeCache, useCached } from "@/lib/store"
@@ -127,10 +127,14 @@ export function LearningDetailScreen({ teamId, learningId }: { teamId: string; l
   const overviewItems = [
     { label: "Category", value: item.category || "" },
     { label: "Content type", value: item.contentType || "" },
-    { label: "Description", value: item.description || "" },
     { label: "Link", value: item.contentLink || "" },
-    { label: "Added", value: formatRelative(item.createdAt) },
-    { label: "Status", value: item.active ? "Switched on" : "Switched off" },
+    ...auditItems({
+      createdByName: item.creatorName,
+      createdAt: item.createdAt,
+      editedByName: item.editorName,
+      updatedAt: item.updatedAt,
+      status: item.active ? "Switched on" : "Switched off",
+    }),
   ]
 
   const activityItems: ActivityFeedItem[] = (activityQ.data ?? []).map((a) => ({

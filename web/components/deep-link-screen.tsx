@@ -563,15 +563,10 @@ export function DeepLinkScreen() {
         )
       }
       if (module === "learning") {
-        // ?tab=progress → the curator completion grid (gated by learning:edit);
-        // a deep link without the right falls through to the plain list.
-        if (query.tab === "progress" && can("learning", "edit")) {
-          return <LearningProgressScreen teamId={teamId as string} />
-        }
         if (learningQ.error) return <LoadError what="learning" />
         if (learningQ.data === undefined) return <Skeleton variant="list" lines={4} />
         const data = shapeLearningList(learningQ.data)
-        return (
+        const articlesPanel = (
           <SectionWithCreate
             show={can("learning", "create")}
             label="New article"
@@ -583,15 +578,37 @@ export function DeepLinkScreen() {
             }}
             onCreate={() => go(sectionPath, { panel: "add", module: "learning" })}
           >
-            {can("learning", "edit") && (
-              <div className="flex justify-end">
-                <Button variant="outline" size="sm" onClick={() => go(sectionPath, { tab: "progress" })}>
-                  Team progress
-                </Button>
-              </div>
-            )}
             <ScreenRenderer recipe={recipe} data={data} rights={rights} onAction={onAction} onIntent={onIntent} />
           </SectionWithCreate>
+        )
+        // Articles / Team progress as a REAL tab strip (library TabsView, URL-driven
+        // via ?tab so Back works). The completion grid is for curators (learning:edit);
+        // everyone else just sees Articles, no tabs.
+        if (!can("learning", "edit")) return articlesPanel
+        const learnTab = query.tab === "progress" ? "progress" : "articles"
+        const learnTabsConfig = {
+          ...defaultTabsConfig,
+          variant: "line" as const,
+          tabs: [
+            {
+              value: "articles",
+              label: "Articles",
+              icon: "book-open",
+              badge: String(learningQ.data.length || ""),
+              badgeVariant: "" as const,
+            },
+            { value: "progress", label: "Team progress", icon: "users", badge: "", badgeVariant: "" as const },
+          ],
+        }
+        return (
+          <TabsView
+            config={learnTabsConfig}
+            value={learnTab}
+            onValueChange={(v) => go(sectionPath, v === "progress" ? { tab: "progress" } : {})}
+            renderPanel={(t) =>
+              t.value === "progress" ? <LearningProgressScreen teamId={teamId as string} /> : articlesPanel
+            }
+          />
         )
       }
       if (module === "help") {

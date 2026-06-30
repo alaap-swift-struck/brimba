@@ -30,6 +30,7 @@ A law cannot be added without its check (`registry-integrity`). When you add a r
 - **The screen engine:** `/t/<teamId>/<module>/<id>` is one client-resolved shell (`web/components/deep-link-screen.tsx`); recipes in `web/lib/screens.ts`; nav in `web/lib/pages.ts`. Learning + Help also have clean top-level URLs (`/learning`, `/help`). Engine-expressible screens → a recipe; bespoke screens → a host-composed component (like `role-detail.tsx`).
 - **The UI library is lego, not this repo.** Primitives/collections come from `@swift-struck/ui` (a separate repo). `web/` assembles recipes from them. **Do not edit the library from here** — if a primitive needs changing, surface it; don't fork it into the host.
 - **Voice:** warm, plain, sentence case, no jargon, no emoji. Write for a 45–55-year-old manager. Use the glossary terms. See `shared/glossary.ts`.
+- **Action buttons carry an icon** (lucide, ~`size-3.5`, before the label): edit = `Pencil`, switch off / deactivate = `Power`, remove = `UserMinus`, revoke = `Ban`, create = `Plus`, import = `Upload`. Destructive actions use the destructive (red) colour + a confirm. Keep the icon-for-action mapping consistent across the app; on narrow screens icon-only is acceptable.
 
 ## Where the canon lives — read before building
 

@@ -32,6 +32,7 @@ type TicketRow = {
   resolved_at: string | null
   creator_id: string
   creator_name: string | null
+  editor_name: string | null
   created_at: string
   updated_at: string | null
 }
@@ -50,6 +51,7 @@ function toTicket(r: TicketRow): HelpTicket {
     resolvedAt: r.resolved_at,
     raiserId: r.creator_id,
     raiserName: r.creator_name,
+    editorName: r.editor_name,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   }
@@ -91,7 +93,7 @@ function toMessage(r: ReplyRow): HelpMessage {
 }
 
 const TICKET_COLS =
-  "id, help_type, description, screen_recording_link, source_screen, status, resolved, resolved_at, creator_id, creator_name, created_at, updated_at"
+  "id, help_type, description, screen_recording_link, source_screen, status, resolved, resolved_at, creator_id, creator_name, editor_name, created_at, updated_at"
 
 /** Fetch one ticket (the raw row the gating + notify need), or throw a clean 404. */
 async function ticketOrThrow(cfg: D1Rest, guard: MemberGuard, id: string): Promise<TicketRow> {

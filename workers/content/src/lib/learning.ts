@@ -86,6 +86,9 @@ type LearningRow = {
   is_required: number
   deactivated_at: string | null
   created_at: string
+  creator_name: string | null
+  editor_name: string | null
+  updated_at: string | null
   done: number | null
 }
 
@@ -103,6 +106,9 @@ function toLearning(r: LearningRow): Learning {
     required: r.is_required === 1,
     active: r.deactivated_at === null,
     createdAt: r.created_at,
+    creatorName: r.creator_name,
+    editorName: r.editor_name,
+    updatedAt: r.updated_at,
     done: r.done === 1,
   }
 }
@@ -158,7 +164,7 @@ export async function listLearning(cfg: D1Rest, guard: MemberGuard): Promise<Lea
     guard.databaseId,
     `SELECT l.id, l.category, l.content_title, l.content_description, l.content_type,
             l.content_link, l.content_body, l.sequence, l.is_required, l.deactivated_at,
-            l.created_at, p.done AS done
+            l.created_at, l.creator_name, l.editor_name, l.updated_at, p.done AS done
      FROM learning l
      LEFT JOIN learning_progress p ON p.learning_id = l.id AND p.user_id = ?
      ORDER BY l.sequence ASC, l.created_at ASC`,

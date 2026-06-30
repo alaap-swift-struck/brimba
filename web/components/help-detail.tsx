@@ -41,6 +41,7 @@ import type {
   TeamMember,
 } from "@shared/types"
 import { ApiFailure, content, tenancy } from "@/lib/api"
+import { auditItems } from "@/lib/audit-overview"
 import { formatRelative } from "@/lib/format"
 import { personName } from "@/lib/identity"
 import { usePermissions } from "@/lib/perms"
@@ -187,12 +188,15 @@ export function HelpDetailScreen({
 
   const overviewItems = [
     { label: "Type", value: ticket.helpType || "General" },
-    { label: "Status", value: STATUS_LABEL[ticket.status] },
-    { label: "Raised by", value: ticket.raiserName || "—" },
-    { label: "Raised", value: formatRelative(ticket.createdAt) },
-    { label: "Last updated", value: ticket.updatedAt ? formatRelative(ticket.updatedAt) : "" },
-    { label: "Resolved", value: ticket.resolvedAt ? formatRelative(ticket.resolvedAt) : "" },
     { label: "Raised from", value: ticket.sourceScreen || "" },
+    ...auditItems({
+      createdByName: ticket.raiserName,
+      createdAt: ticket.createdAt,
+      editedByName: ticket.editorName,
+      updatedAt: ticket.updatedAt,
+      status: STATUS_LABEL[ticket.status],
+    }),
+    { label: "Resolved", value: ticket.resolvedAt ? formatRelative(ticket.resolvedAt) : "" },
   ]
 
   const activityItems: ActivityFeedItem[] = (activityQ.data ?? []).map((a) => ({

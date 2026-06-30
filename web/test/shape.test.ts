@@ -80,6 +80,9 @@ const learning: Learning = {
   required: false,
   active: true,
   createdAt: "2026-06-13T10:00:00.000Z",
+  creatorName: "Alaap Kanchwala",
+  editorName: null,
+  updatedAt: null,
 }
 
 const ticket: HelpTicket = {
@@ -93,6 +96,7 @@ const ticket: HelpTicket = {
   resolvedAt: null,
   raiserId: "u1",
   raiserName: "Alaap",
+  editorName: null,
   createdAt: "2026-06-13T10:00:00.000Z",
   updatedAt: null,
 }

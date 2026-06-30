@@ -30,7 +30,7 @@ import {
   defaultPermissionMatrixConfig,
   type PermissionMatrixConfig,
 } from "@swift-struck/ui/registry/collections/permission-matrix/permission-matrix"
-import { Lock, Pencil } from "lucide-react"
+import { Lock, Pencil, Power } from "lucide-react"
 
 import type { PermissionValue, RolePermissions, TeamRole } from "@shared/types"
 import { RoleFormDialog } from "@/components/role-form-dialog"
@@ -185,7 +185,7 @@ export function RoleDetailScreen({ teamId, roleId }: { teamId: string; roleId: s
               disabled={busyActive}
               className="w-full gap-1.5 sm:w-auto sm:self-start"
             >
-              {busyActive ? <Spinner /> : null}
+              {busyActive ? <Spinner /> : <Power className="size-3.5" />}
               {busyActive ? "Switching on…" : "Switch on"}
             </Button>
           )}
@@ -211,6 +211,7 @@ export function RoleDetailScreen({ teamId, roleId }: { teamId: string; roleId: s
                   disabled={busyActive}
                   className="text-destructive hover:text-destructive gap-1.5"
                 >
+                  <Power className="size-3.5" />
                   Switch off
                 </Button>
               )}
