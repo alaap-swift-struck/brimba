@@ -9,6 +9,7 @@
 //   POST /api/content/learning/update     -> edit a learning item
 //   POST /api/content/learning/active     -> deactivate / reactivate an item (never deleted)
 //   POST /api/content/learning/done       -> mark an item done / not-done (your own progress)
+//   POST /api/content/learning/upload      -> upload a local file (image/clip) to team R2 → URL
 //   GET  /api/content/learning/progress   -> curator dashboard (every member's done state)
 //   GET  /api/content/help                -> the team's tickets (?scope=mine|all, ?id → one)
 //   GET  /api/content/help/thread         -> one ticket's replies (?id=<ticketId>)
@@ -31,6 +32,7 @@ import {
   postLearningDone,
   postSetLearningActive,
   postUpdateLearning,
+  postUploadLearningFile,
 } from "./routes/learning"
 import {
   getHelp,
@@ -63,6 +65,8 @@ export const ROUTES: Record<string, { handler: Handler; kind: RouteKind }> = {
   "POST /api/content/learning/update": { handler: postUpdateLearning, kind: "mutation" },
   "POST /api/content/learning/active": { handler: postSetLearningActive, kind: "mutation" },
   "POST /api/content/learning/done": { handler: postLearningDone, kind: "mutation" },
+  // Stores a file in R2 but changes NO record (no row to patch) → housekeeping.
+  "POST /api/content/learning/upload": { handler: postUploadLearningFile, kind: "housekeeping" },
   "GET /api/content/learning/progress": { handler: getLearningProgress, kind: "read" },
   "GET /api/content/help": { handler: getHelp, kind: "read" },
   "GET /api/content/help/thread": { handler: getHelpThread, kind: "read" },

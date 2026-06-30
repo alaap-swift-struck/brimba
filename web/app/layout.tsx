@@ -8,6 +8,7 @@ import { brand } from "@shared/brand"
 import { BrandTheme } from "@/components/brand-theme"
 import { ErrorReporter } from "@/components/error-reporter"
 import { InstallPrompt } from "@/components/install-prompt"
+import { VersionWatch } from "@/components/version-watch"
 import "./globals.css"
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" })
@@ -68,6 +69,7 @@ export default function RootLayout({
         >
           <AmbientBackground />
           <ErrorReporter />
+          <VersionWatch />
           {children}
           <InstallPrompt />
           <Toaster />

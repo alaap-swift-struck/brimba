@@ -13,6 +13,7 @@ type Env = {
   CONTENT: Fetcher
   DATAOPS: Fetcher
   MEDIA: R2Bucket
+  LEARNING_MEDIA: R2Bucket
 }
 
 export default {
@@ -39,6 +40,22 @@ export default {
 
     if (pathname.startsWith("/api/")) {
       return fail(404, "not_found", "No such API.")
+    }
+
+    // Learning attachments (images + short clips uploaded to a how-to article)
+    // live in their own per-team bucket. Same serving shape as /media/* below;
+    // just a different bucket, matched first since it's a more specific prefix.
+    if (pathname.startsWith("/media/learning/") && request.method === "GET") {
+      const key = decodeURIComponent(pathname.slice("/media/learning/".length))
+      const object = await env.LEARNING_MEDIA.get(key)
+      if (!object) return new Response("Not found", { status: 404 })
+      return new Response(object.body, {
+        headers: {
+          "Content-Type":
+            object.httpMetadata?.contentType ?? "application/octet-stream",
+          "Cache-Control": "public, max-age=31536000, immutable",
+        },
+      })
     }
 
     // Uploaded files (profile photos, team logos). URLs carry ?v= for cache

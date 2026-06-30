@@ -4,3 +4,12 @@
 # them on repeat loads. Everything else keeps the safe default (revalidated).
 /_next/static/*
   Cache-Control: public, max-age=31536000, immutable
+
+# The HTML shell, by contrast, must never be reused stale: it names the current
+# build's hashed chunks, so an old shell would load a deploy that no longer
+# exists. Force a revalidation on every load (the file is tiny). This makes the
+# self-heal in version-watch.tsx the belt to this braces — both ends covered.
+/*.html
+  Cache-Control: no-cache, must-revalidate
+/
+  Cache-Control: no-cache, must-revalidate

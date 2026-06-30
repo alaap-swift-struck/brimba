@@ -26,7 +26,10 @@
     { "binding": "CONTENT", "service": "brimba-content" },
     { "binding": "DATAOPS", "service": "brimba-data-ops" }
   ],
-  "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "brimba-media" }],
+  "r2_buckets": [
+    { "binding": "MEDIA", "bucket_name": "brimba-media" },
+    { "binding": "LEARNING_MEDIA", "bucket_name": "brimba-learning-media" }
+  ],
   "env": {
     "staging": {
       "name": "brimba-staging",
@@ -45,7 +48,8 @@
         { "binding": "DATAOPS", "service": "brimba-data-ops-staging" }
       ],
       "r2_buckets": [
-        { "binding": "MEDIA", "bucket_name": "brimba-media-staging" }
+        { "binding": "MEDIA", "bucket_name": "brimba-media-staging" },
+        { "binding": "LEARNING_MEDIA", "bucket_name": "brimba-learning-media-staging" }
       ]
     }
   }

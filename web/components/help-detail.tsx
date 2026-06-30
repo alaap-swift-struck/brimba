@@ -6,9 +6,6 @@
 // ticket's history (the GENERIC record-activity feed). Edit + every status move are
 // gated PURELY by help:edit. Replies echo instantly (optimistic) and reconcile with
 // the server reply. Host-composed, like role-detail.
-//
-// NOTE: TicketThread renders its own small status Select in its header — a
-// redundancy with the stepper, flagged for library cleanup (showStatusControl).
 
 import * as React from "react"
 
@@ -296,6 +293,7 @@ export function HelpDetailScreen({
               replies={replies}
               members={mentionableMembers}
               canResolve={canEdit}
+              showStatusControl={false}
               onReply={onReply}
               onStatusChange={(s) => void changeStatus(TO_SERVER[s])}
             />

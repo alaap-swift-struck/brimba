@@ -1,0 +1,43 @@
+// parseUploadDataUrl is the upload boundary for learning files — it decides what
+// bytes reach R2. It must accept any real media type, decode correctly, and refuse
+// non-strings, malformed input, and anything over the size cap. These lock that.
+
+import { describe, expect, it } from "vitest"
+
+import { parseUploadDataUrl } from "../../../shared/workers/image"
+
+const b64 = (s: string) => btoa(s)
+
+describe("parseUploadDataUrl", () => {
+  it("parses a valid data URL into contentType + bytes", () => {
+    const out = parseUploadDataUrl(`data:image/png;base64,${b64("hello")}`, 1000)
+    expect(out?.contentType).toBe("image/png")
+    expect(out && new TextDecoder().decode(out.bytes)).toBe("hello")
+  })
+
+  it("accepts non-image media types (video / audio / pdf)", () => {
+    expect(parseUploadDataUrl(`data:video/mp4;base64,${b64("x")}`, 1000)?.contentType).toBe("video/mp4")
+    expect(parseUploadDataUrl(`data:audio/mpeg;base64,${b64("x")}`, 1000)?.contentType).toBe("audio/mpeg")
+    expect(parseUploadDataUrl(`data:application/pdf;base64,${b64("x")}`, 1000)?.contentType).toBe(
+      "application/pdf"
+    )
+  })
+
+  it("rejects a non-string", () => {
+    expect(parseUploadDataUrl(123, 1000)).toBeNull()
+    expect(parseUploadDataUrl(null, 1000)).toBeNull()
+    expect(parseUploadDataUrl({ data: "x" }, 1000)).toBeNull()
+  })
+
+  it("rejects a malformed data URL (no base64, no mime, junk)", () => {
+    expect(parseUploadDataUrl("not a data url", 1000)).toBeNull()
+    expect(parseUploadDataUrl("data:image/png,plain", 1000)).toBeNull()
+    expect(parseUploadDataUrl("data:;base64,xxxx", 1000)).toBeNull()
+  })
+
+  it("enforces the max-size cap (over → null, under → ok)", () => {
+    const big = b64("a".repeat(2000))
+    expect(parseUploadDataUrl(`data:image/png;base64,${big}`, 100)).toBeNull()
+    expect(parseUploadDataUrl(`data:image/png;base64,${big}`, 5000)).not.toBeNull()
+  })
+})

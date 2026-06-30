@@ -343,6 +343,13 @@ export const content = {
     api<{ learning: Learning[] }>("/api/content/learning/update", post(input)),
   setLearningActive: (id: string, active: boolean) =>
     api<{ learning: Learning[] }>("/api/content/learning/active", post({ id, active })),
+  /** Upload a file for an article (gated by learning:create). Send the raw
+   * base64 data URL; get back the served /media URL + its content type. */
+  uploadLearningFile: (dataUrl: string, filename?: string) =>
+    api<{ url: string; contentType: string }>(
+      "/api/content/learning/upload",
+      post({ dataUrl, filename })
+    ),
   markLearningDone: (id: string, done: boolean) =>
     api<{ ok: true }>("/api/content/learning/done", post({ id, done })),
   learningProgress: () =>

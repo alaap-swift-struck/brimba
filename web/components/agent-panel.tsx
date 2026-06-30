@@ -163,7 +163,7 @@ export function AgentPanel({
 
         {!canUse ? (
           <div className="text-muted-foreground flex flex-1 items-center justify-center p-6 text-center text-sm">
-            The assistant isn&apos;t switched on for your role here.
+            The assistant isn&apos;t available for your role here.
           </div>
         ) : (
           <div className="flex min-h-0 flex-1 flex-col">

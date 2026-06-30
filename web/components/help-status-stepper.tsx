@@ -6,25 +6,28 @@
 // "Reopened" pill (needs attention again). Clicking a stage moves the ticket there
 // (gated by help:edit); clicking Open while Resolved is a REOPEN. The server (lib/help
 // setStatus) validates the fixed lifecycle, so the stepper can't invent an illegal
-// state. Host-side for now; flagged for library absorption as `status-stepper`.
+// state. Now built on the library StatusStepper primitive; this host keeps the help
+// status mapping (the reopen nuance + the "Reopened" pill) and the same external
+// props so help-detail needs no change.
 
-import { Check } from "lucide-react"
+import { StatusStepper, type StepperTone } from "@swift-struck/ui/registry/primitives/status-stepper/status-stepper"
 
 export type HelpStatusValue = "open" | "in_progress" | "resolved" | "reopened"
 
+// The three track stages, in order. `reopened` is folded onto "open" (below).
 const STAGES = [
-  { value: "open", label: "Open", hint: "Just raised" },
-  { value: "in_progress", label: "In progress", hint: "Being worked on" },
-  { value: "resolved", label: "Resolved", hint: "All sorted" },
-] as const
-
-// Per-stage tone (start / in-motion / done) — the same token palette the library
-// Badge variants use, so the stepper matches the rest of the app's status colours.
-const TONE = [
-  "bg-secondary text-secondary-foreground",
-  "bg-warning text-warning-foreground",
-  "bg-success text-success-foreground",
+  { value: "open", label: "Open" },
+  { value: "in_progress", label: "In progress" },
+  { value: "resolved", label: "Resolved" },
 ]
+
+// Per-stage tone (start / in-motion / done) — the same semantic tokens the library
+// Badge variants use, so the stepper matches the rest of the app's status colours.
+const TONES: Record<string, StepperTone> = {
+  open: "neutral",
+  in_progress: "warning",
+  resolved: "success",
+}
 
 export function HelpStatusStepper({
   status,
@@ -37,49 +40,27 @@ export function HelpStatusStepper({
   onChange: (next: HelpStatusValue) => void
   busy?: boolean
 }) {
-  const order = ["open", "in_progress", "resolved"] as const
-  const activeIndex = status === "reopened" ? 0 : order.indexOf(status as (typeof order)[number])
+  // `reopened` isn't a track stage — show it sitting at "Open" with a "Reopened" pill.
+  const reopened = status === "reopened"
+  const current = reopened ? "open" : status
+  const stages = reopened
+    ? STAGES.map((s) => (s.value === "open" ? { ...s, label: "Open · Reopened" } : s))
+    : STAGES
 
-  function click(stage: (typeof order)[number]) {
-    if (!canEdit || busy) return
+  function change(stage: string) {
     // The one nuance vs the raw stage: clicking Open while Resolved is a reopen.
-    const next: HelpStatusValue = stage === "open" && status === "resolved" ? "reopened" : stage
+    const next: HelpStatusValue =
+      stage === "open" && status === "resolved" ? "reopened" : (stage as HelpStatusValue)
     if (next !== status) onChange(next)
   }
 
   return (
-    <div role="group" aria-label="Ticket status" className="flex w-full max-w-full items-stretch gap-1.5">
-      {STAGES.map((stage, i) => {
-        const reached = i <= activeIndex
-        const isActive = i === activeIndex
-        return (
-          <div key={stage.value} className="flex min-w-0 flex-1 items-center gap-1.5">
-            <button
-              type="button"
-              disabled={!canEdit || busy}
-              onClick={() => click(stage.value)}
-              aria-current={isActive ? "step" : undefined}
-              className={`flex min-w-0 flex-1 flex-col items-start gap-0.5 rounded-lg border px-3 py-2 text-left transition-opacity disabled:cursor-default ${
-                reached
-                  ? `${TONE[i]} border-transparent`
-                  : "bg-muted/40 text-muted-foreground border-border/60"
-              } ${canEdit && !busy ? "cursor-pointer hover:opacity-90" : ""}`}
-            >
-              <span className="flex w-full items-center gap-1 text-xs font-medium">
-                {i < activeIndex && <Check className="size-3 shrink-0" aria-hidden />}
-                <span className="truncate">{stage.label}</span>
-                {isActive && status === "reopened" && (
-                  <span className="ml-auto rounded-full border border-current px-1.5 text-[10px] leading-tight">
-                    Reopened
-                  </span>
-                )}
-              </span>
-              <span className="truncate text-[10px] opacity-80">{stage.hint}</span>
-            </button>
-            {i < STAGES.length - 1 && <span className="h-px w-3 shrink-0 bg-border" aria-hidden />}
-          </div>
-        )
-      })}
-    </div>
+    <StatusStepper
+      stages={stages}
+      value={current}
+      tones={TONES}
+      disabled={!canEdit || busy}
+      onChange={canEdit ? change : undefined}
+    />
   )
 }

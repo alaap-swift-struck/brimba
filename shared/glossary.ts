@@ -17,6 +17,7 @@ export const GLOSSARY = {
   permission: { term: "Access right", def: "A single thing a role can do: read, create, edit, or delete." },
   invite: { term: "Invite", def: "An email asking someone to join your team in a role you choose." },
   revoke: { term: "Revoke", def: "Cancel an invite before it's accepted." },
+  deactivate: { term: "Activate / deactivate", def: "Turn a record on or off without deleting it — it's retired, not removed, so its history and access survive." },
   ticket: { term: "Ticket", def: "A question or request raised in Help, so the team can discuss it and sort it out together." },
   helpThread: { term: "Conversation", def: "The back-and-forth messages on a ticket." },
   stakeholder: { term: "Stakeholder", def: "Someone kept in the loop on a ticket — the person who raised it, your admins, and anyone mentioned." },

@@ -62,6 +62,8 @@ export function shapeMembersList(members: TeamMember[]): ScreenData {
       id: m.userId,
       name: personName(m),
       detail: `${m.roleTitle} · joined ${formatDate(m.joinedAt)}`,
+      // Facet column (read by the filter engine, not the renderer).
+      role: m.roleTitle,
     })),
   }
 }
@@ -72,6 +74,8 @@ export function shapeRolesList(roles: TeamRole[]): ScreenData {
       id: r.id,
       name: r.active ? r.title : `${r.title} (inactive)`,
       detail: r.description || `${r.memberCount} member${r.memberCount === 1 ? "" : "s"}`,
+      // Facet column (read by the filter engine, not the renderer).
+      state: r.active ? "Active" : "Inactive",
     })),
   }
 }
@@ -82,6 +86,8 @@ export function shapeInvitesList(invites: Invite[]): ScreenData {
       id: i.id,
       email: i.email,
       detail: `${i.roleTitle} · ${INVITE_STATUS[i.status]}`,
+      // Facet column (read by the filter engine, not the renderer).
+      status: INVITE_STATUS[i.status],
     })),
   }
 }
@@ -108,6 +114,8 @@ export function shapeHelpList(tickets: HelpTicket[]): ScreenData {
       id: t.id,
       name: truncate(t.description),
       detail: `${t.helpType || "Help"} · ${HELP_STATUS[t.status]}`,
+      // Facet column (read by the filter engine, not the renderer).
+      status: HELP_STATUS[t.status],
     })),
   }
 }
@@ -120,6 +128,9 @@ export function shapeLearningList(items: Learning[]): ScreenData {
       // in the title, matching how roles show "(inactive)".
       name: l.active ? l.title : `${l.title} (inactive)`,
       detail: l.category || l.description || "—",
+      // Facet columns (read by the filter engine, not the renderer).
+      category: l.category || "—",
+      state: l.active ? "Active" : "Inactive",
     })),
   }
 }

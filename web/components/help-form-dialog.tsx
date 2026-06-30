@@ -28,6 +28,7 @@ import {
 import { Spinner } from "@swift-struck/ui/registry/primitives/spinner/spinner"
 import { toast } from "@swift-struck/ui/registry/primitives/sonner/sonner"
 import { defaultFieldConfig } from "@swift-struck/ui/lib/config"
+import { X } from "lucide-react"
 
 import { ApiFailure } from "@/lib/api"
 import { useFormDraft } from "@/lib/use-form-draft"
@@ -131,23 +132,36 @@ export function HelpFormDialog({
             />
           </Field>
           <Field config={typeField} htmlFor="help-type" className={fieldSpacing}>
-            <Select
-              value={values.helpType}
-              onValueChange={(helpType) => setValues((v) => ({ ...v, helpType }))}
-              disabled={busy}
-            >
-              <SelectTrigger id="help-type">
-                <SelectValue placeholder="Choose a type (optional)" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={NONE}>No type</SelectItem>
-                {helpTypeOptions.map((v) => (
-                  <SelectItem key={v} value={v}>
-                    {v}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="relative">
+              <Select
+                value={values.helpType}
+                onValueChange={(helpType) => setValues((v) => ({ ...v, helpType }))}
+                disabled={busy}
+              >
+                <SelectTrigger id="help-type">
+                  <SelectValue placeholder="Choose a type (optional)" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NONE}>No type</SelectItem>
+                  {helpTypeOptions.map((v) => (
+                    <SelectItem key={v} value={v}>
+                      {v}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {/* Clear (X): reset to NONE without scrolling up to "No type". */}
+              {values.helpType !== NONE && !busy && (
+                <button
+                  type="button"
+                  aria-label="Clear type"
+                  onClick={() => setValues((v) => ({ ...v, helpType: NONE }))}
+                  className="text-muted-foreground hover:text-foreground absolute inset-y-0 right-8 my-auto flex size-5 items-center justify-center rounded-sm"
+                >
+                  <X className="size-3.5" />
+                </button>
+              )}
+            </div>
             <ManageDropdownsLink teamId={teamId ?? null} />
           </Field>
         </FormShell>

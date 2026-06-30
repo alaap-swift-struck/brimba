@@ -15,6 +15,7 @@ import { Spinner } from "@swift-struck/ui/registry/primitives/spinner/spinner"
 import { toast } from "@swift-struck/ui/registry/primitives/sonner/sonner"
 import { ProgressToggle } from "@swift-struck/ui/registry/primitives/progress-toggle/progress-toggle"
 import { TabsView, defaultTabsConfig } from "@swift-struck/ui/registry/primitives/tabs/tabs"
+import { WebEmbed } from "@swift-struck/ui/registry/primitives/web-embed/web-embed"
 import {
   DescriptionList,
   defaultDescriptionListConfig,
@@ -24,7 +25,7 @@ import {
   defaultActivityFeedConfig,
   type ActivityItem as ActivityFeedItem,
 } from "@swift-struck/ui/registry/collections/activity-feed/activity-feed"
-import { Pencil } from "lucide-react"
+import { Pencil, Power } from "lucide-react"
 
 import type { ActivityItem, Learning, SelectableValue } from "@shared/types"
 import { LearningFormDialog, type LearningFormValues } from "@/components/learning-form-dialog"
@@ -33,6 +34,29 @@ import { auditItems } from "@/lib/audit-overview"
 import { RichText } from "@/components/rich-text"
 import { usePermissions } from "@/lib/perms"
 import { primeCache, useCached } from "@/lib/store"
+
+// Show the linked resource IN-APP. We pick the player by the content-type keyword
+// first (the team's own label, e.g. "Video file"), then fall back to the URL's
+// extension. Uploaded files live under /media; anything we can't classify (a PDF,
+// an embeddable page, an unknown upload) goes in a sandboxed WebEmbed frame.
+function LearningMedia({ url, contentType }: { url: string; contentType: string }) {
+  const type = contentType.toLowerCase()
+  const lower = url.toLowerCase()
+  const ext = (lower.split("?")[0].split(".").pop() ?? "").trim()
+
+  const isImage = type.includes("image") || /^(png|jpe?g|gif|webp|avif|svg)$/.test(ext)
+  const isVideo = type.includes("video") || /^(mp4|webm|ogg|mov|m4v)$/.test(ext)
+  const isAudio = type.includes("audio") || /^(mp3|wav|m4a|aac|oga|flac)$/.test(ext)
+
+  if (isImage)
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img src={url} alt="" className="max-h-96 w-full rounded-xl border object-contain" />
+  if (isVideo) return <video src={url} controls className="max-h-96 w-full rounded-xl border" />
+  if (isAudio) return <audio src={url} controls className="w-full" />
+  // No obvious media type (a PDF, an /media upload we can't classify, or an
+  // external embeddable page) → frame it.
+  return <WebEmbed src={url} title="Linked resource" />
+}
 
 export function LearningDetailScreen({ teamId, learningId }: { teamId: string; learningId: string }) {
   const learningQ = useCached<Learning[]>(`learning:${teamId}`, () =>
@@ -112,7 +136,7 @@ export function LearningDetailScreen({ teamId, learningId }: { teamId: string; l
       const { learning: nextList } = await content.setLearningActive(learningId, activeNext)
       primeCache(`learning:${teamId}`, nextList)
       invalidateActivity()
-      toast.success(activeNext ? "Article switched back on." : "Article switched off.")
+      toast.success(activeNext ? "Article activated." : "Article deactivated.")
     } catch (err) {
       toast.error(err instanceof ApiFailure ? err.message : "Couldn't update the article.")
     } finally {
@@ -133,7 +157,7 @@ export function LearningDetailScreen({ teamId, learningId }: { teamId: string; l
       createdAt: item.createdAt,
       editedByName: item.editorName,
       updatedAt: item.updatedAt,
-      status: item.active ? "Switched on" : "Switched off",
+      status: item.active ? "Active" : "Inactive",
     }),
   ]
 
@@ -162,7 +186,7 @@ export function LearningDetailScreen({ teamId, learningId }: { teamId: string; l
             <span className="truncate">{item.title}</span>
             {!item.active && (
               <Badge variant="outline" className="text-muted-foreground text-[10px]">
-                Switched off
+                Inactive
               </Badge>
             )}
             {item.required && (
@@ -214,14 +238,17 @@ export function LearningDetailScreen({ teamId, learningId }: { teamId: string; l
                   <p className="text-muted-foreground text-sm">No content yet.</p>
                 )}
                 {item.contentLink && (
-                  <a
-                    href={item.contentLink}
-                    target="_blank"
-                    rel="noreferrer noopener"
-                    className="text-primary inline-flex w-fit items-center gap-1 text-sm underline-offset-2 hover:underline"
-                  >
-                    Open the linked resource
-                  </a>
+                  <div className="flex flex-col gap-2">
+                    <LearningMedia url={item.contentLink} contentType={item.contentType ?? ""} />
+                    <a
+                      href={item.contentLink}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      className="text-primary inline-flex w-fit items-center gap-1 text-sm underline-offset-2 hover:underline"
+                    >
+                      Open the linked resource
+                    </a>
+                  </div>
                 )}
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -236,8 +263,8 @@ export function LearningDetailScreen({ teamId, learningId }: { teamId: string; l
                       disabled={busyActive}
                       className="text-destructive hover:text-destructive gap-1.5"
                     >
-                      {busyActive ? <Spinner /> : null}
-                      Switch off
+                      {busyActive ? <Spinner /> : <Power className="size-3.5" />}
+                      Deactivate
                     </Button>
                   ) : (
                     <Button
@@ -246,8 +273,8 @@ export function LearningDetailScreen({ teamId, learningId }: { teamId: string; l
                       disabled={busyActive}
                       className="gap-1.5"
                     >
-                      {busyActive ? <Spinner /> : null}
-                      Switch on
+                      {busyActive ? <Spinner /> : <Power className="size-3.5" />}
+                      Activate
                     </Button>
                   ))}
               </div>

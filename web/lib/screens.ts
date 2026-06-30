@@ -12,6 +12,7 @@ import {
   defaultCollectionConfig,
   defaultFieldConfig,
   type CollectionConfig,
+  type FilterFacet,
 } from "@swift-struck/ui/lib/config"
 
 import { CONCEPT_ICON } from "@/lib/pages"
@@ -22,10 +23,29 @@ function field(column: string, label: string): RecipeField {
   return { column, type: "text", field: { ...defaultFieldConfig, label } }
 }
 
-/** A list collection config (search off until the library search/filters land —
- * UI-GAPS #7; it's a recipe edit, not new plumbing, to turn on later). */
-function listCollection(emptyText: string): CollectionConfig {
-  return { ...defaultCollectionConfig, searchable: false, emptyText }
+/** A list collection config with Layer-1 (client-side, in-memory) search ON —
+ * the library search/filters have landed (SEARCH.md · UI-GAPS #7), so every
+ * bounded list searches its already-cached rows with zero new requests. The
+ * engine auto-points the search at the recipe `fields` columns (the shaped text:
+ * name / detail / email), so flipping `searchable` is all the wiring needed.
+ *
+ * `filterFacets` adds the user-facing FILTER bar (`userFilter`): each facet's
+ * `field` must be a real column on the SHAPED rows (a chosen value becomes an
+ * `is` Rule on it); options are auto-derived from the data. Threaded per-call
+ * like the search placeholder. */
+function listCollection(
+  emptyText: string,
+  searchPlaceholder: string,
+  filterFacets: FilterFacet[] = []
+): CollectionConfig {
+  return {
+    ...defaultCollectionConfig,
+    searchable: true,
+    searchPlaceholder,
+    userFilter: filterFacets.length > 0,
+    filterFacets,
+    emptyText,
+  }
 }
 
 /** The permission module a friendly URL segment maps to. URLs stay readable
@@ -97,7 +117,9 @@ export const membersListRecipe: ScreenRecipe = {
   gate: { module: "team_members", right: "read" },
   fields: [field("name", "Member"), field("detail", "Details")],
   actions: [],
-  collection: listCollection("No members yet."),
+  collection: listCollection("No members yet.", "Search members…", [
+    { field: "role", label: "Role", control: "select" },
+  ]),
 }
 
 /** Member detail (Overview + Activity). Actions change-role + remove are gated by
@@ -159,7 +181,9 @@ export const rolesListRecipe: ScreenRecipe = {
   gate: { module: "member_roles", right: "read" },
   fields: [field("name", "Role"), field("detail", "Details")],
   actions: [],
-  collection: listCollection("No roles yet."),
+  collection: listCollection("No roles yet.", "Search roles…", [
+    { field: "state", label: "Status", control: "select" },
+  ]),
 }
 
 /* -------------------------------- invites -------------------------------- */
@@ -173,7 +197,9 @@ export const invitesListRecipe: ScreenRecipe = {
   gate: { module: "team_members", right: "read" },
   fields: [field("email", "Email"), field("detail", "Details")],
   actions: [],
-  collection: listCollection("No invites yet."),
+  collection: listCollection("No invites yet.", "Search invites…", [
+    { field: "status", label: "Status", control: "select" },
+  ]),
 }
 
 /** Invite detail — who/what/when, plus Revoke (gated team_members:delete; the
@@ -232,7 +258,10 @@ export const learningListRecipe: ScreenRecipe = {
   gate: { module: "learning", right: "read" },
   fields: [field("name", "Article"), field("detail", "Details")],
   actions: [],
-  collection: listCollection("No learning yet."),
+  collection: listCollection("No learning yet.", "Search learning…", [
+    { field: "category", label: "Category", control: "select" },
+    { field: "state", label: "Status", control: "select" },
+  ]),
 }
 
 /* ---------------------------------- help --------------------------------- */
@@ -248,7 +277,9 @@ export const helpListRecipe: ScreenRecipe = {
   gate: { module: "help", right: "read" },
   fields: [field("name", "Ticket"), field("detail", "Details")],
   actions: [],
-  collection: listCollection("No tickets yet."),
+  collection: listCollection("No tickets yet.", "Search tickets…", [
+    { field: "status", label: "Status", control: "select" },
+  ]),
 }
 
 /* ------------------------------ the registry ------------------------------ */

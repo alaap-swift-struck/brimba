@@ -21,6 +21,6 @@
     "wrangler": "^4.0.0"
   },
   "dependencies": {
-    "@swift-struck/ui": "github:alaap-swift-struck/swift-struck-ui#main"
+    "@swift-struck/ui": "github:alaap-swift-struck/swift-struck-ui"
   }
 }

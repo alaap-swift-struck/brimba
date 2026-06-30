@@ -114,7 +114,7 @@ export function RoleDetailScreen({ teamId, roleId }: { teamId: string; roleId: s
     try {
       const { roles: next } = await tenancy.setRoleActive(roleId, activeNext)
       primeCache(`member_roles:${teamId}`, next)
-      toast.success(activeNext ? "Role switched on." : "Role switched off.")
+      toast.success(activeNext ? "Role activated." : "Role deactivated.")
       setConfirmDeactivate(false)
     } catch (err) {
       toast.error(err instanceof ApiFailure ? err.message : "Couldn't update the role.")
@@ -151,7 +151,7 @@ export function RoleDetailScreen({ teamId, roleId }: { teamId: string; roleId: s
             )}
             {!role.active && (
               <Badge variant="outline" className="text-muted-foreground text-[10px]">
-                Switched off
+                Inactive
               </Badge>
             )}
           </h1>
@@ -176,8 +176,8 @@ export function RoleDetailScreen({ teamId, roleId }: { teamId: string; roleId: s
         // Deactivated: permissions frozen (holders keep access); offer reactivate.
         <div className="border-border/60 flex flex-col gap-3 rounded-xl border p-6">
           <p className="text-muted-foreground text-sm">
-            This role is switched off. Members who have it keep their access, but you can&apos;t give
-            it to anyone new until you switch it back on.
+            This role is deactivated. Members who have it keep their access, but you can&apos;t give
+            it to anyone new until you activate it again.
           </p>
           {canDeactivate && (
             <Button
@@ -186,7 +186,7 @@ export function RoleDetailScreen({ teamId, roleId }: { teamId: string; roleId: s
               className="w-full gap-1.5 sm:w-auto sm:self-start"
             >
               {busyActive ? <Spinner /> : <Power className="size-3.5" />}
-              {busyActive ? "Switching on…" : "Switch on"}
+              {busyActive ? "Activating…" : "Activate"}
             </Button>
           )}
         </div>
@@ -212,7 +212,7 @@ export function RoleDetailScreen({ teamId, roleId }: { teamId: string; roleId: s
                   className="text-destructive hover:text-destructive gap-1.5"
                 >
                   <Power className="size-3.5" />
-                  Switch off
+                  Deactivate
                 </Button>
               )}
               {canSave && (
@@ -241,10 +241,10 @@ export function RoleDetailScreen({ teamId, roleId }: { teamId: string; roleId: s
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Switch off {role.title}?</AlertDialogTitle>
+            <AlertDialogTitle>Deactivate {role.title}?</AlertDialogTitle>
             <AlertDialogDescription>
               Members who have it keep their access, but you can&apos;t give it to anyone new.
-              You can switch it back on later.
+              You can activate it again later.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -257,7 +257,7 @@ export function RoleDetailScreen({ teamId, roleId }: { teamId: string; roleId: s
               disabled={busyActive}
             >
               {busyActive ? <Spinner /> : null}
-              {busyActive ? "Switching off…" : "Switch off"}
+              {busyActive ? "Deactivating…" : "Deactivate"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
