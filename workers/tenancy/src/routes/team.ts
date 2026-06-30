@@ -4,6 +4,7 @@
 import { fail, json } from "../../../../shared/workers/http"
 import { requireText, TEXT_LIMITS } from "../../../../shared/workers/validate"
 import { publishChange } from "../../../../shared/workers/realtime"
+import { logActivity } from "../../../../shared/workers/activity"
 import { getActivity } from "../lib/activity-read"
 import { requireRight } from "../lib/permissions"
 import {
@@ -91,7 +92,7 @@ export async function createNamedTeam(request: Request, env: Env): Promise<Respo
 }
 
 export async function postUpdateTeam(request: Request, env: Env): Promise<Response> {
-  const { cfg, guard } = await teamContext(request, env)
+  const { actor, cfg, guard } = await teamContext(request, env)
   await requireRight(cfg, guard, "teams", "edit")
   const body = (await request.json().catch(() => ({}))) as {
     name?: string
@@ -99,6 +100,13 @@ export async function postUpdateTeam(request: Request, env: Env): Promise<Respon
   }
   const name = requireText(body.name, "Name", TEXT_LIMITS.short)
   await updateTeamDetails(env, guard.teamId, name, body.logoDataUrl)
+  // Record the edit on the team's Activity feed (was missing — team-edit feedback).
+  await logActivity(cfg, guard.databaseId, actor, {
+    type: "Team details updated",
+    description: `${actor.name} updated the team details`,
+    relatedTable: "teams",
+    relatedRowId: guard.teamId,
+  })
   await publishChange(env.REALTIME, guard.teamId, "team")
   return json({ ok: true })
 }

@@ -121,6 +121,13 @@ export function DeepLinkScreen() {
     ? (active.ctx?.teams.some((t) => t.id === urlTeamId) ?? false)
     : true
   const switchTeam = active.switchTeam
+  // Tracks the URL-team we've SYNCED the active team to. Lets us tell a DEEP-LINK
+  // (never synced to this URL's team yet → adopt it) from an external TEAM SWITCH (we
+  // WERE synced here, then the switcher moved the active team away → follow it to
+  // /home instead of snapping back). Keying off "were we synced" (not "did the URL
+  // change") makes it race- and StrictMode-safe: a mid-adopt re-render re-adopts
+  // rather than wrongly bouncing to /home.
+  const syncedTeam = React.useRef<string | null>(null)
   React.useEffect(() => {
     if (active.loading || !urlTeamId) return
     if (!isMemberOfUrlTeam) {
@@ -130,10 +137,19 @@ export function DeepLinkScreen() {
       return
     }
     setNoAccess(false)
-    // A member whose team is still provisioning (db not 'ready') fails the switch
-    // → that's the genuine no-access case the screen still covers.
-    if (activeTeamId && activeTeamId !== urlTeamId) {
-      switchTeam(urlTeamId).catch(() => setNoAccess(true))
+    if (activeTeamId === urlTeamId) {
+      syncedTeam.current = urlTeamId // we're on this team now — remember it
+      return
+    }
+    if (activeTeamId) {
+      if (syncedTeam.current === urlTeamId) {
+        // We were on this URL's team, then switched away elsewhere → follow the switch.
+        router.replace("/home")
+      } else {
+        // Deep link to another of your teams → switch to it (server re-validates).
+        // A member whose team is still provisioning fails here = the no-access case.
+        switchTeam(urlTeamId).catch(() => setNoAccess(true))
+      }
     }
   }, [urlTeamId, activeTeamId, isMemberOfUrlTeam, teamCount, active.loading, switchTeam, router])
 

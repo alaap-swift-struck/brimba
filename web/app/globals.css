@@ -4,3 +4,11 @@
 /* THE theme — imported straight from the library package. ONE master copy
  * (swift-struck-ui repo, styles.css); this app never carries its own. */
 @import "@swift-struck/ui/styles.css";
+
+/* Overlay readability (feedback 2026-06-30): the library's frosted `.glass` sits at
+ * 72% surface opacity — too see-through to read dialog/sheet text against the living
+ * background. Keep the frosted blur, but make the surface mostly opaque. (A library
+ * prompt tracks adopting this as the default; remove this override once it lands.) */
+.glass {
+  background-color: color-mix(in oklch, var(--card) 94%, transparent);
+}
