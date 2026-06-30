@@ -1,8 +1,10 @@
 // Guards on the agent's safety surface (pure logic — no model/DB/network):
 //  • the confirm rule (dangerous/role-touching writes confirm; plain edits run free),
 //  • the catalog is OPT-IN (only listed actions are tools), and
-//  • identity acts are NOT in the catalog (the agent structurally can't change who
-//    you are, remove/demote you, or touch members).
+//  • the agent acts AS the user with the user's EXACT rights (the server re-checks each
+//    call) and confirms dangerous actions; it still cannot control device sessions or
+//    delete the team. Managing existing members (set a role, remove someone) IS allowed
+//    — it's normal, re-gated CRUD — but confirms first because members is dangerous.
 
 import { describe, expect, it } from "vitest"
 
@@ -23,23 +25,35 @@ describe("agent tool catalog + confirm rule", () => {
     }
   })
 
+  it("manages members AS the user — set_member_role + remove_member are present and confirm", () => {
+    // The agent acts AS the user with their EXACT rights (the server re-checks each
+    // call), so member management is allowed — but both confirm first (members is a
+    // dangerous, high-blast table).
+    expect(getTool("remove_member")).toBeDefined()
+    expect(getTool("set_member_role")).toBeDefined()
+    expect(requiresConfirm(getTool("remove_member")!)).toBe(true)
+    expect(requiresConfirm(getTool("set_member_role")!)).toBe(true)
+  })
+
   it("exposes a spec for every catalogued tool, and nothing else is callable", () => {
     const specs = toolSpecs()
     expect(specs.map((s) => s.name).sort()).toEqual(TOOL_CATALOG.map((t) => t.name).sort())
+    // Catastrophic acts stay out of the catalog: deleting the team, signing out devices.
     expect(getTool("delete_team")).toBeUndefined()
-    expect(getTool("remove_member")).toBeUndefined()
+    expect(getTool("sign_out")).toBeUndefined()
     expect(getTool("change_my_email")).toBeUndefined()
   })
 
-  it("contains no identity / member-management actions (those are blocked by omission)", () => {
-    const banned = /remove_member|change_role|set_member|delete_team|sign_out|demote/i
+  it("still cannot control device sessions or delete the team (catastrophic acts blocked)", () => {
+    // Device-session control and team deletion are catastrophic, not normal CRUD, so
+    // they stay out of the catalog by name and by surface.
+    const banned = /delete_team|sign_out/i
     for (const t of TOOL_CATALOG) {
-      expect(banned.test(t.name), `tool "${t.name}" must not be an identity/member action`).toBe(false)
+      expect(banned.test(t.name), `tool "${t.name}" must not be a catastrophic act`).toBe(false)
     }
-    // No WRITE tool may touch the members or sessions surface (identity/member writes
-    // are blocked); reads like list_members are fine.
-    for (const t of TOOL_CATALOG.filter((t) => t.write)) {
-      expect(/members|sessions/.test(t.path), `write tool "${t.name}" path ${t.path}`).toBe(false)
+    // No tool may touch the device-sessions surface.
+    for (const t of TOOL_CATALOG) {
+      expect(/sessions/.test(t.path), `tool "${t.name}" path ${t.path}`).toBe(false)
     }
   })
 

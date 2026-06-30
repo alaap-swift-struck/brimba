@@ -4,13 +4,17 @@
 // permission and validates the input — the agent can never exceed the invoker's rights.
 //
 // SAFETY (locked):
+//   • Act-as-user — every tool runs through the same gated endpoint AS the caller, so
+//     the agent has the user's EXACT rights and the real door re-checks each call.
+//     Managing existing members (set a role, remove someone) IS allowed — it's normal,
+//     re-gated CRUD — and confirms first because members is a dangerous table.
 //   • Confirm rule — a WRITE confirms before running if it's destructive OR touches a
 //     dangerous table (roles / members / screens / import). Plain single content edits
 //     run freely. (Bulk >1-row writes only happen via the import flow, which has its
 //     own preview+confirm, so they're not in this single-call catalog.)
-//   • Identity blocks — actions that change WHO YOU ARE (your email, removing/demoting
-//     yourself, your other sessions) are simply NOT in the catalog, so the agent
-//     structurally cannot do them. The guard below is the belt-and-braces backstop.
+//   • Catastrophic blocks — controlling your other DEVICE SESSIONS (sessions) and
+//     DELETING the team are not normal CRUD, so they're simply NOT in the catalog and
+//     the agent structurally cannot do them. The guard below is the belt-and-braces backstop.
 //   • Fence — tool RESULTS are returned to the model as DATA (role:"tool"), never as
 //     instructions; the system prompt reinforces it.
 
@@ -177,6 +181,202 @@ export const TOOL_CATALOG: AgentTool[] = [
     dangerousTable: true, // roles is a high-blast table → always confirm
     buildBody: (i) => ({ title: str(i, "title"), description: str(i, "description") || "" }),
     summarize: (i) => `Create the role "${str(i, "title")}"`,
+  },
+  {
+    name: "update_role",
+    description: "Rename or re-describe an existing team role (by id).",
+    schema: obj({ roleId: S, title: S, description: S }, ["roleId", "title"]),
+    binding: "TENANCY",
+    method: "POST",
+    path: "/api/tenancy/roles/update",
+    write: true,
+    destructive: false,
+    dangerousTable: true, // roles is a high-blast table → always confirm
+    buildBody: (i) => ({
+      roleId: str(i, "roleId"),
+      title: str(i, "title"),
+      description: str(i, "description") || "",
+    }),
+    summarize: (i) => `Rename role ${str(i, "roleId")} to "${str(i, "title")}"`,
+  },
+  {
+    name: "set_role_active",
+    description: "Switch a role off (deactivate) or back on (reactivate) — never deleted.",
+    schema: obj({ roleId: S, active: { type: "boolean" } }, ["roleId", "active"]),
+    binding: "TENANCY",
+    method: "POST",
+    path: "/api/tenancy/roles/active",
+    write: true,
+    destructive: true, // switching a role off withdraws it → destructive + confirm
+    dangerousTable: true,
+    buildBody: (i) => ({ roleId: str(i, "roleId"), active: i.active === true }),
+    summarize: (i) =>
+      `${i.active === true ? "Reactivate" : "Switch off"} role ${str(i, "roleId")}`,
+  },
+  {
+    name: "invite_member",
+    description: "Invite someone to the team by email, assigning them a role (by role id).",
+    schema: obj({ email: S, roleId: S }, ["email", "roleId"]),
+    binding: "TENANCY",
+    method: "POST",
+    path: "/api/tenancy/invites",
+    write: true,
+    destructive: false,
+    dangerousTable: true, // invites grow the member surface → always confirm
+    buildBody: (i) => ({ email: str(i, "email"), roleId: str(i, "roleId") }),
+    summarize: (i) => `Invite ${str(i, "email")} as role ${str(i, "roleId")}`,
+  },
+  {
+    name: "revoke_invite",
+    description: "Revoke a pending invitation that hasn't been accepted yet (by invite id).",
+    schema: obj({ inviteId: S }, ["inviteId"]),
+    binding: "TENANCY",
+    method: "POST",
+    path: "/api/tenancy/invites/revoke",
+    write: true,
+    destructive: true, // withdraws an outstanding invite → destructive + confirm
+    dangerousTable: true,
+    buildBody: (i) => ({ inviteId: str(i, "inviteId") }),
+    summarize: (i) => `Revoke invitation ${str(i, "inviteId")}`,
+  },
+  {
+    name: "set_member_role",
+    description: "Change an existing member's role (by user id + the new role id).",
+    schema: obj({ userId: S, roleId: S }, ["userId", "roleId"]),
+    binding: "TENANCY",
+    method: "POST",
+    path: "/api/tenancy/members/role",
+    write: true,
+    destructive: true, // re-grants a member's rights → destructive + confirm
+    dangerousTable: true, // members is a high-blast table → always confirm
+    buildBody: (i) => ({ userId: str(i, "userId"), roleId: str(i, "roleId") }),
+    summarize: (i) => `Change member ${str(i, "userId")} to role ${str(i, "roleId")}`,
+  },
+  {
+    name: "remove_member",
+    description: "Remove (deactivate) a member from the team — never hard-deleted (by user id).",
+    schema: obj({ userId: S }, ["userId"]),
+    binding: "TENANCY",
+    method: "POST",
+    path: "/api/tenancy/members/remove",
+    write: true,
+    destructive: true, // withdraws someone's access to the team → destructive + confirm
+    dangerousTable: true, // members is a high-blast table → always confirm
+    buildBody: (i) => ({ userId: str(i, "userId") }),
+    summarize: (i) => `Remove member ${str(i, "userId")} from the team`,
+  },
+  {
+    name: "create_dropdown_value",
+    description: "Add a selectable dropdown value to a group (e.g. add an option to a list).",
+    schema: obj({ type: S, value: S }, ["type", "value"]),
+    binding: "TENANCY",
+    method: "POST",
+    path: "/api/tenancy/selectable",
+    write: true,
+    destructive: false,
+    dangerousTable: false,
+    buildBody: (i) => ({ type: str(i, "type"), value: str(i, "value") }),
+    summarize: (i) => `Add "${str(i, "value")}" to the ${str(i, "type")} list`,
+  },
+  {
+    name: "update_dropdown_value",
+    description: "Rename an existing selectable dropdown value (by id).",
+    schema: obj({ id: S, value: S }, ["id", "value"]),
+    binding: "TENANCY",
+    method: "POST",
+    path: "/api/tenancy/selectable/update",
+    write: true,
+    destructive: false,
+    dangerousTable: false,
+    buildBody: (i) => ({ id: str(i, "id"), value: str(i, "value") }),
+    summarize: (i) => `Rename dropdown value ${str(i, "id")} to "${str(i, "value")}"`,
+  },
+  {
+    name: "set_dropdown_active",
+    description: "Switch a dropdown value off (deactivate) or back on (reactivate) — never deleted.",
+    schema: obj({ id: S, active: { type: "boolean" } }, ["id", "active"]),
+    binding: "TENANCY",
+    method: "POST",
+    path: "/api/tenancy/selectable/active",
+    write: true,
+    destructive: true, // switching an option off withdraws it from pickers → confirm
+    dangerousTable: false,
+    buildBody: (i) => ({ id: str(i, "id"), active: i.active === true }),
+    summarize: (i) =>
+      `${i.active === true ? "Reactivate" : "Switch off"} dropdown value ${str(i, "id")}`,
+  },
+  {
+    name: "update_team",
+    description: "Edit the active team's details (its name).",
+    schema: obj({ name: S }, ["name"]),
+    binding: "TENANCY",
+    method: "POST",
+    path: "/api/tenancy/teams/update",
+    write: true,
+    destructive: false,
+    dangerousTable: false,
+    buildBody: (i) => ({ name: str(i, "name") }),
+    summarize: (i) => `Rename the team to "${str(i, "name")}"`,
+  },
+  {
+    name: "update_help_ticket",
+    description: "Edit an existing support ticket's details (by id).",
+    schema: obj({ id: S, description: S, helpType: S, screenRecordingLink: S }, ["id", "description"]),
+    binding: "CONTENT",
+    method: "POST",
+    path: "/api/content/help/update",
+    write: true,
+    destructive: false,
+    dangerousTable: false,
+    buildBody: (i) => ({
+      id: str(i, "id"),
+      description: str(i, "description"),
+      helpType: str(i, "helpType") || undefined,
+      screenRecordingLink: str(i, "screenRecordingLink") || undefined,
+    }),
+    summarize: (i) => `Edit support ticket ${str(i, "id")}`,
+  },
+  {
+    name: "set_help_status",
+    description:
+      "Move a support ticket along its lifecycle (open, in_progress, resolved, reopened).",
+    schema: obj({ id: S, status: S }, ["id", "status"]),
+    binding: "CONTENT",
+    method: "POST",
+    path: "/api/content/help/status",
+    write: true,
+    destructive: false,
+    dangerousTable: false,
+    buildBody: (i) => ({ id: str(i, "id"), status: str(i, "status") }),
+    summarize: (i) => `Set ticket ${str(i, "id")} to "${str(i, "status")}"`,
+  },
+  {
+    name: "set_learning_active",
+    description: "Switch a learning article off (deactivate) or back on (reactivate) — never deleted.",
+    schema: obj({ id: S, active: { type: "boolean" } }, ["id", "active"]),
+    binding: "CONTENT",
+    method: "POST",
+    path: "/api/content/learning/active",
+    write: true,
+    destructive: true, // switching an article off hides it from the team → confirm
+    dangerousTable: false,
+    buildBody: (i) => ({ id: str(i, "id"), active: i.active === true }),
+    summarize: (i) =>
+      `${i.active === true ? "Reactivate" : "Switch off"} learning article ${str(i, "id")}`,
+  },
+  {
+    name: "mark_learning_done",
+    description: "Mark a learning article done (or not done) for yourself.",
+    schema: obj({ id: S, done: { type: "boolean" } }, ["id", "done"]),
+    binding: "CONTENT",
+    method: "POST",
+    path: "/api/content/learning/done",
+    write: true,
+    destructive: false,
+    dangerousTable: false,
+    buildBody: (i) => ({ id: str(i, "id"), done: i.done === true }),
+    summarize: (i) =>
+      `Mark learning article ${str(i, "id")} ${i.done === true ? "done" : "not done"}`,
   },
 ]
 
