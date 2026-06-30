@@ -13,7 +13,6 @@ import { Button } from "@swift-struck/ui/registry/primitives/button/button"
 import { Skeleton } from "@swift-struck/ui/registry/primitives/skeleton/skeleton"
 import { Spinner } from "@swift-struck/ui/registry/primitives/spinner/spinner"
 import { toast } from "@swift-struck/ui/registry/primitives/sonner/sonner"
-import { ArticleBody } from "@swift-struck/ui/registry/collections/article-body/article-body"
 import { ProgressToggle } from "@swift-struck/ui/registry/primitives/progress-toggle/progress-toggle"
 import { TabsView, defaultTabsConfig } from "@swift-struck/ui/registry/primitives/tabs/tabs"
 import {
@@ -31,6 +30,7 @@ import type { ActivityItem, Learning, SelectableValue } from "@shared/types"
 import { LearningFormDialog, type LearningFormValues } from "@/components/learning-form-dialog"
 import { ApiFailure, content, tenancy } from "@/lib/api"
 import { formatRelative } from "@/lib/format"
+import { RichText } from "@/components/rich-text"
 import { usePermissions } from "@/lib/perms"
 import { primeCache, useCached } from "@/lib/store"
 
@@ -90,7 +90,6 @@ export function LearningDetailScreen({ teamId, learningId }: { teamId: string; l
       id: learningId,
       title: values.title,
       category: values.category || null,
-      description: values.description || null,
       contentType: values.contentType || null,
       contentLink: values.contentLink || null,
       body: values.body || null,
@@ -204,12 +203,23 @@ export function LearningDetailScreen({ teamId, learningId }: { teamId: string; l
             )
           return (
             <div className="flex flex-col gap-6">
-              <ArticleBody
-                title={null}
-                contentType={item.contentType ?? undefined}
-                body={item.body ?? undefined}
-                externalUrl={item.contentLink ?? undefined}
-              />
+              <div className="flex flex-col gap-3">
+                {item.body ? (
+                  <RichText html={item.body} />
+                ) : (
+                  <p className="text-muted-foreground text-sm">No content yet.</p>
+                )}
+                {item.contentLink && (
+                  <a
+                    href={item.contentLink}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    className="text-primary inline-flex w-fit items-center gap-1 text-sm underline-offset-2 hover:underline"
+                  >
+                    Open the linked resource
+                  </a>
+                )}
+              </div>
               <div className="flex flex-wrap items-center gap-2">
                 {item.active && <ProgressToggle done={!!item.done} onToggle={() => void toggleDone()} />}
                 {busyDone && <Spinner />}
@@ -246,12 +256,12 @@ export function LearningDetailScreen({ teamId, learningId }: { teamId: string; l
         open={editingOpen}
         onOpenChange={setEditingOpen}
         draftKey={`learning:edit:${learningId}`}
+        teamId={teamId}
         categoryOptions={categoryOptions}
         contentTypeOptions={contentTypeOptions}
         initial={{
           title: item.title,
           category: item.category ?? "",
-          description: item.description ?? "",
           contentType: item.contentType ?? "",
           contentLink: item.contentLink ?? "",
           body: item.body ?? "",

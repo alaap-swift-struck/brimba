@@ -44,11 +44,33 @@ function safeLink(url: unknown): string | null {
   }
 }
 
-/** Neutralise dangerous-scheme markdown links in an article body (e.g.
- * `[click](javascript:…)`) — the body counterpart to safeLink. */
+/** Server-side defence-in-depth for an article body (now rich-text HTML from the
+ * Notes editor; previously markdown). The RENDER path (web `RichText`) is the real
+ * boundary — an allowlist parse that drops scripts/handlers/unsafe links — so this
+ * just scrubs the obvious dangers before they're stored: script/style/embed blocks,
+ * inline on* handlers, dangerous-scheme href/src (and the old markdown-link form,
+ * harmless to keep). */
 function safeBody(body: unknown): string | null {
   if (typeof body !== "string") return null
-  return body.replace(/\]\(\s*(javascript|data|vbscript)\s*:/gi, "](#")
+  return body
+    .replace(/<(script|style|iframe|object|embed|noscript|template)\b[\s\S]*?<\/\1>/gi, "")
+    .replace(/<\/?(script|style|iframe|object|embed|noscript|template)\b[^>]*>/gi, "")
+    .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+    .replace(/(href|src)\s*=\s*("|')?\s*(?:javascript|data|vbscript):/gi, "$1=$2#")
+    .replace(/\]\(\s*(?:javascript|data|vbscript)\s*:/gi, "](#")
+}
+
+/** A short plain-text preview from a (possibly HTML) body — for list/card subtitles
+ * (content_description) and the assistant's reading copy. */
+function previewFromBody(html: string | null): string | null {
+  if (!html) return null
+  const text = html
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/\s+/g, " ")
+    .trim()
+  return text ? text.slice(0, 140) : null
 }
 
 /** Raw learning row (DB column names) joined with the caller's own progress. */
@@ -171,13 +193,19 @@ export async function createLearning(
   const category = optionalText(input.category, "Category", TEXT_LIMITS.short) ?? null
   if (category) await ensureCategory(cfg, guard, actor, category)
 
+  const contentType = optionalText(input.contentType, "Content type", TEXT_LIMITS.short) ?? null
+  const body = safeBody(input.body)
+  // Description is now DERIVED from the body (the form merged them) — a short
+  // plain-text preview for list cards; an explicit description (e.g. import) wins.
+  const description = optionalText(input.description, "Description", TEXT_LIMITS.long) ?? previewFromBody(body)
+
   const id = ulid()
   const now = new Date().toISOString()
   await d1ExecScript(
     cfg,
     guard.databaseId,
     `INSERT INTO learning (id, category, content_title, content_description, content_type, content_link, content_body, sequence, is_required, created_at, creator_id, creator_email, creator_name)
-VALUES (${sqlString(id)}, ${sqlString(category)}, ${sqlString(title)}, ${sqlString((optionalText(input.description, "Description", TEXT_LIMITS.long) ?? null))}, ${sqlString((optionalText(input.contentType, "Content type", TEXT_LIMITS.short) ?? null))}, ${sqlString(safeLink(input.contentLink))}, ${sqlString(safeBody(input.body))}, ${intOr(input.sequence, 0)}, ${input.required ? 1 : 0}, ${sqlString(now)}, ${sqlString(actor.id)}, ${sqlString(actor.email)}, ${sqlString(actor.name)});`
+VALUES (${sqlString(id)}, ${sqlString(category)}, ${sqlString(title)}, ${sqlString(description)}, ${sqlString(contentType)}, ${sqlString(safeLink(input.contentLink))}, ${sqlString(body)}, ${intOr(input.sequence, 0)}, ${input.required ? 1 : 0}, ${sqlString(now)}, ${sqlString(actor.id)}, ${sqlString(actor.email)}, ${sqlString(actor.name)});`
   )
 
   await logActivity(cfg, guard.databaseId, actor, {
@@ -205,11 +233,15 @@ export async function updateLearning(
   const category = optionalText(input.category, "Category", TEXT_LIMITS.short) ?? null
   if (category) await ensureCategory(cfg, guard, actor, category)
 
+  const contentType = optionalText(input.contentType, "Content type", TEXT_LIMITS.short) ?? null
+  const body = safeBody(input.body)
+  const description = optionalText(input.description, "Description", TEXT_LIMITS.long) ?? previewFromBody(body)
+
   const now = new Date().toISOString()
   await d1ExecScript(
     cfg,
     guard.databaseId,
-    `UPDATE learning SET category = ${sqlString(category)}, content_title = ${sqlString(title)}, content_description = ${sqlString((optionalText(input.description, "Description", TEXT_LIMITS.long) ?? null))}, content_type = ${sqlString((optionalText(input.contentType, "Content type", TEXT_LIMITS.short) ?? null))}, content_link = ${sqlString(safeLink(input.contentLink))}, content_body = ${sqlString(safeBody(input.body))}, sequence = ${intOr(input.sequence, 0)}, is_required = ${input.required ? 1 : 0}, updated_at = ${sqlString(now)}, editor_id = ${sqlString(actor.id)}, editor_email = ${sqlString(actor.email)}, editor_name = ${sqlString(actor.name)} WHERE id = ${sqlString(id)};`
+    `UPDATE learning SET category = ${sqlString(category)}, content_title = ${sqlString(title)}, content_description = ${sqlString(description)}, content_type = ${sqlString(contentType)}, content_link = ${sqlString(safeLink(input.contentLink))}, content_body = ${sqlString(body)}, sequence = ${intOr(input.sequence, 0)}, is_required = ${input.required ? 1 : 0}, updated_at = ${sqlString(now)}, editor_id = ${sqlString(actor.id)}, editor_email = ${sqlString(actor.email)}, editor_name = ${sqlString(actor.name)} WHERE id = ${sqlString(id)};`
   )
 
   await logActivity(cfg, guard.databaseId, actor, {

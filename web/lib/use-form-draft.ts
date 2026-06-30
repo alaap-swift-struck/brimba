@@ -67,18 +67,29 @@ export function useFormDraft<T extends object>(
   id: string | undefined,
   initial: T,
   active: boolean
-): [T, (next: T | ((prev: T) => T)) => void, () => void] {
-  const [values, setValuesRaw] = React.useState<T>(initial)
-  // Keep the latest `initial` without making it an effect dep (it's a fresh literal
-  // each render; we only want to re-seed when the form (re)activates or its id changes).
+): [T, (next: T | ((prev: T) => T)) => void, () => void, number] {
+  // Keep the latest `initial` without re-seeding every render (it's a fresh literal
+  // each time); we re-seed only when the form (re)activates.
   const initialRef = React.useRef(initial)
   initialRef.current = initial
 
-  React.useEffect(() => {
-    if (!active) return
-    const saved = id ? read<T>(id) : null
-    setValuesRaw(saved ?? initialRef.current)
-  }, [active, id])
+  // Restore SYNCHRONOUSLY: lazy-init when mounted already active, and re-seed on the
+  // inactive→active edge (a reopened dialog). Synchronous (not an effect) so even
+  // UNCONTROLLED inputs — the rich-text editor — mount with the saved value, not empty.
+  const [values, setValuesRaw] = React.useState<T>(() =>
+    active && id ? (read<T>(id) ?? initial) : initial
+  )
+  // Bumped each time the form re-activates — key uncontrolled editors by it so they
+  // remount with the restored value.
+  const [seed, setSeed] = React.useState(0)
+  const prevActive = React.useRef(active)
+  if (active !== prevActive.current) {
+    prevActive.current = active
+    if (active) {
+      setValuesRaw(id ? (read<T>(id) ?? initialRef.current) : initialRef.current)
+      setSeed((s) => s + 1)
+    }
+  }
 
   const setValues = React.useCallback(
     (next: T | ((prev: T) => T)) => {
@@ -95,5 +106,5 @@ export function useFormDraft<T extends object>(
     if (id) clearFormDraft(id)
   }, [id])
 
-  return [values, setValues, clear]
+  return [values, setValues, clear, seed]
 }

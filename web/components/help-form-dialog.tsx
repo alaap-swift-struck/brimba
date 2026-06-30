@@ -31,6 +31,7 @@ import { defaultFieldConfig } from "@swift-struck/ui/lib/config"
 
 import { ApiFailure } from "@/lib/api"
 import { useFormDraft } from "@/lib/use-form-draft"
+import { ManageDropdownsLink } from "@/components/manage-dropdowns-link"
 
 const descField = { ...defaultFieldConfig, label: "What do you need help with?", required: true }
 const typeField = { ...defaultFieldConfig, label: "Type", required: false }
@@ -45,6 +46,7 @@ export function HelpFormDialog({
   helpTypeOptions,
   initial,
   draftKey,
+  teamId,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -55,6 +57,8 @@ export function HelpFormDialog({
   initial?: { description: string; helpType?: string | null }
   /** stable id for per-session draft persistence (CACHING.md §11); omit to disable */
   draftKey?: string
+  /** active team — drives the gated "Manage dropdowns" link */
+  teamId?: string | null
 }) {
   const isEdit = !!initial
   const initialValues = {
@@ -144,6 +148,7 @@ export function HelpFormDialog({
                 ))}
               </SelectContent>
             </Select>
+            <ManageDropdownsLink teamId={teamId ?? null} />
           </Field>
         </FormShell>
       </DialogContent>

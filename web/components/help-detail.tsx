@@ -303,6 +303,7 @@ export function HelpDetailScreen({
         open={editing}
         onOpenChange={setEditing}
         draftKey={`help:edit:${helpId}`}
+        teamId={teamId}
         helpTypeOptions={helpTypeOptions}
         initial={{ description: ticket.description, helpType: ticket.helpType }}
         onSubmit={editTicket}

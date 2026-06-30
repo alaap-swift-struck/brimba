@@ -348,7 +348,6 @@ export function DeepLinkScreen() {
       const { learning: next } = await contentApi.createLearning({
         title: values.title,
         category: values.category || null,
-        description: values.description || null,
         contentType: values.contentType || null,
         contentLink: values.contentLink || null,
         body: values.body || null,
@@ -742,6 +741,7 @@ export function DeepLinkScreen() {
         open={query.panel === "add" && query.module === "learning" && can("learning", "create")}
         onOpenChange={(o) => !o && closePanel()}
         draftKey={teamId ? `learning:new:${teamId}` : undefined}
+        teamId={teamId}
         categoryOptions={learningCategoryOptions}
         contentTypeOptions={contentTypeOptions}
         onSubmit={createLearning}
@@ -752,6 +752,7 @@ export function DeepLinkScreen() {
         open={query.panel === "add" && query.module === "help" && can("help", "create")}
         onOpenChange={(o) => !o && closePanel()}
         draftKey={teamId ? `help:new:${teamId}` : undefined}
+        teamId={teamId}
         helpTypeOptions={helpTypeOptions}
         onSubmit={createHelp}
       />
