@@ -21,6 +21,7 @@ import { toast } from "@swift-struck/ui/registry/primitives/sonner/sonner"
 import { defaultFieldConfig } from "@swift-struck/ui/lib/config"
 
 import { ApiFailure } from "@/lib/api"
+import { useFormDraft } from "@/lib/use-form-draft"
 
 const nameField = { ...defaultFieldConfig, label: "Team name", required: true }
 
@@ -28,24 +29,26 @@ export function CreateTeamDialog({
   open,
   onOpenChange,
   onCreate,
+  draftKey,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   onCreate: (name: string) => Promise<void>
+  /** stable id for per-session draft persistence (CACHING.md §11); omit to disable */
+  draftKey?: string
 }) {
-  const [name, setName] = React.useState("")
+  const initialValues = { name: "" }
+  // Per-session draft: restores what you typed if you navigate away and reopen.
+  const [values, setValues, clearDraft] = useFormDraft(draftKey, initialValues, open)
   const [busy, setBusy] = React.useState(false)
-
-  // Reset the field whenever the dialog opens fresh.
-  React.useEffect(() => {
-    if (open) setName("")
-  }, [open])
+  const { name } = values
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
     setBusy(true)
     try {
       await onCreate(name.trim())
+      clearDraft()
       onOpenChange(false)
     } catch (err) {
       toast.error(
@@ -57,7 +60,14 @@ export function CreateTeamDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(o) => !busy && onOpenChange(o)}>
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        if (busy) return
+        if (!o) clearDraft() // dismissing the form (Esc / backdrop / close) discards the draft
+        onOpenChange(o)
+      }}
+    >
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Create a team</DialogTitle>
@@ -70,7 +80,7 @@ export function CreateTeamDialog({
             <Input
               id="team-name"
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => setValues((v) => ({ ...v, name: e.target.value }))}
               placeholder="Acme Inc."
               disabled={busy}
               autoFocus

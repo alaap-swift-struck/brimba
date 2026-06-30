@@ -59,6 +59,13 @@ export const RULES_REGISTRY: Rule[] = [
     checkId: "glossary-wellformed",
     status: "enforced",
   },
+  {
+    id: "R7",
+    dimension: "ui",
+    law: "Every form dialog persists its draft per session (useFormDraft) — unsaved input survives navigating away (CACHING.md §11).",
+    checkId: "forms-persist-drafts",
+    status: "enforced",
+  },
 ]
 
 /** Worker test suites that enforce R1. A new mutating worker without a

@@ -245,6 +245,7 @@ export function LearningDetailScreen({ teamId, learningId }: { teamId: string; l
       <LearningFormDialog
         open={editingOpen}
         onOpenChange={setEditingOpen}
+        draftKey={`learning:edit:${learningId}`}
         categoryOptions={categoryOptions}
         contentTypeOptions={contentTypeOptions}
         initial={{

@@ -302,6 +302,7 @@ export function HelpDetailScreen({
       <HelpFormDialog
         open={editing}
         onOpenChange={setEditing}
+        draftKey={`help:edit:${helpId}`}
         helpTypeOptions={helpTypeOptions}
         initial={{ description: ticket.description, helpType: ticket.helpType }}
         onSubmit={editTicket}

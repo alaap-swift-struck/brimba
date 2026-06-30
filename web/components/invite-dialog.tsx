@@ -31,6 +31,7 @@ import { defaultFieldConfig } from "@swift-struck/ui/lib/config"
 
 import type { TeamRole } from "@shared/types"
 import { ApiFailure } from "@/lib/api"
+import { useFormDraft } from "@/lib/use-form-draft"
 import { reportError } from "@/lib/log"
 
 const emailField = { ...defaultFieldConfig, label: "Email", required: true }
@@ -41,30 +42,32 @@ export function InviteDialog({
   onOpenChange,
   roles,
   onSubmit,
+  draftKey,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   /** Active roles only — the caller pre-filters (the server rejects inactive). */
   roles: TeamRole[]
   onSubmit: (email: string, roleId: string) => Promise<void>
+  /** stable id for per-session draft persistence (CACHING.md §11); omit to disable */
+  draftKey?: string
 }) {
-  const [email, setEmail] = React.useState("")
-  const [roleId, setRoleId] = React.useState("")
+  // Default the role to the first non-Admin; the hook seeds this on open.
+  const initialValues = {
+    email: "",
+    roleId: (roles.find((r) => !r.isDefault) ?? roles[0])?.id ?? "",
+  }
+  // Per-session draft: restores what you typed if you navigate away and reopen.
+  const [values, setValues, clearDraft] = useFormDraft(draftKey, initialValues, open)
   const [busy, setBusy] = React.useState(false)
-
-  // Re-seed each open: clear the email, default the role to the first non-Admin.
-  React.useEffect(() => {
-    if (!open) return
-    setEmail("")
-    setRoleId((roles.find((r) => !r.isDefault) ?? roles[0])?.id ?? "")
-  }, [open, roles])
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
-    if (!email.trim() || !roleId) return
+    if (!values.email.trim() || !values.roleId) return
     setBusy(true)
     try {
-      await onSubmit(email.trim(), roleId)
+      await onSubmit(values.email.trim(), values.roleId)
+      clearDraft()
       onOpenChange(false)
     } catch (err) {
       // ApiFailure carries the server's specific reason (e.g. "They're already on
@@ -80,7 +83,14 @@ export function InviteDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(o) => !busy && onOpenChange(o)}>
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        if (busy) return
+        if (!o) clearDraft() // dismissing the form (Esc / backdrop / close) discards the draft
+        onOpenChange(o)
+      }}
+    >
       <DialogContent>
         <FormShell
           onSubmit={submit}
@@ -91,7 +101,7 @@ export function InviteDialog({
             </DialogDescription>
           }
           footer={
-            <Button type="submit" disabled={busy || !email.trim() || !roleId} className="gap-1.5">
+            <Button type="submit" disabled={busy || !values.email.trim() || !values.roleId} className="gap-1.5">
               {busy ? <Spinner /> : <Mail className="size-4" />}
               {busy ? "Sending…" : "Send invite"}
             </Button>
@@ -101,15 +111,19 @@ export function InviteDialog({
             <Input
               id="invite-email"
               type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              value={values.email}
+              onChange={(e) => setValues((v) => ({ ...v, email: e.target.value }))}
               placeholder="name@company.com"
               disabled={busy}
               autoFocus
             />
           </Field>
           <Field config={roleField} htmlFor="invite-role" className={fieldSpacing}>
-            <Select value={roleId} onValueChange={setRoleId} disabled={busy}>
+            <Select
+              value={values.roleId}
+              onValueChange={(roleId) => setValues((v) => ({ ...v, roleId }))}
+              disabled={busy}
+            >
               <SelectTrigger id="invite-role" className="w-full">
                 <SelectValue placeholder="Role" />
               </SelectTrigger>

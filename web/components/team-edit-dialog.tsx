@@ -27,6 +27,7 @@ import { defaultFieldConfig } from "@swift-struck/ui/lib/config"
 
 import type { TeamSummary } from "@shared/types"
 import { ApiFailure, tenancy } from "@/lib/api"
+import { useFormDraft } from "@/lib/use-form-draft"
 import { letterMark } from "@/lib/identity"
 import { fileToDataUrl } from "@/lib/image"
 
@@ -37,27 +38,29 @@ export function TeamEditDialog({
   onOpenChange,
   team,
   onSaved,
+  draftKey,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   team: TeamSummary | null
   onSaved: () => Promise<void>
+  /** stable id for per-session draft persistence (CACHING.md §11); omit to disable */
+  draftKey?: string
 }) {
-  const [name, setName] = React.useState("")
-  const [logo, setLogo] = React.useState<string | undefined>()
+  const initialValues: { name: string; logo?: string } = {
+    name: team?.name ?? "",
+    logo: undefined,
+  }
+  // Per-session draft: restores what you typed if you navigate away and reopen.
+  const [values, setValues, clearDraft] = useFormDraft(draftKey, initialValues, open)
   const [busy, setBusy] = React.useState(false)
-
-  React.useEffect(() => {
-    if (open) {
-      setName(team?.name ?? "")
-      setLogo(undefined)
-    }
-  }, [open, team])
+  const { name, logo } = values
 
   async function handlePhoto(files: File[]) {
     if (!files[0]) return
     try {
-      setLogo(await fileToDataUrl(files[0]))
+      const dataUrl = await fileToDataUrl(files[0])
+      setValues((v) => ({ ...v, logo: dataUrl }))
     } catch {
       toast.error("Couldn't read that image — try another one.")
     }
@@ -69,6 +72,7 @@ export function TeamEditDialog({
     try {
       await tenancy.updateTeam(name.trim(), logo)
       await onSaved()
+      clearDraft()
       onOpenChange(false)
       toast.success("Team updated.")
     } catch (err) {
@@ -81,7 +85,14 @@ export function TeamEditDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(o) => !busy && onOpenChange(o)}>
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        if (busy) return
+        if (!o) clearDraft() // dismissing the form (Esc / backdrop / close) discards the draft
+        onOpenChange(o)
+      }}
+    >
       <DialogContent>
         <FormShell
           onSubmit={submit}
@@ -113,7 +124,7 @@ export function TeamEditDialog({
             <Input
               id="team-name"
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => setValues((v) => ({ ...v, name: e.target.value }))}
               disabled={busy}
             />
           </Field>

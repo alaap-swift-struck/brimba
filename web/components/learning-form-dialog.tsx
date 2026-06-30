@@ -23,6 +23,7 @@ import { toast } from "@swift-struck/ui/registry/primitives/sonner/sonner"
 import { defaultFieldConfig } from "@swift-struck/ui/lib/config"
 
 import { ApiFailure } from "@/lib/api"
+import { useFormDraft } from "@/lib/use-form-draft"
 import { FormShell, fieldSpacing } from "@/components/form-shell"
 
 const titleField = { ...defaultFieldConfig, label: "Title", required: true }
@@ -47,6 +48,7 @@ export function LearningFormDialog({
   onOpenChange,
   initial,
   onSubmit,
+  draftKey,
   categoryOptions = [],
   contentTypeOptions = [],
 }: {
@@ -55,34 +57,25 @@ export function LearningFormDialog({
   /** present = edit mode (prefilled); absent = create mode */
   initial?: LearningFormValues | null
   onSubmit: (values: LearningFormValues) => Promise<void>
+  /** stable id for per-session draft persistence (CACHING.md §11); omit to disable */
+  draftKey?: string
   /** existing "Learning category" values — pick one or type a new one. */
   categoryOptions?: string[]
   /** existing "File type" values — pick one or type a new one. */
   contentTypeOptions?: string[]
 }) {
   const isEdit = !!initial
-  const [values, setValues] = React.useState<LearningFormValues>({
-    title: "",
-    category: "",
-    description: "",
-    contentType: "",
-    contentLink: "",
-    body: "",
-  })
+  const initialValues: LearningFormValues = {
+    title: initial?.title ?? "",
+    category: initial?.category ?? "",
+    description: initial?.description ?? "",
+    contentType: initial?.contentType ?? "",
+    contentLink: initial?.contentLink ?? "",
+    body: initial?.body ?? "",
+  }
+  // Per-session draft: restores what you typed if you navigate away and reopen.
+  const [values, setValues, clearDraft] = useFormDraft(draftKey, initialValues, open)
   const [busy, setBusy] = React.useState(false)
-
-  React.useEffect(() => {
-    if (open) {
-      setValues({
-        title: initial?.title ?? "",
-        category: initial?.category ?? "",
-        description: initial?.description ?? "",
-        contentType: initial?.contentType ?? "",
-        contentLink: initial?.contentLink ?? "",
-        body: initial?.body ?? "",
-      })
-    }
-  }, [open, initial])
 
   const set =
     (k: keyof LearningFormValues) =>
@@ -101,6 +94,7 @@ export function LearningFormDialog({
         contentLink: values.contentLink.trim(),
         body: values.body,
       })
+      clearDraft()
       onOpenChange(false)
     } catch (err) {
       toast.error(err instanceof ApiFailure ? err.message : "Couldn't save the article.")
@@ -110,7 +104,14 @@ export function LearningFormDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(o) => !busy && onOpenChange(o)}>
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        if (busy) return
+        if (!o) clearDraft() // dismissing the form (Esc / backdrop / close) discards the draft
+        onOpenChange(o)
+      }}
+    >
       <DialogContent>
         <FormShell
           onSubmit={submit}

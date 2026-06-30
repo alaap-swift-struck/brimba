@@ -70,6 +70,15 @@ describe("RULES — the laws of the base", () => {
     }
   })
 
+  // R7 — every form dialog persists its draft per session, so unsaved input survives
+  // navigating away (CACHING.md §11). The draft hook is the single seam.
+  it("forms-persist-drafts: every form dialog persists its draft via useFormDraft", () => {
+    for (const d of FORM_DIALOGS) {
+      const src = read(join(WEB, "components", `${d}.tsx`))
+      expect(src, `${d} must persist its draft (useFormDraft — CACHING.md §11)`).toContain("useFormDraft")
+    }
+  })
+
   // R5 — record activity is read through the ONE generic (table, id) path.
   it("generic-activity-path: the activity read path has a generic record scope", () => {
     const src = read(join(ROOT, "workers", "tenancy", "src", "lib", "activity-read.ts"))
@@ -100,6 +109,7 @@ describe("RULES — the laws of the base", () => {
       "forms-use-formshell",
       "generic-activity-path",
       "glossary-wellformed",
+      "forms-persist-drafts",
     ])
     for (const r of RULES_REGISTRY) {
       if (r.status === "enforced")

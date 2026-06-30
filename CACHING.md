@@ -113,8 +113,10 @@ rights simply gets nothing back.)
 
 ### 9 · Lifetime: in-memory per session
 The cache lives in module memory, cleared on sign-out / team switch (different
-keys). Cross-reload persistence (`sessionStorage`) is an **opt-in** we can add
-later — the live channel keeps it correct while the tab is open.
+keys). Cross-reload persistence of FETCHED data stays off on purpose — the live
+channel keeps it correct while the tab is open. (Unsaved FORM INPUT is different:
+it DOES persist to `sessionStorage` so a half-filled form survives navigation —
+see §11.)
 
 ### 10 · Edge / server
 - Content-hashed assets (`/_next/static/**`) → cached **forever, immutable**
@@ -122,6 +124,26 @@ later — the live channel keeps it correct while the tab is open.
 - HTML → revalidated (`max-age=0, must-revalidate`).
 - Per-user API responses → **private, never edge-cached**. The client cache
   (rules 1–9) handles them.
+
+### 11 · Form drafts (unsaved input) — a LAW
+The data cache above keeps FETCHED data warm; this keeps UNSAVED FORM INPUT from
+being lost. A half-filled create/edit form whose screen unmounts because you
+navigated elsewhere in the same tab would otherwise reset to empty on return — the
+input lived only in component state. **Rule: every form dialog persists its draft.**
+
+- Back the form's values with `useFormDraft(draftKey, initialValues, open)`
+  ([`web/lib/use-form-draft.ts`](web/lib/use-form-draft.ts)) instead of plain
+  `useState`. It restores a saved draft when the form opens and saves every change to
+  `sessionStorage` (survives navigation AND reload within the tab; gone when the tab
+  closes — "on-device per session").
+- `draftKey` is a STABLE id the caller supplies: `"<module>:new:<teamId>"` for a
+  create form, `"<module>:edit:<recordId>"` for an edit form. Omit it to disable.
+- Lifetime: a draft is CLEARED on submit (the record now exists) and on an explicit
+  dismiss (Esc / backdrop / close button); it is PRESERVED when the form simply
+  unmounts from navigation — the case we protect. All drafts drop on sign-out
+  (`clearAllFormDrafts`).
+- Machine-enforced: every dialog in `FORM_DIALOGS` (`shared/rules/registry.ts`) must
+  route its state through `useFormDraft` — checked by `web/test/rules.test.ts`.
 
 ## The agent-modules resources (BUILT 2026-06-23)
 

@@ -23,6 +23,7 @@ import { LogOut, UserRound } from "lucide-react"
 
 import { auth } from "@/lib/api"
 import { personName, personInitials } from "@/lib/identity"
+import { clearAllFormDrafts } from "@/lib/use-form-draft"
 import type { ActiveTeam } from "@/lib/use-active-team"
 
 export function ProfileMenu({ active }: { active: ActiveTeam }) {
@@ -55,7 +56,12 @@ export function ProfileMenu({ active }: { active: ActiveTeam }) {
           Account
         </DropdownMenuItem>
         <DropdownMenuItem
-          onSelect={() => void auth.logout().then(() => router.replace("/login"))}
+          onSelect={() =>
+            void auth.logout().then(() => {
+              clearAllFormDrafts() // one user's unsaved drafts never leak to the next
+              router.replace("/login")
+            })
+          }
           className="gap-2"
         >
           <LogOut className="size-4" />

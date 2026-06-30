@@ -229,6 +229,7 @@ export function RoleDetailScreen({ teamId, roleId }: { teamId: string; roleId: s
       <RoleFormDialog
         open={editingOpen}
         onOpenChange={setEditingOpen}
+        draftKey={`role:edit:${roleId}`}
         initial={{ title: role.title, description: role.description ?? "" }}
         onSubmit={updateDetails}
       />

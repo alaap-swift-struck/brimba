@@ -724,6 +724,7 @@ export function DeepLinkScreen() {
       <InviteDialog
         open={query.panel === "add" && query.module === "invites" && can("team_members", "create")}
         onOpenChange={(o) => !o && closePanel()}
+        draftKey={teamId ? `invite:new:${teamId}` : undefined}
         roles={activeRoles}
         onSubmit={(email, roleId) => runAction("invites.create", { email, roleId })}
       />
@@ -732,6 +733,7 @@ export function DeepLinkScreen() {
       <RoleFormDialog
         open={query.panel === "add" && query.module === "roles" && can("member_roles", "create")}
         onOpenChange={(o) => !o && closePanel()}
+        draftKey={teamId ? `role:new:${teamId}` : undefined}
         onSubmit={(title, description) => runAction("roles.create", { title, description })}
       />
 
@@ -739,6 +741,7 @@ export function DeepLinkScreen() {
       <LearningFormDialog
         open={query.panel === "add" && query.module === "learning" && can("learning", "create")}
         onOpenChange={(o) => !o && closePanel()}
+        draftKey={teamId ? `learning:new:${teamId}` : undefined}
         categoryOptions={learningCategoryOptions}
         contentTypeOptions={contentTypeOptions}
         onSubmit={createLearning}
@@ -748,6 +751,7 @@ export function DeepLinkScreen() {
       <HelpFormDialog
         open={query.panel === "add" && query.module === "help" && can("help", "create")}
         onOpenChange={(o) => !o && closePanel()}
+        draftKey={teamId ? `help:new:${teamId}` : undefined}
         helpTypeOptions={helpTypeOptions}
         onSubmit={createHelp}
       />
@@ -756,6 +760,7 @@ export function DeepLinkScreen() {
       <TeamEditDialog
         open={query.panel === "edit" && query.module === "team" && can("teams", "edit")}
         onOpenChange={(o) => !o && closePanel()}
+        draftKey={teamId ? `team:edit:${teamId}` : undefined}
         team={active.ctx.team}
         onSaved={active.refresh}
       />

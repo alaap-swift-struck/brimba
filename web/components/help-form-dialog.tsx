@@ -30,6 +30,7 @@ import { toast } from "@swift-struck/ui/registry/primitives/sonner/sonner"
 import { defaultFieldConfig } from "@swift-struck/ui/lib/config"
 
 import { ApiFailure } from "@/lib/api"
+import { useFormDraft } from "@/lib/use-form-draft"
 
 const descField = { ...defaultFieldConfig, label: "What do you need help with?", required: true }
 const typeField = { ...defaultFieldConfig, label: "Type", required: false }
@@ -43,6 +44,7 @@ export function HelpFormDialog({
   onSubmit,
   helpTypeOptions,
   initial,
+  draftKey,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -51,27 +53,27 @@ export function HelpFormDialog({
   helpTypeOptions: string[]
   /** Present = EDIT mode (prefilled). */
   initial?: { description: string; helpType?: string | null }
+  /** stable id for per-session draft persistence (CACHING.md §11); omit to disable */
+  draftKey?: string
 }) {
   const isEdit = !!initial
-  const [description, setDescription] = React.useState("")
-  const [helpType, setHelpType] = React.useState<string>(NONE)
+  const initialValues = {
+    description: initial?.description ?? "",
+    helpType: initial?.helpType || NONE,
+  }
+  // Per-session draft: restores what you typed if you navigate away and reopen.
+  const [values, setValues, clearDraft] = useFormDraft(draftKey, initialValues, open)
   const [busy, setBusy] = React.useState(false)
-
-  React.useEffect(() => {
-    if (open) {
-      setDescription(initial?.description ?? "")
-      setHelpType(initial?.helpType || NONE)
-    }
-  }, [open, initial])
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
     setBusy(true)
     try {
       await onSubmit({
-        description: description.trim(),
-        helpType: helpType === NONE ? undefined : helpType,
+        description: values.description.trim(),
+        helpType: values.helpType === NONE ? undefined : values.helpType,
       })
+      clearDraft()
       onOpenChange(false)
     } catch (err) {
       toast.error(
@@ -87,7 +89,14 @@ export function HelpFormDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(o) => !busy && onOpenChange(o)}>
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        if (busy) return
+        if (!o) clearDraft() // dismissing the form (Esc / backdrop / close) discards the draft
+        onOpenChange(o)
+      }}
+    >
       <DialogContent>
         <FormShell
           onSubmit={submit}
@@ -100,7 +109,7 @@ export function HelpFormDialog({
             </DialogDescription>
           }
           footer={
-            <Button type="submit" disabled={busy || !description.trim()}>
+            <Button type="submit" disabled={busy || !values.description.trim()}>
               {busy ? <Spinner /> : null}
               {busy ? (isEdit ? "Saving…" : "Raising…") : isEdit ? "Save changes" : "Raise ticket"}
             </Button>
@@ -109,8 +118,8 @@ export function HelpFormDialog({
           <Field config={descField} htmlFor="help-desc" className={fieldSpacing}>
             <Textarea
               id="help-desc"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              value={values.description}
+              onChange={(e) => setValues((v) => ({ ...v, description: e.target.value }))}
               placeholder="Tell us what's going on — e.g. I can't invite a new member, the button is greyed out."
               disabled={busy}
               rows={4}
@@ -118,7 +127,11 @@ export function HelpFormDialog({
             />
           </Field>
           <Field config={typeField} htmlFor="help-type" className={fieldSpacing}>
-            <Select value={helpType} onValueChange={setHelpType} disabled={busy}>
+            <Select
+              value={values.helpType}
+              onValueChange={(helpType) => setValues((v) => ({ ...v, helpType }))}
+              disabled={busy}
+            >
               <SelectTrigger id="help-type">
                 <SelectValue placeholder="Choose a type (optional)" />
               </SelectTrigger>

@@ -22,6 +22,7 @@ import { toast } from "@swift-struck/ui/registry/primitives/sonner/sonner"
 import { defaultFieldConfig } from "@swift-struck/ui/lib/config"
 
 import { ApiFailure } from "@/lib/api"
+import { useFormDraft } from "@/lib/use-form-draft"
 
 const titleField = { ...defaultFieldConfig, label: "Role name", required: true }
 const descField = { ...defaultFieldConfig, label: "Description", required: false }
@@ -31,30 +32,31 @@ export function RoleFormDialog({
   onOpenChange,
   initial,
   onSubmit,
+  draftKey,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   /** present = edit mode (prefilled); absent = create mode */
   initial?: { title: string; description: string } | null
   onSubmit: (title: string, description: string) => Promise<void>
+  /** stable id for per-session draft persistence (CACHING.md §11); omit to disable */
+  draftKey?: string
 }) {
   const isEdit = !!initial
-  const [title, setTitle] = React.useState("")
-  const [description, setDescription] = React.useState("")
+  const initialValues = {
+    title: initial?.title ?? "",
+    description: initial?.description ?? "",
+  }
+  // Per-session draft: restores what you typed if you navigate away and reopen.
+  const [values, setValues, clearDraft] = useFormDraft(draftKey, initialValues, open)
   const [busy, setBusy] = React.useState(false)
-
-  React.useEffect(() => {
-    if (open) {
-      setTitle(initial?.title ?? "")
-      setDescription(initial?.description ?? "")
-    }
-  }, [open, initial])
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
     setBusy(true)
     try {
-      await onSubmit(title.trim(), description.trim())
+      await onSubmit(values.title.trim(), values.description.trim())
+      clearDraft()
       onOpenChange(false)
     } catch (err) {
       toast.error(
@@ -66,7 +68,14 @@ export function RoleFormDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(o) => !busy && onOpenChange(o)}>
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        if (busy) return
+        if (!o) clearDraft() // dismissing the form (Esc / backdrop / close) discards the draft
+        onOpenChange(o)
+      }}
+    >
       <DialogContent>
         <FormShell
           onSubmit={submit}
@@ -79,7 +88,7 @@ export function RoleFormDialog({
             </DialogDescription>
           }
           footer={
-            <Button type="submit" disabled={busy || !title.trim()}>
+            <Button type="submit" disabled={busy || !values.title.trim()}>
               {busy ? <Spinner /> : null}
               {busy ? "Saving…" : isEdit ? "Save changes" : "Create role"}
             </Button>
@@ -88,8 +97,8 @@ export function RoleFormDialog({
           <Field config={titleField} htmlFor="role-title" className={fieldSpacing}>
             <Input
               id="role-title"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
+              value={values.title}
+              onChange={(e) => setValues((v) => ({ ...v, title: e.target.value }))}
               placeholder="Editor"
               disabled={busy}
               autoFocus
@@ -98,8 +107,8 @@ export function RoleFormDialog({
           <Field config={descField} htmlFor="role-desc" className={fieldSpacing}>
             <Textarea
               id="role-desc"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              value={values.description}
+              onChange={(e) => setValues((v) => ({ ...v, description: e.target.value }))}
               placeholder="What this role is for (optional)."
               disabled={busy}
               rows={3}

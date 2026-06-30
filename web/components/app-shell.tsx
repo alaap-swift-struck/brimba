@@ -354,6 +354,7 @@ export function AppShell({
       <CreateTeamDialog
         open={creating}
         onOpenChange={setCreating}
+        draftKey="team:new"
         onCreate={async (name) => {
           await active.createTeam(name)
           toast.success(`Created ${name}`)

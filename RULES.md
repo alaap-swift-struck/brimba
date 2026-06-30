@@ -22,6 +22,7 @@ every exception is a visible, conscious line — never a silent bypass.
 | R4 | ui | Every form/dialog renders through the shared FormShell (title+subtitle · separator · fields · separator · action). | `forms-use-formshell` | enforced |
 | R5 | arch | Record activity is read through ONE generic (table, id) path — any module's history, no per-module read SQL. | `generic-activity-path` | enforced |
 | R6 | ui | Product terms live in ONE glossary (clear, brief, no over-explaining) — the app speaks one dictionary. | `glossary-wellformed` | enforced |
+| R7 | ui | Every form dialog persists its draft per session (useFormDraft) — unsaved input survives navigating away (CACHING.md §11). | `forms-persist-drafts` | enforced |
 
 ## How to add a new law
 
