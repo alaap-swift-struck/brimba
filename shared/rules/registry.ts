@@ -66,6 +66,13 @@ export const RULES_REGISTRY: Rule[] = [
     checkId: "forms-persist-drafts",
     status: "enforced",
   },
+  {
+    id: "R8",
+    dimension: "ui",
+    law: "Every team collection tab derives its count from its loaded rows — a placement:'tab' section that shows a collection must declare a countCacheKey.",
+    checkId: "tab-counts-derived",
+    status: "enforced",
+  },
 ]
 
 /** Worker test suites that enforce R1. A new mutating worker without a
@@ -79,6 +86,14 @@ export const RECORD_DETAIL_COMPONENTS = ["help-detail", "learning-detail"] as co
 /** R2 — reviewed bypasses. Each MUST get tabs over time; the reason is mandatory. */
 export const RECORD_DETAIL_EXCEPTIONS: Record<string, string> = {
   "role-detail": "permission grid is a bespoke matrix with no Overview/Activity yet — tracked in UI-GAPS.",
+}
+
+/** R8 — reviewed bypasses: placement:"tab" sections that DON'T lead with a
+ * collection, so they carry no count badge (and thus no countCacheKey). Each MUST
+ * name its reason; every other tab section is forced to declare a countCacheKey. */
+export const TAB_COUNT_EXCEPTIONS: Record<string, string> = {
+  overview: "leads with team metadata (name, logo, audit) — not a collection, so no count.",
+  import: "contextual per-target action reached from a button — not a collection tab.",
 }
 
 /** R4 — the form dialogs that MUST use FormShell. */

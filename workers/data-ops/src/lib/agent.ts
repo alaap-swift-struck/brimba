@@ -13,9 +13,9 @@ import type { D1Rest } from "../../../../shared/workers/d1-rest"
 import type { Env } from "../env"
 import { selectModel, type ChatMessage, type ModelReply, type ToolCall } from "./model"
 import { executeTool, getTool, requiresConfirm, toolSpecs, type ToolResult } from "./tools"
-import { appendMessage, createThread, getPendingProposal, listMessages } from "./threads"
+import { appendMessage, consumePendingProposal, createThread, getPendingProposal, listMessages } from "./threads"
 
-const MAX_STEPS = 5
+const MAX_STEPS = 12
 
 const SYSTEM = [
   "You are Brimba's assistant — a calm, friendly helper for the user's team, like a colleague who has worked alongside them for years.",
@@ -103,18 +103,41 @@ export async function runChat(
   const threadId = opts.threadId ?? (await createThread(cfg, guard, actor, deriveTitle(opts.message)))
   await appendMessage(cfg, guard, actor, threadId, { role: "user", content: opts.message, source: opts.source })
 
-  const model = selectModel(env)
   const history = await listMessages(cfg, guard, threadId)
   const convo: ChatMessage[] = [{ role: "system", content: SYSTEM }, ...replayable(history)]
-  let quota = await getQuota(env, guard.teamId)
+  const quota = await getQuota(env, guard.teamId)
+  return runPlanLoop(env, request, cfg, guard, actor, threadId, convo, quota, opts)
+}
+
+/** The step loop over an ALREADY-SEEDED convo: meter a credit, ask the model, then
+ * either answer, pause for confirmation, or run the tools AS the caller and loop so a
+ * multi-action plan finishes. Shared by runChat (fresh convo) and confirmAndRun (convo
+ * seeded with the just-confirmed action's result, so it resumes the plan). `prepaid`
+ * lets confirmAndRun skip metering the FIRST step (it already metered the confirm turn
+ * up front) — no double-charge. */
+async function runPlanLoop(
+  env: Env,
+  request: Request,
+  cfg: D1Rest,
+  guard: MemberGuard,
+  actor: Actor,
+  threadId: string,
+  convo: ChatMessage[],
+  quota: AgentQuota,
+  opts: { source: string },
+  loopOpts: { prepaid?: boolean } = {}
+): Promise<ChatOutcome> {
+  const model = selectModel(env)
 
   for (let step = 0; step < MAX_STEPS; step++) {
-    const c = await consumeAiUnit(env, guard.teamId)
-    quota = c.quota
-    if (!c.ok) {
-      const msg = "You're out of AI requests for now — your free daily allowance and credits are used up. They reset tomorrow, or an admin can add credits."
-      await appendMessage(cfg, guard, actor, threadId, { role: "assistant", content: msg, source: opts.source })
-      return { done: true, threadId, reply: msg, quota, overQuota: true }
+    if (!(loopOpts.prepaid && step === 0)) {
+      const c = await consumeAiUnit(env, guard.teamId)
+      quota = c.quota
+      if (!c.ok) {
+        const msg = "You're out of AI requests for now — your free daily allowance and credits are used up. They reset tomorrow, or an admin can add credits."
+        await appendMessage(cfg, guard, actor, threadId, { role: "assistant", content: msg, source: opts.source })
+        return { done: true, threadId, reply: msg, quota, overQuota: true }
+      }
     }
 
     let reply: ModelReply
@@ -207,20 +230,20 @@ export async function confirmAndRun(
   guard: MemberGuard,
   actor: Actor,
   opts: { threadId: string; approve: boolean; source: string }
-): Promise<{ reply: string; quota: AgentQuota; overQuota?: boolean }> {
+): Promise<ChatOutcome> {
   const history = await listMessages(cfg, guard, opts.threadId) // also asserts ownership
 
   if (!opts.approve) {
     const msg = "Okay — I've left that alone."
     await appendMessage(cfg, guard, actor, opts.threadId, { role: "assistant", content: msg, source: opts.source })
-    return { reply: msg, quota: await getQuota(env, guard.teamId) }
+    return { done: true, threadId: opts.threadId, reply: msg, quota: await getQuota(env, guard.teamId) }
   }
 
   const proposed = await getPendingProposal(cfg, guard, opts.threadId)
   if (!proposed.length) {
     const msg = "There's nothing waiting for your approval."
     await appendMessage(cfg, guard, actor, opts.threadId, { role: "assistant", content: msg, source: opts.source })
-    return { reply: msg, quota: await getQuota(env, guard.teamId) }
+    return { done: true, threadId: opts.threadId, reply: msg, quota: await getQuota(env, guard.teamId) }
   }
 
   // Meter ONE unit up front — covers this whole confirm turn — BEFORE any write, so a
@@ -229,7 +252,7 @@ export async function confirmAndRun(
   if (!c.ok) {
     const msg = "You're out of AI requests for now, so I didn't run that. They reset tomorrow, or an admin can add credits."
     await appendMessage(cfg, guard, actor, opts.threadId, { role: "assistant", content: msg, source: opts.source })
-    return { reply: msg, quota: c.quota, overQuota: true }
+    return { done: true, threadId: opts.threadId, reply: msg, quota: c.quota, overQuota: true }
   }
 
   // Execute the SERVER-RECORDED proposal AS the caller (each call re-gated downstream).
@@ -246,10 +269,13 @@ export async function confirmAndRun(
     toolMsgs.push({ role: "tool", content, toolCallId: tc.id, toolName: tc.name })
     if (!result.ok) failed = true
   }
+  // Mark the proposal consumed ("proposed" → "done") now the calls have run, so a stray
+  // re-POST to /confirm finds nothing waiting and can't replay a remove/revoke.
+  await consumePendingProposal(cfg, guard, opts.threadId)
   if (failed) {
     const note = "I ran into an error doing that and stopped. The result above shows what happened."
     await appendMessage(cfg, guard, actor, opts.threadId, { role: "assistant", content: note, source: opts.source })
-    return { reply: note, quota: c.quota }
+    return { done: true, threadId: opts.threadId, reply: note, quota: c.quota }
   }
 
   // Reattach the tool_use to the ORIGINAL proposing assistant turn (the last history
@@ -259,24 +285,16 @@ export async function confirmAndRun(
   const proposingText = last && last.role === "assistant" ? (last.content ?? "") : ""
   const replayHistory = last && last.role === "assistant" ? history.slice(0, -1) : history
 
-  const model = selectModel(env)
+  // Resume the plan on a convo seeded with the confirmed action's RESULT: the next
+  // model turn can plan + run anything the user asked for AFTER it (a mixed prompt),
+  // then wrap up. `prepaid` skips re-metering the first step (we metered it above).
   const convo: ChatMessage[] = [
     { role: "system", content: SYSTEM },
     ...replayable(replayHistory),
     { role: "assistant", content: proposingText, toolCalls: calls },
     ...toolMsgs,
   ]
-  let reply: ModelReply
-  try {
-    reply = await model.complete(convo, model.canActWithTools ? toolSpecs() : [])
-  } catch {
-    // The action already ran above (a failure would have returned early) — so even if
-    // the wrap-up summary fails, tell the user it went through, never a 500.
-    const note = "Done — the change went through. (I had trouble writing a summary just now.)"
-    await appendMessage(cfg, guard, actor, opts.threadId, { role: "assistant", content: note, source: opts.source })
-    return { reply: note, quota: c.quota }
-  }
-  const text = reply.text || "Done."
-  await appendMessage(cfg, guard, actor, opts.threadId, { role: "assistant", content: text, source: opts.source })
-  return { reply: text, quota: c.quota }
+  return runPlanLoop(env, request, cfg, guard, actor, opts.threadId, convo, c.quota, opts, {
+    prepaid: true,
+  })
 }

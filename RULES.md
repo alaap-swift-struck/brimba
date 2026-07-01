@@ -23,6 +23,7 @@ every exception is a visible, conscious line — never a silent bypass.
 | R5 | arch | Record activity is read through ONE generic (table, id) path — any module's history, no per-module read SQL. | `generic-activity-path` | enforced |
 | R6 | ui | Product terms live in ONE glossary (clear, brief, no over-explaining) — the app speaks one dictionary. | `glossary-wellformed` | enforced |
 | R7 | ui | Every form dialog persists its draft per session (useFormDraft) — unsaved input survives navigating away (CACHING.md §11). | `forms-persist-drafts` | enforced |
+| R8 | ui | Every team collection tab derives its count from its loaded rows — a placement:'tab' section that shows a collection must declare a countCacheKey. | `tab-counts-derived` | enforced |
 
 ## How to add a new law
 
@@ -37,6 +38,6 @@ no working check is not a law — delete it or write the check.
 ## Dimensions
 
 Laws are cross-cutting: **arch** (architecture/data), **ui** (interface),
-**workflow** (how we build), **ai** (the assistant). A future `R7 (ai): every
+**workflow** (how we build), **ai** (the assistant). A future `R9 (ai): every
 agent tool maps to a gated route` is a natural next row once the tool catalog
 stabilises.

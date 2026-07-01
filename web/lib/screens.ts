@@ -42,6 +42,7 @@ function listCollection(
     ...defaultCollectionConfig,
     searchable: true,
     searchPlaceholder,
+    headerLayout: "inline",
     userFilter: filterFacets.length > 0,
     filterFacets,
     emptyText,
@@ -113,6 +114,7 @@ export const teamDetailRecipe: ScreenRecipe = {
 export const membersListRecipe: ScreenRecipe = {
   type: "list",
   display: "list",
+  surface: "none",
   binding: { module: "members" },
   gate: { module: "team_members", right: "read" },
   fields: [field("name", "Member"), field("detail", "Details")],
@@ -177,6 +179,7 @@ export const memberDetailRecipe: ScreenRecipe = {
 export const rolesListRecipe: ScreenRecipe = {
   type: "list",
   display: "list",
+  surface: "none",
   binding: { module: "roles" },
   gate: { module: "member_roles", right: "read" },
   fields: [field("name", "Role"), field("detail", "Details")],
@@ -193,6 +196,7 @@ export const rolesListRecipe: ScreenRecipe = {
 export const invitesListRecipe: ScreenRecipe = {
   type: "list",
   display: "list",
+  surface: "none",
   binding: { module: "invites" },
   gate: { module: "team_members", right: "read" },
   fields: [field("email", "Email"), field("detail", "Details")],
@@ -254,6 +258,7 @@ export const inviteDetailRecipe: ScreenRecipe = {
 export const learningListRecipe: ScreenRecipe = {
   type: "list",
   display: "list",
+  surface: "none",
   binding: { module: "learning" },
   gate: { module: "learning", right: "read" },
   fields: [field("name", "Article"), field("detail", "Details")],
@@ -273,6 +278,7 @@ export const learningListRecipe: ScreenRecipe = {
 export const helpListRecipe: ScreenRecipe = {
   type: "list",
   display: "list",
+  surface: "none",
   binding: { module: "help" },
   gate: { module: "help", right: "read" },
   fields: [field("name", "Ticket"), field("detail", "Details")],

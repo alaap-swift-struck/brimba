@@ -185,9 +185,11 @@ export function DeepLinkScreen() {
   const helpQ = useCached(enabled && module === "help" ? `help:${teamId}` : null, () =>
     contentApi.help("all").then((r) => r.tickets)
   )
-  // The team's dropdown values — feed the help/learning forms' Type/Category pickers.
+  // The team's dropdown values — feed the help/learning forms' Type/Category pickers
+  // AND the Dropdown-values tab's count badge, so load them across the team area
+  // (cache-first + live, like roles/invites, so the count stays honest).
   const formSelectableQ = useCached(
-    enabled && (module === "help" || module === "learning") ? `selectable:${teamId}` : null,
+    enabled ? `selectable:${teamId}` : null,
     () => tenancy.selectable().then((r) => r.values)
   )
   const selectableValues = formSelectableQ.data ?? []
@@ -429,15 +431,24 @@ export function DeepLinkScreen() {
   // strip shows only on the "tab" sections (Overview / Members / Roles / Invites).
   const showTabs = (TEAM_SECTIONS.find((s) => s.key === section)?.placement ?? "tab") === "tab"
 
-  // Section-tab count badges — the count of what each section's collection shows
-  // (Overview leads with team metadata, not a collection, so it has no count).
-  // Members uses the active-member count from context (no extra fetch).
-  const sectionCounts: Partial<Record<SectionKey, number>> = {
-    members: active.ctx.memberCount,
-    roles: rolesQ.data?.length,
-    invites: invitesQ.data?.length,
-    learning: learningQ.data?.length,
-    help: helpQ.data?.length,
+  // Section-tab count badges — DERIVED, never hand-listed (LAW R8): each section
+  // that declares a countCacheKey (pages.ts) gets the length of that key's loaded
+  // rows, so a new collection tab can't ship without a count. The rows come from
+  // the queries above, keyed by the same cache prefix; members has no team-wide
+  // cache loaded here, so its count reads the active-member count from context.
+  const loadedByCacheKey: Record<string, unknown[] | undefined> = {
+    members: active.ctx.memberCount != null ? new Array(active.ctx.memberCount) : undefined,
+    member_roles: rolesQ.data,
+    invites: invitesQ.data,
+    selectable: formSelectableQ.data,
+    learning: learningQ.data,
+    help: helpQ.data,
+  }
+  const sectionCounts: Partial<Record<SectionKey, number>> = {}
+  for (const s of TEAM_SECTIONS) {
+    if (!s.countCacheKey) continue
+    const rows = loadedByCacheKey[s.countCacheKey]
+    if (rows !== undefined) sectionCounts[s.key] = rows.length
   }
 
   // Breadcrumbs derived from the URL spine; the library Breadcrumbs collapses the

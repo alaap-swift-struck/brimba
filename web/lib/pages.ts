@@ -45,20 +45,27 @@ export type TeamSection = {
    *  - "sidebar": a first-class left-sidebar page (team-scoped, gated by its read right)
    *  - "contextual": reached from a button on another page (e.g. Import) — never a tab or sidebar item */
   placement: "tab" | "sidebar" | "contextual"
+  /** The team-scoped cache-key PREFIX whose loaded rows ARE this section's count
+   * (deep-link-screen keys each collection `${prefix}:${teamId}`). Present on every
+   * section that leads with a collection, so the tab-count badge is DERIVED from
+   * the same rows the screen shows and can never be forgotten (LAW R8). Absent on
+   * metadata/non-collection tabs (Overview) and non-tab destinations (Import). */
+  countCacheKey?: string
 }
 
 export const TEAM_SECTIONS: TeamSection[] = [
+  // Overview leads with team metadata, not a collection → no countCacheKey (LAW R8 exception).
   { key: "overview", title: "Overview", module: "teams", segment: "", placement: "tab" },
-  { key: "members", title: "Members", module: "team_members", segment: "members", placement: "tab" },
-  { key: "roles", title: "Member roles", module: "member_roles", segment: "roles", placement: "tab" },
-  { key: "invites", title: "Invites", module: "team_members", segment: "invites", placement: "tab" },
+  { key: "members", title: "Members", module: "team_members", segment: "members", placement: "tab", countCacheKey: "members" },
+  { key: "roles", title: "Member roles", module: "member_roles", segment: "roles", placement: "tab", countCacheKey: "member_roles" },
+  { key: "invites", title: "Invites", module: "team_members", segment: "invites", placement: "tab", countCacheKey: "invites" },
   // Dropdown values ("selectable data") — managed on the team page, a tab beside
   // the other admin sections. Gated by the selectable_data module.
-  { key: "dropdowns", title: "Dropdown values", module: "selectable_data", segment: "dropdowns", placement: "tab" },
+  { key: "dropdowns", title: "Dropdown values", module: "selectable_data", segment: "dropdowns", placement: "tab", countCacheKey: "selectable" },
   // Learning + Help are first-class SIDEBAR pages (not buried tabs) — team-scoped,
   // each gated by its own read right. The URL segment IS the permission module.
-  { key: "learning", title: "Learning", module: "learning", segment: "learning", placement: "sidebar" },
-  { key: "help", title: "Help", module: "help", segment: "help", placement: "sidebar" },
+  { key: "learning", title: "Learning", module: "learning", segment: "learning", placement: "sidebar", countCacheKey: "learning" },
+  { key: "help", title: "Help", module: "help", segment: "help", placement: "sidebar", countCacheKey: "help" },
   // Import has NO read-right of its own — it's gated per-target (create on
   // member_roles or learning). Reached CONTEXTUALLY from an "Import CSV" button on
   // those pages (which land on /t/<team>/import/<tableKey>), never a tab.

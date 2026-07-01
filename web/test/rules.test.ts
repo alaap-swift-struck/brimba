@@ -13,7 +13,9 @@ import {
   FORM_DIALOGS,
   RECORD_DETAIL_COMPONENTS,
   RULES_REGISTRY,
+  TAB_COUNT_EXCEPTIONS,
 } from "@shared/rules/registry"
+import { TEAM_SECTIONS } from "../lib/pages"
 
 const HERE = dirname(fileURLToPath(import.meta.url)) // web/test
 const WEB = join(HERE, "..") // web/
@@ -79,6 +81,28 @@ describe("RULES — the laws of the base", () => {
     }
   })
 
+  // R8 — every team collection tab derives its count from its loaded rows. A
+  // placement:"tab" section that shows a collection MUST declare a countCacheKey
+  // (so the badge is derived, never a forgotten hand-listed key), AND the host
+  // must build the counts by iterating that field — not a per-key literal.
+  it("tab-counts-derived: every collection tab declares a countCacheKey, derived generically", () => {
+    for (const s of TEAM_SECTIONS) {
+      if (s.placement !== "tab") continue
+      if (s.countCacheKey === undefined) {
+        expect(
+          TAB_COUNT_EXCEPTIONS[s.key],
+          `team tab "${s.key}" shows a collection → it must declare a countCacheKey (or be a reviewed TAB_COUNT_EXCEPTIONS entry)`
+        ).toBeTruthy()
+      } else {
+        expect(s.countCacheKey.trim(), `team tab "${s.key}" countCacheKey must be non-empty`).not.toBe("")
+      }
+    }
+    // Anti-regression: the host derives the badges by iterating countCacheKey — no
+    // hand-listed per-section literal can creep back in.
+    const src = read(join(WEB, "components", "deep-link-screen.tsx"))
+    expect(src, "deep-link-screen must derive tab counts from countCacheKey").toContain("s.countCacheKey")
+  })
+
   // R5 — record activity is read through the ONE generic (table, id) path.
   it("generic-activity-path: the activity read path has a generic record scope", () => {
     const src = read(join(ROOT, "workers", "tenancy", "src", "lib", "activity-read.ts"))
@@ -110,6 +134,7 @@ describe("RULES — the laws of the base", () => {
       "generic-activity-path",
       "glossary-wellformed",
       "forms-persist-drafts",
+      "tab-counts-derived",
     ])
     for (const r of RULES_REGISTRY) {
       if (r.status === "enforced")

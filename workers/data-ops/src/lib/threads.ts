@@ -149,3 +149,35 @@ export async function getPendingProposal(
     return []
   }
 }
+
+/** Flip the pending proposal's statuses "proposed" → "done" once its calls have run,
+ * so a stray re-POST to /confirm finds nothing waiting and can't replay a remove.
+ * Rewrites the SAME row getPendingProposal reads (owner-scoped). */
+export async function consumePendingProposal(
+  cfg: D1Rest,
+  guard: MemberGuard,
+  threadId: string
+): Promise<void> {
+  await ownThreadOrThrow(cfg, guard, threadId)
+  const rows = await d1Query<{ id: string; tool_calls_json: string | null }>(
+    cfg,
+    guard.databaseId,
+    "SELECT id, tool_calls_json FROM agent_messages WHERE thread_id = ? AND role = 'assistant' AND tool_calls_json IS NOT NULL ORDER BY created_at DESC LIMIT 1",
+    [threadId]
+  )
+  const row = rows[0]
+  if (!row?.tool_calls_json) return
+  let updated: string
+  try {
+    const arr = JSON.parse(row.tool_calls_json) as { status?: string }[]
+    if (!Array.isArray(arr)) return
+    updated = JSON.stringify(arr.map((x) => (x && x.status === "proposed" ? { ...x, status: "done" } : x)))
+  } catch {
+    return
+  }
+  await d1ExecScript(
+    cfg,
+    guard.databaseId,
+    `UPDATE agent_messages SET tool_calls_json = ${sqlString(updated)} WHERE id = ${sqlString(row.id)};`
+  )
+}
