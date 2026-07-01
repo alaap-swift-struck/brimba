@@ -26,6 +26,16 @@ not under Settings; top-level `/members` and `/roles` are thin redirects there.
 
 ## The documents
 
+**New here — developer or agent? Read in this order:** [CLAUDE.md](CLAUDE.md) (the
+rules) → [BASE-MANUAL.md](BASE-MANUAL.md) (how the base works and *why*) →
+[ARCHITECTURE.md](ARCHITECTURE.md) (the locked decisions) →
+[BUILD-A-MODULE.md](BUILD-A-MODULE.md) (add a module end to end) →
+[CONVENTIONS.md](CONVENTIONS.md) + [UI-CONVENTIONS.md](UI-CONVENTIONS.md) (how code
+and screens are written) → the reference docs below as you need them →
+[EDGE-CASES.md](EDGE-CASES.md) before touching anything subtle →
+[OPERATIONS.md](OPERATIONS.md) to ship. With your own Cloudflare account, that path
+takes you from zero to rebuilding and extending the base.
+
 0. **[CLAUDE.md](CLAUDE.md)** — read first if you're an agent (or a new
    developer): the **Laws of the Base** (machine-enforced rules), the build
    style, and this doc map. **[RULES.md](RULES.md)** is the law-book it enforces
@@ -55,6 +65,28 @@ not under Settings; top-level `/members` and `/roles` are thin redirects there.
 11. The UI comes ONLY from **[@swift-struck/ui](https://swift-struck-ui.pages.dev/documentation)**
     (installed from GitHub). Missing a component? Add it to the LIBRARY first —
     never build one-off UI here.
+
+### The manual — build on it, understand it, rebuild it from zero
+
+12. **[BASE-MANUAL.md](BASE-MANUAL.md)** — how the whole base works AND *why*: the
+    six workers, the two-tier database, the permission spine, how a new module and
+    the base influence each other, and how to change foundational code + how a
+    change ripples. Start here to understand the system.
+13. **[BUILD-A-MODULE.md](BUILD-A-MODULE.md)** — the golden-path checklist to add a
+    team module end to end (table → permissions → worker → web → detail → tests),
+    worked through a real module.
+14. **[CONVENTIONS.md](CONVENTIONS.md)** — the code + comment house style (the
+    handler shape, the data doors, gating, validation, deactivate-not-delete, the
+    comment convention, how `npm run check` gates everything).
+15. **[UI-CONVENTIONS.md](UI-CONVENTIONS.md)** — how screens are built: the
+    library-is-lego rule, recipe vs. bespoke, the enforced UI Laws, the
+    action-icon mapping, and the voice.
+16. **[DURABLE-OBJECTS.md](DURABLE-OBJECTS.md)** — the realtime Durable Object
+    (`TeamChannel`), the code-vs-runtime model, and when a DO is the lock vs. plain
+    atomic D1.
+17. **[EDGE-CASES.md](EDGE-CASES.md)** — the non-obvious traps a maintainer must
+    know (the static-export reload, the list-cache-as-detail-source, the REST-door
+    round-trips, the confirm model, streaming, and more).
 
 ## Develop
 

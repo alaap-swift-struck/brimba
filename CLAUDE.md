@@ -45,6 +45,15 @@ Start with **[README.md](README.md)** (the doc map), then:
 - **[SEARCH.md](SEARCH.md)** — the layered search / filter model.
 - **[ROADMAP.md](ROADMAP.md)** — what's built and what's next, with the contracts each phase plugs into.
 
+**The manual — to build on the base, or rebuild it from zero:**
+
+- **[BASE-MANUAL.md](BASE-MANUAL.md)** — how the base works AND *why*: the six workers, the two-tier database, the permission spine, how a new module and the base influence each other, and how to change foundational code + how a change ripples. Read this to understand the whole.
+- **[BUILD-A-MODULE.md](BUILD-A-MODULE.md)** — the end-to-end golden-path checklist to add a team module (table → permissions → worker → web → detail → tests).
+- **[CONVENTIONS.md](CONVENTIONS.md)** — the code + comment house style (handler shape, data doors, gating, validation, deactivate-not-delete).
+- **[UI-CONVENTIONS.md](UI-CONVENTIONS.md)** — how screens are built (library-is-lego, recipe vs bespoke, the enforced UI Laws, the action-icon mapping, the voice).
+- **[DURABLE-OBJECTS.md](DURABLE-OBJECTS.md)** — the realtime Durable Object (`TeamChannel`), the code-vs-runtime model, and when a DO is the lock vs plain atomic D1.
+- **[EDGE-CASES.md](EDGE-CASES.md)** — the non-obvious traps (static-export reload, list-cache-as-detail-source, REST-door round-trips, the confirm model, streaming, and more).
+
 ## Working agreement
 
 - **`npm run check` must stay green** (TypeScript across every workspace + the full test suite, including the rule + seam tests). Run it before you commit. It is the gate.
