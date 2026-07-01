@@ -9,9 +9,62 @@ import { optionalText, requireText, TEXT_LIMITS } from "../../../../shared/worke
 import { publishChange } from "../../../../shared/workers/realtime"
 import { adminGuard, requireRight, teamContext } from "../../../../shared/workers/gating"
 import { getQuota, grantCredits } from "../lib/credits"
-import { confirmAndRun, runChat } from "../lib/agent"
+import { confirmAndRun, runChat, type Emit } from "../lib/agent"
 import { listMessages, listThreads } from "../lib/threads"
+import type { ChatOutcome, StreamEvent } from "../../../../shared/types"
 import type { Env } from "../env"
+
+/** One SSE frame: `data: <json>\n\n` on a text/event-stream body. The whole wire format
+ * lives here so both sides agree on it; exported for the unit test. */
+export function sseFrame(ev: StreamEvent): string {
+  return `data: ${JSON.stringify(ev)}\n\n`
+}
+
+/** A finished ChatOutcome → its single TERMINAL stream event. A pause-for-confirm
+ * outcome becomes `confirm`; anything else is the completed `final`. (An error is
+ * emitted by the run wrapper, never derived here.) */
+export function terminalEvent(outcome: ChatOutcome): StreamEvent {
+  return outcome.done
+    ? { t: "final", outcome }
+    : { t: "confirm", calls: outcome.needsConfirm, text: outcome.assistantText || undefined }
+}
+
+/** True if the client asked for the live stream (Accept: text/event-stream). The JSON
+ * endpoints are the fallback for any client that didn't. */
+function wantsStream(request: Request): boolean {
+  return (request.headers.get("Accept") ?? "").includes("text/event-stream")
+}
+
+/** Run an agent turn as an SSE stream: `run(emit)` produces the ChatOutcome while emitting
+ * text + step events; when it returns we write the ONE terminal event and close. Any
+ * throw becomes a safe `error` event — a raw 500 never leaks into the stream. */
+function streamRun(run: (emit: Emit) => Promise<ChatOutcome>): Response {
+  const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>()
+  const writer = writable.getWriter()
+  const enc = new TextEncoder()
+  const write = (ev: StreamEvent) => writer.write(enc.encode(sseFrame(ev)))
+
+  void (async () => {
+    try {
+      const outcome = await run((ev) => void write(ev))
+      await write(terminalEvent(outcome))
+    } catch {
+      await write({ t: "error", message: "The assistant had trouble just now. Please try again in a moment." })
+    } finally {
+      await writer.close().catch(() => {})
+    }
+  })()
+
+  return new Response(readable, {
+    headers: {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+      // Defeat proxy/response buffering so deltas reach the browser as they're written.
+      "X-Accel-Buffering": "no",
+    },
+  })
+}
 
 /** GET /api/data-ops/agent/usage — the active team's AI quota (free + credits). */
 export async function getAgentUsage(request: Request, env: Env): Promise<Response> {
@@ -33,19 +86,19 @@ export async function postGrantCredits(request: Request, env: Env): Promise<Resp
   return json({ teamId: body.teamId, balance })
 }
 
-/** POST /api/data-ops/agent/chat — run one agent turn (answer, or propose/take action). */
+/** POST /api/data-ops/agent/chat — run one agent turn (answer, or propose/take action).
+ * When the client Accepts text/event-stream we stream progress (text deltas + step
+ * events) and end with the single terminal event; otherwise we return the JSON outcome. */
 export async function postAgentChat(request: Request, env: Env): Promise<Response> {
   const { actor, cfg, guard } = await teamContext(request, env)
   await requireRight(cfg, guard, "agent", "create")
   const body = (await request.json().catch(() => ({}))) as { threadId?: unknown; message?: unknown }
   const message = requireText(body.message, "Message", TEXT_LIMITS.message)
   const threadId = optionalText(body.threadId, "Thread", 64)
-  const outcome = await runChat(env, request, cfg, guard, actor, {
-    threadId,
-    message,
-    source: "in-app",
-  })
-  return json(outcome)
+  const opts = { threadId, message, source: "in-app" }
+  if (wantsStream(request))
+    return streamRun((emit) => runChat(env, request, cfg, guard, actor, opts, emit))
+  return json(await runChat(env, request, cfg, guard, actor, opts))
 }
 
 /** POST /api/data-ops/agent/confirm — approve (or decline) the proposed dangerous
@@ -58,12 +111,10 @@ export async function postAgentConfirm(request: Request, env: Env): Promise<Resp
     return fail(400, "invalid_input", "threadId and approve are required.")
   // What runs comes from the server's stored proposal (in confirmAndRun), not the
   // client — any client-supplied `calls` are ignored, so nothing un-proposed executes.
-  const out = await confirmAndRun(env, request, cfg, guard, actor, {
-    threadId: body.threadId,
-    approve: body.approve,
-    source: "in-app",
-  })
-  return json(out)
+  const opts = { threadId: body.threadId, approve: body.approve, source: "in-app" }
+  if (wantsStream(request))
+    return streamRun((emit) => confirmAndRun(env, request, cfg, guard, actor, opts, emit))
+  return json(await confirmAndRun(env, request, cfg, guard, actor, opts))
 }
 
 /** GET /api/data-ops/agent/threads — the caller's saved conversations. */

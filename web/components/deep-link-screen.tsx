@@ -74,6 +74,7 @@ import { useActiveTeam } from "@/lib/use-active-team"
 import { reportError } from "@/lib/log"
 import { personName } from "@/lib/identity"
 import { MODULE_PERMISSION, resolveRecipe, withDataDrivenCollection, withoutActions } from "@/lib/screens"
+import { onTrace, type TraceTarget } from "@/lib/agent-trace"
 import { TEAM_SECTIONS, type Crumb } from "@/lib/pages"
 import type { TeamMember } from "@shared/types"
 
@@ -88,6 +89,9 @@ export function DeepLinkScreen() {
   // the effect). This avoids useSearchParams (which complicates static export).
   const [route, setRoute] = React.useState<Route | null>(null)
   const [noAccess, setNoAccess] = React.useState(false)
+  // A CSS selector the agent asked us to ring briefly (the traced control), cleared
+  // on a short timer so the highlight is a glance, not a lingering focus-steal.
+  const [traceHighlight, setTraceHighlight] = React.useState<string | null>(null)
   // True once we've navigated in-app (a go() push). Lets close be history-aware:
   // an in-app panel closes by popping that push (Back also closes it); a panel
   // reached by a fresh deep link has no entry to pop, so it closes by replacing
@@ -288,6 +292,29 @@ export function DeepLinkScreen() {
     if (navigatedRef.current) router.back()
     else replace(currentPath)
   }
+
+  // Real-screen tracing: the agent panel emits a trace target per write step. We
+  // only honour it when we're already the /t host showing THAT team (isInAppPath +
+  // team match) — crossing from a static route into /t hard-reloads in this static
+  // export, so a trace for a team we aren't showing is dropped (the panel narrates
+  // it instead). Move softly via go(), then ring the traced control for a beat.
+  React.useEffect(() => {
+    return onTrace(({ teamId: traceTeam, target }: { teamId: string; target: TraceTarget }) => {
+      if (!teamId || traceTeam !== teamId || !onTeam) return
+      if (!isInAppPath(target.path)) return
+      go(target.path, target.query)
+      setTraceHighlight(target.highlight ?? null)
+    })
+    // go/isInAppPath are stable-enough; re-subscribe when the shown team/host changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [teamId, onTeam, go])
+
+  // Clear the highlight shortly after it lands (a glance, then gone).
+  React.useEffect(() => {
+    if (!traceHighlight) return
+    const t = setTimeout(() => setTraceHighlight(null), 2200)
+    return () => clearTimeout(t)
+  }, [traceHighlight])
 
   /* ------------------------------- mutations ------------------------------ */
 
@@ -726,7 +753,15 @@ export function DeepLinkScreen() {
 
   return (
     <AppShell active={active} breadcrumbs={crumbs} onNavigate={go} activePath={currentPath}>
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
+      {/* data-trace marks the screen the agent just drove; the ring is a short-lived
+       * glance cue (auto-cleared) so the user sees WHERE a traced change landed. It
+       * rings the content region — a just-opened dialog draws the eye on its own. */}
+      <div
+        data-trace={traceHighlight ?? undefined}
+        className={`mx-auto flex w-full max-w-3xl flex-col gap-6 rounded-xl transition-shadow ${
+          traceHighlight ? "ring-primary/60 ring-2 ring-offset-2 ring-offset-background" : ""
+        }`}
+      >
         {showTabs && (
           <TeamSectionNav
             teamId={teamId as string}

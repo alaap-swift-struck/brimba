@@ -5,7 +5,7 @@
 // tool RESULTS go back as fenced DATA, never instructions; a mid-run failure STOPS
 // and reports; a step cap prevents runaways; every turn is saved (the audit trail).
 
-import type { AgentQuota, ChatOutcome, PendingCall } from "../../../../shared/types"
+import type { AgentQuota, ChatOutcome, PendingCall, StreamEvent } from "../../../../shared/types"
 import { GLOSSARY } from "../../../../shared/glossary"
 import { consumeAiUnit, getQuota } from "./credits"
 import type { Actor, MemberGuard } from "../../../../shared/workers/gating"
@@ -92,13 +92,19 @@ async function resolveConfirmNames(
 
 export type { ChatOutcome, PendingCall }
 
+/** A live-progress sink. When passed, the loop streams the model's text deltas and
+ * emits a step_start/step_end around each tool it runs; when omitted, the loop behaves
+ * exactly as before (the JSON path). The route owns the single TERMINAL event. */
+export type Emit = (ev: StreamEvent) => void
+
 export async function runChat(
   env: Env,
   request: Request,
   cfg: D1Rest,
   guard: MemberGuard,
   actor: Actor,
-  opts: { threadId?: string; message: string; source: string }
+  opts: { threadId?: string; message: string; source: string },
+  emit?: Emit
 ): Promise<ChatOutcome> {
   const threadId = opts.threadId ?? (await createThread(cfg, guard, actor, deriveTitle(opts.message)))
   await appendMessage(cfg, guard, actor, threadId, { role: "user", content: opts.message, source: opts.source })
@@ -106,7 +112,7 @@ export async function runChat(
   const history = await listMessages(cfg, guard, threadId)
   const convo: ChatMessage[] = [{ role: "system", content: SYSTEM }, ...replayable(history)]
   const quota = await getQuota(env, guard.teamId)
-  return runPlanLoop(env, request, cfg, guard, actor, threadId, convo, quota, opts)
+  return runPlanLoop(env, request, cfg, guard, actor, threadId, convo, quota, opts, {}, emit)
 }
 
 /** The step loop over an ALREADY-SEEDED convo: meter a credit, ask the model, then
@@ -125,9 +131,14 @@ async function runPlanLoop(
   convo: ChatMessage[],
   quota: AgentQuota,
   opts: { source: string },
-  loopOpts: { prepaid?: boolean } = {}
+  loopOpts: { prepaid?: boolean } = {},
+  emit?: Emit
 ): Promise<ChatOutcome> {
   const model = selectModel(env)
+  const tools = model.canActWithTools ? toolSpecs() : []
+  // Stream text deltas only when the caller wants live progress AND the model supports
+  // it; otherwise take the one-shot path (Workers AI, or any non-streamed request).
+  const streaming = !!emit && model.canStream && !!model.stream
 
   for (let step = 0; step < MAX_STEPS; step++) {
     if (!(loopOpts.prepaid && step === 0)) {
@@ -142,7 +153,9 @@ async function runPlanLoop(
 
     let reply: ModelReply
     try {
-      reply = await model.complete(convo, model.canActWithTools ? toolSpecs() : [])
+      reply = streaming
+        ? await model.stream!(convo, tools, (d) => emit!({ t: "text", d }))
+        : await model.complete(convo, tools)
     } catch {
       // A model/runtime hiccup becomes a friendly, saved turn — never an uncaught 500.
       const msg = "The assistant had trouble just now and couldn't reply. Please try again in a moment."
@@ -196,12 +209,19 @@ async function runPlanLoop(
     })
     convo.push({ role: "assistant", content: reply.text, toolCalls: reply.toolCalls })
 
+    // Resolve any member/invite ids the turn's tools echo → friendly names, so a
+    // step summary reads "Remove Jane Doe" not a ULID (same seam the confirm panel
+    // uses; a no-op + free for tools that ignore names). Only when streaming.
+    const names = emit ? await resolveConfirmNames(env, request, reply.toolCalls) : {}
     let failed = false
     for (const tc of reply.toolCalls) {
       const t = getTool(tc.name)
+      const summary = t ? t.summarize(tc.input, names) : `Run ${tc.name}`
+      emit?.({ t: "step_start", tool: tc.name, summary })
       const result: ToolResult = t
         ? await executeTool(env, request, t, tc.input)
         : { ok: false, status: 404, data: null, error: `Unknown tool "${tc.name}".` }
+      emit?.({ t: "step_end", tool: tc.name, ok: result.ok, summary })
       const content = fence(result)
       await appendMessage(cfg, guard, actor, threadId, { role: "tool", content, source: opts.source })
       convo.push({ role: "tool", content, toolCallId: tc.id, toolName: tc.name })
@@ -229,7 +249,8 @@ export async function confirmAndRun(
   cfg: D1Rest,
   guard: MemberGuard,
   actor: Actor,
-  opts: { threadId: string; approve: boolean; source: string }
+  opts: { threadId: string; approve: boolean; source: string },
+  emit?: Emit
 ): Promise<ChatOutcome> {
   const history = await listMessages(cfg, guard, opts.threadId) // also asserts ownership
 
@@ -257,13 +278,19 @@ export async function confirmAndRun(
 
   // Execute the SERVER-RECORDED proposal AS the caller (each call re-gated downstream).
   const calls: ToolCall[] = proposed.map((p, i) => ({ id: `call_${i}`, name: p.name, input: p.input }))
+  // Resolve the confirming calls' ids → friendly names so the step summary reads plainly
+  // (same seam the confirm panel used to build these very summaries). Only when streaming.
+  const names = emit ? await resolveConfirmNames(env, request, calls) : {}
   const toolMsgs: ChatMessage[] = []
   let failed = false
   for (const tc of calls) {
     const t = getTool(tc.name)
+    const summary = t ? t.summarize(tc.input, names) : `Run ${tc.name}`
+    emit?.({ t: "step_start", tool: tc.name, summary })
     const result: ToolResult = t
       ? await executeTool(env, request, t, tc.input)
       : { ok: false, status: 404, data: null, error: `Unknown tool "${tc.name}".` }
+    emit?.({ t: "step_end", tool: tc.name, ok: result.ok, summary })
     const content = fence(result)
     await appendMessage(cfg, guard, actor, opts.threadId, { role: "tool", content, source: opts.source })
     toolMsgs.push({ role: "tool", content, toolCallId: tc.id, toolName: tc.name })
@@ -296,5 +323,5 @@ export async function confirmAndRun(
   ]
   return runPlanLoop(env, request, cfg, guard, actor, opts.threadId, convo, c.quota, opts, {
     prepaid: true,
-  })
+  }, emit)
 }

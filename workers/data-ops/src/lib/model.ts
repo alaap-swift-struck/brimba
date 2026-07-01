@@ -30,7 +30,14 @@ export interface Model {
   readonly name: string
   /** true if this provider can actually call tools (act); false = answers only. */
   readonly canActWithTools: boolean
+  /** true if this provider can stream text deltas (implements stream()); when false
+   *  callers fall back to complete() — the run still works, tokens just arrive at once. */
+  readonly canStream: boolean
   complete(messages: ChatMessage[], tools: ToolSpec[]): Promise<ModelReply>
+  /** Stream the turn: fire onText for each text delta as it arrives, and return the
+   *  FULL reply (accumulated text + any tool calls) when the turn ends — same shape as
+   *  complete(), so the loop treats a streamed turn identically once it finishes. */
+  stream?(messages: ChatMessage[], tools: ToolSpec[], onText: (delta: string) => void): Promise<ModelReply>
 }
 
 /* --------------------------------- Claude --------------------------------- */
@@ -41,6 +48,7 @@ type AnthropicBlock =
 
 class ClaudeModel implements Model {
   readonly canActWithTools = true
+  readonly canStream = true
   constructor(
     private apiKey: string,
     readonly name: string,
@@ -50,7 +58,9 @@ class ClaudeModel implements Model {
     private effort: string = "low"
   ) {}
 
-  async complete(messages: ChatMessage[], tools: ToolSpec[]): Promise<ModelReply> {
+  /** The one request body both complete() and stream() send — same messages/tools/effort
+   *  rules, only the `stream` flag differs. Keeps the two paths from drifting. */
+  private buildBody(messages: ChatMessage[], tools: ToolSpec[], stream: boolean): Record<string, unknown> {
     const system = messages
       .filter((m) => m.role === "system")
       .map((m) => m.content)
@@ -72,30 +82,38 @@ class ClaudeModel implements Model {
         }
         return { role: m.role, content: m.content }
       })
+    return {
+      model: this.name,
+      max_tokens: 1024,
+      // Effort controls reasoning depth + overall token spend (GA on Sonnet 5, no
+      // beta header). "low" = terse, consolidated tool calls — the cheap setting.
+      // We leave `thinking` unset on purpose: Sonnet 5 runs adaptive thinking by
+      // default and keeps it minimal at low effort, which also keeps it willing to
+      // reach for tools. (Never send temperature/top_p or budget_tokens here — both
+      // 400 on Sonnet 5 / the Opus-4.7+ family.)
+      output_config: { effort: this.effort },
+      ...(stream ? { stream: true } : {}),
+      ...(system ? { system } : {}),
+      messages: msgs,
+      ...(tools.length
+        ? { tools: tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.schema })) }
+        : {}),
+    }
+  }
 
+  private headers(): Record<string, string> {
+    return {
+      "x-api-key": this.apiKey,
+      "anthropic-version": "2023-06-01",
+      "content-type": "application/json",
+    }
+  }
+
+  async complete(messages: ChatMessage[], tools: ToolSpec[]): Promise<ModelReply> {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
-      headers: {
-        "x-api-key": this.apiKey,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        model: this.name,
-        max_tokens: 1024,
-        // Effort controls reasoning depth + overall token spend (GA on Sonnet 5, no
-        // beta header). "low" = terse, consolidated tool calls — the cheap setting.
-        // We leave `thinking` unset on purpose: Sonnet 5 runs adaptive thinking by
-        // default and keeps it minimal at low effort, which also keeps it willing to
-        // reach for tools. (Never send temperature/top_p or budget_tokens here — both
-        // 400 on Sonnet 5 / the Opus-4.7+ family.)
-        output_config: { effort: this.effort },
-        ...(system ? { system } : {}),
-        messages: msgs,
-        ...(tools.length
-          ? { tools: tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.schema })) }
-          : {}),
-      }),
+      headers: this.headers(),
+      body: JSON.stringify(this.buildBody(messages, tools, false)),
     })
     if (!res.ok) {
       const detail = await res.text().catch(() => "")
@@ -112,6 +130,105 @@ class ClaudeModel implements Model {
       .map((b) => ({ id: b.id, name: b.name, input: b.input ?? {} }))
     return { text, toolCalls }
   }
+
+  /** Stream the turn (POST with "stream": true) and parse the Messages SSE: a
+   *  content_block_start opens a text or tool_use block at an index; content_block_delta
+   *  carries text_delta (→ onText, appended to that block's text) or input_json_delta
+   *  (the tool's input JSON, accumulated as a string per index). message_stop ends it;
+   *  we then parse each tool block's collected JSON and return the FULL reply. Errors
+   *  surface as the same typed model_error the loop already turns into a clean message. */
+  async stream(
+    messages: ChatMessage[],
+    tools: ToolSpec[],
+    onText: (delta: string) => void
+  ): Promise<ModelReply> {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: this.headers(),
+      body: JSON.stringify(this.buildBody(messages, tools, true)),
+    })
+    if (!res.ok || !res.body) {
+      const detail = res.body ? await res.text().catch(() => "") : ""
+      throw new Error(`model_error: Claude returned ${res.status}. ${detail.slice(0, 200)}`)
+    }
+    return parseAnthropicStream(res.body, onText)
+  }
+}
+
+/** One tool_use block being assembled as its input_json_delta chunks arrive. */
+type ToolBuild = { id: string; name: string; json: string }
+
+/** Parse an Anthropic Messages SSE stream: fire onText for each text delta and return
+ *  the full {text, toolCalls} once the stream ends. Exported so the test can feed it a
+ *  hand-built ReadableStream (no network). */
+export async function parseAnthropicStream(
+  body: ReadableStream<Uint8Array>,
+  onText: (delta: string) => void
+): Promise<ModelReply> {
+  const reader = body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ""
+  let text = ""
+  const tools = new Map<number, ToolBuild>() // block index → the tool_use being built
+
+  const handle = (data: string): void => {
+    if (data === "[DONE]") return
+    let ev: {
+      type?: string
+      index?: number
+      content_block?: { type?: string; id?: string; name?: string }
+      delta?: { type?: string; text?: string; partial_json?: string }
+    }
+    try {
+      ev = JSON.parse(data)
+    } catch {
+      return // ignore a keep-alive / unparsable frame
+    }
+    if (ev.type === "content_block_start" && ev.content_block?.type === "tool_use")
+      tools.set(ev.index ?? 0, {
+        id: ev.content_block.id ?? "",
+        name: ev.content_block.name ?? "",
+        json: "",
+      })
+    else if (ev.type === "content_block_delta" && ev.delta?.type === "text_delta") {
+      const d = ev.delta.text ?? ""
+      if (d) {
+        text += d
+        onText(d)
+      }
+    } else if (ev.type === "content_block_delta" && ev.delta?.type === "input_json_delta") {
+      const b = tools.get(ev.index ?? 0)
+      if (b) b.json += ev.delta.partial_json ?? ""
+    }
+  }
+
+  // SSE frames are separated by a blank line; each `data:` line carries one JSON event.
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    let sep: number
+    while ((sep = buffer.indexOf("\n\n")) !== -1) {
+      const frame = buffer.slice(0, sep)
+      buffer = buffer.slice(sep + 2)
+      for (const line of frame.split("\n"))
+        if (line.startsWith("data:")) handle(line.slice(5).trim())
+    }
+  }
+
+  const toolCalls = [...tools.values()].map((b) => {
+    let input: Record<string, unknown> = {}
+    if (b.json.trim()) {
+      try {
+        const parsed = JSON.parse(b.json)
+        if (parsed && typeof parsed === "object") input = parsed as Record<string, unknown>
+      } catch {
+        /* a truncated/garbled tool input just runs empty — the door re-validates */
+      }
+    }
+    return { id: b.id, name: b.name, input }
+  })
+  return { text, toolCalls }
 }
 
 /* ------------------------------- Workers AI ------------------------------- */
@@ -136,6 +253,9 @@ type WorkersAiReply = {
 
 class WorkersAiModel implements Model {
   readonly canActWithTools = true
+  // No stream() — callers fall back to complete(), so token deltas are absent but the
+  // step_start/step_end events still flow around each tool the model runs.
+  readonly canStream = false
   constructor(
     private ai: Ai,
     readonly name: string

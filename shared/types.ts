@@ -319,3 +319,21 @@ export type ChatOutcome =
       needsConfirm: PendingCall[]
       quota: AgentQuota
     }
+
+/** One event on the agent's SSE stream (wire format: `data: <json>\n\n`). Keys are
+ * terse + stable. `text` + `step_*` may repeat any number of times; exactly ONE terminal
+ * event (confirm | final | error) ends every stream. The `summary` on step_* uses the
+ * same name-resolved logic as the confirm-panel summaries. */
+export type StreamEvent =
+  /** append this delta to the current assistant reply bubble (word-by-word). */
+  | { t: "text"; d: string }
+  /** a tool is about to run (human, id→name-resolved summary). */
+  | { t: "step_start"; tool: string; summary: string }
+  /** that tool finished — ok true, or false on failure. */
+  | { t: "step_end"; tool: string; ok: boolean; summary: string }
+  /** TERMINAL: needs confirmation; the client shows the yes/no panel. */
+  | { t: "confirm"; calls: PendingCall[]; text?: string }
+  /** TERMINAL: run complete; carries the full ChatOutcome (reply/quota/threadId). */
+  | { t: "final"; outcome: ChatOutcome }
+  /** TERMINAL: something went wrong; a safe message to show. */
+  | { t: "error"; message: string }
