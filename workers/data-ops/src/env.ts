@@ -35,6 +35,9 @@ export type Env = {
   /** Reasoning effort for the Claude path: low | medium | high | xhigh | max.
    *  Defaults to "low" (cheap). Raise it when more capability is worth the cost. */
   AGENT_EFFORT?: string
+  /** Daily free agent turns per team; defaults to FREE_DAILY. Set very high to
+   *  effectively remove the cap. */
+  AGENT_FREE_DAILY?: string
   /** The Workers AI model id for the cheap/fallback path. */
   WORKERS_AI_MODEL?: string
   // Secret (wrangler secret put): when set, the agentic path upgrades to Claude;

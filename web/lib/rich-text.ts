@@ -36,10 +36,11 @@ const TAG_MAP: Record<string, string> = {
 const DROP_CONTENT = new Set(["SCRIPT", "STYLE", "IFRAME", "OBJECT", "EMBED", "NOSCRIPT", "TEMPLATE"])
 const VOID_TAGS = new Set(["br", "hr"])
 
-const escapeText = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+export const escapeText = (s: string) =>
+  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
 const escapeAttr = (s: string) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;")
 
-function safeHref(raw: string | null): string | undefined {
+export function safeHref(raw: string | null): string | undefined {
   if (!raw) return undefined
   try {
     const u = new URL(raw, "https://x.invalid")

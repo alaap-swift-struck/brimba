@@ -22,7 +22,12 @@
     { "binding": "REALTIME", "service": "brimba-realtime" }
   ],
   "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "brimba-media" }],
-  "vars": { "CF_ACCOUNT_ID": "af3f1bf82aa34512f4f6630091358439" },
+  "vars": {
+    "CF_ACCOUNT_ID": "af3f1bf82aa34512f4f6630091358439",
+    // The public web origin the SPA is served on — used for links in outbound
+    // emails (invite CTA). NOT request-derived, so agent-sent invites are correct.
+    "PUBLIC_APP_URL": "https://brimba.swift-struck.workers.dev"
+  },
   // Nightly 80%-size alarms (03:10 UTC) — the locked sharding machinery.
   "triggers": { "crons": ["10 3 * * *"] },
   "env": {
@@ -43,7 +48,11 @@
         { "binding": "REALTIME", "service": "brimba-realtime-staging" }
       ],
       "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "brimba-media-staging" }],
-      "vars": { "CF_ACCOUNT_ID": "af3f1bf82aa34512f4f6630091358439" },
+      "vars": {
+        "CF_ACCOUNT_ID": "af3f1bf82aa34512f4f6630091358439",
+        // The public staging web origin — used for invite-email links.
+        "PUBLIC_APP_URL": "https://brimba-staging.swift-struck.workers.dev"
+      },
       "triggers": { "crons": ["10 3 * * *"] }
     }
   }

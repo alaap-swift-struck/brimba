@@ -5,6 +5,7 @@
 import * as React from "react"
 
 import { Button } from "@swift-struck/ui/registry/primitives/button/button"
+import { Card, CardContent } from "@swift-struck/ui/registry/primitives/card/card"
 import { Plus, Mail, Upload } from "lucide-react"
 
 export function NoAccess() {
@@ -23,14 +24,30 @@ export function LoadError({ what }: { what: string }) {
   return <p className="text-destructive text-sm">Couldn&apos;t load {what}.</p>
 }
 
+/** Box a collection (its title/search/filter/rows) into ONE card surface so it
+ * reads as a single unit. NOTE: the engine's list already draws each row group
+ * in its OWN card (screen-renderer renderList → <List> defaults to
+ * surface="card"), so until the library passes surface="none" there this nests a
+ * card in a card. Owner is applying that one-line library change alongside the
+ * one-row header — after which this Card becomes the single clean box. */
+export function CollectionCard({ children }: { children: React.ReactNode }) {
+  return (
+    <Card>
+      <CardContent className="p-4">{children}</CardContent>
+    </Card>
+  )
+}
+
 /** A list screen with a host-rendered create button above it (the engine list
- * has no "add" affordance — creating opens a ?panel form). */
+ * has no "add" affordance — creating opens a ?panel form). The collection itself
+ * is boxed in a CollectionCard so title/search/filter/rows read as one unit. */
 export function SectionWithCreate({
   show,
   label,
   icon,
   onCreate,
   secondary,
+  aboveCard,
   children,
 }: {
   show: boolean
@@ -40,6 +57,9 @@ export function SectionWithCreate({
   /** An optional second action beside the create button — today the contextual
    * "Import CSV" affordance on import-target pages (Learning / Member roles). */
   secondary?: { show: boolean; label: string; onClick: () => void }
+  /** Content shown between the create row and the boxed collection, OUTSIDE the
+   * card — e.g. Help's My/All raiser strip (it scopes the list, not part of it). */
+  aboveCard?: React.ReactNode
   children: React.ReactNode
 }) {
   const Icon = icon === "plus" ? Plus : Mail
@@ -62,7 +82,8 @@ export function SectionWithCreate({
           )}
         </div>
       )}
-      {children}
+      {aboveCard}
+      <CollectionCard>{children}</CollectionCard>
     </div>
   )
 }

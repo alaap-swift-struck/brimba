@@ -144,12 +144,13 @@ describe("createInvite against a real SQLite database (end-to-end write path)", 
       INSERT INTO teams (id, name) VALUES ('T', 'Acme');`)
     const env = { DB: makeD1(db), AUTH: { fetch: async () => ({ ok: true }) }, INTERNAL_KEY: "" } as never
 
-    await createInvite(env, cfg, guard, actor, "x@y.com", "R", "https://app")
+    const req = new Request("https://app/") // origin for the email link fallback (PUBLIC_APP_URL unset)
+    await createInvite(env, cfg, guard, actor, "x@y.com", "R", req)
     const pending = () =>
       (db.prepare("SELECT COUNT(*) AS n FROM invite_index WHERE status='pending'").get() as { n: number }).n
     expect(pending()).toBe(1)
 
-    await expect(createInvite(env, cfg, guard, actor, "x@y.com", "R", "https://app")).rejects.toMatchObject({
+    await expect(createInvite(env, cfg, guard, actor, "x@y.com", "R", req)).rejects.toMatchObject({
       code: "already_invited",
     })
     expect(pending()).toBe(1) // still just one — no duplicate

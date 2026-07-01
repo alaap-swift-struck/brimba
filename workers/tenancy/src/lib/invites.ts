@@ -116,7 +116,7 @@ export async function createInvite(
   actor: { id: string; email: string; name: string },
   email: string,
   roleId: string,
-  appOrigin: string
+  request: Request
 ): Promise<string> {
   const to = email.trim().toLowerCase()
   if (!EMAIL_RE.test(to))
@@ -197,6 +197,12 @@ export async function createInvite(
     .first<{ name: string }>()
   const teamName = teamRow?.name ?? "a team"
 
+  // The public web origin for the link — the configured value MUST win, so an
+  // agent-sent invite (which hits tenancy over a service binding with a
+  // placeholder host) can never bake in a dead "https://internal" link. Fall
+  // back to the request origin only when PUBLIC_APP_URL is unset (human path).
+  const base = env.PUBLIC_APP_URL || new URL(request.url).origin
+
   // Branded invite email, sent through the auth worker (best-effort).
   const { html, text } = brandedEmail({
     heading: `You're invited to ${teamName}`,
@@ -204,7 +210,7 @@ export async function createInvite(
     ctaLabel: `Join ${teamName}`,
     // Deep-link to the in-app Invitations inbox: an already-signed-in user lands
     // right on Accept; a new user is sent to sign in, then onboarding auto-joins.
-    ctaUrl: `${appOrigin}/invitations`,
+    ctaUrl: `${base}/invitations`,
     footnote: "This invite expires in 7 days. If you weren't expecting it, you can ignore this email.",
   })
   await env.AUTH.fetch("https://auth/internal/send-email", {

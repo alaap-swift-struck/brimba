@@ -6,7 +6,7 @@
 -- config default for now (a per-team override can be added later).
 CREATE TABLE agent_usage (
   team_id TEXT NOT NULL REFERENCES teams (id),
-  period TEXT NOT NULL,                 -- 'YYYY-MM' metering window
+  period TEXT NOT NULL,                 -- 'YYYY-MM-DD' daily metering window
   used INTEGER NOT NULL DEFAULT 0,      -- AI units consumed this period
   updated_at TEXT,
   PRIMARY KEY (team_id, period)

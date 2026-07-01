@@ -11,6 +11,9 @@ export type Env = {
 
   /** Cloudflare account id (plain var) — for creating/querying team DBs. */
   CF_ACCOUNT_ID: string
+  /** The public WEB origin the SPA is served on (the gateway's public URL),
+   *  used for links in outbound emails. Set per env in wrangler vars. */
+  PUBLIC_APP_URL?: string
 
   // Secrets (wrangler secret put):
   /** API token scoped to Account → D1 → Edit. Without it, team databases

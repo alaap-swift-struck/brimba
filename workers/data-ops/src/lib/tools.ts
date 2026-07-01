@@ -7,11 +7,11 @@
 //   • Act-as-user — every tool runs through the same gated endpoint AS the caller, so
 //     the agent has the user's EXACT rights and the real door re-checks each call.
 //     Managing existing members (set a role, remove someone) IS allowed — it's normal,
-//     re-gated CRUD — and confirms first because members is a dangerous table.
-//   • Confirm rule — a WRITE confirms before running if it's destructive OR touches a
-//     dangerous table (roles / members / screens / import). Plain single content edits
-//     run freely. (Bulk >1-row writes only happen via the import flow, which has its
-//     own preview+confirm, so they're not in this single-call catalog.)
+//     re-gated CRUD.
+//   • Confirm rule — only the two ONLY-DESTRUCTIVE acts pause for a yes/no panel:
+//     removing a member and revoking an invite (confirm:true). Every other tool runs
+//     straight away — the server still gates each call by the caller's rights, so the
+//     confirm panel is only about the app double-checking an irreversible-feeling act.
 //   • Catastrophic blocks — controlling your other DEVICE SESSIONS (sessions) and
 //     DELETING the team are not normal CRUD, so they're simply NOT in the catalog and
 //     the agent structurally cannot do them. The guard below is the belt-and-braces backstop.
@@ -29,14 +29,16 @@ export type AgentTool = {
   method: "GET" | "POST"
   path: string
   write: boolean
-  destructive: boolean
-  /** touches roles / members / screens / import — always confirm even for one row. */
-  dangerousTable: boolean
+  /** show the yes/no confirm panel before running — reserved for the two
+   * only-destructive acts (remove a member, revoke an invite). */
+  confirm: boolean
   /** never exposed actions guard (identity acts) — true = always refuse. */
   identityBlocked?: boolean
   buildQuery?: (input: Record<string, unknown>) => string
   buildBody?: (input: Record<string, unknown>) => Record<string, unknown>
-  summarize: (input: Record<string, unknown>) => string
+  /** One-line confirm-panel summary. `names` maps an id → a friendly name so the
+   * two confirming tools read "Remove Jane Doe" not a ULID; other tools ignore it. */
+  summarize: (input: Record<string, unknown>, names?: Record<string, string>) => string
 }
 
 const str = (input: Record<string, unknown>, key: string): string => {
@@ -60,8 +62,7 @@ export const TOOL_CATALOG: AgentTool[] = [
     method: "GET",
     path: "/api/content/learning",
     write: false,
-    destructive: false,
-    dangerousTable: false,
+    confirm: false,
     summarize: () => "List learning articles",
   },
   {
@@ -72,8 +73,7 @@ export const TOOL_CATALOG: AgentTool[] = [
     method: "GET",
     path: "/api/content/help",
     write: false,
-    destructive: false,
-    dangerousTable: false,
+    confirm: false,
     buildQuery: () => "?scope=all",
     summarize: () => "List support tickets",
   },
@@ -85,8 +85,7 @@ export const TOOL_CATALOG: AgentTool[] = [
     method: "GET",
     path: "/api/tenancy/roles",
     write: false,
-    destructive: false,
-    dangerousTable: false,
+    confirm: false,
     summarize: () => "List roles",
   },
   {
@@ -97,8 +96,7 @@ export const TOOL_CATALOG: AgentTool[] = [
     method: "GET",
     path: "/api/tenancy/members",
     write: false,
-    destructive: false,
-    dangerousTable: false,
+    confirm: false,
     summarize: () => "List members",
   },
   {
@@ -112,8 +110,7 @@ export const TOOL_CATALOG: AgentTool[] = [
     method: "POST",
     path: "/api/content/learning",
     write: true,
-    destructive: false,
-    dangerousTable: false,
+    confirm: false,
     buildBody: (i) => ({
       title: str(i, "title"),
       category: str(i, "category") || undefined,
@@ -132,8 +129,7 @@ export const TOOL_CATALOG: AgentTool[] = [
     method: "POST",
     path: "/api/content/learning/update",
     write: true,
-    destructive: false,
-    dangerousTable: false,
+    confirm: false,
     buildBody: (i) => ({
       id: str(i, "id"),
       title: str(i, "title"),
@@ -151,8 +147,7 @@ export const TOOL_CATALOG: AgentTool[] = [
     method: "POST",
     path: "/api/content/help",
     write: true,
-    destructive: false,
-    dangerousTable: false,
+    confirm: false,
     buildBody: (i) => ({ description: str(i, "description"), helpType: str(i, "helpType") || undefined }),
     summarize: (i) => `Raise a support ticket: "${str(i, "description").slice(0, 60)}"`,
   },
@@ -164,21 +159,20 @@ export const TOOL_CATALOG: AgentTool[] = [
     method: "POST",
     path: "/api/content/help/reply",
     write: true,
-    destructive: false,
-    dangerousTable: false,
+    confirm: false,
     buildBody: (i) => ({ helpId: str(i, "helpId"), body: str(i, "body") }),
     summarize: (i) => `Reply to ticket ${str(i, "helpId")}`,
   },
   {
     name: "create_role",
-    description: "Create a new team role (permissions are set later on the Roles screen).",
+    description:
+      "Create a new team role. It starts with no access rights; use set_role_permissions to grant them.",
     schema: obj({ title: S, description: S }, ["title"]),
     binding: "TENANCY",
     method: "POST",
     path: "/api/tenancy/roles",
     write: true,
-    destructive: false,
-    dangerousTable: true, // roles is a high-blast table → always confirm
+    confirm: false,
     buildBody: (i) => ({ title: str(i, "title"), description: str(i, "description") || "" }),
     summarize: (i) => `Create the role "${str(i, "title")}"`,
   },
@@ -190,8 +184,7 @@ export const TOOL_CATALOG: AgentTool[] = [
     method: "POST",
     path: "/api/tenancy/roles/update",
     write: true,
-    destructive: false,
-    dangerousTable: true, // roles is a high-blast table → always confirm
+    confirm: false,
     buildBody: (i) => ({
       roleId: str(i, "roleId"),
       title: str(i, "title"),
@@ -207,11 +200,39 @@ export const TOOL_CATALOG: AgentTool[] = [
     method: "POST",
     path: "/api/tenancy/roles/active",
     write: true,
-    destructive: true, // switching a role off withdraws it → destructive + confirm
-    dangerousTable: true,
+    confirm: false,
     buildBody: (i) => ({ roleId: str(i, "roleId"), active: i.active === true }),
     summarize: (i) =>
-      `${i.active === true ? "Reactivate" : "Switch off"} role ${str(i, "roleId")}`,
+      `${i.active === true ? "Activate" : "Deactivate"} role ${str(i, "roleId")}`,
+  },
+  {
+    name: "get_role_permissions",
+    description:
+      "Read a role's access rights (its permission matrix, by role id): for each module — read, create, edit, delete.",
+    schema: obj({ roleId: S }, ["roleId"]),
+    binding: "TENANCY",
+    method: "GET",
+    path: "/api/tenancy/roles/permissions",
+    write: false,
+    confirm: false,
+    buildQuery: (i) => `?roleId=${encodeURIComponent(str(i, "roleId"))}`,
+    summarize: (i) => `Read access rights for role ${str(i, "roleId")}`,
+  },
+  {
+    name: "set_role_permissions",
+    description:
+      "Set a role's access rights (by role id). `value` is an object keyed by module — one of " +
+      "teams, team_members, member_roles, learning, help, selectable_data, screens, agent — " +
+      "each mapping to { read, create, edit, delete } booleans. Turning on create, edit or delete " +
+      "auto-enables read. The Admin role is locked (the server enforces this).",
+    schema: obj({ roleId: S, value: { type: "object" } }, ["roleId", "value"]),
+    binding: "TENANCY",
+    method: "POST",
+    path: "/api/tenancy/roles/permissions",
+    write: true,
+    confirm: false,
+    buildBody: (i) => ({ roleId: str(i, "roleId"), value: i.value }),
+    summarize: (i) => `Set access rights for role ${str(i, "roleId")}`,
   },
   {
     name: "invite_member",
@@ -221,8 +242,7 @@ export const TOOL_CATALOG: AgentTool[] = [
     method: "POST",
     path: "/api/tenancy/invites",
     write: true,
-    destructive: false,
-    dangerousTable: true, // invites grow the member surface → always confirm
+    confirm: false,
     buildBody: (i) => ({ email: str(i, "email"), roleId: str(i, "roleId") }),
     summarize: (i) => `Invite ${str(i, "email")} as role ${str(i, "roleId")}`,
   },
@@ -234,10 +254,9 @@ export const TOOL_CATALOG: AgentTool[] = [
     method: "POST",
     path: "/api/tenancy/invites/revoke",
     write: true,
-    destructive: true, // withdraws an outstanding invite → destructive + confirm
-    dangerousTable: true,
+    confirm: true, // only-destructive: withdraws an outstanding invite
     buildBody: (i) => ({ inviteId: str(i, "inviteId") }),
-    summarize: (i) => `Revoke invitation ${str(i, "inviteId")}`,
+    summarize: (i, names) => `Revoke the invite for ${names?.[str(i, "inviteId")] ?? str(i, "inviteId")}`,
   },
   {
     name: "set_member_role",
@@ -247,8 +266,7 @@ export const TOOL_CATALOG: AgentTool[] = [
     method: "POST",
     path: "/api/tenancy/members/role",
     write: true,
-    destructive: true, // re-grants a member's rights → destructive + confirm
-    dangerousTable: true, // members is a high-blast table → always confirm
+    confirm: false,
     buildBody: (i) => ({ userId: str(i, "userId"), roleId: str(i, "roleId") }),
     summarize: (i) => `Change member ${str(i, "userId")} to role ${str(i, "roleId")}`,
   },
@@ -260,10 +278,9 @@ export const TOOL_CATALOG: AgentTool[] = [
     method: "POST",
     path: "/api/tenancy/members/remove",
     write: true,
-    destructive: true, // withdraws someone's access to the team → destructive + confirm
-    dangerousTable: true, // members is a high-blast table → always confirm
+    confirm: true, // only-destructive: withdraws someone's access to the team
     buildBody: (i) => ({ userId: str(i, "userId") }),
-    summarize: (i) => `Remove member ${str(i, "userId")} from the team`,
+    summarize: (i, names) => `Remove ${names?.[str(i, "userId")] ?? str(i, "userId")} from the team`,
   },
   {
     name: "create_dropdown_value",
@@ -273,8 +290,7 @@ export const TOOL_CATALOG: AgentTool[] = [
     method: "POST",
     path: "/api/tenancy/selectable",
     write: true,
-    destructive: false,
-    dangerousTable: false,
+    confirm: false,
     buildBody: (i) => ({ type: str(i, "type"), value: str(i, "value") }),
     summarize: (i) => `Add "${str(i, "value")}" to the ${str(i, "type")} list`,
   },
@@ -286,8 +302,7 @@ export const TOOL_CATALOG: AgentTool[] = [
     method: "POST",
     path: "/api/tenancy/selectable/update",
     write: true,
-    destructive: false,
-    dangerousTable: false,
+    confirm: false,
     buildBody: (i) => ({ id: str(i, "id"), value: str(i, "value") }),
     summarize: (i) => `Rename dropdown value ${str(i, "id")} to "${str(i, "value")}"`,
   },
@@ -299,11 +314,10 @@ export const TOOL_CATALOG: AgentTool[] = [
     method: "POST",
     path: "/api/tenancy/selectable/active",
     write: true,
-    destructive: true, // switching an option off withdraws it from pickers → confirm
-    dangerousTable: false,
+    confirm: false,
     buildBody: (i) => ({ id: str(i, "id"), active: i.active === true }),
     summarize: (i) =>
-      `${i.active === true ? "Reactivate" : "Switch off"} dropdown value ${str(i, "id")}`,
+      `${i.active === true ? "Activate" : "Deactivate"} dropdown value ${str(i, "id")}`,
   },
   {
     name: "update_team",
@@ -313,8 +327,7 @@ export const TOOL_CATALOG: AgentTool[] = [
     method: "POST",
     path: "/api/tenancy/teams/update",
     write: true,
-    destructive: false,
-    dangerousTable: false,
+    confirm: false,
     buildBody: (i) => ({ name: str(i, "name") }),
     summarize: (i) => `Rename the team to "${str(i, "name")}"`,
   },
@@ -326,8 +339,7 @@ export const TOOL_CATALOG: AgentTool[] = [
     method: "POST",
     path: "/api/content/help/update",
     write: true,
-    destructive: false,
-    dangerousTable: false,
+    confirm: false,
     buildBody: (i) => ({
       id: str(i, "id"),
       description: str(i, "description"),
@@ -345,8 +357,7 @@ export const TOOL_CATALOG: AgentTool[] = [
     method: "POST",
     path: "/api/content/help/status",
     write: true,
-    destructive: false,
-    dangerousTable: false,
+    confirm: false,
     buildBody: (i) => ({ id: str(i, "id"), status: str(i, "status") }),
     summarize: (i) => `Set ticket ${str(i, "id")} to "${str(i, "status")}"`,
   },
@@ -358,11 +369,10 @@ export const TOOL_CATALOG: AgentTool[] = [
     method: "POST",
     path: "/api/content/learning/active",
     write: true,
-    destructive: true, // switching an article off hides it from the team → confirm
-    dangerousTable: false,
+    confirm: false,
     buildBody: (i) => ({ id: str(i, "id"), active: i.active === true }),
     summarize: (i) =>
-      `${i.active === true ? "Reactivate" : "Switch off"} learning article ${str(i, "id")}`,
+      `${i.active === true ? "Activate" : "Deactivate"} learning article ${str(i, "id")}`,
   },
   {
     name: "mark_learning_done",
@@ -372,8 +382,7 @@ export const TOOL_CATALOG: AgentTool[] = [
     method: "POST",
     path: "/api/content/learning/done",
     write: true,
-    destructive: false,
-    dangerousTable: false,
+    confirm: false,
     buildBody: (i) => ({ id: str(i, "id"), done: i.done === true }),
     summarize: (i) =>
       `Mark learning article ${str(i, "id")} ${i.done === true ? "done" : "not done"}`,
@@ -389,10 +398,11 @@ export function toolSpecs(): ToolSpec[] {
   return TOOL_CATALOG.map((t) => ({ name: t.name, description: t.description, schema: t.schema }))
 }
 
-/** Confirm rule: a write confirms before running if it's destructive OR touches a
- * dangerous table. Reads never confirm; plain single content edits run freely. */
+/** Confirm rule: only the two only-destructive writes pause for the yes/no panel
+ * (remove a member, revoke an invite). Everything else runs straight away — the
+ * server still gates every call by the caller's rights. */
 export function requiresConfirm(tool: AgentTool): boolean {
-  return tool.write && (tool.destructive || tool.dangerousTable)
+  return tool.write && tool.confirm === true
 }
 
 export type ToolResult = { ok: boolean; status: number; data: unknown; error?: string }

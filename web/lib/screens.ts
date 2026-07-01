@@ -336,6 +336,32 @@ export function resolveRecipe(
   }
 }
 
+/** Tune a list recipe's collection chrome to the DATA it's about to show, so we
+ * never render dead UI: no rows → hide search + filters entirely (the empty
+ * state stands alone); rows present → keep search, and keep a facet only when at
+ * least one of its rows carries a value (an all-empty facet is a useless
+ * dropdown). A fresh copy — the base recipe is never mutated. */
+export function withDataDrivenCollection(
+  recipe: ScreenRecipe,
+  rows: Record<string, unknown>[]
+): ScreenRecipe {
+  const collection = recipe.collection
+  if (!collection) return recipe
+  if (rows.length === 0) {
+    return { ...recipe, collection: { ...collection, searchable: false, userFilter: false } }
+  }
+  const facets = collection.filterFacets.filter((f) =>
+    rows.some((row) => {
+      const v = row[f.field]
+      return v != null && String(v).trim() !== ""
+    })
+  )
+  return {
+    ...recipe,
+    collection: { ...collection, searchable: true, userFilter: facets.length > 0, filterFacets: facets },
+  }
+}
+
 /** Drop the named actions from a recipe (a fresh copy — the base is never
  * mutated). The host uses this to hide an action for a specific record, e.g. you
  * can't change your own role or remove yourself from the member detail. */

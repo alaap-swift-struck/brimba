@@ -17,7 +17,6 @@
 
 import * as React from "react"
 import { useRouter, usePathname } from "next/navigation"
-import { Sparkles } from "lucide-react"
 
 import { Button } from "@swift-struck/ui/registry/primitives/button/button"
 import { Skeleton } from "@swift-struck/ui/registry/primitives/skeleton/skeleton"
@@ -44,13 +43,12 @@ import { HelpDetailScreen } from "@/components/help-detail"
 import { HelpFormDialog } from "@/components/help-form-dialog"
 import { ImportScreen } from "@/components/import-screen"
 import { SelectableScreen } from "@/components/selectable-screen"
-import { AgentPanel } from "@/components/agent-panel"
 import { RolePickerDialog } from "@/components/role-picker-dialog"
 import { RoleFormDialog } from "@/components/role-form-dialog"
 import { InviteDialog } from "@/components/invite-dialog"
 import { TeamEditDialog } from "@/components/team-edit-dialog"
 import { ConfirmAction } from "@/components/deep-link/confirm-action"
-import { NoAccess, NotFound, LoadError, SectionWithCreate } from "@/components/deep-link/screen-bits"
+import { NoAccess, NotFound, LoadError, SectionWithCreate, CollectionCard } from "@/components/deep-link/screen-bits"
 import {
   parseRoute,
   sectionTitle,
@@ -75,7 +73,7 @@ import { invalidate, primeCache, useCached } from "@/lib/store"
 import { useActiveTeam } from "@/lib/use-active-team"
 import { reportError } from "@/lib/log"
 import { personName } from "@/lib/identity"
-import { MODULE_PERMISSION, resolveRecipe, withoutActions } from "@/lib/screens"
+import { MODULE_PERMISSION, resolveRecipe, withDataDrivenCollection, withoutActions } from "@/lib/screens"
 import { TEAM_SECTIONS, type Crumb } from "@/lib/pages"
 import type { TeamMember } from "@shared/types"
 
@@ -90,8 +88,6 @@ export function DeepLinkScreen() {
   // the effect). This avoids useSearchParams (which complicates static export).
   const [route, setRoute] = React.useState<Route | null>(null)
   const [noAccess, setNoAccess] = React.useState(false)
-  // The app-wide AI co-pilot sheet (a launcher opens it; gated by agent:create).
-  const [agentOpen, setAgentOpen] = React.useState(false)
   // True once we've navigated in-app (a go() push). Lets close be history-aware:
   // an in-app panel closes by popping that push (Back also closes it); a panel
   // reached by a fresh deep link has no entry to pop, so it closes by replacing
@@ -525,12 +521,18 @@ export function DeepLinkScreen() {
         if (membersQ.error) return <LoadError what="members" />
         if (membersQ.data === undefined) return <Skeleton variant="list" lines={4} />
         const data = shapeMembersList(membersQ.data)
-        return <ScreenRenderer recipe={recipe} data={data} rights={rights} onAction={onAction} onIntent={onIntent} />
+        const membersRecipe = withDataDrivenCollection(recipe, data.rows ?? [])
+        return (
+          <CollectionCard>
+            <ScreenRenderer recipe={membersRecipe} data={data} rights={rights} onAction={onAction} onIntent={onIntent} />
+          </CollectionCard>
+        )
       }
       if (module === "roles") {
         if (rolesQ.error) return <LoadError what="roles" />
         if (rolesQ.data === undefined) return <Skeleton variant="list" lines={4} />
         const data = shapeRolesList(roles)
+        const rolesRecipe = withDataDrivenCollection(recipe, data.rows ?? [])
         return (
           <SectionWithCreate
             show={can("member_roles", "create")}
@@ -543,7 +545,7 @@ export function DeepLinkScreen() {
             }}
             onCreate={() => go(sectionPath, { panel: "add", module: "roles" })}
           >
-            <ScreenRenderer recipe={recipe} data={data} rights={rights} onAction={onAction} onIntent={onIntent} />
+            <ScreenRenderer recipe={rolesRecipe} data={data} rights={rights} onAction={onAction} onIntent={onIntent} />
           </SectionWithCreate>
         )
       }
@@ -551,6 +553,7 @@ export function DeepLinkScreen() {
         if (invitesQ.error) return <LoadError what="invites" />
         if (invitesQ.data === undefined) return <Skeleton variant="list" lines={4} />
         const data = shapeInvitesList(invitesQ.data)
+        const invitesRecipe = withDataDrivenCollection(recipe, data.rows ?? [])
         return (
           <SectionWithCreate
             show={can("team_members", "create")}
@@ -558,7 +561,7 @@ export function DeepLinkScreen() {
             icon="mail"
             onCreate={() => go(sectionPath, { panel: "add", module: "invites" })}
           >
-            <ScreenRenderer recipe={recipe} data={data} rights={rights} onAction={onAction} onIntent={onIntent} />
+            <ScreenRenderer recipe={invitesRecipe} data={data} rights={rights} onAction={onAction} onIntent={onIntent} />
           </SectionWithCreate>
         )
       }
@@ -566,6 +569,7 @@ export function DeepLinkScreen() {
         if (learningQ.error) return <LoadError what="learning" />
         if (learningQ.data === undefined) return <Skeleton variant="list" lines={4} />
         const data = shapeLearningList(learningQ.data)
+        const learningRecipe = withDataDrivenCollection(recipe, data.rows ?? [])
         const articlesPanel = (
           <SectionWithCreate
             show={can("learning", "create")}
@@ -578,7 +582,7 @@ export function DeepLinkScreen() {
             }}
             onCreate={() => go(sectionPath, { panel: "add", module: "learning" })}
           >
-            <ScreenRenderer recipe={recipe} data={data} rights={rights} onAction={onAction} onIntent={onIntent} />
+            <ScreenRenderer recipe={learningRecipe} data={data} rights={rights} onAction={onAction} onIntent={onIntent} />
           </SectionWithCreate>
         )
         // Articles / Team progress as a REAL tab strip (library TabsView, URL-driven
@@ -621,40 +625,45 @@ export function DeepLinkScreen() {
             ? helpQ.data.filter((t) => t.raiserId === myUserId)
             : helpQ.data
         const data = shapeHelpList(visible)
+        const helpRecipe = withDataDrivenCollection(recipe, data.rows ?? [])
         return (
           <SectionWithCreate
             show={can("help", "create")}
             label="Raise ticket"
             icon="plus"
             onCreate={() => go(sectionPath, { panel: "add", module: "help" })}
+            // The My/All raiser strip sits ABOVE the boxed list — it scopes which
+            // tickets the collection card shows, so it isn't part of that unit.
+            aboveCard={
+              <TabsView
+                config={{
+                  ...defaultTabsConfig,
+                  variant: "line",
+                  tabs: [
+                    {
+                      value: "all",
+                      label: "All tickets",
+                      icon: "inbox",
+                      badge: String(helpQ.data.length || ""),
+                      badgeVariant: "",
+                    },
+                    {
+                      value: "mine",
+                      label: "My tickets",
+                      icon: "user",
+                      badge: String(
+                        (myUserId ? helpQ.data.filter((t) => t.raiserId === myUserId).length : 0) || ""
+                      ),
+                      badgeVariant: "",
+                    },
+                  ],
+                }}
+                value={helpScope}
+                onValueChange={(v) => setHelpScope(v as "mine" | "all")}
+              />
+            }
           >
-            <TabsView
-              config={{
-                ...defaultTabsConfig,
-                variant: "line",
-                tabs: [
-                  {
-                    value: "all",
-                    label: "All tickets",
-                    icon: "inbox",
-                    badge: String(helpQ.data.length || ""),
-                    badgeVariant: "",
-                  },
-                  {
-                    value: "mine",
-                    label: "My tickets",
-                    icon: "user",
-                    badge: String(
-                      (myUserId ? helpQ.data.filter((t) => t.raiserId === myUserId).length : 0) || ""
-                    ),
-                    badgeVariant: "",
-                  },
-                ],
-              }}
-              value={helpScope}
-              onValueChange={(v) => setHelpScope(v as "mine" | "all")}
-            />
-            <ScreenRenderer recipe={recipe} data={data} rights={rights} onAction={onAction} onIntent={onIntent} />
+            <ScreenRenderer recipe={helpRecipe} data={data} rights={rights} onAction={onAction} onIntent={onIntent} />
           </SectionWithCreate>
         )
       }
@@ -810,24 +819,6 @@ export function DeepLinkScreen() {
           }
         }}
       />
-
-      {/* The app-wide AI co-pilot. A floating launcher (gated by agent:create)
-       * opens the right-side sheet; the panel itself re-checks the right and the
-       * server enforces every action. Mounted here so the co-pilot sits over any
-       * /t screen and can drive real navigation/actions through this host. */}
-      {can("agent", "create") && (
-        <>
-          <button
-            type="button"
-            onClick={() => setAgentOpen(true)}
-            aria-label="Open the assistant"
-            className="bg-primary text-primary-foreground hover:bg-primary/90 fixed right-4 bottom-20 z-30 flex size-12 items-center justify-center rounded-full shadow-lg transition-colors md:bottom-6"
-          >
-            <Sparkles className="size-5" />
-          </button>
-          <AgentPanel teamId={teamId} open={agentOpen} onOpenChange={setAgentOpen} />
-        </>
-      )}
     </AppShell>
   )
 }

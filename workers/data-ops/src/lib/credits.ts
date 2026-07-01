@@ -26,11 +26,12 @@ export async function getQuota(env: Env, teamId: string): Promise<AgentQuota> {
   const credit = await env.DB.prepare("SELECT balance FROM agent_credits WHERE team_id = ?")
     .bind(teamId)
     .first<{ balance: number }>()
+  const cap = Number(env.AGENT_FREE_DAILY) || FREE_DAILY
   const freeUsedToday = usage?.used ?? 0
   const creditBalance = credit?.balance ?? 0
-  const freeRemaining = Math.max(0, FREE_DAILY - freeUsedToday)
+  const freeRemaining = Math.max(0, cap - freeUsedToday)
   return {
-    freeDaily: FREE_DAILY,
+    freeDaily: cap,
     freeUsedToday,
     freeRemaining,
     creditBalance,
@@ -62,7 +63,8 @@ export async function consumeAiUnit(env: Env, teamId: string): Promise<ConsumeRe
     .first<{ used: number }>()
   const freeUsed = usage?.used ?? 0
 
-  if (freeUsed < FREE_DAILY) {
+  const cap = Number(env.AGENT_FREE_DAILY) || FREE_DAILY
+  if (freeUsed < cap) {
     await env.DB.prepare(
       `INSERT INTO agent_usage (team_id, period, used, updated_at) VALUES (?, ?, 1, ?)
        ON CONFLICT(team_id, period) DO UPDATE SET used = used + 1, updated_at = ?`

@@ -31,6 +31,7 @@ import { RunSteps, type RunStep } from "@swift-struck/ui/registry/collections/ru
 import type { AgentQuota, PendingCall } from "@shared/types"
 import { ApiFailure, dataOps } from "@/lib/api"
 import { usePermissions } from "@/lib/perms"
+import { AgentMarkdown } from "@/components/agent-markdown"
 
 let nextId = 0
 const newId = () => `m${++nextId}`
@@ -85,9 +86,13 @@ export function AgentPanel({
       setThreadId(out.threadId)
       setQuota(out.quota)
       const replyText = out.done ? out.reply : (out.assistantText ?? "")
+      // Render the assistant's markdown reply as light HTML; an empty reply drops
+      // the thinking bubble instead of filling it.
       setItems((prev) =>
         replyText
-          ? prev.map((it) => (it.id === thinkingId ? { ...it, content: replyText } : it))
+          ? prev.map((it) =>
+              it.id === thinkingId ? { ...it, content: <AgentMarkdown text={replyText} /> } : it
+            )
           : prev.filter((it) => it.id !== thinkingId)
       )
       if (!out.done) setPending({ calls: out.needsConfirm, text })
@@ -124,7 +129,9 @@ export function AgentPanel({
       setQuota(r.quota)
       setItems((prev) =>
         r.reply
-          ? prev.map((it) => (it.id === thinkingId ? { ...it, content: r.reply } : it))
+          ? prev.map((it) =>
+              it.id === thinkingId ? { ...it, content: <AgentMarkdown text={r.reply} /> } : it
+            )
           : prev.filter((it) => it.id !== thinkingId)
       )
     } catch (err) {

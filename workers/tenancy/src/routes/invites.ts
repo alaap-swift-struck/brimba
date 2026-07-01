@@ -32,7 +32,7 @@ export async function postCreateInvite(request: Request, env: Env): Promise<Resp
   if (!body.email || !body.roleId)
     return fail(400, "invalid_input", "email and roleId are required.")
   const inviteId = await createInvite(
-    env, cfg, guard, actor, body.email, body.roleId, new URL(request.url).origin
+    env, cfg, guard, actor, body.email, body.roleId, request
   )
   // Row-level: carry the new invite's id so open invite lists patch just that row.
   await publishChange(env.REALTIME, guard.teamId, "invites", inviteId, "add")
