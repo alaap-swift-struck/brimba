@@ -45,6 +45,17 @@ export type ImportSessionView = {
 export type ImportResultView = { created: number; skipped: number; failed: number; errors: string[] }
 export type ImportTargetView = { tableKey: string; displayName: string; columns: ImportColumn[] }
 
+/** One row of the agent usage log (written once per turn): who ran it, when, how
+ * many AI units it used, whether that was free / credit / mixed, and a short line. */
+export type UsageLogRow = {
+  id: string
+  createdAt: string
+  actorName?: string
+  credits: number
+  source: string
+  summary: string
+}
+
 export class ApiFailure extends Error {
   constructor(
     public status: number,
@@ -460,6 +471,12 @@ export const dataOps = {
     ),
 
   agentUsage: () => api<{ quota: AgentQuota }>("/api/data-ops/agent/usage"),
+  /** The team's agent usage log — one row per turn, newest-first. Powers the
+   * "where did my credits go" view behind the quota badge. */
+  agentUsageLog: (limit?: number) =>
+    api<{ rows: UsageLogRow[] }>(
+      "/api/data-ops/agent/usage-log" + (limit ? `?limit=${limit}` : "")
+    ),
   agentChat: (message: string, threadId?: string) =>
     api<ChatOutcome>("/api/data-ops/agent/chat", post({ message, threadId })),
   agentConfirm: (threadId: string, approve: boolean, calls: PendingCall[]) =>

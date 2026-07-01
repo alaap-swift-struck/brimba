@@ -38,15 +38,24 @@ import {
   SheetDescription,
 } from "@swift-struck/ui/registry/primitives/sheet/sheet"
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@swift-struck/ui/registry/primitives/dialog/dialog"
+import { ScrollArea } from "@swift-struck/ui/registry/primitives/scroll-area/scroll-area"
+import {
   AgentChat,
   type AgentChatItem,
 } from "@swift-struck/ui/registry/collections/agent-chat/agent-chat"
 import { RunSteps, type RunStep } from "@swift-struck/ui/registry/collections/run-steps/run-steps"
 
 import type { AgentMessage, AgentQuota, PendingCall } from "@shared/types"
-import { ApiFailure, dataOps, type AgentStreamEvent } from "@/lib/api"
+import { ApiFailure, dataOps, type AgentStreamEvent, type UsageLogRow } from "@/lib/api"
 import { emitTrace, traceFor } from "@/lib/agent-trace"
 import { usePermissions } from "@/lib/perms"
+import { formatActivityWhen } from "@/lib/format"
 import { AgentMarkdown } from "@/components/agent-markdown"
 
 let nextId = 0
@@ -111,6 +120,13 @@ export function AgentPanel({
   // A paused turn awaiting the user's go-ahead — the proposed actions + the text.
   const [pending, setPending] = React.useState<{ calls: PendingCall[]; text: string } | null>(null)
 
+  // The usage view (behind the quota badge): its own open flag + a lazily-loaded
+  // log (fetched only when opened) with loading / error states.
+  const [usageOpen, setUsageOpen] = React.useState(false)
+  const [usageRows, setUsageRows] = React.useState<UsageLogRow[] | null>(null)
+  const [usageLoading, setUsageLoading] = React.useState(false)
+  const [usageError, setUsageError] = React.useState(false)
+
   // On open: pull the quota (cheap; not cached — it changes per turn) and, if this is
   // a fresh panel (no messages yet) with a remembered thread for this team, resume it.
   // Rehydrate is best-effort — a failed load must never keep the panel from opening.
@@ -144,6 +160,30 @@ export function AgentPanel({
     // items.length is read as an open-time snapshot, not a trigger — intentionally omitted.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, canUse, teamId])
+
+  // Load the usage log the moment the usage view opens (newest-first, team-scoped).
+  // Lazy — the list can be long, so we only fetch on demand, and refetch each open
+  // so it reflects the turns just run.
+  React.useEffect(() => {
+    if (!usageOpen) return
+    let alive = true
+    setUsageLoading(true)
+    setUsageError(false)
+    dataOps
+      .agentUsageLog(50)
+      .then((r) => {
+        if (alive) setUsageRows(r.rows)
+      })
+      .catch(() => {
+        if (alive) setUsageError(true)
+      })
+      .finally(() => {
+        if (alive) setUsageLoading(false)
+      })
+    return () => {
+      alive = false
+    }
+  }, [usageOpen])
 
   /** Consume one agent stream (chat or confirm-continuation) into the live UI.
    * `assistantId` is the empty assistant bubble already appended for this turn —
@@ -325,6 +365,11 @@ export function AgentPanel({
       : `${quota.remaining} left today${quota.creditBalance > 0 ? ` · ${quota.creditBalance} credits` : ""}`
     : ""
 
+  // The usage view's header line: free left today + purchased balance.
+  const usageSummary = quota
+    ? `${quota.freeRemaining} of ${quota.freeDaily} free left today · balance ${quota.creditBalance}`
+    : ""
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="flex w-full flex-col gap-0 p-0 sm:max-w-lg">
@@ -333,9 +378,19 @@ export function AgentPanel({
             <SheetTitle>Assistant</SheetTitle>
             <div className="flex items-center gap-2">
               {quotaLabel && (
-                <Badge variant={quota?.blocked ? "destructive" : "secondary"} className="text-[10px]">
-                  {quotaLabel}
-                </Badge>
+                <button
+                  type="button"
+                  onClick={() => setUsageOpen(true)}
+                  className="rounded-full focus-visible:ring-ring focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:outline-none"
+                  title="See where your assistant credits went"
+                >
+                  <Badge
+                    variant={quota?.blocked ? "destructive" : "secondary"}
+                    className="cursor-pointer text-[10px]"
+                  >
+                    {quotaLabel}
+                  </Badge>
+                </button>
               )}
               {canUse && items.length > 0 && (
                 <Button variant="outline" size="sm" onClick={newChat} disabled={busy}>
@@ -386,6 +441,40 @@ export function AgentPanel({
           </div>
         )}
       </SheetContent>
+
+      {/* Usage view — where credits went + why. Opened from the quota badge. */}
+      <Dialog open={usageOpen} onOpenChange={setUsageOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Assistant usage</DialogTitle>
+            {usageSummary && <DialogDescription>{usageSummary}</DialogDescription>}
+          </DialogHeader>
+          {usageLoading ? (
+            <p className="text-muted-foreground py-6 text-center text-sm">Loading…</p>
+          ) : usageError ? (
+            <p className="text-muted-foreground py-6 text-center text-sm">
+              Couldn&apos;t load usage. Try again.
+            </p>
+          ) : usageRows && usageRows.length > 0 ? (
+            <ScrollArea className="max-h-80">
+              <ul className="flex flex-col gap-3 pr-3">
+                {usageRows.map((row) => (
+                  <li key={row.id} className="border-b pb-3 text-sm last:border-0 last:pb-0">
+                    <p className="text-muted-foreground text-xs">
+                      {formatActivityWhen(row.createdAt)}
+                      {row.actorName ? ` · ${row.actorName}` : ""} · {row.credits}{" "}
+                      {row.credits === 1 ? "credit" : "credits"}
+                    </p>
+                    <p className="mt-0.5">{row.summary}</p>
+                  </li>
+                ))}
+              </ul>
+            </ScrollArea>
+          ) : (
+            <p className="text-muted-foreground py-6 text-center text-sm">No usage yet today.</p>
+          )}
+        </DialogContent>
+      </Dialog>
     </Sheet>
   )
 }

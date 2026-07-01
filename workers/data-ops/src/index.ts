@@ -11,6 +11,7 @@
 //   POST /api/data-ops/import/confirm   -> write every mapped row (insert-only)
 //   POST /api/data-ops/admin/seed-targets -> owner-only: seed the import catalog
 //   GET  /api/data-ops/agent/usage      -> the team's AI quota (free + credits)
+//   GET  /api/data-ops/agent/usage-log  -> the team's AI usage trail (one row/turn)
 //   POST /api/data-ops/admin/grant-credits -> owner-only: top up a team's credits
 //   POST /api/data-ops/agent/chat       -> run one agent turn (answer or act)
 //   POST /api/data-ops/agent/confirm    -> approve/decline a proposed action, resume
@@ -35,6 +36,7 @@ import {
   getAgentThread,
   getAgentThreads,
   getAgentUsage,
+  getAgentUsageLog,
   postAgentChat,
   postAgentConfirm,
   postGrantCredits,
@@ -64,6 +66,7 @@ export const ROUTES: Record<string, { handler: Handler; kind: RouteKind }> = {
   "POST /api/data-ops/import/confirm": { handler: postImportConfirm, kind: "mutation" },
   "POST /api/data-ops/admin/seed-targets": { handler: postSeedTargets, kind: "housekeeping" },
   "GET /api/data-ops/agent/usage": { handler: getAgentUsage, kind: "read" },
+  "GET /api/data-ops/agent/usage-log": { handler: getAgentUsageLog, kind: "read" },
   "POST /api/data-ops/admin/grant-credits": { handler: postGrantCredits, kind: "mutation" },
   "GET /api/data-ops/agent/threads": { handler: getAgentThreads, kind: "read" },
   "GET /api/data-ops/agent/thread": { handler: getAgentThread, kind: "read" },

@@ -5,7 +5,9 @@
 // the global core DB (agent_usage = the daily-free counter; agent_credits = the
 // balance) so it works without opening a team database.
 
-import type { AgentQuota } from "../../../../shared/types"
+import type { AgentQuota, UsageLogRow } from "../../../../shared/types"
+import type { Actor } from "../../../../shared/workers/gating"
+import { ulid } from "../../../../shared/workers/id"
 import type { Env } from "../env"
 
 /** Free AI requests per team per day before credits are spent. */
@@ -101,4 +103,41 @@ export async function grantCredits(env: Env, teamId: string, amount: number): Pr
     .bind(teamId)
     .first<{ balance: number }>()
   return row?.balance ?? 0
+}
+
+/** Where a turn's AI units came from: all free, all paid credit, or a bit of each. */
+export type UsageSource = "free" | "credit" | "mixed"
+
+/** Record ONE agent turn in the usage log (the human trail, not the metering counter).
+ * Best-effort by design: any error — a missing table, a write hiccup — is swallowed so a
+ * logging failure can never break the turn the user actually cares about. */
+export async function logUsage(
+  env: Env,
+  teamId: string,
+  actor: Actor,
+  credits: number,
+  source: UsageSource,
+  summary: string
+): Promise<void> {
+  try {
+    await env.DB.prepare(
+      `INSERT INTO agent_usage_log (id, team_id, actor_id, actor_name, created_at, credits, source, summary)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+      .bind(ulid(), teamId, actor.id, actor.name, new Date().toISOString(), credits, source, summary)
+      .run()
+  } catch {
+    /* logging is never fatal — a missing table or write error must not break the turn */
+  }
+}
+
+/** The team's usage log, newest-first (the panel's "N left today" badge opens this). */
+export async function readUsageLog(env: Env, teamId: string, limit: number): Promise<UsageLogRow[]> {
+  const res = await env.DB.prepare(
+    `SELECT id, created_at AS createdAt, actor_name AS actorName, credits, source, summary
+     FROM agent_usage_log WHERE team_id = ? ORDER BY created_at DESC LIMIT ?`
+  )
+    .bind(teamId, limit)
+    .all<UsageLogRow>()
+  return res.results ?? []
 }

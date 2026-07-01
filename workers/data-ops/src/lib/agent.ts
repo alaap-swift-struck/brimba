@@ -7,7 +7,7 @@
 
 import type { AgentQuota, ChatOutcome, PendingCall, StreamEvent } from "../../../../shared/types"
 import { GLOSSARY } from "../../../../shared/glossary"
-import { consumeAiUnit, getQuota } from "./credits"
+import { consumeAiUnit, getQuota, logUsage, type UsageSource } from "./credits"
 import type { Actor, MemberGuard } from "../../../../shared/workers/gating"
 import type { D1Rest } from "../../../../shared/workers/d1-rest"
 import type { Env } from "../env"
@@ -39,6 +39,22 @@ const SYSTEM = [
 function deriveTitle(message: string): string {
   const t = message.trim().replace(/\s+/g, " ")
   return t ? t.slice(0, 60) : "New conversation"
+}
+
+/** The user's message → the usage-log summary line (a short human trail, ~140 chars). */
+function usageSummary(message: string): string {
+  const t = message.trim().replace(/\s+/g, " ")
+  return t.slice(0, 140)
+}
+
+/** A running tally of the AI units ONE turn consumed and where they came from, so the
+ * loop can write a single usage-log row per turn (free / credit / mixed). Steps add to
+ * it as they meter; confirmAndRun seeds it with the unit it prepaid up front. */
+type UsageTally = { credits: number; sawFree: boolean; sawCredit: boolean }
+
+function tallySource(t: UsageTally): UsageSource {
+  if (t.sawFree && t.sawCredit) return "mixed"
+  return t.sawCredit ? "credit" : "free"
 }
 
 /** Tool result → the fenced DATA string the model sees (capped so a big list can't
@@ -118,7 +134,20 @@ export async function runChat(
   // context; the full thread stays in the DB.
   const convo: ChatMessage[] = [{ role: "system", content: SYSTEM }, ...replayable(history.slice(-MAX_HISTORY))]
   const quota = await getQuota(env, guard.teamId)
-  return runPlanLoop(env, request, cfg, guard, actor, threadId, convo, quota, opts, {}, emit)
+  const tally: UsageTally = { credits: 0, sawFree: false, sawCredit: false }
+  return runPlanLoop(
+    env,
+    request,
+    cfg,
+    guard,
+    actor,
+    threadId,
+    convo,
+    quota,
+    { source: opts.source, summary: usageSummary(opts.message), tally },
+    {},
+    emit
+  )
 }
 
 /** The step loop over an ALREADY-SEEDED convo: meter a credit, ask the model, then
@@ -136,7 +165,7 @@ async function runPlanLoop(
   threadId: string,
   convo: ChatMessage[],
   quota: AgentQuota,
-  opts: { source: string },
+  opts: { source: string; summary: string; tally: UsageTally },
   loopOpts: { prepaid?: boolean } = {},
   emit?: Emit
 ): Promise<ChatOutcome> {
@@ -146,6 +175,10 @@ async function runPlanLoop(
   // it; otherwise take the one-shot path (Workers AI, or any non-streamed request).
   const streaming = !!emit && model.canStream && !!model.stream
 
+  // Write the ONE usage-log row for this turn (best-effort) at whichever terminal point
+  // the loop exits from — the tally has by then counted every unit this turn consumed.
+  const log = () => logUsage(env, guard.teamId, actor, opts.tally.credits, tallySource(opts.tally), opts.summary)
+
   for (let step = 0; step < MAX_STEPS; step++) {
     if (!(loopOpts.prepaid && step === 0)) {
       const c = await consumeAiUnit(env, guard.teamId)
@@ -153,8 +186,12 @@ async function runPlanLoop(
       if (!c.ok) {
         const msg = "You're out of AI requests for now — your free daily allowance and credits are used up. They reset tomorrow, or an admin can add credits."
         await appendMessage(cfg, guard, actor, threadId, { role: "assistant", content: msg, source: opts.source })
+        if (opts.tally.credits > 0) await log()
         return { done: true, threadId, reply: msg, quota, overQuota: true }
       }
+      opts.tally.credits += 1
+      if (c.source === "credit") opts.tally.sawCredit = true
+      else if (c.source === "free") opts.tally.sawFree = true
     }
 
     let reply: ModelReply
@@ -166,6 +203,7 @@ async function runPlanLoop(
       // A model/runtime hiccup becomes a friendly, saved turn — never an uncaught 500.
       const msg = "The assistant had trouble just now and couldn't reply. Please try again in a moment."
       await appendMessage(cfg, guard, actor, threadId, { role: "assistant", content: msg, source: opts.source })
+      await log()
       return { done: true, threadId, reply: msg, quota }
     }
 
@@ -173,6 +211,7 @@ async function runPlanLoop(
       // Some models return empty text on a bare greeting — always say SOMETHING.
       const text = reply.text?.trim() || "Hi — how can I help with your team today?"
       await appendMessage(cfg, guard, actor, threadId, { role: "assistant", content: text, source: opts.source })
+      await log()
       return { done: true, threadId, reply: text, quota }
     }
 
@@ -192,6 +231,9 @@ async function runPlanLoop(
       })
       // Resolve the confirming calls' ids to names so the panel reads plainly.
       const names = await resolveConfirmNames(env, request, valid)
+      // This turn ends here (paused for the user's yes/no) — log the units it spent
+      // reaching the proposal; confirmAndRun logs its own row when it resumes.
+      await log()
       // Surface ALL of the turn's calls (not just the dangerous subset) so a mixed
       // turn doesn't silently drop its non-confirm calls.
       return {
@@ -236,12 +278,14 @@ async function runPlanLoop(
     if (failed) {
       const note = "I hit an error partway and stopped, so nothing further was changed. The result above shows what happened — want me to try a different way?"
       await appendMessage(cfg, guard, actor, threadId, { role: "assistant", content: note, source: opts.source })
+      await log()
       return { done: true, threadId, reply: note, quota }
     }
   }
 
   const note = "I took several steps and paused here. Tell me to keep going if you'd like."
   await appendMessage(cfg, guard, actor, threadId, { role: "assistant", content: note, source: opts.source })
+  await log()
   return { done: true, threadId, reply: note, quota }
 }
 
@@ -281,6 +325,11 @@ export async function confirmAndRun(
     await appendMessage(cfg, guard, actor, opts.threadId, { role: "assistant", content: msg, source: opts.source })
     return { done: true, threadId: opts.threadId, reply: msg, quota: c.quota, overQuota: true }
   }
+  // Seed this turn's usage tally with the unit we just prepaid; runPlanLoop keeps adding
+  // to it as it resumes the plan, then writes the single usage-log row. This turn is the
+  // user approving the earlier proposal, so it logs under a "(continued)" summary.
+  const tally: UsageTally = { credits: 1, sawFree: c.source === "free", sawCredit: c.source === "credit" }
+  const usageOpts = { source: opts.source, summary: "(continued)", tally }
 
   // Execute the SERVER-RECORDED proposal AS the caller (each call re-gated downstream).
   const calls: ToolCall[] = proposed.map((p, i) => ({ id: `call_${i}`, name: p.name, input: p.input }))
@@ -308,6 +357,7 @@ export async function confirmAndRun(
   if (failed) {
     const note = "I ran into an error doing that and stopped. The result above shows what happened."
     await appendMessage(cfg, guard, actor, opts.threadId, { role: "assistant", content: note, source: opts.source })
+    await logUsage(env, guard.teamId, actor, tally.credits, tallySource(tally), usageOpts.summary)
     return { done: true, threadId: opts.threadId, reply: note, quota: c.quota }
   }
 
@@ -329,7 +379,7 @@ export async function confirmAndRun(
     { role: "assistant", content: proposingText, toolCalls: calls },
     ...toolMsgs,
   ]
-  return runPlanLoop(env, request, cfg, guard, actor, opts.threadId, convo, c.quota, opts, {
+  return runPlanLoop(env, request, cfg, guard, actor, opts.threadId, convo, c.quota, usageOpts, {
     prepaid: true,
   }, emit)
 }

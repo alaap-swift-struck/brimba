@@ -295,6 +295,18 @@ export type AgentQuota = {
   blocked: boolean
 }
 
+/** One row of the agent usage log — a plain trail of what the AI did, one per turn.
+ * `credits` = AI units the turn consumed; `source` = where they came from; `summary` =
+ * the user's message, trimmed. Newest-first; team-scoped. */
+export type UsageLogRow = {
+  id: string
+  createdAt: string
+  actorName: string | null
+  credits: number
+  source: "free" | "credit" | "mixed"
+  summary: string
+}
+
 /** One column an import maps a file onto (matches a catalog target's columns). */
 export type ImportColumn = { key: string; label: string; required: boolean }
 

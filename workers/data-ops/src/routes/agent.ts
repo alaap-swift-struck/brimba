@@ -8,7 +8,7 @@ import { fail, json } from "../../../../shared/workers/http"
 import { optionalText, requireText, TEXT_LIMITS } from "../../../../shared/workers/validate"
 import { publishChange } from "../../../../shared/workers/realtime"
 import { adminGuard, requireRight, teamContext } from "../../../../shared/workers/gating"
-import { getQuota, grantCredits } from "../lib/credits"
+import { getQuota, grantCredits, readUsageLog } from "../lib/credits"
 import { confirmAndRun, runChat, type Emit } from "../lib/agent"
 import { listMessages, listThreads } from "../lib/threads"
 import type { ChatOutcome, StreamEvent } from "../../../../shared/types"
@@ -71,6 +71,16 @@ export async function getAgentUsage(request: Request, env: Env): Promise<Respons
   const { cfg, guard } = await teamContext(request, env)
   await requireRight(cfg, guard, "agent", "read")
   return json({ quota: await getQuota(env, guard.teamId) })
+}
+
+/** GET /api/data-ops/agent/usage-log?limit= — the team's AI usage trail, newest-first
+ * (one row per turn). Gated + team-scoped exactly like GET /agent/usage. */
+export async function getAgentUsageLog(request: Request, env: Env): Promise<Response> {
+  const { cfg, guard } = await teamContext(request, env)
+  await requireRight(cfg, guard, "agent", "read")
+  const raw = Number(new URL(request.url).searchParams.get("limit"))
+  const limit = Number.isFinite(raw) && raw > 0 ? Math.min(Math.trunc(raw), 200) : 50
+  return json({ rows: await readUsageLog(env, guard.teamId, limit) })
 }
 
 /** POST /api/data-ops/admin/grant-credits — owner-only credit top-up (x-admin-key). */
