@@ -14,7 +14,9 @@
 //     accumulate across the confirm boundary.
 //   • final   → the run finished; settle the reply + quota + threadId.
 //   • error   → show a clean message.
-// The 3-dot typing indicator shows only for the brief gap before the first event.
+// The 3-dot typing indicator shows on the trailing empty assistant bubble whenever a
+// turn is running with no reply text yet — the pre-first-event gap, every gap between
+// step_end and the next step_start, and the wait for the first reply delta.
 // The AI quota (free daily + credits) shows in the header. Using the agent needs
 // agent:create; the server re-gates every action AS the signed-in user.
 //
@@ -24,6 +26,7 @@
 // the step — crossing a static route into /t would hard-reload, so we never do that.
 
 import * as React from "react"
+import { Plus } from "lucide-react"
 
 import { Button } from "@swift-struck/ui/registry/primitives/button/button"
 import { Badge } from "@swift-struck/ui/registry/primitives/badge/badge"
@@ -40,7 +43,7 @@ import {
 } from "@swift-struck/ui/registry/collections/agent-chat/agent-chat"
 import { RunSteps, type RunStep } from "@swift-struck/ui/registry/collections/run-steps/run-steps"
 
-import type { AgentQuota, PendingCall } from "@shared/types"
+import type { AgentMessage, AgentQuota, PendingCall } from "@shared/types"
 import { ApiFailure, dataOps, type AgentStreamEvent } from "@/lib/api"
 import { emitTrace, traceFor } from "@/lib/agent-trace"
 import { usePermissions } from "@/lib/perms"
@@ -48,6 +51,46 @@ import { AgentMarkdown } from "@/components/agent-markdown"
 
 let nextId = 0
 const newId = () => `m${++nextId}`
+
+// We remember the last thread per team so reopening the panel resumes it (instead of
+// minting a fresh thread each time). localStorage is per-device and best-effort —
+// every access is guarded so a locked-down browser never breaks the panel.
+const lastThreadKey = (teamId: string) => `brimba:agent:lastThread:${teamId}`
+const readLastThread = (teamId: string): string | null => {
+  try {
+    return localStorage.getItem(lastThreadKey(teamId))
+  } catch {
+    return null
+  }
+}
+const writeLastThread = (teamId: string, id: string) => {
+  try {
+    localStorage.setItem(lastThreadKey(teamId), id)
+  } catch {
+    /* ignore — resume is a nicety, not a requirement */
+  }
+}
+const clearLastThread = (teamId: string) => {
+  try {
+    localStorage.removeItem(lastThreadKey(teamId))
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Map a saved thread's messages back onto chat rows: user/assistant become bubbles
+ * (markdown-rendered like a live reply), tool rows become the compact status line. */
+const toChatItems = (messages: AgentMessage[]): AgentChatItem[] =>
+  messages.map((m): AgentChatItem =>
+    m.role === "tool"
+      ? {
+          id: m.id,
+          role: "tool",
+          actionLabel: m.toolCalls?.[0]?.summary ?? m.toolCalls?.[0]?.tool ?? "Action",
+          status: m.toolCalls?.[0]?.status ?? "done",
+        }
+      : { id: m.id, role: m.role, content: <AgentMarkdown text={m.content ?? ""} /> }
+  )
 
 export function AgentPanel({
   teamId,
@@ -64,14 +107,13 @@ export function AgentPanel({
   const [items, setItems] = React.useState<AgentChatItem[]>([])
   const [threadId, setThreadId] = React.useState<string | undefined>(undefined)
   const [busy, setBusy] = React.useState(false)
-  // True only between "turn started" and "first event landed" — drives the lone
-  // 3-dot indicator. Once text/steps flow, the growing content carries the rhythm.
-  const [awaitingFirst, setAwaitingFirst] = React.useState(false)
   const [quota, setQuota] = React.useState<AgentQuota | null>(null)
   // A paused turn awaiting the user's go-ahead — the proposed actions + the text.
   const [pending, setPending] = React.useState<{ calls: PendingCall[]; text: string } | null>(null)
 
-  // Pull the quota when the panel opens (cheap; not cached — it changes per turn).
+  // On open: pull the quota (cheap; not cached — it changes per turn) and, if this is
+  // a fresh panel (no messages yet) with a remembered thread for this team, resume it.
+  // Rehydrate is best-effort — a failed load must never keep the panel from opening.
   React.useEffect(() => {
     if (!open || !canUse) return
     let alive = true
@@ -79,10 +121,29 @@ export function AgentPanel({
       .agentUsage()
       .then((r) => alive && setQuota(r.quota))
       .catch(() => {})
+
+    if (teamId && items.length === 0) {
+      const stored = readLastThread(teamId)
+      if (stored) {
+        dataOps
+          .agentThread(stored)
+          .then((r) => {
+            if (!alive) return
+            setItems(toChatItems(r.messages))
+            setThreadId(stored)
+          })
+          .catch(() => {
+            // The stored thread is gone or unreadable — forget it and start clean.
+            if (alive) clearLastThread(teamId)
+          })
+      }
+    }
     return () => {
       alive = false
     }
-  }, [open, canUse])
+    // items.length is read as an open-time snapshot, not a trigger — intentionally omitted.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, canUse, teamId])
 
   /** Consume one agent stream (chat or confirm-continuation) into the live UI.
    * `assistantId` is the empty assistant bubble already appended for this turn —
@@ -96,26 +157,17 @@ export function AgentPanel({
     // The assistant reply text accrues here so we don't chase stale state on each
     // rapid delta; step rows are keyed by tool so step_end can flip the right one.
     let replyText = ""
-    let firstSeen = false
     const stepIdByTool = new Map<string, string>()
-
-    const markFirst = () => {
-      if (firstSeen) return
-      firstSeen = true
-      setAwaitingFirst(false)
-    }
 
     await run((ev) => {
       switch (ev.t) {
         case "text": {
-          markFirst()
           replyText += ev.d
           const html = <AgentMarkdown text={replyText} />
           setItems((prev) => prev.map((it) => (it.id === assistantId ? { ...it, content: html } : it)))
           break
         }
         case "step_start": {
-          markFirst()
           const stepId = newId()
           stepIdByTool.set(ev.tool, stepId)
           // Insert the pending tool row BEFORE the assistant bubble (steps run, then
@@ -151,7 +203,6 @@ export function AgentPanel({
           break
         }
         case "confirm": {
-          markFirst()
           // Terminal: a destructive act needs a yes/no. Drop the empty bubble (the
           // confirm panel carries the lead-in) unless the model sent lead-in text.
           setItems((prev) =>
@@ -165,9 +216,10 @@ export function AgentPanel({
           break
         }
         case "final": {
-          markFirst()
           const out = ev.outcome
           setThreadId(out.threadId)
+          // Remember this thread so reopening the panel resumes it (best-effort).
+          if (teamId && out.threadId) writeLastThread(teamId, out.threadId)
           setQuota(out.quota)
           const finalText = out.done ? out.reply : (out.assistantText ?? replyText)
           // Prefer the streamed text if the final omitted it; drop an empty bubble.
@@ -180,7 +232,6 @@ export function AgentPanel({
           break
         }
         case "error": {
-          markFirst()
           setItems((prev) =>
             prev.map((it) => (it.id === assistantId ? { ...it, content: ev.message } : it))
           )
@@ -194,14 +245,13 @@ export function AgentPanel({
     if (busy) return
     const assistantId = newId()
     // Optimistic: the user's message appears instantly, and an empty assistant row
-    // shows the 3-dot indicator (awaitingFirst) until the first event arrives.
+    // carries the animated 3-dot indicator (showTyping) until reply text streams.
     setItems((prev) => [
       ...prev,
       { id: newId(), role: "user", content: text },
       { id: assistantId, role: "assistant", content: "" },
     ])
     setBusy(true)
-    setAwaitingFirst(true)
     setPending(null)
     try {
       await consume((onEvent) => dataOps.agentChatStream({ message: text, threadId }, onEvent), assistantId)
@@ -210,7 +260,6 @@ export function AgentPanel({
       setItems((prev) => prev.map((it) => (it.id === assistantId ? { ...it, content: msg } : it)))
     } finally {
       setBusy(false)
-      setAwaitingFirst(false)
     }
   }
 
@@ -219,7 +268,6 @@ export function AgentPanel({
     const calls = pending.calls
     const assistantId = newId()
     setBusy(true)
-    setAwaitingFirst(true)
     setPending(null)
     // On decline, reflect each proposed action as a skipped (failed) row, then wrap
     // up. On approve we DON'T pre-render the rows — the streamed step_* events do it
@@ -245,9 +293,26 @@ export function AgentPanel({
       setItems((prev) => prev.map((it) => (it.id === assistantId ? { ...it, content: msg } : it)))
     } finally {
       setBusy(false)
-      setAwaitingFirst(false)
     }
   }
+
+  // Start a fresh conversation: clear the transcript + the paused turn, forget the
+  // thread (so the next turn mints a new one), and drop the remembered thread so a
+  // later reopen doesn't resume this one.
+  function newChat() {
+    if (busy) return
+    setItems([])
+    setThreadId(undefined)
+    setPending(null)
+    if (teamId) clearLastThread(teamId)
+  }
+
+  // Animated 3-dot indicator: live while a turn runs and the trailing assistant
+  // bubble still has no text — so it fills the gap before the first event, every
+  // step_end→step_start gap, and the wait for the first reply delta, then vanishes
+  // the moment reply text streams (or a confirm/final drops the empty bubble).
+  const lastAssistant = [...items].reverse().find((it) => it.role === "assistant")
+  const showTyping = busy && !pending && !lastAssistant?.content
 
   // The proposed actions as RunSteps (pending until the user decides).
   const confirmSteps: RunStep[] = pending
@@ -266,11 +331,18 @@ export function AgentPanel({
         <SheetHeader className="border-b p-4">
           <div className="flex items-center justify-between gap-2">
             <SheetTitle>Assistant</SheetTitle>
-            {quotaLabel && (
-              <Badge variant={quota?.blocked ? "destructive" : "secondary"} className="text-[10px]">
-                {quotaLabel}
-              </Badge>
-            )}
+            <div className="flex items-center gap-2">
+              {quotaLabel && (
+                <Badge variant={quota?.blocked ? "destructive" : "secondary"} className="text-[10px]">
+                  {quotaLabel}
+                </Badge>
+              )}
+              {canUse && items.length > 0 && (
+                <Button variant="outline" size="sm" onClick={newChat} disabled={busy}>
+                  <Plus className="size-3.5" aria-hidden /> New chat
+                </Button>
+              )}
+            </div>
           </div>
           <SheetDescription>Ask me anything, or tell me what to change — I&apos;ll only do what you can do.</SheetDescription>
         </SheetHeader>
@@ -289,7 +361,7 @@ export function AgentPanel({
               <AgentChat
                 className="h-full rounded-none border-0 bg-transparent"
                 items={items}
-                streaming={awaitingFirst}
+                streaming={showTyping}
                 disabled={busy || quota?.blocked || !!pending}
                 emptyState="Try “invite sam@acme.com as an Editor” or “what changed this week?”"
                 onSend={(t) => void send(t)}

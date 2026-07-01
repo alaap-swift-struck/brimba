@@ -16,6 +16,9 @@ import { executeTool, getTool, requiresConfirm, toolSpecs, type ToolResult } fro
 import { appendMessage, consumePendingProposal, createThread, getPendingProposal, listMessages } from "./threads"
 
 const MAX_STEPS = 12
+// Only the last MAX_HISTORY messages are REPLAYED to the model (full history stays in
+// the DB — audit + the panel rehydrates from all of it). Bounds long-thread context/cost.
+const MAX_HISTORY = 24
 
 const SYSTEM = [
   "You are Brimba's assistant — a calm, friendly helper for the user's team, like a colleague who has worked alongside them for years.",
@@ -110,7 +113,9 @@ export async function runChat(
   await appendMessage(cfg, guard, actor, threadId, { role: "user", content: opts.message, source: opts.source })
 
   const history = await listMessages(cfg, guard, threadId)
-  const convo: ChatMessage[] = [{ role: "system", content: SYSTEM }, ...replayable(history)]
+  // Window to the last MAX_HISTORY messages before seeding — the model only sees recent
+  // context; the full thread stays in the DB.
+  const convo: ChatMessage[] = [{ role: "system", content: SYSTEM }, ...replayable(history.slice(-MAX_HISTORY))]
   const quota = await getQuota(env, guard.teamId)
   return runPlanLoop(env, request, cfg, guard, actor, threadId, convo, quota, opts, {}, emit)
 }
@@ -315,9 +320,11 @@ export async function confirmAndRun(
   // Resume the plan on a convo seeded with the confirmed action's RESULT: the next
   // model turn can plan + run anything the user asked for AFTER it (a mixed prompt),
   // then wrap up. `prepaid` skips re-metering the first step (we metered it above).
+  // Window the replayed history to the last MAX_HISTORY (the proposing turn is already
+  // split off above, so it's re-attached below regardless of the window).
   const convo: ChatMessage[] = [
     { role: "system", content: SYSTEM },
-    ...replayable(replayHistory),
+    ...replayable(replayHistory.slice(-MAX_HISTORY)),
     { role: "assistant", content: proposingText, toolCalls: calls },
     ...toolMsgs,
   ]

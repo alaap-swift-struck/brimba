@@ -39,7 +39,7 @@ import type {
 } from "@shared/types"
 import { ApiFailure, content, tenancy } from "@/lib/api"
 import { auditItems } from "@/lib/audit-overview"
-import { formatRelative } from "@/lib/format"
+import { formatActivityWhen, formatRelative } from "@/lib/format"
 import { personName } from "@/lib/identity"
 import { usePermissions } from "@/lib/perms"
 import { invalidate, primeCache, useCached } from "@/lib/store"
@@ -200,7 +200,7 @@ export function HelpDetailScreen({
     id: a.id,
     description: a.description,
     actor: a.actorName ?? undefined,
-    timestamp: a.createdAt,
+    timestamp: formatActivityWhen(a.createdAt),
   }))
 
   const tabsConfig = {

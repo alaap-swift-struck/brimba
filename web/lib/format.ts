@@ -19,6 +19,18 @@ export function formatDateTime(iso?: string | null): string {
     : d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
 }
 
+/** "2026-06-30 21:50" — the timestamp for activity-feed rows. The library
+ * ActivityFeed both re-sorts by this string (localeCompare) AND shows it raw, so
+ * it must be sortable-and-readable: 24-hour, zero-padded, so lexical order equals
+ * chronological order. ONE source, like the other formatters. */
+export function formatActivityWhen(iso?: string | null): string {
+  if (!iso) return ""
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ""
+  const p = (n: number) => String(n).padStart(2, "0")
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
 /** "just now" · "5m ago" · "3h ago" · "2d ago", then falls back to a date — for
  * conversation timestamps (ticket replies) where recency matters more than the
  * exact clock time. ONE source, like the other formatters. */

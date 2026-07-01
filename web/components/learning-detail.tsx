@@ -31,6 +31,7 @@ import type { ActivityItem, Learning, SelectableValue } from "@shared/types"
 import { LearningFormDialog, type LearningFormValues } from "@/components/learning-form-dialog"
 import { ApiFailure, content, tenancy } from "@/lib/api"
 import { auditItems } from "@/lib/audit-overview"
+import { formatActivityWhen } from "@/lib/format"
 import { RichText } from "@/components/rich-text"
 import { usePermissions } from "@/lib/perms"
 import { primeCache, useCached } from "@/lib/store"
@@ -165,7 +166,7 @@ export function LearningDetailScreen({ teamId, learningId }: { teamId: string; l
     id: a.id,
     description: a.description,
     actor: a.actorName ?? undefined,
-    timestamp: a.createdAt,
+    timestamp: formatActivityWhen(a.createdAt),
   }))
 
   const tabsConfig = {

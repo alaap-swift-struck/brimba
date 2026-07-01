@@ -5,7 +5,7 @@
 
 import { type ScreenData } from "@swift-struck/ui/registry/collections/screen-renderer/screen-renderer"
 
-import { formatDate, formatDateTime } from "@/lib/format"
+import { formatActivityWhen, formatDate, formatDateTime } from "@/lib/format"
 import { personName } from "@/lib/identity"
 import type {
   ActivityItem,
@@ -32,7 +32,7 @@ export function shapeActivity(items: ActivityItem[]): Record<string, unknown>[] 
     id: a.id,
     description: a.description,
     actor: a.actorName ?? undefined,
-    timestamp: formatDateTime(a.createdAt),
+    timestamp: formatActivityWhen(a.createdAt),
   }))
 }
 
