@@ -8,6 +8,7 @@
 //   POST /api/content/learning            -> create a learning item
 //   POST /api/content/learning/update     -> edit a learning item
 //   POST /api/content/learning/active     -> deactivate / reactivate an item (never deleted)
+//   POST /api/content/learning/bulk-active -> (de)activate MANY items at once → {updated,skipped}
 //   POST /api/content/learning/done       -> mark an item done / not-done (your own progress)
 //   POST /api/content/learning/upload      -> upload a local file (image/clip) to team R2 → URL
 //   GET  /api/content/learning/progress   -> curator dashboard (every member's done state)
@@ -16,6 +17,7 @@
 //   POST /api/content/help                -> raise a ticket
 //   POST /api/content/help/update         -> edit a ticket
 //   POST /api/content/help/status         -> move a ticket along its fixed lifecycle
+//   POST /api/content/help/bulk-status    -> move MANY tickets to one status → {updated,skipped}
 //   POST /api/content/help/reply          -> add a reply to a ticket's thread
 //   GET  /api/content/help/stakeholders   -> a ticket's stakeholders (?id=<ticketId>)
 //   POST /api/content/help/stakeholders   -> manually add a stakeholder (add-only)
@@ -28,6 +30,7 @@ import type { Env } from "./env"
 import {
   getLearning,
   getLearningProgress,
+  postBulkSetLearningActive,
   postCreateLearning,
   postLearningDone,
   postSetLearningActive,
@@ -39,6 +42,7 @@ import {
   getHelpStakeholders,
   getHelpThread,
   postAddStakeholder,
+  postBulkHelpStatus,
   postCreateHelp,
   postHelpReply,
   postHelpStatus,
@@ -64,6 +68,7 @@ export const ROUTES: Record<string, { handler: Handler; kind: RouteKind }> = {
   "POST /api/content/learning": { handler: postCreateLearning, kind: "mutation" },
   "POST /api/content/learning/update": { handler: postUpdateLearning, kind: "mutation" },
   "POST /api/content/learning/active": { handler: postSetLearningActive, kind: "mutation" },
+  "POST /api/content/learning/bulk-active": { handler: postBulkSetLearningActive, kind: "mutation" },
   "POST /api/content/learning/done": { handler: postLearningDone, kind: "mutation" },
   // Stores a file in R2 but changes NO record (no row to patch) → housekeeping.
   "POST /api/content/learning/upload": { handler: postUploadLearningFile, kind: "housekeeping" },
@@ -73,6 +78,7 @@ export const ROUTES: Record<string, { handler: Handler; kind: RouteKind }> = {
   "POST /api/content/help": { handler: postCreateHelp, kind: "mutation" },
   "POST /api/content/help/update": { handler: postUpdateHelp, kind: "mutation" },
   "POST /api/content/help/status": { handler: postHelpStatus, kind: "mutation" },
+  "POST /api/content/help/bulk-status": { handler: postBulkHelpStatus, kind: "mutation" },
   "POST /api/content/help/reply": { handler: postHelpReply, kind: "mutation" },
   "GET /api/content/help/stakeholders": { handler: getHelpStakeholders, kind: "read" },
   "POST /api/content/help/stakeholders": { handler: postAddStakeholder, kind: "mutation" },

@@ -362,6 +362,21 @@ export const TOOL_CATALOG: AgentTool[] = [
     summarize: (i) => `Set ticket ${str(i, "id")} to "${str(i, "status")}"`,
   },
   {
+    name: "bulk_set_help_status",
+    description:
+      "Move MANY support tickets to the same status at once (open, in_progress, resolved, reopened). " +
+      "First list the tickets (a read) to get their ids, then call this with those ids. A bulk change " +
+      "is confirmed with a count before it runs.",
+    schema: obj({ ids: { type: "array", items: S }, status: S }, ["ids", "status"]),
+    binding: "CONTENT",
+    method: "POST",
+    path: "/api/content/help/bulk-status",
+    write: true,
+    confirm: true, // a bulk change is high-blast — always confirm
+    buildBody: (i) => ({ ids: i.ids, status: i.status }),
+    summarize: (i) => `Set ${Array.isArray(i.ids) ? i.ids.length : 0} tickets to ${i.status}`,
+  },
+  {
     name: "set_learning_active",
     description: "Switch a learning article off (deactivate) or back on (reactivate) — never deleted.",
     schema: obj({ id: S, active: { type: "boolean" } }, ["id", "active"]),
@@ -373,6 +388,22 @@ export const TOOL_CATALOG: AgentTool[] = [
     buildBody: (i) => ({ id: str(i, "id"), active: i.active === true }),
     summarize: (i) =>
       `${i.active === true ? "Activate" : "Deactivate"} learning article ${str(i, "id")}`,
+  },
+  {
+    name: "bulk_set_learning_active",
+    description:
+      "Switch MANY learning articles off (deactivate) or back on (reactivate) at once — never deleted. " +
+      "First list the articles (a read) to get their ids, then call this with those ids. A bulk change " +
+      "is confirmed with a count before it runs.",
+    schema: obj({ ids: { type: "array", items: S }, active: { type: "boolean" } }, ["ids", "active"]),
+    binding: "CONTENT",
+    method: "POST",
+    path: "/api/content/learning/bulk-active",
+    write: true,
+    confirm: true, // a bulk change is high-blast — always confirm
+    buildBody: (i) => ({ ids: i.ids, active: i.active }),
+    summarize: (i) =>
+      `${i.active ? "Activate" : "Deactivate"} ${Array.isArray(i.ids) ? i.ids.length : 0} articles`,
   },
   {
     name: "mark_learning_done",

@@ -251,6 +251,37 @@ export async function setStatus(
   })
 }
 
+/** Move MANY tickets to the same status in one call (the bulk sibling of
+ * setStatus). Applies the SAME per-row change — same UPDATE, same resolver block,
+ * same activity row — to each id that names a real ticket, and reports how many
+ * changed vs. were skipped (an id with no matching ticket). Returns the list of
+ * ids that actually changed so the route can publish one row-level ping EACH (the
+ * live-sync law: patch the changed row, never refetch the list). */
+export async function bulkSetStatus(
+  cfg: D1Rest,
+  guard: MemberGuard,
+  actor: Actor,
+  ids: string[],
+  status: HelpStatus
+): Promise<{ changed: string[]; skipped: number }> {
+  const changed: string[] = []
+  let skipped = 0
+  for (const id of ids) {
+    try {
+      await setStatus(cfg, guard, actor, id, status)
+      changed.push(id)
+    } catch (e) {
+      // A missing ticket is skipped, not fatal — the rest of the batch still applies.
+      if (e instanceof GuardError && e.status === 404) {
+        skipped++
+        continue
+      }
+      throw e
+    }
+  }
+  return { changed, skipped }
+}
+
 /** Add a reply to a ticket's thread, and bump the ticket's updated_at so it
  * re-sorts to the top of both tabs. `taggedUserIds` are notify-only mentions (the
  * notify happens in the route). `isAgent` marks the AI-drafted reply. Returns the

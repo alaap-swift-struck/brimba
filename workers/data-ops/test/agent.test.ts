@@ -40,6 +40,19 @@ describe("agent tool catalog + confirm rule", () => {
     expect(getTool("get_role_permissions")!.write).toBe(false)
   })
 
+  it("bulk tools change many records at once — write, confirm (high-blast), via CONTENT", () => {
+    // A bulk change hits many rows, so it's always confirmed with a count-bearing summary.
+    for (const name of ["bulk_set_learning_active", "bulk_set_help_status"]) {
+      const t = getTool(name)
+      expect(t, `tool "${name}" must be defined`).toBeDefined()
+      expect(t!.write).toBe(true)
+      expect(t!.confirm).toBe(true)
+      expect(requiresConfirm(t!)).toBe(true)
+      expect(t!.binding).toBe("CONTENT")
+      expect(t!.path.startsWith("/api/")).toBe(true)
+    }
+  })
+
   it("manages members AS the user — set_member_role + remove_member are present", () => {
     // The agent acts AS the user with their EXACT rights (the server re-checks each
     // call), so member management is allowed. Removing a member is only-destructive, so

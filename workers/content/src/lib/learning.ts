@@ -285,6 +285,37 @@ export async function setLearningActive(
   })
 }
 
+/** Deactivate / reactivate MANY learning items in one call (the bulk sibling of
+ * setLearningActive). Applies the SAME per-row change — same UPDATE, same audit
+ * block, same activity row — to each id that names a real item, and reports how
+ * many changed vs. were skipped (an id with no matching row). Returns the list of
+ * ids that actually changed so the route can publish one row-level ping EACH (the
+ * live-sync law: patch the changed row, never refetch the list). */
+export async function bulkSetLearningActive(
+  cfg: D1Rest,
+  guard: MemberGuard,
+  actor: Actor,
+  ids: string[],
+  active: boolean
+): Promise<{ changed: string[]; skipped: number }> {
+  const changed: string[] = []
+  let skipped = 0
+  for (const id of ids) {
+    try {
+      await setLearningActive(cfg, guard, actor, id, active)
+      changed.push(id)
+    } catch (e) {
+      // A missing item is skipped, not fatal — the rest of the batch still applies.
+      if (e instanceof GuardError && e.status === 404) {
+        skipped++
+        continue
+      }
+      throw e
+    }
+  }
+  return { changed, skipped }
+}
+
 /** Mark a learning item done / not-done FOR THE CALLER (the agent uses its own
  * progress too). Upserts the one (learning_id, user_id) progress row — done bool
  * + done_at timestamp. */

@@ -9,8 +9,10 @@ import { fail, json } from "../../../../shared/workers/http"
 import { requireText, TEXT_LIMITS } from "../../../../shared/workers/validate"
 import { publishChange } from "../../../../shared/workers/realtime"
 import { requireRight, teamContext } from "../../../../shared/workers/gating"
+import { requireIdList } from "../lib/bulk"
 import {
   addReply,
+  bulkSetStatus,
   createTicket,
   getTicket,
   HELP_STATUSES,
@@ -88,6 +90,27 @@ export async function postHelpStatus(request: Request, env: Env): Promise<Respon
   await setStatus(cfg, guard, actor, body.id, status)
   await publishChange(env.REALTIME, guard.teamId, "help", body.id)
   return json({ tickets: await listTickets(cfg, guard, "all") })
+}
+
+/** POST /api/content/help/bulk-status — move MANY tickets to the same status in one
+ * call (the bulk sibling of the single status endpoint). Gated ONCE by the SAME
+ * right (help:edit), validates ids at the boundary (non-empty array of non-empty
+ * strings, cap 500 → clean 400) and the status against the same allowed set the
+ * single endpoint uses, applies the same per-row change to every matching ticket,
+ * and — the live-sync law — publishes ONE row-level ping per CHANGED row (patch
+ * that row, never refetch the list). Returns { updated, skipped }. */
+export async function postBulkHelpStatus(request: Request, env: Env): Promise<Response> {
+  const { actor, cfg, guard } = await teamContext(request, env)
+  await requireRight(cfg, guard, "help", "edit")
+  const body = (await request.json().catch(() => ({}))) as { ids?: unknown; status?: unknown }
+  const ids = requireIdList(body.ids)
+  if (typeof body.status !== "string" || !(HELP_STATUSES as readonly string[]).includes(body.status))
+    return fail(400, "invalid_input", "A valid status is required.")
+  const { changed, skipped } = await bulkSetStatus(cfg, guard, actor, ids, body.status as HelpStatus)
+  // Row-level live-sync: one ping per changed ticket (same row shape the single
+  // endpoint patches) — no list refetch.
+  for (const id of changed) await publishChange(env.REALTIME, guard.teamId, "help", id)
+  return json({ updated: changed.length, skipped })
 }
 
 /** POST /api/content/help/reply — add a reply to a ticket's thread (help:read; any

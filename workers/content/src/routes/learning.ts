@@ -12,7 +12,9 @@ import { publishChange } from "../../../../shared/workers/realtime"
 import { parseUploadDataUrl } from "../../../../shared/workers/image"
 import { ulid } from "../../../../shared/workers/id"
 import { requireRight, teamContext } from "../../../../shared/workers/gating"
+import { requireIdList } from "../lib/bulk"
 import {
+  bulkSetLearningActive,
   createLearning,
   listLearning,
   listProgress,
@@ -64,6 +66,26 @@ export async function postSetLearningActive(request: Request, env: Env): Promise
   await setLearningActive(cfg, guard, actor, body.id, body.active)
   await publishChange(env.REALTIME, guard.teamId, "learning", body.id)
   return json({ learning: await listLearning(cfg, guard) })
+}
+
+/** Deactivate / reactivate MANY learning items in one call (the bulk sibling of
+ * the single active endpoint). Gated ONCE by the SAME right (learning:delete),
+ * validates ids at the boundary (non-empty array of non-empty strings, cap 500 →
+ * clean 400), applies the same per-row change to every matching item, and — the
+ * live-sync law — publishes ONE row-level ping per CHANGED row (patch that row,
+ * never refetch the list). Returns { updated, skipped }. */
+export async function postBulkSetLearningActive(request: Request, env: Env): Promise<Response> {
+  const { actor, cfg, guard } = await teamContext(request, env)
+  await requireRight(cfg, guard, "learning", "delete")
+  const body = (await request.json().catch(() => ({}))) as { ids?: unknown; active?: unknown }
+  const ids = requireIdList(body.ids)
+  if (typeof body.active !== "boolean")
+    return fail(400, "invalid_input", "active must be true or false.")
+  const { changed, skipped } = await bulkSetLearningActive(cfg, guard, actor, ids, body.active)
+  // Row-level live-sync: one ping per changed item (same row shape the single
+  // endpoint patches) — no list refetch.
+  for (const id of changed) await publishChange(env.REALTIME, guard.teamId, "learning", id)
+  return json({ updated: changed.length, skipped })
 }
 
 /** Mark an item done / not-done for the caller (their OWN progress — any reader
