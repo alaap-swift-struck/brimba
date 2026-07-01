@@ -22,6 +22,7 @@ import { useRealtime, useUserRealtime } from "@/lib/realtime"
 import { invalidate, patchRow, reconcile } from "@/lib/store"
 import { NAV, TEAM_SECTIONS, bottomNavItems, isNavActive, type Crumb } from "@/lib/pages"
 import { usePermissions } from "@/lib/perms"
+import { useTeamPrewarm } from "@/lib/use-team-prewarm"
 import { AgentPanel } from "@/components/agent-panel"
 import { CreateTeamDialog } from "@/components/create-team-dialog"
 import { ProfileMenu } from "@/components/profile-menu"
@@ -124,6 +125,11 @@ export function AppShell({
   const [agentOpen, setAgentOpen] = React.useState(false)
   const teamId = active.ctx?.team?.id ?? null
   const userId = active.user?.id ?? null
+
+  // Warm the cheap always-needed team-wide caches on team entry so the first tap
+  // into a tab paints from cache, not a skeleton. Cold-guarded + failure-swallowed
+  // (see the hook) — it only SEEDS cold keys, never touching a warm/live entry.
+  useTeamPrewarm(teamId)
 
   // Desktop sidebar collapse (icon rail), remembered across sessions.
   const [collapsed, setCollapsed] = React.useState(false)

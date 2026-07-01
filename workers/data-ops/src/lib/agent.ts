@@ -259,8 +259,18 @@ async function runPlanLoop(
 
     // Resolve any member/invite ids the turn's tools echo → friendly names, so a
     // step summary reads "Remove Jane Doe" not a ULID (same seam the confirm panel
-    // uses; a no-op + free for tools that ignore names). Only when streaming.
-    const names = emit ? await resolveConfirmNames(env, request, reply.toolCalls) : {}
+    // uses). Only the two confirming tools echo an id worth naming, and those never
+    // reach this (execution) path — they return above for a yes/no. So skip the
+    // extra /members + /invites round-trips unless a confirming tool is actually
+    // present; every other tool ignores names, so {} costs nothing. Streaming only.
+    const names =
+      emit &&
+      reply.toolCalls.some((tc) => {
+        const t = getTool(tc.name)
+        return t && requiresConfirm(t)
+      })
+        ? await resolveConfirmNames(env, request, reply.toolCalls)
+        : {}
     let failed = false
     for (const tc of reply.toolCalls) {
       const t = getTool(tc.name)

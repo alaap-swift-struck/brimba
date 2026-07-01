@@ -97,13 +97,12 @@ export async function teamContext(request: Request, env: GatingEnv): Promise<Tea
   const user = await whoAmI(request, env)
   if (!user) throw new GuardError(401, "signed_out", "Not signed in.")
 
-  const row = await env.DB.prepare("SELECT current_team_id FROM users WHERE id = ?")
-    .bind(user.id)
-    .first<{ current_team_id: string | null }>()
-  if (!row?.current_team_id) throw new GuardError(409, "no_team", "No active team.")
+  // whoAmI already carries the active team (auth /me reads it fresh from the
+  // users row) — no need for a second native-DB read for the same value.
+  if (!user.currentTeamId) throw new GuardError(409, "no_team", "No active team.")
 
   const cfg = d1ConfigFrom(env)
-  const guard = await requireMember(env, user.id, row.current_team_id)
+  const guard = await requireMember(env, user.id, user.currentTeamId)
   return { user, actor: toActor(user), cfg, guard }
 }
 

@@ -83,20 +83,29 @@ export async function getRolePermissions(
   /** does the CALLER hold member_roles:edit? drives the screen's edit/view mode */
   canEdit: boolean
 }> {
-  const role = await roleOrThrow(cfg, guard, roleId)
-  const rows = await d1Query<PermRow>(
-    cfg,
-    guard.databaseId,
-    "SELECT module, can_read, can_create, can_edit, can_delete FROM role_permissions WHERE role_id = ?",
-    [roleId]
-  )
+  // Three INDEPENDENT team-DB reads — the role row, its permission sheet, and the
+  // caller's own member_roles:edit right (none consumes another's result) — so run
+  // them as one round-trip instead of three serial ones. Promise.all rejects on
+  // the first error, so a missing role still surfaces roleOrThrow's 404, same as
+  // before. (This is called AFTER the route's requireRight gate; canEdit only
+  // drives the screen's edit/view mode — the gate itself is untouched.)
+  const [role, rows, canEdit] = await Promise.all([
+    roleOrThrow(cfg, guard, roleId),
+    d1Query<PermRow>(
+      cfg,
+      guard.databaseId,
+      "SELECT module, can_read, can_create, can_edit, can_delete FROM role_permissions WHERE role_id = ?",
+      [roleId]
+    ),
+    hasRight(cfg, guard, "member_roles", "edit"),
+  ])
 
   return {
     modules: TEAM_MODULE_CATALOG,
     value: buildPermissionValue(rows),
     isDefault: role.is_default === 1,
     title: role.title,
-    canEdit: await hasRight(cfg, guard, "member_roles", "edit"),
+    canEdit,
   }
 }
 

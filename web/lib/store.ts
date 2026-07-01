@@ -31,6 +31,25 @@ export function primeCache(key: string, value: unknown): void {
   notify(key)
 }
 
+/** Background-PRIME a key ONLY if it's cold (nothing cached yet) — used to warm
+ * always-needed team caches on team entry so the first tap paints from cache
+ * instead of a skeleton. It NEVER overwrites a warm or live-patched entry (the
+ * `has` guard) and NEVER surfaces an error (a prewarm failure is swallowed — the
+ * screen's own useCached will fetch normally). Pure seeding: no cache-first paint
+ * or row-level live-sync behaviour changes, it just fills a cold key earlier. */
+export function primeCacheIfCold<T>(key: string, fetcher: () => Promise<T>): void {
+  if (cache.has(key)) return
+  void fetcher()
+    .then((value) => {
+      // Re-check: a real fetch (useCached) or live patch may have landed while we
+      // were in flight — don't clobber it with our (now possibly stale) result.
+      if (!cache.has(key)) primeCache(key, value)
+    })
+    .catch(() => {
+      /* a prewarm miss is silent — the screen fetches on mount as usual */
+    })
+}
+
 /** ROW-LEVEL live patch: a "row X in this collection changed" ping lands → fetch
  * just that one row (through the permission-checked endpoint) and update ONLY it
  * in the cached list — never refetch the whole collection. The single-row read

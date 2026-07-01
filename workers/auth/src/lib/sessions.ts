@@ -7,6 +7,9 @@ export const SESSION_COOKIE = "brimba_session"
 const SESSION_DAYS = 30
 /** When less than this many days remain, the session quietly extends itself. */
 const SLIDE_THRESHOLD_DAYS = 15
+/** last_seen_at is coarse presence, not analytics — only re-stamp it this often
+ * (skips a write on the hottest authenticated read path). */
+const LAST_SEEN_THROTTLE_MS = 5 * 60 * 1000
 
 const days = (n: number) => n * 24 * 60 * 60 * 1000
 
@@ -58,12 +61,12 @@ export async function getSessionUser(
 
   const tokenHash = await sha256Hex(token)
   const row = await env.DB.prepare(
-    `SELECT s.id AS session_id, s.expires_at, u.*
+    `SELECT s.id AS session_id, s.expires_at, s.last_seen_at, u.*
      FROM sessions s JOIN users u ON u.id = s.user_id
      WHERE s.token_hash = ?`
   )
     .bind(tokenHash)
-    .first<UserRow & { session_id: string; expires_at: string }>()
+    .first<UserRow & { session_id: string; expires_at: string; last_seen_at: string }>()
   if (!row) return null
 
   const now = new Date()
@@ -79,21 +82,27 @@ export async function getSessionUser(
   const slide =
     new Date(row.expires_at).getTime() - now.getTime() <
     days(SLIDE_THRESHOLD_DAYS)
-  await env.DB.prepare(
-    slide
-      ? "UPDATE sessions SET last_seen_at = ?, expires_at = ? WHERE id = ?"
-      : "UPDATE sessions SET last_seen_at = ? WHERE id = ?"
-  )
-    .bind(
-      ...(slide
-        ? [
-            now.toISOString(),
-            new Date(now.getTime() + days(SESSION_DAYS)).toISOString(),
-            row.session_id,
-          ]
-        : [now.toISOString(), row.session_id])
+  // last_seen_at needs no sub-minute precision — skip the write on the hottest
+  // read path unless the stamp is stale (or the expiry is being slid anyway).
+  const seenStale =
+    now.getTime() - new Date(row.last_seen_at).getTime() > LAST_SEEN_THROTTLE_MS
+  if (slide || seenStale) {
+    await env.DB.prepare(
+      slide
+        ? "UPDATE sessions SET last_seen_at = ?, expires_at = ? WHERE id = ?"
+        : "UPDATE sessions SET last_seen_at = ? WHERE id = ?"
     )
-    .run()
+      .bind(
+        ...(slide
+          ? [
+              now.toISOString(),
+              new Date(now.getTime() + days(SESSION_DAYS)).toISOString(),
+              row.session_id,
+            ]
+          : [now.toISOString(), row.session_id])
+      )
+      .run()
+  }
 
   return row
 }

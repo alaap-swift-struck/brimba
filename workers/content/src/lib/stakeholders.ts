@@ -122,30 +122,35 @@ export async function listStakeholders(
     if (prev === undefined || ORIGIN_RANK[o] < ORIGIN_RANK[prev]) origin.set(userId, o)
   }
 
-  // 1. raiser (from the help row).
-  const ticket = await getTicket(cfg, guard, ticketId)
+  // Steps 1–4 read four INDEPENDENT team-DB rows (ticket, replies, manual adds,
+  // the admin role id) — no read consumes another's result, so fire them as one
+  // round-trip instead of four serial ones. (adminUserIds/lookupUsers are core-DB
+  // and depend on adminRoleId / the claimed set, so they stay in order below.)
+  const [ticket, replyRows, addedRows, adminId] = await Promise.all([
+    // 1. raiser (from the help row).
+    getTicket(cfg, guard, ticketId),
+    // 2. mentioned: every tagged id across the ticket's replies.
+    d1Query<{ tagged_user_ids: string | null }>(
+      cfg,
+      guard.databaseId,
+      "SELECT tagged_user_ids FROM help_threads WHERE help_id = ?",
+      [ticketId]
+    ),
+    // 3. manual adds (stored, add-only).
+    d1Query<{ user_id: string }>(
+      cfg,
+      guard.databaseId,
+      "SELECT user_id FROM help_stakeholders WHERE help_id = ?",
+      [ticketId]
+    ),
+    // 4. the team's Admin role id (TEAM DB).
+    adminRoleId(cfg, guard),
+  ])
   if (ticket?.raiserId) claim(ticket.raiserId, "raiser")
-
-  // 2. mentioned: every tagged id across the ticket's replies.
-  const replyRows = await d1Query<{ tagged_user_ids: string | null }>(
-    cfg,
-    guard.databaseId,
-    "SELECT tagged_user_ids FROM help_threads WHERE help_id = ?",
-    [ticketId]
-  )
   for (const r of replyRows) for (const id of parseTagged(r.tagged_user_ids)) claim(id, "mentioned")
-
-  // 3. manual adds (stored, add-only).
-  const addedRows = await d1Query<{ user_id: string }>(
-    cfg,
-    guard.databaseId,
-    "SELECT user_id FROM help_stakeholders WHERE help_id = ?",
-    [ticketId]
-  )
   for (const r of addedRows) claim(r.user_id, "added")
 
-  // 4. current team admins (TEAM DB role id → GLOBAL holders).
-  const adminId = await adminRoleId(cfg, guard)
+  // 4b. current team admins (TEAM DB role id → GLOBAL holders).
   if (adminId) for (const id of await adminUserIds(env, guard.teamId, adminId)) claim(id, "admin")
 
   // 5. join all unique ids to the global users table for display (drops anyone no

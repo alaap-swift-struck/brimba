@@ -387,16 +387,20 @@ export async function getActiveContext(
       .run()
   }
 
-  const dbRow = await env.DB.prepare(
-    "SELECT database_id FROM teams WHERE id = ?"
-  )
-    .bind(current.id)
-    .first<{ database_id: string }>()
-  const countRow = await env.DB.prepare(
-    "SELECT COUNT(*) AS n FROM team_members WHERE team_id = ? AND deactivated_at IS NULL"
-  )
-    .bind(current.id)
-    .first<{ n: number }>()
+  // The team's database id and its live member count are two INDEPENDENT core-DB
+  // reads (both keyed only on current.id, neither consumes the other) — run them
+  // as one round-trip. The role read below depends on dbRow.database_id, so it
+  // stays after.
+  const [dbRow, countRow] = await Promise.all([
+    env.DB.prepare("SELECT database_id FROM teams WHERE id = ?")
+      .bind(current.id)
+      .first<{ database_id: string }>(),
+    env.DB.prepare(
+      "SELECT COUNT(*) AS n FROM team_members WHERE team_id = ? AND deactivated_at IS NULL"
+    )
+      .bind(current.id)
+      .first<{ n: number }>(),
+  ])
 
   let role: ActiveContext["role"] = null
   if (dbRow?.database_id) {
