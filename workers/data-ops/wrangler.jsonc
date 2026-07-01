@@ -29,7 +29,8 @@
   "ai": { "binding": "AI" },
   "vars": {
     "CF_ACCOUNT_ID": "af3f1bf82aa34512f4f6630091358439",
-    "AGENT_MODEL": "claude-sonnet-4-6",
+    "AGENT_MODEL": "claude-sonnet-5",
+    "AGENT_EFFORT": "low",
     "WORKERS_AI_MODEL": "@cf/meta/llama-4-scout-17b-16e-instruct"
   },
   "env": {
@@ -54,7 +55,8 @@
       "ai": { "binding": "AI" },
       "vars": {
         "CF_ACCOUNT_ID": "af3f1bf82aa34512f4f6630091358439",
-        "AGENT_MODEL": "claude-sonnet-4-6",
+        "AGENT_MODEL": "claude-sonnet-5",
+        "AGENT_EFFORT": "low",
         "WORKERS_AI_MODEL": "@cf/meta/llama-4-scout-17b-16e-instruct"
       }
     }

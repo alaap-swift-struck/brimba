@@ -43,7 +43,11 @@ class ClaudeModel implements Model {
   readonly canActWithTools = true
   constructor(
     private apiKey: string,
-    readonly name: string
+    readonly name: string,
+    /** Reasoning effort: low | medium | high | xhigh | max. "low" keeps the agent
+     *  cheap (owner is on a tight budget) while staying tool-capable; raise it via
+     *  the AGENT_EFFORT var when more capability is worth the extra token cost. */
+    private effort: string = "low"
   ) {}
 
   async complete(messages: ChatMessage[], tools: ToolSpec[]): Promise<ModelReply> {
@@ -79,6 +83,13 @@ class ClaudeModel implements Model {
       body: JSON.stringify({
         model: this.name,
         max_tokens: 1024,
+        // Effort controls reasoning depth + overall token spend (GA on Sonnet 5, no
+        // beta header). "low" = terse, consolidated tool calls — the cheap setting.
+        // We leave `thinking` unset on purpose: Sonnet 5 runs adaptive thinking by
+        // default and keeps it minimal at low effort, which also keeps it willing to
+        // reach for tools. (Never send temperature/top_p or budget_tokens here — both
+        // 400 on Sonnet 5 / the Opus-4.7+ family.)
+        output_config: { effort: this.effort },
         ...(system ? { system } : {}),
         messages: msgs,
         ...(tools.length
@@ -199,7 +210,7 @@ class WorkersAiModel implements Model {
  *  Swapping the brain is one edit here (or the WORKERS_AI_MODEL var). */
 export function selectModel(env: Env): Model {
   if (env.ANTHROPIC_API_KEY)
-    return new ClaudeModel(env.ANTHROPIC_API_KEY, env.AGENT_MODEL || "claude-sonnet-4-6")
+    return new ClaudeModel(env.ANTHROPIC_API_KEY, env.AGENT_MODEL || "claude-sonnet-5", env.AGENT_EFFORT || "low")
   return new WorkersAiModel(env.AI, env.WORKERS_AI_MODEL || "@cf/meta/llama-4-scout-17b-16e-instruct")
 }
 

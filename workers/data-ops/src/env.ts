@@ -32,6 +32,9 @@ export type Env = {
   AI: Ai
   /** The agentic model id used WHEN a Claude key is set (one config swap). */
   AGENT_MODEL?: string
+  /** Reasoning effort for the Claude path: low | medium | high | xhigh | max.
+   *  Defaults to "low" (cheap). Raise it when more capability is worth the cost. */
+  AGENT_EFFORT?: string
   /** The Workers AI model id for the cheap/fallback path. */
   WORKERS_AI_MODEL?: string
   // Secret (wrangler secret put): when set, the agentic path upgrades to Claude;
