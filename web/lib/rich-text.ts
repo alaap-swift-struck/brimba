@@ -38,7 +38,11 @@ const VOID_TAGS = new Set(["br", "hr"])
 
 export const escapeText = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-const escapeAttr = (s: string) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;")
+// Attribute-value escaper — like escapeText but ALSO encodes the double-quote, so a
+// value interpolated into `attr="..."` can never break out of the quotes (an href
+// with a stray `"` otherwise injects a live event handler — attribute-breakout XSS).
+export const escapeAttr = (s: string) =>
+  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")
 
 export function safeHref(raw: string | null): string | undefined {
   if (!raw) return undefined
