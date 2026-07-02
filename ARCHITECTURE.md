@@ -166,11 +166,17 @@ on top follows [CACHING.md](CACHING.md).
   A deep link to another team's record gets blocked/booted server-side —
   security is never just hiding UI.
   - *The reviewed exception (FLAGGED 2026-07-02, owner to confirm):* `GET
-    /media/*` (uploaded files — photos, logos, learning media) is served by the
-    gateway **without a session check**, relying on unguessable ULID keys and no
-    directory listing. Anyone holding a file's exact URL can fetch it. If a
-    future module stores sensitive files, put a membership check (or signed
-    URLs) in front FIRST.
+    /media/*` is served by the gateway **without a session check** (R2 has no
+    directory listing, so only someone holding a file's exact key can fetch it).
+    Two key shapes, two risk levels: **learning media** is `learning/<teamId>/<random
+    ULID>` — the per-file ULID is unguessable, so cross-tenant access is
+    infeasible (this is the sensitive content, and it's protected). **Team logos
+    (`teams/<teamId>`) and profile photos (`users/<userId>`)** use PREDICTABLE
+    keys — the team/user id is visible in normal URLs — so anyone who knows an id
+    can fetch that logo/photo without being a member. Accepted today because
+    logos/avatars are low-sensitivity, display-only images; if any future upload
+    is sensitive, give it a random-ULID key (like learning) or a membership
+    check / signed URL BEFORE shipping it.
 - **Deep-link access story (UPDATED 2026-06-21).** Deep links now use the
   `/t/<teamId>/<module>/<id>` grammar, rendered by the screen engine. A deep link
   to a team you are **NOT** a member of does **NOT** switch your active team — the
