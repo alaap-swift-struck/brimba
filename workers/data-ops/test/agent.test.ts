@@ -10,6 +10,34 @@ import { describe, expect, it } from "vitest"
 
 import { getTool, requiresConfirm, toolSpecs, TOOL_CATALOG } from "../src/lib/tools"
 
+describe("step/confirm summaries resolve ids to human names", () => {
+  const names = { "01ROLE": "Sub Admin", "01USER": "Jane Doe" }
+
+  it("names a role by title (not a ULID) when resolved", () => {
+    expect(getTool("set_role_active")!.summarize({ roleId: "01ROLE", active: false }, names)).toBe(
+      "Deactivate the Sub Admin role"
+    )
+    expect(getTool("set_role_permissions")!.summarize({ roleId: "01ROLE", value: {} }, names)).toBe(
+      "Set access rights for the Sub Admin role"
+    )
+    expect(getTool("invite_member")!.summarize({ email: "sam@x.com", roleId: "01ROLE" }, names)).toBe(
+      "Invite sam@x.com as Sub Admin"
+    )
+    expect(
+      getTool("set_member_role")!.summarize({ userId: "01USER", roleId: "01ROLE" }, names)
+    ).toBe("Change Jane Doe to Sub Admin")
+  })
+
+  it("falls back to the raw id when a name can't be resolved (never throws)", () => {
+    expect(getTool("set_role_active")!.summarize({ roleId: "01ROLE", active: true })).toBe(
+      "Activate role 01ROLE"
+    )
+    expect(getTool("invite_member")!.summarize({ email: "sam@x.com", roleId: "01ROLE" })).toBe(
+      "Invite sam@x.com as role 01ROLE"
+    )
+  })
+})
+
 describe("agent tool catalog + confirm rule", () => {
   it("confirms ONLY the two only-destructive acts; every other write runs freely", () => {
     // Only-destructive → confirm panel.

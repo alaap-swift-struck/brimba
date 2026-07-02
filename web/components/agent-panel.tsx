@@ -26,7 +26,7 @@
 // the step — crossing a static route into /t would hard-reload, so we never do that.
 
 import * as React from "react"
-import { Plus } from "lucide-react"
+import { History, Plus } from "lucide-react"
 
 import { Button } from "@swift-struck/ui/registry/primitives/button/button"
 import { Badge } from "@swift-struck/ui/registry/primitives/badge/badge"
@@ -51,7 +51,7 @@ import {
 } from "@swift-struck/ui/registry/collections/agent-chat/agent-chat"
 import { RunSteps, type RunStep } from "@swift-struck/ui/registry/collections/run-steps/run-steps"
 
-import type { AgentMessage, AgentQuota, PendingCall } from "@shared/types"
+import type { AgentMessage, AgentQuota, AgentThread, PendingCall } from "@shared/types"
 import { ApiFailure, dataOps, type AgentStreamEvent, type UsageLogRow } from "@/lib/api"
 import { emitTrace, traceFor } from "@/lib/agent-trace"
 import { usePermissions } from "@/lib/perms"
@@ -130,9 +130,20 @@ export function AgentPanel({
   const [usageLoading, setUsageLoading] = React.useState(false)
   const [usageError, setUsageError] = React.useState(false)
 
+  // The history view (behind the History button): the caller's past conversations,
+  // lazily loaded, tap one to reopen it. Same lazy pattern as the usage view.
+  const [historyOpen, setHistoryOpen] = React.useState(false)
+  const [threads, setThreads] = React.useState<AgentThread[] | null>(null)
+  const [threadsLoading, setThreadsLoading] = React.useState(false)
+  const [threadsError, setThreadsError] = React.useState(false)
+
   // On open: pull the quota (cheap; not cached — it changes per turn) and, if this is
-  // a fresh panel (no messages yet) with a remembered thread for this team, resume it.
-  // Rehydrate is best-effort — a failed load must never keep the panel from opening.
+  // a fresh panel (no messages yet), RESUME the right conversation. Resume order:
+  //   1. the thread this DEVICE last used (localStorage) — instant, offline-friendly;
+  //   2. else the caller's NEWEST thread on the SERVER — this is what makes a chat you
+  //      started on the laptop show up when you open the phone (cross-device resume).
+  // A brand-new user with no threads just starts empty. Best-effort throughout — a
+  // failed load must never keep the panel from opening.
   React.useEffect(() => {
     if (!open || !canUse) return
     let alive = true
@@ -143,19 +154,28 @@ export function AgentPanel({
 
     if (teamId && items.length === 0) {
       const stored = readLastThread(teamId)
-      if (stored) {
+      const pickThreadId = async (): Promise<string | undefined> => {
+        if (stored) return stored
+        // No local memory on this device — fall back to the server's newest thread.
+        const r = await dataOps.agentThreads().catch(() => null)
+        return r?.threads[0]?.id
+      }
+      void pickThreadId().then((id) => {
+        if (!alive || !id) return
         dataOps
-          .agentThread(stored)
+          .agentThread(id)
           .then((r) => {
             if (!alive) return
             setItems(toChatItems(r.messages))
-            setThreadId(stored)
+            setThreadId(id)
+            // Remember it on THIS device so the next open resumes instantly.
+            if (teamId) writeLastThread(teamId, id)
           })
           .catch(() => {
-            // The stored thread is gone or unreadable — forget it and start clean.
-            if (alive) clearLastThread(teamId)
+            // The thread is gone or unreadable — forget the local pointer, start clean.
+            if (alive && stored) clearLastThread(teamId)
           })
-      }
+      })
     }
     return () => {
       alive = false
@@ -163,6 +183,24 @@ export function AgentPanel({
     // items.length is read as an open-time snapshot, not a trigger — intentionally omitted.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, canUse, teamId])
+
+  // Load the conversation list the moment the history view opens (newest activity
+  // first, own conversations only). Lazy + refetched each open so a just-run turn's
+  // thread shows at the top.
+  React.useEffect(() => {
+    if (!historyOpen) return
+    let alive = true
+    setThreadsLoading(true)
+    setThreadsError(false)
+    dataOps
+      .agentThreads()
+      .then((r) => alive && setThreads(r.threads))
+      .catch(() => alive && setThreadsError(true))
+      .finally(() => alive && setThreadsLoading(false))
+    return () => {
+      alive = false
+    }
+  }, [historyOpen])
 
   // Load the usage log the moment the usage view opens (newest-first, team-scoped).
   // Lazy — the list can be long, so we only fetch on demand, and refetch each open
@@ -356,6 +394,23 @@ export function AgentPanel({
     if (teamId) clearLastThread(teamId)
   }
 
+  // Reopen a past conversation from the history view: load its messages, make it the
+  // active thread, and remember it on this device. Closing history first keeps the
+  // transition clean. Best-effort — a failed load just leaves the current chat as-is.
+  async function openThread(id: string) {
+    if (busy) return
+    setHistoryOpen(false)
+    try {
+      const r = await dataOps.agentThread(id)
+      setItems(toChatItems(r.messages))
+      setThreadId(id)
+      setPending(null)
+      if (teamId) writeLastThread(teamId, id)
+    } catch {
+      /* leave the current conversation in place */
+    }
+  }
+
   // Animated 3-dot indicator: live while a turn runs and the trailing assistant
   // bubble still has no text — so it fills the gap before the first event, every
   // step_end→step_start gap, and the wait for the first reply delta, then vanishes
@@ -382,31 +437,57 @@ export function AgentPanel({
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="flex w-full flex-col gap-0 p-0 sm:max-w-lg">
-        <SheetHeader className="border-b p-4">
+        {/* pe-8 reserves room on the right for the Sheet's own absolute close ✕
+         * (top-4 right-4) — without it the ✕ sits on top of the New chat button and
+         * swallows its taps (the bug the owner hit). */}
+        <SheetHeader className="border-b p-4 pe-12">
           <div className="flex items-center justify-between gap-2">
             <SheetTitle>Assistant</SheetTitle>
-            <div className="flex items-center gap-2">
-              {quotaLabel && (
-                <button
-                  type="button"
-                  onClick={() => setUsageOpen(true)}
-                  className="rounded-full focus-visible:ring-ring focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:outline-none"
-                  title="See where your assistant credits went"
-                >
-                  <Badge
-                    variant={quota?.blocked ? "destructive" : "secondary"}
-                    className="cursor-pointer text-[10px]"
+            {canUse && (
+              <div className="flex items-center gap-1.5">
+                {quotaLabel && (
+                  <button
+                    type="button"
+                    onClick={() => setUsageOpen(true)}
+                    className="rounded-full focus-visible:ring-ring focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:outline-none"
+                    title="See where your assistant credits went"
                   >
-                    {quotaLabel}
-                  </Badge>
-                </button>
-              )}
-              {canUse && items.length > 0 && (
-                <Button variant="outline" size="sm" onClick={newChat} disabled={busy}>
-                  <Plus className="size-3.5" aria-hidden /> New chat
+                    <Badge
+                      variant={quota?.blocked ? "destructive" : "secondary"}
+                      className="cursor-pointer text-[10px]"
+                    >
+                      {quotaLabel}
+                    </Badge>
+                  </button>
+                )}
+                {/* History: past conversations (resume any, incl. one started on
+                 * another device). Icon-only to fit the narrow header. */}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-8"
+                  onClick={() => setHistoryOpen(true)}
+                  disabled={busy}
+                  title="Past conversations"
+                  aria-label="Past conversations"
+                >
+                  <History className="size-4" aria-hidden />
                 </Button>
-              )}
-            </div>
+                {items.length > 0 && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-8"
+                    onClick={newChat}
+                    disabled={busy}
+                    title="New chat"
+                    aria-label="New chat"
+                  >
+                    <Plus className="size-4" aria-hidden />
+                  </Button>
+                )}
+              </div>
+            )}
           </div>
           <SheetDescription>Ask me anything, or tell me what to change — I&apos;ll only do what you can do.</SheetDescription>
         </SheetHeader>
@@ -488,6 +569,50 @@ export function AgentPanel({
             </ScrollArea>
           ) : (
             <p className="text-muted-foreground py-6 text-center text-sm">No usage yet today.</p>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* History view — the caller's past conversations. Tap one to reopen it (works
+       * across devices: the list is server-side, so a chat started on the laptop is
+       * here on the phone). Opened from the History button. */}
+      <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Your conversations</DialogTitle>
+            <DialogDescription>Pick up any chat where you left off — on any device.</DialogDescription>
+          </DialogHeader>
+          {threadsLoading ? (
+            <p className="text-muted-foreground py-6 text-center text-sm">Loading…</p>
+          ) : threadsError ? (
+            <p className="text-muted-foreground py-6 text-center text-sm">
+              Couldn&apos;t load your conversations. Try again.
+            </p>
+          ) : threads && threads.length > 0 ? (
+            <ScrollArea className="max-h-80">
+              <ul className="flex flex-col gap-1 pr-3">
+                {threads.map((t) => (
+                  <li key={t.id}>
+                    <button
+                      type="button"
+                      onClick={() => void openThread(t.id)}
+                      disabled={busy}
+                      className="hover:bg-muted focus-visible:ring-ring flex w-full flex-col items-start gap-0.5 rounded-md p-2 text-left focus-visible:ring-2 focus-visible:outline-none disabled:opacity-50"
+                    >
+                      <span className="line-clamp-1 text-sm font-medium">
+                        {t.title || "Conversation"}
+                        {t.id === threadId ? " · current" : ""}
+                      </span>
+                      <span className="text-muted-foreground text-xs">
+                        {formatActivityWhen(t.lastMessageAt ?? t.createdAt)}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </ScrollArea>
+          ) : (
+            <p className="text-muted-foreground py-6 text-center text-sm">No conversations yet.</p>
           )}
         </DialogContent>
       </Dialog>

@@ -46,6 +46,20 @@ const str = (input: Record<string, unknown>, key: string): string => {
   return typeof v === "string" ? v : v == null ? "" : String(v)
 }
 
+/** A role reference for a step/confirm summary: "the Sub Admin role" when the id
+ * resolved to a title (via `names`), else "role <id>" as a graceful fallback. */
+const roleLabel = (input: Record<string, unknown>, names?: Record<string, string>): string => {
+  const id = str(input, "roleId")
+  const title = names?.[id]
+  return title ? `the ${title} role` : `role ${id}`
+}
+
+/** A member reference for a summary: the resolved name/email, else "member <id>". */
+const memberLabel = (input: Record<string, unknown>, names?: Record<string, string>): string => {
+  const id = str(input, "userId")
+  return names?.[id] ?? `member ${id}`
+}
+
 const obj = (props: Record<string, unknown>, required: string[] = []): Record<string, unknown> => ({
   type: "object",
   properties: props,
@@ -190,7 +204,8 @@ export const TOOL_CATALOG: AgentTool[] = [
       title: str(i, "title"),
       description: str(i, "description") || "",
     }),
-    summarize: (i) => `Rename role ${str(i, "roleId")} to "${str(i, "title")}"`,
+    summarize: (i, names) =>
+      `Rename ${roleLabel(i, names)} to "${str(i, "title")}"`,
   },
   {
     name: "set_role_active",
@@ -202,8 +217,8 @@ export const TOOL_CATALOG: AgentTool[] = [
     write: true,
     confirm: false,
     buildBody: (i) => ({ roleId: str(i, "roleId"), active: i.active === true }),
-    summarize: (i) =>
-      `${i.active === true ? "Activate" : "Deactivate"} role ${str(i, "roleId")}`,
+    summarize: (i, names) =>
+      `${i.active === true ? "Activate" : "Deactivate"} ${roleLabel(i, names)}`,
   },
   {
     name: "get_role_permissions",
@@ -216,7 +231,7 @@ export const TOOL_CATALOG: AgentTool[] = [
     write: false,
     confirm: false,
     buildQuery: (i) => `?roleId=${encodeURIComponent(str(i, "roleId"))}`,
-    summarize: (i) => `Read access rights for role ${str(i, "roleId")}`,
+    summarize: (i, names) => `Read access rights for ${roleLabel(i, names)}`,
   },
   {
     name: "set_role_permissions",
@@ -232,7 +247,7 @@ export const TOOL_CATALOG: AgentTool[] = [
     write: true,
     confirm: false,
     buildBody: (i) => ({ roleId: str(i, "roleId"), value: i.value }),
-    summarize: (i) => `Set access rights for role ${str(i, "roleId")}`,
+    summarize: (i, names) => `Set access rights for ${roleLabel(i, names)}`,
   },
   {
     name: "invite_member",
@@ -244,7 +259,11 @@ export const TOOL_CATALOG: AgentTool[] = [
     write: true,
     confirm: false,
     buildBody: (i) => ({ email: str(i, "email"), roleId: str(i, "roleId") }),
-    summarize: (i) => `Invite ${str(i, "email")} as role ${str(i, "roleId")}`,
+    summarize: (i, names) => {
+      const id = str(i, "roleId")
+      const role = names?.[id] ? names[id] : `role ${id}`
+      return `Invite ${str(i, "email")} as ${role}`
+    },
   },
   {
     name: "revoke_invite",
@@ -268,7 +287,11 @@ export const TOOL_CATALOG: AgentTool[] = [
     write: true,
     confirm: false,
     buildBody: (i) => ({ userId: str(i, "userId"), roleId: str(i, "roleId") }),
-    summarize: (i) => `Change member ${str(i, "userId")} to role ${str(i, "roleId")}`,
+    summarize: (i, names) => {
+      const id = str(i, "roleId")
+      const role = names?.[id] ? names[id] : `role ${id}`
+      return `Change ${memberLabel(i, names)} to ${role}`
+    },
   },
   {
     name: "remove_member",

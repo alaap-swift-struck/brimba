@@ -9,7 +9,7 @@
 import { describe, expect, it } from "vitest"
 
 import { sseFrame, terminalEvent } from "../src/routes/agent"
-import { parseAnthropicStream } from "../src/lib/model"
+import { parseAnthropicStream, supportsEffort } from "../src/lib/model"
 import type { ChatOutcome, StreamEvent } from "../../../shared/types"
 import type { AgentQuota } from "../../../shared/types"
 
@@ -34,6 +34,17 @@ function bodyOf(...chunks: string[]): ReadableStream<Uint8Array> {
     },
   })
 }
+
+describe("supportsEffort: only send output_config.effort where the model accepts it", () => {
+  it("true for the Sonnet-5 / Opus-4.7+ / Fable family (incl. dated ids)", () => {
+    for (const m of ["claude-sonnet-5", "claude-sonnet-5-20260930", "claude-opus-4-8", "claude-opus-4-7", "claude-fable-5"])
+      expect(supportsEffort(m), m).toBe(true)
+  })
+  it("false for older tiers that 400 on effort (so AGENT_MODEL can swap to them)", () => {
+    for (const m of ["claude-haiku-4-5", "claude-sonnet-4-6", "claude-opus-4-6", "claude-3-5-haiku"])
+      expect(supportsEffort(m), m).toBe(false)
+  })
+})
 
 describe("sseFrame: each event serializes to one data: frame", () => {
   it("wraps every event shape as `data: <json>\\n\\n`", () => {

@@ -42,6 +42,15 @@ export interface Model {
 
 /* --------------------------------- Claude --------------------------------- */
 
+/** Which Claude models accept `output_config.effort`. The Sonnet-5 / Opus-4.7+ /
+ * Fable family support it; older tiers (Haiku 4.5, Sonnet/Opus ≤4.6) 400 on it. We
+ * match by family so a dated id (e.g. `claude-sonnet-5-20260930`) still resolves. A
+ * new/unknown id is treated as NOT supporting it — the safe default (a missing knob
+ * just costs a little more; an unsupported one is a hard 400). */
+export function supportsEffort(model: string): boolean {
+  return /claude-(sonnet-5|opus-4-(7|8)|fable|mythos)/.test(model)
+}
+
 type AnthropicBlock =
   | { type: "text"; text: string }
   | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> }
@@ -93,13 +102,15 @@ class ClaudeModel implements Model {
     return {
       model: this.name,
       max_tokens: 1024,
-      // Effort controls reasoning depth + overall token spend (GA on Sonnet 5, no
-      // beta header). "low" = terse, consolidated tool calls — the cheap setting.
-      // We leave `thinking` unset on purpose: Sonnet 5 runs adaptive thinking by
-      // default and keeps it minimal at low effort, which also keeps it willing to
-      // reach for tools. (Never send temperature/top_p or budget_tokens here — both
-      // 400 on Sonnet 5 / the Opus-4.7+ family.)
-      output_config: { effort: this.effort },
+      // Effort controls reasoning depth + overall token spend (GA on the Sonnet-5 /
+      // Opus-4.7+ family, no beta header). "low" = terse, consolidated tool calls —
+      // the cheap setting. We leave `thinking` unset on purpose: those models run
+      // adaptive thinking by default and keep it minimal at low effort, which also
+      // keeps them willing to reach for tools. `effort` is sent ONLY to models that
+      // support it — older tiers (e.g. Haiku 4.5) reject `output_config.effort` with
+      // a 400, so swapping AGENT_MODEL to one of those must not carry it. (Never send
+      // temperature/top_p or budget_tokens on the 4.7+ family — each is a 400.)
+      ...(supportsEffort(this.name) ? { output_config: { effort: this.effort } } : {}),
       ...(stream ? { stream: true } : {}),
       ...(system ? { system } : {}),
       messages: msgs,

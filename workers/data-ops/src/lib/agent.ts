@@ -105,18 +105,31 @@ function replayable(history: { role: string; content: string | null }[]): ChatMe
     .map((m) => ({ role: m.role as "user" | "assistant", content: m.content as string }))
 }
 
-/** Resolve the ids the two confirming tools echo (a member's userId, an invite's
- * inviteId) to friendly names so the confirm panel reads "Remove Jane Doe" not a
- * ULID. Fetched AS the caller (forwarded cookie) via the same door executeTool
- * uses; a miss falls back to the raw id, and a lookup error never fails the turn. */
-async function resolveConfirmNames(
+/** Does this call carry an id worth resolving to a human name (a member/invite/role)?
+ * Used to skip the extra lookups on a turn of pure reads (list_*). */
+function hasNameableId(input: Record<string, unknown>): boolean {
+  return (
+    typeof input.userId === "string" ||
+    typeof input.inviteId === "string" ||
+    typeof input.roleId === "string"
+  )
+}
+
+/** Resolve the ids a turn's tools echo — a member's userId, an invite's inviteId,
+ * a role's roleId — to friendly names, so every step/confirm summary reads
+ * "Invite sam@x.com as Viewer" / "Deactivate the Sub Admin role" instead of a raw
+ * ULID. Only fetches the lists a turn actually needs (roles/members/invites), AS
+ * the caller (forwarded cookie) via the same door executeTool uses; a miss falls
+ * back to the raw id, and a lookup error never fails the turn. */
+async function resolveNames(
   env: Env,
   request: Request,
   calls: ToolCall[]
 ): Promise<Record<string, string>> {
   const names: Record<string, string> = {}
-  const wantMembers = calls.some((c) => c.name === "remove_member")
-  const wantInvites = calls.some((c) => c.name === "revoke_invite")
+  const wantMembers = calls.some((c) => typeof c.input.userId === "string")
+  const wantInvites = calls.some((c) => typeof c.input.inviteId === "string")
+  const wantRoles = calls.some((c) => typeof c.input.roleId === "string")
   const cookie = request.headers.get("Cookie") ?? ""
   const get = async (path: string): Promise<unknown> => {
     const res = await env.TENANCY.fetch(`https://internal${path}`, { headers: { Cookie: cookie } })
@@ -135,6 +148,10 @@ async function resolveConfirmNames(
     if (wantInvites) {
       const data = (await get("/api/tenancy/invites")) as { invites?: { id: string; email: string }[] } | null
       for (const i of data?.invites ?? []) names[i.id] = i.email
+    }
+    if (wantRoles) {
+      const data = (await get("/api/tenancy/roles")) as { roles?: { id: string; title: string }[] } | null
+      for (const r of data?.roles ?? []) names[r.id] = r.title
     }
   } catch {
     /* a lookup hiccup just leaves the raw id in the summary — never fail the turn */
@@ -286,8 +303,8 @@ async function runPlanLoop(
         ),
         source: opts.source,
       })
-      // Resolve the confirming calls' ids to names so the panel reads plainly.
-      const names = await resolveConfirmNames(env, request, valid)
+      // Resolve the calls' ids (member/invite/role) to names so the panel reads plainly.
+      const names = await resolveNames(env, request, valid)
       // This turn ends here (paused for the user's yes/no) — log the units it spent
       // reaching the proposal; confirmAndRun logs its own row when it resumes.
       await log()
@@ -317,19 +334,14 @@ async function runPlanLoop(
     })
     convo.push({ role: "assistant", content: reply.text, toolCalls: reply.toolCalls })
 
-    // Resolve any member/invite ids the turn's tools echo → friendly names, so a
-    // step summary reads "Remove Jane Doe" not a ULID (same seam the confirm panel
-    // uses). Only the two confirming tools echo an id worth naming, and those never
-    // reach this (execution) path — they return above for a yes/no. So skip the
-    // extra /members + /invites round-trips unless a confirming tool is actually
-    // present; every other tool ignores names, so {} costs nothing. Streaming only.
+    // Resolve any member/invite/role ids the turn's tools echo → friendly names, so a
+    // step summary reads "Deactivate the Sub Admin role" / "Invite sam@x.com as
+    // Viewer" not a ULID. Skip the extra lookups on a turn of pure reads (no nameable
+    // id); resolveNames itself fetches only the lists actually needed. Streaming only
+    // (the JSON path has no step rows to label).
     const names =
-      emit &&
-      reply.toolCalls.some((tc) => {
-        const t = getTool(tc.name)
-        return t && requiresConfirm(t)
-      })
-        ? await resolveConfirmNames(env, request, reply.toolCalls)
+      emit && reply.toolCalls.some((tc) => hasNameableId(tc.input))
+        ? await resolveNames(env, request, reply.toolCalls)
         : {}
     let failed = false
     for (const tc of reply.toolCalls) {
@@ -425,7 +437,7 @@ export async function confirmAndRun(
   const calls: ToolCall[] = proposed.map((p, i) => ({ id: `call_${i}`, name: p.name, input: p.input }))
   // Resolve the confirming calls' ids → friendly names so the step summary reads plainly
   // (same seam the confirm panel used to build these very summaries). Only when streaming.
-  const names = emit ? await resolveConfirmNames(env, request, calls) : {}
+  const names = emit ? await resolveNames(env, request, calls) : {}
   const toolMsgs: ChatMessage[] = []
   let failed = false
   for (const tc of calls) {
