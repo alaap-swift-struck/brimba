@@ -105,44 +105,44 @@ window.LEAN_MEAN_DATA = {
   "project": "Brimba",
   "scannedAt": "2026-07-02",
   "overall": {
-    "score": 90,
+    "score": 92,
     "grade": "A",
-    "verdict": "Still an A after a second major build — the agent co-pilot landed with more tests and a real manual; the debt is one oversized screen file and repeated route boilerplate.",
-    "sub": "216 files · 21.6k lines · 205 tests · 6 workers + web"
+    "verdict": "An A-grade base that got leaner and better-tested through the agent-failure round — the host file split into named concerns, the risky new wire-format and money-safety are test-locked, and the docs can now rebuild the base from zero.",
+    "sub": "219 files · 22.1k lines · 214 tests · 6 workers + web"
   },
   "dimensions": [
     {
       "key": "size",
       "title": "Size & Scope",
       "icon": "📦",
-      "score": 85,
+      "score": 86,
       "status": "green",
-      "headline": "Grown but purposeful",
+      "headline": "God-file split up",
       "metrics": [
         {
           "label": "Files",
-          "value": "216"
+          "value": "219"
         },
         {
           "label": "Lines",
-          "value": "21.6k"
+          "value": "22.1k"
         },
         {
-          "label": "Over 400 LOC",
-          "value": "6 files"
+          "label": "Biggest file",
+          "value": "706 (was 823)"
         }
       ],
       "strengths": [
-        "21.6k lines for a full multi-tenant base, 5 modules and a streaming AI co-pilot — compact for what it does."
+        "The 823-line host (deep-link-screen.tsx) dropped to 706 — its read layer and write layer moved into named hooks (use-screen-data, use-screen-actions)."
       ],
       "improvements": [
         {
-          "what": "The main screen file keeps growing (823 lines).",
-          "why": "deep-link-screen.tsx holds fetch + dispatch + dialog wiring for every module; carried from the last report at 671 — split per module before it hits 1,000."
+          "what": "The AI panel grew as it gained history + resume (~591 lines).",
+          "why": "agent-panel.tsx is cohesive but now the second-biggest file; its two dialogs (usage, history) could extract if it grows again."
         },
         {
-          "what": "Four more files are nearing 500 lines.",
-          "why": "agent-panel.tsx, tools.ts, agent.ts, teams.ts grew with the agent round — split the tool catalog by module the next time it grows."
+          "what": "Six files still over 400 lines.",
+          "why": "deep-link-screen (706), agent-panel (591), tools/agent/teams/api — natural for a base this capable; split the tool catalog by module next."
         }
       ]
     },
@@ -150,36 +150,32 @@ window.LEAN_MEAN_DATA = {
       "key": "robustness",
       "title": "Robustness",
       "icon": "🛡️",
-      "score": 93,
+      "score": 95,
       "status": "green",
-      "headline": "Tested and defended",
+      "headline": "Risky logic locked",
       "metrics": [
         {
           "label": "Tests",
-          "value": "205"
+          "value": "214"
         },
         {
           "label": "Test files",
-          "value": "31"
+          "value": "32"
         },
         {
-          "label": "Guard signals",
-          "value": "710"
+          "label": "New this round",
+          "value": "+5 groups"
         }
       ],
       "strengths": [
-        "Machine-checked Laws + a publish-seam test per worker — breaking a rule turns the build red.",
-        "Boundary validation everywhere; race-safe credits and last-admin invariants; the security sweep's one real XSS is fixed and test-locked.",
-        "The streaming wire contract is unit-locked and live-verified against the real model."
+        "The new wire-format coalescing (toAnthropicMessages) is unit-locked — the exact multi-tool + wrap-up shape that would otherwise 400 the API.",
+        "A source-invariant test locks the credit money-safety guard (never-negative balance) so a refactor can't drop it.",
+        "Machine-checked Laws + a publish-seam test per worker; the one security XSS is fixed and test-locked."
       ],
       "improvements": [
         {
-          "what": "Two known races have no regression test yet.",
-          "why": "the confirm-resume rebuild and the credit race are review-verified only — a test locks them against future refactors."
-        },
-        {
-          "what": "Browser end-to-end flows still run by hand.",
-          "why": "the Playwright scaffold isn't in CI; a seeded staging account would catch UI regressions unit tests can't."
+          "what": "The confirm-resume rebuild + browser e2e still lean on manual verification.",
+          "why": "both are review- and staging-verified; a DB-level integration test would lock them fully."
         }
       ]
     },
@@ -187,17 +183,17 @@ window.LEAN_MEAN_DATA = {
       "key": "documentation",
       "title": "Documentation",
       "icon": "📖",
-      "score": 94,
+      "score": 96,
       "status": "green",
-      "headline": "A real manual now",
+      "headline": "Rebuildable from docs",
       "metrics": [
         {
-          "label": "Doc lines",
-          "value": "4.1k"
+          "label": "Doc files",
+          "value": "24"
         },
         {
-          "label": "Docs",
-          "value": "23 files"
+          "label": "Runbook",
+          "value": "BOOTSTRAP"
         },
         {
           "label": "Comments",
@@ -205,13 +201,14 @@ window.LEAN_MEAN_DATA = {
         }
       ],
       "strengths": [
-        "The 6-doc manual explains how AND why (BASE-MANUAL → EDGE-CASES), with a 'read in this order' path in the README.",
-        "Comments explain the non-obvious; the glossary keeps one name per concept, and the docs were reconciled to the build."
+        "BOOTSTRAP.md is a command-by-command 'rebuild from a fresh account' runbook — the concrete answer to 'could I recreate the base from GitHub?'",
+        "BASE-MANUAL now covers forking the base for a new product AND how every subsystem scales; the README states the 7-point completeness bar the docs are held to.",
+        "Drift-prone line-number citations were stripped in favour of stable function/file names."
       ],
       "improvements": [
         {
-          "what": "Some docs cite exact line numbers.",
-          "why": "EDGE-CASES points at agent.ts line ranges that drift with every edit — prefer function names."
+          "what": "A couple of reference docs still describe planned pieces.",
+          "why": "the external mcp worker is correctly marked PLANNED everywhere, but a reader must cross-check status — a one-line status header per doc would help."
         }
       ]
     },
@@ -219,17 +216,17 @@ window.LEAN_MEAN_DATA = {
       "key": "understandability",
       "title": "Understandability",
       "icon": "🧭",
-      "score": 89,
+      "score": 91,
       "status": "green",
-      "headline": "One shape everywhere",
+      "headline": "Fetch, act, render",
       "metrics": [
         {
           "label": "Worker shape",
           "value": "1 pattern"
         },
         {
-          "label": "Screens",
-          "value": "recipes"
+          "label": "Host reads",
+          "value": "fetch→act→render"
         },
         {
           "label": "TODOs",
@@ -237,12 +234,13 @@ window.LEAN_MEAN_DATA = {
         }
       ],
       "strengths": [
-        "Every worker mirrors the same switchboard → routes → lib → gating shape; screens are declarative recipes, and CONVENTIONS.md documents the pattern."
+        "The deep-link host now reads as three named concerns (useScreenData → useScreenActions → render) instead of one 800-line wall.",
+        "Every worker mirrors the same switchboard → routes → lib → gating shape; conventions are documented, not tribal."
       ],
       "improvements": [
         {
-          "what": "The 823-line host file makes module wiring non-local.",
-          "why": "a new dev or agent hunting one module's dialog reads the whole file today — same split as Size & Scope."
+          "what": "The host still holds nav + trace + render inline.",
+          "why": "the remaining ~700 lines are navigation, trace wiring and JSX — a further split is possible but higher-risk; not worth it right before a ship."
         }
       ]
     },
@@ -252,28 +250,28 @@ window.LEAN_MEAN_DATA = {
       "icon": "♻️",
       "score": 88,
       "status": "green",
-      "headline": "DRY and improving",
+      "headline": "DRY, wrapper deferred",
       "metrics": [
         {
           "label": "Duplication",
-          "value": "6.7% (was 7.3%)"
-        },
-        {
-          "label": "TODOs",
-          "value": "1"
+          "value": "6.7%"
         },
         {
           "label": "UI",
           "value": "one library"
+        },
+        {
+          "label": "TODOs",
+          "value": "1"
         }
       ],
       "strengths": [
-        "Duplication FELL during a feature round; UI primitives come from the shared library, never copied into the host."
+        "UI primitives come from the shared library; the extracted hooks removed inline duplication in the host."
       ],
       "improvements": [
         {
-          "what": "Every route repeats the same four-step dance.",
-          "why": "teamContext → requireRight → parse → publish appears in nearly every handler; a thin wrapper trims the duplication and removes the risk of an inconsistently-gated route (carried)."
+          "what": "Route handlers still repeat the gate-then-work shape.",
+          "why": "the teamContext→requireRight boilerplate remains (~6.7% dup); a wrapper is DEFERRED on purpose — the 56 handlers gate heterogeneously, so a blanket wrapper right before a prod ship is the wrong risk. Do it as a dedicated, test-backed task."
         }
       ]
     },
@@ -283,7 +281,7 @@ window.LEAN_MEAN_DATA = {
       "icon": "📐",
       "score": 92,
       "status": "green",
-      "headline": "Seams that held",
+      "headline": "Seams + knobs",
       "metrics": [
         {
           "label": "Workers",
@@ -299,27 +297,28 @@ window.LEAN_MEAN_DATA = {
         }
       ],
       "strengths": [
-        "The model seam proved itself — swapping Workers AI for Claude was one line; bulk, live-sync and the Laws are registries, not copies."
+        "Every growth axis (teams, roles, invites, emails, realtime, the agent) scales by an existing seam or knob — now written up in BASE-MANUAL §6.",
+        "The model seam proved itself: effort-only-where-supported means AGENT_MODEL can swap to a cheaper brain with no code change."
       ],
       "improvements": [
         {
-          "what": "The external MCP worker is still a plan.",
-          "why": "the token→session bridge is designed in ARCHITECTURE.md but unbuilt; building it on the existing gating seam keeps the structure clean."
+          "what": "The external mcp worker is still a plan.",
+          "why": "the token→session bridge is designed but unbuilt; build it on the existing gating seam."
         }
       ]
     }
   ],
   "callouts": {
     "strong": [
-      "Held an A through a second major build — with more tests and a real manual.",
-      "The permission spine proved itself live: a Viewer's agent couldn't overstep."
+      "The docs can now rebuild the base from zero (BOOTSTRAP) and scale it (BASE-MANUAL §6).",
+      "The risky new wire-format + credit money-safety are test-locked — regressions can't ship silently."
     ],
     "watch": [
-      "deep-link-screen.tsx grew 671 → 823 lines (carried twice) — split it next.",
-      "Route boilerplate (~6.7% duplication) — one thin wrapper fixes it."
+      "agent-panel.tsx grew to ~591 lines with history/resume — watch it.",
+      "Route boilerplate (~6.7%) — the wrapper is deferred, not forgotten."
     ],
     "fix": [
-      "Lock the confirm-resume and credit-race behaviors with regression tests."
+      "Build the external mcp worker on the existing seam when the machine surface is needed."
     ]
   }
 };
