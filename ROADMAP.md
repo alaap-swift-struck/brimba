@@ -1,5 +1,13 @@
 # Roadmap — members, roles & settings build-out (Phase C)
 
+> **Where things stand (2026-07-02).** Everything below SHIPPED, and a whole
+> further era shipped after it: learning + help + CSV import + the streaming AI
+> agent co-pilot (branch `agent-modules`, staging). This file is the Phase-C
+> HISTORY + its still-open tail (see "Remaining"); for the current system read
+> README.md → BASE-MANUAL.md, and for what's next: the owner's staging verdict,
+> the external `mcp` worker (ARCHITECTURE.md, PLANNED), the two deferred perf
+> wins (EDGE-CASES.md), and the `lean-mean-report.md` fix list.
+
 Decided 2026-06-13 with the user. Built **sequentially, phase by phase**, each
 shipped to staging. This file is the contract — keep the seams stable so phases
 don't drift.
@@ -188,8 +196,9 @@ Then the Foundation phase (below) resumes.
    role's detail too (not just the user's + team feed), add `subject_role_id` to the
    per-team `activity` table (a team-schema migration + a `migrate-teams` roll).
 3. **Nice-to-haves:** extract a reusable `<PageGuard>`; graduate the
-   `auth-card`/`code-input`/dropdown-opacity/selectable-list temps into the library
-   (UI-GAPS.md).
+   `auth-card`/`code-input` temps into the library (UI-GAPS.md #1–#2 — the
+   dropdown-opacity + selectable-list items shipped 2026-06-18 and their
+   stopgaps are already removed).
 
 ## Pace (why sequential, not parallel)
 

@@ -106,9 +106,12 @@ separate). Two targets are wired today: `member_roles` + `learning`.
 ### agent_usage — KEEP (BUILT 2026-06-23, GLOBAL — `db/core/0009`)
 Purpose: the per-team **free** half of the AI agent quota. Real data: `team_id`,
 `period` (the metering window, a `'YYYY-MM-DD'` day — the free counter resets
-daily), `used` (AI units consumed this window), `updated_at`. The shared agent
-gate increments `used` before each AI call and, once a team is over its free
-daily allowance (**25/day**), spends from the credit balance instead. Lives in
+daily), `used` (AI units consumed this window), `updated_at`. One unit = one
+model call, metered before EACH call inside a turn (a multi-step turn costs one
+unit per step, capped by `MAX_STEPS`; declining a confirm costs nothing; running
+dry mid-plan stops the turn with a saved, plain reply). Once a team is over its
+free daily allowance (default **25/day**, per-env via the `AGENT_FREE_DAILY` var
+— staging runs 50), the gate spends from the credit balance instead. Lives in
 the global core DB so the gate can check it without opening a team database.
 
 ### agent_credits — KEEP (BUILT 2026-06-23, GLOBAL — `db/core/0010`)
@@ -121,12 +124,21 @@ empty the agent is blocked. Top-ups are an owner action today
 later against this same balance (the grant action is the seam). Lives in the
 global core DB so the gate can spend a unit without opening a team database.
 
-### selectable_data_types — KEEP (TO BUILD) — **OPEN Q2 (scope)**
+### agent_usage_log — KEEP (BUILT 2026-07-01, GLOBAL — `db/core/0011`)
+Purpose: the per-turn usage TRAIL behind the panel's "where did my credits go"
+view. Real data: `id`, `team_id`, `actor_id`, `actor_name`, `created_at`,
+`credits` (units this turn consumed), `source` (`free` / `credit` / `mixed`),
+`summary` (the user's ask, trimmed). One row per agent turn, written best-effort
+(a log hiccup never fails the turn); read newest-first, team-scoped, via
+`GET /api/data-ops/agent/usage-log`. Lives in the global core DB beside the
+quota tables it explains.
+
+### selectable_data_types — KEEP (TO BUILD) — Q2 RESOLVED (see Resolutions:
+global standard GROUPS + per-team VALUES)
 Glide: 3 rows (`File type`, `Learning category`, `Help type`), no team key, no
 audit → a tiny GLOBAL reference of dropdown GROUPS. But the values table also
 uses `Help status` (not listed as a type) and `Learning category` has no
-values. So the types list and the values were loosely coupled in Glide. Need to
-decide: global authoritative group list vs per-team. (Q2.)
+values. So the types list and the values were loosely coupled in Glide.
 
 ---
 
@@ -139,7 +151,8 @@ then **24 boolean columns** = 6 modules × {read,create,edit,delete}. Modules:
 our `TEAM_MODULES`. We store the 24 booleans as a TALL `role_permissions` sheet
 (role × module × 4 bits) so a new module = new rows, not new columns. `is_default`
 flags the seeded Admin (locked) + Viewer. Roles are **edit-live + deactivate-only,
-never delete** (holders keep the role). **OPEN Q4**: Viewer locked or editable?
+never delete** (holders keep the role). Q4 RESOLVED (see Resolutions): Admin
+locked; Viewer is a normal editable role.
 
 ### selectable_data — KEEP (built, per-team)
 Real data: audit block + `type`, `value`, `is_default`. Per-team dropdown
@@ -198,7 +211,11 @@ preview + the write result). In Brimba the data-ops worker drives the 3 stages
 the target's gated create endpoint (so each import respects the caller's
 permissions + the module's own validation). Gated by the target's `create`
 right — import has no key of its own. **Export needs READ, import needs CREATE**
-(the cross-cutting rule).
+(the cross-cutting rule). A partial run is NOT a transaction: each row is an
+independent gated create, and confirm returns per-row truth — `{created,
+skipped, failed}` counts + up to five error messages — recorded on the session
+(rows missing required values are skipped at preview; a failed row never blocks
+the rest).
 
 ### agent_threads + agent_messages — KEEP (BUILT 2026-06-23, team migration `0004_modules`) — the AI agent's saved conversations
 The agent gets its OWN tables (not help's). `agent_threads`: audit + the thread

@@ -13,6 +13,15 @@ UI wiring all shipped). **Phase 5 (quality + docs + ship) is IN PROGRESS** — t
 docs are being reconciled now. **Still remaining:** the external **`mcp`** worker
 (Phase 3C below) + a few small deferred hooks (listed at the end).
 
+> **HISTORICAL PLAN — where a detail below disagrees with the shipped truth, the
+> manual wins** (BASE-MANUAL.md + EDGE-CASES.md). Details superseded since this
+> was written: the confirm rule shipped NARROW (only the destructive acts —
+> remove member, revoke invite — plus the bulk tools confirm-with-count; not the
+> ">1 row OR delete-type OR dangerous table" heuristic in Phase 3A); Workers AI
+> does FULL tool calling (not "text-only answers"); the chat later gained SSE
+> streaming + a step log (Phase 2 of the round-4 overhaul); the brain is Claude
+> Sonnet 5 when the key is set.
+
 ## Guiding rules (carried from the base build)
 - **Green at every step** — `npm run check` passes after each phase.
 - **The agent acts AS the signed-in user**, through the SAME gated endpoints the UI

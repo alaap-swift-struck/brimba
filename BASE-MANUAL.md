@@ -66,6 +66,7 @@ everything that is about *identity and billing across teams*:
 | `importable_databases` | the owner-maintained import target catalogue | `db/core/0008` |
 | `agent_usage` | per-team free daily AI counter | `db/core/0009` |
 | `agent_credits` | per-team purchasable AI balance | `db/core/0010` |
+| `agent_usage_log` | per-turn usage trail (when · who · credits · why) | `db/core/0011` |
 
 **One isolated D1 database per team, reached over the D1 REST door.** Each team
 gets its *own* database holding all of that team's content: `member_roles` +
@@ -193,18 +194,24 @@ call"), but the safety is structural, not a prompt promise.
 
 Four more structural guards layer on top (all in `agent.ts` / `tools.ts`):
 
-- **Confirm rule** — only the two irreversible-feeling acts (remove a member,
-  revoke an invite; `confirm: true`) pause for a yes/no panel. The proposal is
-  stored server-side, so `/confirm` runs exactly what the model proposed — a
-  client can't approve a call it was never shown.
+- **Confirm rule** — the two irreversible-feeling acts (remove a member, revoke
+  an invite) and the two high-blast BULK tools (`bulk_set_learning_active`,
+  `bulk_set_help_status`, whose summary carries the row COUNT) are `confirm: true`
+  and pause for a yes/no panel; every other tool runs straight away (the server
+  still gates each call by the caller's rights). The proposal is stored
+  server-side, so `/confirm` runs exactly what the model proposed — a client
+  can't approve a call it was never shown.
 - **Catastrophic blocks** — controlling device sessions and deleting the team are
   simply *not in the catalogue*; `identityBlocked` is the belt-and-braces backstop
   in `executeTool`.
 - **Fenced tool results** — a tool's output goes back to the model as DATA
   (`role:"tool"`), never as instructions.
-- **A step cap** (`MAX_STEPS`) and a **credit quota** (free 25/day via
-  `agent_usage` + a purchasable balance in `agent_credits`) bound runaways and
-  abuse. Every turn is saved to `agent_threads`/`agent_messages` — the audit trail.
+- **A step cap** (`MAX_STEPS`) and a **credit quota** (a free daily allowance via
+  `agent_usage` — default 25/day, per-env via the `AGENT_FREE_DAILY` var, staging
+  runs 50 — + a purchasable balance in `agent_credits`) bound runaways and
+  abuse. Every turn is saved to `agent_threads`/`agent_messages` — the audit
+  trail — and each turn writes one `agent_usage_log` row (when · who · credits ·
+  why) that powers the usage view behind the panel's quota badge.
 
 ---
 

@@ -99,11 +99,17 @@ Layer 3). The engine wires `searchable` fields → the library `searchKeys`,
 `filterable` fields → filter facets, and chooses client vs server by the hint —
 so turning on search for a new screen is a recipe edit, not new plumbing.
 
-## Status
+## Status (updated 2026-07-02)
 
-- **Layer 1 + the library search/filter UI**: the library build is specced
-  ([UI-GAPS.md](UI-GAPS.md) #7); once it ships, the app turns search + facets on
-  for members / roles / invites (client-side).
-- **Layer 2 + 3**: designed here, built per record module when the content /
-  data-ops workers land (those modules don't exist on disk yet). The FTS5
-  migration ships with each searchable module.
+- **Layer 1 + the library search/filter UI**: SHIPPED — the library search/filter
+  bar landed and the app turned it on across the collections (members / roles /
+  invites / dropdowns / learning / help) via the recipes (`listCollection` +
+  `withDataDrivenCollection`, which hides search/filters when a list is empty or
+  a facet has no options). See UI-CONVENTIONS §6.
+- **Layer 2 (server-side filters)**: available through the recipes' hints where a
+  list is bounded; nothing needed beyond the shipped client-side layer at today's
+  data sizes.
+- **Layer 3 (FTS5 full-text)**: designed here, NOT BUILT — the content/data-ops
+  workers shipped (2026-06-23) without it because client-side search over the
+  cached list covers current volumes. The FTS5 migration ships with the first
+  module whose data outgrows the client-side layer.

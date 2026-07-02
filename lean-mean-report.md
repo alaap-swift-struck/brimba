@@ -1,46 +1,48 @@
 # Lean Mean Check — Brimba
-Scanned 2026-06-23 · Overall 91/100 (Grade A) · An A-grade base that held its quality through a major build (5 modules + an AI agent); robustness up via 139 tests + a security pass.
+Scanned 2026-07-02 · Overall 90/100 (Grade A) · Still an A after a second major build — the agent co-pilot landed with more tests and a real manual; the debt is one oversized screen file and repeated route boilerplate.
 
 ## Fix first (ordered by impact)
-- [ ] **(Security/Leanness)** Library: make `ArticleBody` reject `javascript:`/`data:`/`vbscript:` link schemes — _why:_ it's the real stored-XSS sink; the Brimba server is already patched (`workers/content/src/lib/learning.ts` `safeLink`/`safeBody`), but the renderer is the proper fix — _where:_ `swift-struck-ui` `registry/collections/article-body/` (owner runs the library — paste-ready prompt provided).
-- [ ] **(Size/Understandability)** Split `web/components/deep-link-screen.tsx` (671 LOC) — _why:_ it holds data-fetch + dispatch + dialogs for every module; extracting per-module pieces lowers surprise and speeds edits/review — _where:_ `web/components/deep-link-screen.tsx`.
-- [ ] **(Leanness)** Factor the repeated route-handler shape (`teamContext → requireRight → parse → publish`) into a thin wrapper — _why:_ ~7.3% duplication; a wrapper trims it and removes the risk of an inconsistently-gated route — _where:_ `workers/*/src/routes/*`.
-- [ ] **(Robustness)** Add regression tests for the agent confirm-resume rebuild + the credit race — _why:_ both are covered by the review but not yet locked by a test — _where:_ `workers/data-ops/test/`.
-- [ ] **(Documentation)** Add a short "start here" map to the root README linking the rulesets — _why:_ orients a new reader (or agent) faster than diving into ARCHITECTURE cold — _where:_ `README.md`.
-- [ ] **(Scalability)** Build the external `mcp` worker on the existing gating seam — _why:_ it's the one remaining worker (the external auth surface); reusing the seam keeps the structure clean — _where:_ `workers/mcp/` (new).
-- [ ] **(Robustness, carried)** Wire the scaffolded Playwright e2e into CI with a seeded staging account — _why:_ browser flows still run by hand; carried from the base report — _where:_ `web/e2e/`.
+- [ ] **(Size/Understandability)** Split `web/components/deep-link-screen.tsx` (823 LOC, carried twice: 671 → 823) — _why:_ it holds fetch + dispatch + dialog wiring for every module; extracting per-module pieces makes each module's wiring local and reviewable — _where:_ `web/components/deep-link-screen.tsx`.
+- [ ] **(Leanness)** Factor the repeated route-handler shape (`teamContext → requireRight → parse → publish`) into a thin wrapper — _why:_ ~6.7% duplication; a wrapper trims it and removes the risk of an inconsistently-gated route — _where:_ `workers/*/src/routes/*`.
+- [ ] **(Robustness)** Add regression tests for the agent confirm-resume conversation rebuild + the credit race — _why:_ both are review-verified only; a test locks them against refactors — _where:_ `workers/data-ops/test/`.
+- [ ] **(Robustness, carried)** Wire the scaffolded Playwright e2e into CI with a seeded staging account — _why:_ browser flows still run by hand — _where:_ `web/e2e/`.
+- [ ] **(Documentation)** Replace line-number citations in docs with function names — _why:_ EDGE-CASES cites `agent.ts` line ranges that drift with every edit — _where:_ `EDGE-CASES.md` §6.
+- [ ] **(Scalability)** Build the external `mcp` worker on the existing gating seam — _why:_ the one remaining planned worker (the external machine surface) — _where:_ `workers/mcp/` (new).
+- [ ] **(Size, watch)** `agent-panel.tsx` (470), `tools.ts` (463), `agent.ts` (458), `teams.ts` (453) are nearing 500 — _why:_ natural agent-round growth; split the tool catalog by module next time it grows — _where:_ those files.
+
+Done since the 2026-06-23 report: README "start here" map ✓ (the 6-doc manual + onboarding path), duplication down 7.3% → 6.7% ✓, tests 139 → 205 ✓, the agent failure path now explains itself ✓. Still with the owner (library repo): the `ArticleBody` link-scheme fix in `swift-struck-ui` (Brimba's server is already patched).
 
 ## Scores
 | Dimension | Score | Status |
 |---|---|---|
-| Size & Scope | 88 | green |
-| Robustness | 92 | green |
-| Documentation | 92 | green |
-| Understandability | 90 | green |
+| Size & Scope | 85 | green |
+| Robustness | 93 | green |
+| Documentation | 94 | green |
+| Understandability | 89 | green |
 | Leanness & Optimization | 88 | green |
 | Scalability & Structure | 92 | green |
 
 ## Full findings
-### Size & Scope — 88/100 (green)
-- Strengths: 16.6k LOC for a whole multi-tenant base + 5 modules + an AI agent; only 2 files over 400 LOC.
-- To improve: split the 671-line `deep-link-screen.tsx`.
+### Size & Scope — 85/100 (green)
+- Strengths: 21.6k LOC for a full multi-tenant base + 5 modules + a streaming AI co-pilot; scope matches purpose.
+- To improve: split the 823-line `deep-link-screen.tsx` (carried twice); watch the four files nearing 500 LOC.
 
-### Robustness — 92/100 (green)
-- Strengths: a publish-seam "can't-forget" test per worker; gating + runtime validation on every route; race-safe invariants (>=1 admin, never-negative credits); 12 adversarial-review findings fixed (stored-XSS, quota bypass, confirm-binding, import caps).
-- To improve: add regression tests for the agent confirm-resume conversation rebuild and the credit race.
+### Robustness — 93/100 (green)
+- Strengths: 205 tests incl. machine-checked Laws (R1–R8) + a publish-seam test per worker; boundary validation everywhere; race-safe credits/last-admin invariants; the security sweep's one real XSS fixed + test-locked; the streaming wire contract unit-locked and live-verified.
+- To improve: regression tests for confirm-resume + the credit race; e2e into CI.
 
-### Documentation — 92/100 (green)
-- Strengths: 14 dense rulesets (ARCHITECTURE/DATA-MODEL/CACHING/CONCURRENCY/OPERATIONS) + 14% meaningful "why" comments; docs reconciled to the build (story-check clean).
-- To improve: a short README "start here" map linking the rulesets.
+### Documentation — 94/100 (green)
+- Strengths: the 6-doc manual (BASE-MANUAL, BUILD-A-MODULE, CONVENTIONS, UI-CONVENTIONS, DURABLE-OBJECTS, EDGE-CASES) explains how AND why, with a "read in this order" README path; 15% meaningful comments; one glossary, one name per concept.
+- To improve: swap line-number doc citations for function names.
 
-### Understandability — 90/100 (green)
-- Strengths: every worker mirrors one shape (switchboard + routes + lib + shared gating); declarative ROUTES + screen recipes make intent obvious.
-- To improve: split the host file so each module's wiring is local.
+### Understandability — 89/100 (green)
+- Strengths: one worker shape everywhere (switchboard → routes → lib → gating); screens are declarative recipes; conventions are documented, not tribal.
+- To improve: the 823-line host file makes module wiring non-local.
 
 ### Leanness & Optimization — 88/100 (green)
-- Strengths: 9 shared worker seams; UI primitives from one library (no copied markup); ~zero TODOs.
-- To improve: factor the per-route boilerplate (~7% duplication); the library-side `ArticleBody` scheme fix.
+- Strengths: duplication FELL during a feature round (7.3% → 6.7%); UI primitives come from the shared library; 1 TODO in the whole repo.
+- To improve: the per-route boilerplate wrapper (carried).
 
 ### Scalability & Structure — 92/100 (green)
-- Strengths: per-team D1 + a sharding seam, a swappable model interface, a registry-driven live-sync layer; clean web / shared / workers / db separation.
+- Strengths: per-team D1 + the REST-door seam; the model seam proved itself (Workers AI → Claude in one line); bulk/live-sync/Laws are registries, not copies; clean web / shared / workers / db separation.
 - To improve: build the `mcp` worker on the existing seam.

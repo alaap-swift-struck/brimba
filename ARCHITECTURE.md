@@ -48,9 +48,9 @@ workers and runs the full unit/integration suite (web + the workers).
 | **auth** | Strict email-OTP login — 6-digit codes via Resend (NO Clerk, NO Google; parked 2026-06-12), sessions, email-change flow (code to the NEW email) |
 | **tenancy** | teams, team members, Member roles (module key `member_roles`) + permissions, invites; also the per-team screen-recipe config store (`GET/POST /api/tenancy/config/screens`) |
 | **content** *(BUILT 2026-06-23; `brimba-content`)* | **Learning** (how-to articles, in-app body, manual sequence, pick-or-create category → `selectable_data`, per-user `mark done` progress, deactivate-not-delete) + **Help** (team-wide tickets + threaded replies, fixed status lifecycle `open/in_progress/resolved/reopened`, raiser-can-reopen, @mention + reply email notify, source screen/record capture). Routes under `/api/content/*`. Binds AUTH (whoami) + REALTIME (live pings) + the core DB (gating) + per-module R2 (`LEARNING_MEDIA`, `HELP_MEDIA`). Gated by the `learning` / `help` permission modules; not public (`workers_dev:false`) |
-| **data-ops** *(BUILT 2026-06-23; `brimba-data-ops`)* | **(a) CSV import** — the 3-stage session (file → mapping → confirm) against the GLOBAL owner-maintained `importable_databases` catalog, **INSERT-ONLY**, gated by the **target's `create` right** (no key of its own), writing **act-as-user** through the gated create endpoints (currently two targets: `member_roles` + `learning`). **(b) the AI agent** — a swappable model seam, an opt-in tool catalog, an act-as-user executor, the confirm rule, identity-act blocks, fenced tool results, a step cap, saved per-team threads (audit), and a credit-based quota (see §7). Routes under `/api/data-ops/*`. Binds AUTH/REALTIME/CONTENT/TENANCY + Workers AI (`AI`) + the core DB; not public (`workers_dev:false`) |
+| **data-ops** *(BUILT 2026-06-23; `brimba-data-ops`)* | **(a) CSV import** — the 3-stage session (file → mapping → confirm) against the GLOBAL owner-maintained `importable_databases` catalog, **INSERT-ONLY**, gated by the **target's `create` right** (no key of its own), writing **act-as-user** through the gated create endpoints (currently two targets: `member_roles` + `learning`). **(b) the AI agent** — a swappable model seam, an opt-in tool catalog, an act-as-user executor, the confirm rule, identity-act blocks, fenced tool results, a step cap, saved per-team threads (audit), and a credit-based quota (the quota tables + rules live in DATA-MODEL.md `agent_usage`/`agent_credits` + EDGE-CASES.md §8). Routes under `/api/data-ops/*`. Binds AUTH/REALTIME/CONTENT/TENANCY + Workers AI (`AI`) + the core DB; not public (`workers_dev:false`) |
 | **realtime** | the live "switchboard" (LOCKED 2026-06-13; ROW-LEVEL 2026-06-22): one **TeamChannel Durable Object** per channel holds its open WebSockets (hibernatable → idle channels cost ~nothing) and fans out tiny **row-level** change pings `{resource, id, op}` so screens patch just the changed row — no refetch. Holds NO app data — the databases stay the source of truth. **Two channel scopes**, both gated like the API: `team:<id>` (every active member; gated by active membership of THAT team) and `user:<id>` (one person's devices — identity/membership events + a forced sign-out; gated to your OWN id, open even when teamless). Channels are created on-demand by name, unlimited, reusable as-is. Workers publish via `publishChange` / `publishUserChange` / `publishSignOut`; the client re-pulls the one changed row through the normal permission-checked endpoint. The ping carries no row CONTENT (just `{resource,id,op}`), and the socket is gated at connect, so a listener never receives data it couldn't already fetch. |
-| **gateway / MCP** | the single front desk: serves the web screens (and marks `/_next/static/**` immutable so repeat loads don't re-validate), routes `/api/*` to the workers (incl. `/api/content/*`, `/api/data-ops/*`, and the `/api/realtime` WebSocket), exposes ONE master MCP catalog. UI and agents call the SAME doors |
+| **gateway / MCP** | the single front desk: serves the web screens (and marks `/_next/static/**` immutable so repeat loads don't re-validate), routes `/api/*` to the workers (incl. `/api/content/*`, `/api/data-ops/*`, and the `/api/realtime` WebSocket), and serves uploaded media from R2. Will expose ONE master MCP catalog when the `mcp` worker lands (PLANNED, below). UI and agents call the SAME doors |
 | **mcp** *(PLANNED — not yet on disk)* | the external machine surface: personal access tokens (hashed, shown-once, revocable, pinned to one team, live role-check) bridged to a real session → the OPT-IN tool catalog (only tagged actions), abuse bounded by the agent quota |
 
 
@@ -165,6 +165,12 @@ on top follows [CACHING.md](CACHING.md).
 - **Every server request validates active-team membership + role rights.**
   A deep link to another team's record gets blocked/booted server-side —
   security is never just hiding UI.
+  - *The reviewed exception (FLAGGED 2026-07-02, owner to confirm):* `GET
+    /media/*` (uploaded files — photos, logos, learning media) is served by the
+    gateway **without a session check**, relying on unguessable ULID keys and no
+    directory listing. Anyone holding a file's exact URL can fetch it. If a
+    future module stores sensitive files, put a membership check (or signed
+    URLs) in front FIRST.
 - **Deep-link access story (UPDATED 2026-06-21).** Deep links now use the
   `/t/<teamId>/<module>/<id>` grammar, rendered by the screen engine. A deep link
   to a team you are **NOT** a member of does **NOT** switch your active team — the
@@ -181,9 +187,11 @@ on top follows [CACHING.md](CACHING.md).
   New module = new rows, never a schema change. Members point at one role;
   editing a role applies instantly to every holder.
 - Any write right (create/edit/delete) **auto-flips READ on**, visibly.
-- The enforcement seam is BUILT (`workers/tenancy/src/lib/permissions.ts`:
-  requireMember + requireRight reading the tall sheet) — every module
-  endpoint starts with it the day the first module lands.
+- The enforcement seam is BUILT — it lives in **`shared/workers/gating.ts`**
+  (requireMember + requireRight reading the tall sheet; the ONE seam every
+  worker uses — `workers/tenancy/src/lib/permissions.ts` is a thin re-export
+  kept for old imports) — every module endpoint starts with it the day the
+  first module lands.
 - **Export needs READ only. Import needs CREATE.**
 - Default roles seeded per team: **Admin** (locked, full rights) + **Viewer**
   (read-only). Default selectable-data values seeded on team creation.

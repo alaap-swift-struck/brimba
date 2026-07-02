@@ -102,148 +102,224 @@
 <script>
 /* DATA:START */
 window.LEAN_MEAN_DATA = {
-  project: "Brimba",
-  scannedAt: "2026-06-23",
-  overall: {
-    score: 91,
-    grade: "A",
-    verdict: "An A-grade, lean, well-tested multi-tenant base that held its quality through a major build — five new modules plus an AI agent — with robustness up (139 tests + a security pass) and the review findings already fixed."
+  "project": "Brimba",
+  "scannedAt": "2026-07-02",
+  "overall": {
+    "score": 90,
+    "grade": "A",
+    "verdict": "Still an A after a second major build — the agent co-pilot landed with more tests and a real manual; the debt is one oversized screen file and repeated route boilerplate.",
+    "sub": "216 files · 21.6k lines · 205 tests · 6 workers + web"
   },
-  dimensions: [
+  "dimensions": [
     {
-      key: "size",
-      title: "Size & Scope",
-      icon: "📦",
-      score: 88,
-      status: "green",
-      headline: "Compact & focused",
-      metrics: [
-        { label: "Files", value: "183" },
-        { label: "Lines", value: "16.6k" },
-        { label: "Files >400 LOC", value: "2" }
+      "key": "size",
+      "title": "Size & Scope",
+      "icon": "📦",
+      "score": 85,
+      "status": "green",
+      "headline": "Grown but purposeful",
+      "metrics": [
+        {
+          "label": "Files",
+          "value": "216"
+        },
+        {
+          "label": "Lines",
+          "value": "21.6k"
+        },
+        {
+          "label": "Over 400 LOC",
+          "value": "6 files"
+        }
       ],
-      strengths: [
-        "16.6k lines for a whole multi-tenant SaaS base + 5 modules + an AI agent — every file earns its place.",
-        "Only two files exceed 400 lines."
+      "strengths": [
+        "21.6k lines for a full multi-tenant base, 5 modules and a streaming AI co-pilot — compact for what it does."
       ],
-      improvements: [
-        { what: "The screen host file is getting big.", why: "web/components/deep-link-screen.tsx is 671 lines after wiring four modules; extracting per-module data + dispatch would speed edits and review." }
+      "improvements": [
+        {
+          "what": "The main screen file keeps growing (823 lines).",
+          "why": "deep-link-screen.tsx holds fetch + dispatch + dialog wiring for every module; carried from the last report at 671 — split per module before it hits 1,000."
+        },
+        {
+          "what": "Four more files are nearing 500 lines.",
+          "why": "agent-panel.tsx, tools.ts, agent.ts, teams.ts grew with the agent round — split the tool catalog by module the next time it grows."
+        }
       ]
     },
     {
-      key: "robustness",
-      title: "Robustness",
-      icon: "🛡️",
-      score: 92,
-      status: "green",
-      headline: "Tested & defended",
-      metrics: [
-        { label: "Tests", value: "139" },
-        { label: "Test files", value: "17" },
-        { label: "Review fixes", value: "12" }
+      "key": "robustness",
+      "title": "Robustness",
+      "icon": "🛡️",
+      "score": 93,
+      "status": "green",
+      "headline": "Tested and defended",
+      "metrics": [
+        {
+          "label": "Tests",
+          "value": "205"
+        },
+        {
+          "label": "Test files",
+          "value": "31"
+        },
+        {
+          "label": "Guard signals",
+          "value": "710"
+        }
       ],
-      strengths: [
-        "A 'can't-forget' publish-seam test per worker turns CI red if a mutation forgets to go live.",
-        "Gating on every route + runtime input validation; race-safe invariants (>=1 admin, never-negative credits).",
-        "A full adversarial security review just landed — 12 findings fixed (stored-XSS, quota bypass, confirm-binding, import caps)."
+      "strengths": [
+        "Machine-checked Laws + a publish-seam test per worker — breaking a rule turns the build red.",
+        "Boundary validation everywhere; race-safe credits and last-admin invariants; the security sweep's one real XSS is fixed and test-locked.",
+        "The streaming wire contract is unit-locked and live-verified against the real model."
       ],
-      improvements: [
-        { what: "A couple of agent edge cases aren't yet unit-tested.", why: "the confirm-resume conversation rebuild and the credit race are covered by review but lack a regression test to lock them in." }
+      "improvements": [
+        {
+          "what": "Two known races have no regression test yet.",
+          "why": "the confirm-resume rebuild and the credit race are review-verified only — a test locks them against future refactors."
+        },
+        {
+          "what": "Browser end-to-end flows still run by hand.",
+          "why": "the Playwright scaffold isn't in CI; a seeded staging account would catch UI regressions unit tests can't."
+        }
       ]
     },
     {
-      key: "documentation",
-      title: "Documentation",
-      icon: "📘",
-      score: 92,
-      status: "green",
-      headline: "Thorough & current",
-      metrics: [
-        { label: "Doc files", value: "14" },
-        { label: "Comment ratio", value: "14%" },
-        { label: "Story-check", value: "clean" }
+      "key": "documentation",
+      "title": "Documentation",
+      "icon": "📖",
+      "score": 94,
+      "status": "green",
+      "headline": "A real manual now",
+      "metrics": [
+        {
+          "label": "Doc lines",
+          "value": "4.1k"
+        },
+        {
+          "label": "Docs",
+          "value": "23 files"
+        },
+        {
+          "label": "Comments",
+          "value": "15%"
+        }
       ],
-      strengths: [
-        "14 dense rulesets (ARCHITECTURE, DATA-MODEL, CACHING, CONCURRENCY, OPERATIONS) plus meaningful 'why' comments.",
-        "Docs were just reconciled to the finished build — the story-check is clean."
+      "strengths": [
+        "The 6-doc manual explains how AND why (BASE-MANUAL → EDGE-CASES), with a 'read in this order' path in the README.",
+        "Comments explain the non-obvious; the glossary keeps one name per concept, and the docs were reconciled to the build."
       ],
-      improvements: [
-        { what: "The root README is brief next to the deep design docs.", why: "a short 'start here' map linking the rulesets would orient a new reader (or agent) faster." }
+      "improvements": [
+        {
+          "what": "Some docs cite exact line numbers.",
+          "why": "EDGE-CASES points at agent.ts line ranges that drift with every edit — prefer function names."
+        }
       ]
     },
     {
-      key: "understandability",
-      title: "Understandability",
-      icon: "🧭",
-      score: 90,
-      status: "green",
-      headline: "Predictable by convention",
-      metrics: [
-        { label: "Worker shape", value: "uniform" },
-        { label: "Data seam", value: "1 door" },
-        { label: "Naming", value: "clear" }
+      "key": "understandability",
+      "title": "Understandability",
+      "icon": "🧭",
+      "score": 89,
+      "status": "green",
+      "headline": "One shape everywhere",
+      "metrics": [
+        {
+          "label": "Worker shape",
+          "value": "1 pattern"
+        },
+        {
+          "label": "Screens",
+          "value": "recipes"
+        },
+        {
+          "label": "TODOs",
+          "value": "1"
+        }
       ],
-      strengths: [
-        "Every worker mirrors one shape (switchboard + routes + lib + shared gating) — an agent finds things by convention.",
-        "Declarative ROUTES and screen recipes make intent obvious without reading the body."
+      "strengths": [
+        "Every worker mirrors the same switchboard → routes → lib → gating shape; screens are declarative recipes, and CONVENTIONS.md documents the pattern."
       ],
-      improvements: [
-        { what: "One host file carries a lot.", why: "deep-link-screen.tsx holds data-fetch + dispatch + dialogs for every module; splitting per-module lowers surprise for new readers." }
+      "improvements": [
+        {
+          "what": "The 823-line host file makes module wiring non-local.",
+          "why": "a new dev or agent hunting one module's dialog reads the whole file today — same split as Size & Scope."
+        }
       ]
     },
     {
-      key: "leanness",
-      title: "Leanness & Optimization",
-      icon: "✂️",
-      score: 88,
-      status: "green",
-      headline: "DRY via shared seams",
-      metrics: [
-        { label: "Shared seams", value: "9" },
-        { label: "Duplication", value: "7.3%" },
-        { label: "UI source", value: "1 library" }
+      "key": "leanness",
+      "title": "Leanness & Optimization",
+      "icon": "♻️",
+      "score": 88,
+      "status": "green",
+      "headline": "DRY and improving",
+      "metrics": [
+        {
+          "label": "Duplication",
+          "value": "6.7% (was 7.3%)"
+        },
+        {
+          "label": "TODOs",
+          "value": "1"
+        },
+        {
+          "label": "UI",
+          "value": "one library"
+        }
       ],
-      strengths: [
-        "9 shared worker seams (gating, d1-rest, realtime, activity, ...) — one door per cross-cutting concern.",
-        "UI primitives come from one library; no copied markup across screens."
+      "strengths": [
+        "Duplication FELL during a feature round; UI primitives come from the shared library, never copied into the host."
       ],
-      improvements: [
-        { what: "Some route-handler boilerplate repeats across modules.", why: "the teamContext -> requireRight -> parse -> publish shape is copy-similar per route; a thin wrapper would cut the ~7% duplication and the risk of an inconsistent gate." }
+      "improvements": [
+        {
+          "what": "Every route repeats the same four-step dance.",
+          "why": "teamContext → requireRight → parse → publish appears in nearly every handler; a thin wrapper trims the duplication and removes the risk of an inconsistently-gated route (carried)."
+        }
       ]
     },
     {
-      key: "scalability",
-      title: "Scalability & Structure",
-      icon: "📈",
-      score: 92,
-      status: "green",
-      headline: "Clean layers, room to grow",
-      metrics: [
-        { label: "DB per team", value: "yes" },
-        { label: "Model", value: "swappable" },
-        { label: "Layers", value: "clean" }
+      "key": "scalability",
+      "title": "Scalability & Structure",
+      "icon": "📐",
+      "score": 92,
+      "status": "green",
+      "headline": "Seams that held",
+      "metrics": [
+        {
+          "label": "Workers",
+          "value": "6"
+        },
+        {
+          "label": "Data",
+          "value": "per-team D1"
+        },
+        {
+          "label": "Model",
+          "value": "swappable"
+        }
       ],
-      strengths: [
-        "Per-team D1 + a sharding seam, a swappable model interface, a registry-driven live-sync layer — modules plug in with clear contracts.",
-        "Clean web / shared / workers / db separation; no coupling beyond Cloudflare (by design)."
+      "strengths": [
+        "The model seam proved itself — swapping Workers AI for Claude was one line; bulk, live-sync and the Laws are registries, not copies."
       ],
-      improvements: [
-        { what: "The external MCP door is still to build.", why: "the one remaining worker (mcp) is the external auth surface; building it on the existing gating seam keeps the structure clean." }
+      "improvements": [
+        {
+          "what": "The external MCP worker is still a plan.",
+          "why": "the token→session bridge is designed in ARCHITECTURE.md but unbuilt; building it on the existing gating seam keeps the structure clean."
+        }
       ]
     }
   ],
-  callouts: {
-    strong: [
-      "A 'can't-forget' live-sync seam + gating on every route.",
-      "9 shared seams + one UI library — very little repetition.",
-      "Docs are thorough and current."
+  "callouts": {
+    "strong": [
+      "Held an A through a second major build — with more tests and a real manual.",
+      "The permission spine proved itself live: a Viewer's agent couldn't overstep."
     ],
-    watch: [
-      "deep-link-screen.tsx is 671 lines — the one file worth splitting.",
-      "~7% route-handler duplication across modules."
+    "watch": [
+      "deep-link-screen.tsx grew 671 → 823 lines (carried twice) — split it next.",
+      "Route boilerplate (~6.7% duplication) — one thin wrapper fixes it."
     ],
-    fix: [
-      "Library-side: ArticleBody should reject javascript:/data: link schemes (the server side is already patched)."
+    "fix": [
+      "Lock the confirm-resume and credit-race behaviors with regression tests."
     ]
   }
 };

@@ -286,8 +286,10 @@ response. You never build error responses by hand inside a handler.
 permission-checked endpoint (row-level live-sync; nothing can leak). `op` is
 advisory (`add` | `edit` | `remove`); the client re-pulls and decides keep-or-drop.
 Publishing is best-effort — a live-layer hiccup never breaks the write. For a bulk
-endpoint, publish **one ping per changed row** (see `postBulkSetLearningActive`,
-routes/learning.ts:77), never one list-wide ping.
+endpoint, publish **one ping per changed row** (see `postBulkSetLearningActive`),
+not one list-wide ping. (The only sanctioned id-less coarse pings are CSV import
+and the `agent_usage` quota meter — listed in CACHING.md; a new module doesn't
+add one.)
 
 ### 3e. Register the routes
 

@@ -14,8 +14,9 @@ disk**: auth, tenancy, realtime, gateway, **content** (learning + help) and
 **data-ops** (import + the AI agent). The external **mcp** worker (machine-facing
 tool surface) is the one remaining piece — PLANNED, not yet built. The agent's
 model is swappable: Claude when `ANTHROPIC_API_KEY` is set, else Cloudflare
-Workers AI; it confirms on destructive/dangerous actions and is metered by a
-credit quota (free 25/day + a purchasable balance).
+Workers AI (both do full tool use); it confirms on destructive + bulk actions
+and is metered by a credit quota (a free daily allowance — default 25, the
+`AGENT_FREE_DAILY` var — + a purchasable balance).
 
 UPDATED 2026-06-21: the team area (Overview, Members, Member roles, Invites)
 now lives at `/t/<teamId>/…` deep-link URLs (rendered by the screen engine),

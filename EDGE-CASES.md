@@ -196,7 +196,8 @@ ctaUrl: `${base}/invitations`
 
 The request-origin fallback is only for the human path (a real browser request
 where the origin is the public gateway). Any new worker that emails a link must
-prefer `PUBLIC_APP_URL`. Set it as a secret per env or agent-sent emails point
+prefer `PUBLIC_APP_URL`. It's a per-env **var** in `workers/tenancy/wrangler.jsonc`
+(set on staging + production) — leave it unset and agent-sent emails point
 nowhere.
 
 ---
@@ -336,8 +337,11 @@ a team database. `agent_usage` is keyed by **`(team_id, period)`** where
 
 **The rules / subtleties.**
 
-- One AI **request** costs **one unit** (`FREE_DAILY = 25`, line 14) — free
-  allowance first, then a purchased credit.
+- One model call costs **one unit** — metered before EACH call inside a turn,
+  so a multi-step turn costs one unit per step (capped by `MAX_STEPS`); a
+  declined confirm costs nothing; running dry mid-plan stops the turn with a
+  saved, plain reply. Free allowance first (code default 25/day, per-env via
+  `AGENT_FREE_DAILY` — staging runs 50), then a purchased credit.
 - **The credit decrement is race-safe; the free counter is deliberately not.**
   The paid path is `UPDATE agent_credits SET balance = balance - 1 … WHERE
   team_id = ? AND balance > 0` — the `WHERE balance > 0` means it can never go

@@ -422,11 +422,13 @@ drop; don't design as if every ping is guaranteed.
 **The socket rides the same worker path as any request — SSE/streaming caveat.**
 The WebSocket upgrade is a normal `fetch` through the gateway to the realtime
 worker to the DO. A DO is single-threaded: a long-lived connection is fine
-(that's what Hibernation is for), but any *streaming* response you add later
-(SSE, a chunked read) is bounded by the isolate/request lifetime of the worker
-carrying it, not the DO's lifetime. Long-lived push belongs on the hibernatable
-WebSocket path, not a held-open HTTP stream on the request worker. (The
-agent-modules `data-ops` chat is request/response for this reason.)
+(that's what Hibernation is for), but any *streaming* response is bounded by the
+isolate/request lifetime of the worker carrying it, not the DO's lifetime.
+Long-lived PUSH (hours-open, server-initiated) belongs on the hibernatable
+WebSocket path, never a held-open HTTP stream. The agent chat DOES stream —
+turn-length SSE straight from `data-ops` (seconds, one request's lifetime, the
+DO never involved; see EDGE-CASES §6) — which is fine precisely because it ends
+with the turn; it is not a long-lived channel.
 
 **`user:<id>` and `team:<id>` are both gated, neither is a lock.** Both scopes
 are auth-checked at connect (your own id / active membership of that team) and
@@ -442,7 +444,9 @@ team fans out thousands of writes a second. That is a workload for the row-level
 design (one ping, one row patched), which is exactly why the ping never carries
 list-sized payloads.
 
-**Bulk writes are the one coarse exception.** CSV import (`data-ops`) writes many
+**Bulk writes are the coarse exception.** (The full list of sanctioned coarse
+pings — import per table + the `agent_usage` quota meter — is in CACHING.md.)
+CSV import (`data-ops`) writes many
 rows then publishes **one id-less** ping on the target table (`member_roles` /
 `learning`); the client refetches that one list via reconnect-style `reconcile`
 rather than patching N rows. An id-less ping means "refetch this collection", not
