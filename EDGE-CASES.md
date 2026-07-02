@@ -271,8 +271,23 @@ while an async IIFE writes to the writable side (`streamRun`, lines 41–67).
 
 - **Every error is a friendly event, never a raw 500.** The `catch` in
   `streamRun` writes `{ t: "error", message }` and the loop's own `catch`
-  (`agent.ts` lines 202–208) turns a model hiccup into a saved, friendly turn. A
-  raw 500 must never reach the stream.
+  turns a model hiccup into a saved, friendly turn. A raw 500 must never reach
+  the stream.
+
+- **Everything the assistant says goes out as `text` events.** Streamed deltas
+  from the model, and one `say()` chunk for server notes (the quota message, the
+  failure wrap-up, the pause note) — so the client renders the *accumulated*
+  text and an early lead-in ("I can't create teams, but…") is never overwritten
+  by a later note. `final` only settles the turn (thread/quota + a fallback
+  reply for a turn that streamed nothing). If you add a new server note, route
+  it through `say()` in `runPlanLoop`, don't just return it.
+
+- **A failed step explains itself.** `step_end` carries `error` (the door's
+  short reason — e.g. which permission the role is missing), the tool row is
+  persisted with its outcome (`done`/`failed` + the reason in the summary), and
+  the loop's failure path asks the MODEL for an unmetered wrap-up turn
+  (`failureWrapUp`) instead of a canned note — the FAILED results are already in
+  the convo, so the reply can say what was refused and why.
 
 ---
 

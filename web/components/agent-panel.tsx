@@ -88,7 +88,10 @@ const clearLastThread = (teamId: string) => {
 }
 
 /** Map a saved thread's messages back onto chat rows: user/assistant become bubbles
- * (markdown-rendered like a live reply), tool rows become the compact status line. */
+ * (markdown-rendered like a live reply), tool rows become the compact status line
+ * with the outcome the server RECORDED (done/failed + the failed step's reason).
+ * Rows saved before outcomes were recorded fall back to the fenced content's own
+ * verdict ("FAILED: …" vs "OK. …") — never a false green. */
 const toChatItems = (messages: AgentMessage[]): AgentChatItem[] =>
   messages.map((m): AgentChatItem =>
     m.role === "tool"
@@ -96,7 +99,7 @@ const toChatItems = (messages: AgentMessage[]): AgentChatItem[] =>
           id: m.id,
           role: "tool",
           actionLabel: m.toolCalls?.[0]?.summary ?? m.toolCalls?.[0]?.tool ?? "Action",
-          status: m.toolCalls?.[0]?.status ?? "done",
+          status: m.toolCalls?.[0]?.status ?? (m.content?.startsWith("FAILED") ? "failed" : "done"),
         }
       : { id: m.id, role: m.role, content: <AgentMarkdown text={m.content ?? ""} /> }
   )
@@ -233,10 +236,13 @@ export function AgentPanel({
         }
         case "step_end": {
           const stepId = stepIdByTool.get(ev.tool)
+          // A failed step shows WHY on the row itself (the door's short reason, e.g.
+          // which permission was missing) — same combined label the server persists.
+          const label = ev.ok || !ev.error ? ev.summary : `${ev.summary} — ${ev.error}`
           setItems((prev) =>
             prev.map((it) =>
               it.id === stepId
-                ? { ...it, actionLabel: ev.summary, status: ev.ok ? "done" : "failed" }
+                ? { ...it, actionLabel: label, status: ev.ok ? "done" : "failed" }
                 : it
             )
           )
@@ -262,8 +268,11 @@ export function AgentPanel({
           if (teamId && out.threadId) writeLastThread(teamId, out.threadId)
           setQuota(out.quota)
           const finalText = out.done ? out.reply : (out.assistantText ?? replyText)
-          // Prefer the streamed text if the final omitted it; drop an empty bubble.
-          const text = finalText || replyText
+          // The server streams EVERYTHING the assistant says as text events, so the
+          // accumulated text wins — a lead-in ("I can't create teams, but…") is never
+          // overwritten by a later wrap-up note. `final`'s reply is the fallback for
+          // a turn that streamed nothing; drop a bubble that stayed empty.
+          const text = replyText || finalText
           setItems((prev) =>
             text
               ? prev.map((it) => (it.id === assistantId ? { ...it, content: <AgentMarkdown text={text} /> } : it))
@@ -418,7 +427,14 @@ export function AgentPanel({
                 items={items}
                 streaming={showTyping}
                 disabled={busy || quota?.blocked || !!pending}
-                emptyState="Try “invite sam@acme.com as an Editor” or “what changed this week?”"
+                // Stacked, email-free example prompts: an inline address gets auto-
+                // detected (underlined) on phones and breaks the centred line mid-quote.
+                emptyState={
+                  <div className="flex max-w-64 flex-col gap-1">
+                    <span>Try “invite a teammate as an Editor”</span>
+                    <span>or “what changed this week?”</span>
+                  </div>
+                }
                 onSend={(t) => void send(t)}
               />
             </div>

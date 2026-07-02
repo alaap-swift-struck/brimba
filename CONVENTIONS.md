@@ -311,8 +311,14 @@ role lacks the right. Rights are the fixed set `"read" | "create" | "edit" | "de
 
 ```ts
 export async function requireRight(cfg, guard, module, right): Promise<void> {
+  // Name the missing right in plain words — a person (or the agent explaining a
+  // refused step) can then see WHICH permission their role lacks, not just "no".
   if (!(await hasRight(cfg, guard, module, right)))
-    throw new GuardError(403, "forbidden", "You don't have permission to do that.")
+    throw new GuardError(
+      403,
+      "forbidden",
+      `You don't have permission to do that — your role is missing the "${right}" right on ${module.replace(/_/g, " ")}.`
+    )
 }
 ```
 

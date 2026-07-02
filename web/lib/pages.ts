@@ -19,16 +19,12 @@ export const NAV: NavItem[] = [
 ]
 
 /** The mobile bottom-bar set: only destinations the user can reach, capped at 5
- * (extras would fold into a "More" entry), with Home pinned to the centre.
+ * (extras would fold into a "More" entry), in the SAME order as the desktop rail —
+ * Home, Learning, Help, Settings (the owner's locked order; no centre-pinning).
  * Generic over the link shape so the shell can pass its composed Home + team
  * sidebar pages + Settings list, not just the bare NAV. */
 export function bottomNavItems<T extends { slug: string }>(items: T[]): T[] {
-  const capped = items.slice(0, 5)
-  const home = capped.find((i) => i.slug === "home")
-  if (!home) return capped
-  const rest = capped.filter((i) => i.slug !== "home")
-  const mid = Math.floor((rest.length + 1) / 2) // centre index for the full set
-  return [...rest.slice(0, mid), home, ...rest.slice(mid)]
+  return items.slice(0, 5)
 }
 
 /** The sections of a team's area (the switcher across /t/<teamId>/…). `module` is

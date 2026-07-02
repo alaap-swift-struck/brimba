@@ -334,15 +334,19 @@ export type ChatOutcome =
 
 /** One event on the agent's SSE stream (wire format: `data: <json>\n\n`). Keys are
  * terse + stable. `text` + `step_*` may repeat any number of times; exactly ONE terminal
- * event (confirm | final | error) ends every stream. The `summary` on step_* uses the
- * same name-resolved logic as the confirm-panel summaries. */
+ * event (confirm | final | error) ends every stream. EVERYTHING the assistant says
+ * arrives as `text` events (streamed deltas, or one chunk for a non-streaming model /
+ * a server note) — `final` only settles the turn (thread/quota/reply fallback), so the
+ * client renders the accumulated text and never loses an earlier explanation. The
+ * `summary` on step_* uses the same name-resolved logic as the confirm-panel summaries. */
 export type StreamEvent =
   /** append this delta to the current assistant reply bubble (word-by-word). */
   | { t: "text"; d: string }
   /** a tool is about to run (human, id→name-resolved summary). */
   | { t: "step_start"; tool: string; summary: string }
-  /** that tool finished — ok true, or false on failure. */
-  | { t: "step_end"; tool: string; ok: boolean; summary: string }
+  /** that tool finished — ok true, or false on failure (`error` = the door's short,
+   * human reason, e.g. which permission was missing — shown on the failed step row). */
+  | { t: "step_end"; tool: string; ok: boolean; summary: string; error?: string }
   /** TERMINAL: needs confirmation; the client shows the yes/no panel. */
   | { t: "confirm"; calls: PendingCall[]; text?: string }
   /** TERMINAL: run complete; carries the full ChatOutcome (reply/quota/threadId). */

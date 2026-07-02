@@ -68,11 +68,12 @@ export class ApiFailure extends Error {
 
 /** One Server-Sent Event from an agent turn. `text` deltas + `step_*` may repeat any
  * number of times; exactly one TERMINAL event (`confirm` | `final` | `error`) ends the
- * stream. Keys are terse + stable — the same wire contract the data-ops worker emits. */
+ * stream. Everything the assistant says arrives as `text` events — `final` only
+ * settles the turn. Keys are terse + stable — the wire contract data-ops emits. */
 export type AgentStreamEvent =
   | { t: "text"; d: string }
   | { t: "step_start"; tool: string; summary: string }
-  | { t: "step_end"; tool: string; ok: boolean; summary: string }
+  | { t: "step_end"; tool: string; ok: boolean; summary: string; error?: string }
   | { t: "confirm"; calls: PendingCall[]; text?: string }
   | { t: "final"; outcome: ChatOutcome }
   | { t: "error"; message: string }

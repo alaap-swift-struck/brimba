@@ -41,6 +41,14 @@ describe("sseFrame: each event serializes to one data: frame", () => {
       { t: "text", d: "hello" },
       { t: "step_start", tool: "invite_member", summary: "Invite a@b.com as role r1" },
       { t: "step_end", tool: "invite_member", ok: true, summary: "Invite a@b.com as role r1" },
+      // A failed step carries the door's short reason so the red row can say WHY.
+      {
+        t: "step_end",
+        tool: "create_role",
+        ok: false,
+        summary: 'Create the role "Sub admin"',
+        error: 'You don\'t have permission to do that — your role is missing the "create" right on member roles.',
+      },
       { t: "confirm", calls: [{ name: "remove_member", input: { userId: "u1" }, summary: "Remove Jane Doe" }], text: "About to remove" },
       { t: "error", message: "safe message" },
     ]

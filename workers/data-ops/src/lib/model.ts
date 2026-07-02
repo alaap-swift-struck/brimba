@@ -59,29 +59,37 @@ class ClaudeModel implements Model {
   ) {}
 
   /** The one request body both complete() and stream() send — same messages/tools/effort
-   *  rules, only the `stream` flag differs. Keeps the two paths from drifting. */
+   *  rules, only the `stream` flag differs. Keeps the two paths from drifting.
+   *  Consecutive same-role messages are COALESCED into one message of content blocks —
+   *  the canonical Messages format: a multi-tool turn's results become ONE user message
+   *  of tool_result blocks (the API rejects same-role runs), and a trailing text note
+   *  (e.g. the failure wrap-up ask) rides the same user turn as a text block. */
   private buildBody(messages: ChatMessage[], tools: ToolSpec[], stream: boolean): Record<string, unknown> {
     const system = messages
       .filter((m) => m.role === "system")
       .map((m) => m.content)
       .join("\n\n")
-    const msgs = messages
-      .filter((m) => m.role !== "system")
-      .map((m): { role: string; content: unknown } => {
-        if (m.role === "tool")
-          return {
-            role: "user",
-            content: [{ type: "tool_result", tool_use_id: m.toolCallId, content: m.content }],
-          }
-        if (m.role === "assistant" && m.toolCalls && m.toolCalls.length) {
-          const blocks: unknown[] = []
-          if (m.content) blocks.push({ type: "text", text: m.content })
-          for (const tc of m.toolCalls)
-            blocks.push({ type: "tool_use", id: tc.id, name: tc.name, input: tc.input })
-          return { role: "assistant", content: blocks }
-        }
-        return { role: m.role, content: m.content }
-      })
+    const msgs: { role: string; content: unknown[] }[] = []
+    const push = (role: string, blocks: unknown[]) => {
+      const last = msgs[msgs.length - 1]
+      if (last && last.role === role) last.content.push(...blocks)
+      else msgs.push({ role, content: blocks })
+    }
+    for (const m of messages) {
+      if (m.role === "system") continue
+      if (m.role === "tool") {
+        push("user", [{ type: "tool_result", tool_use_id: m.toolCallId, content: m.content }])
+      } else if (m.role === "assistant" && m.toolCalls && m.toolCalls.length) {
+        const blocks: unknown[] = []
+        if (m.content) blocks.push({ type: "text", text: m.content })
+        for (const tc of m.toolCalls)
+          blocks.push({ type: "tool_use", id: tc.id, name: tc.name, input: tc.input })
+        push("assistant", blocks)
+      } else if (m.content) {
+        // Plain text turn (empty ones are skipped — the API rejects empty text blocks).
+        push(m.role, [{ type: "text", text: m.content }])
+      }
+    }
     return {
       model: this.name,
       max_tokens: 1024,
