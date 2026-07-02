@@ -28,14 +28,31 @@ not under Settings; top-level `/members` and `/roles` are thin redirects there.
 ## The documents
 
 **New here — developer or agent? Read in this order:** [CLAUDE.md](CLAUDE.md) (the
-rules) → [BASE-MANUAL.md](BASE-MANUAL.md) (how the base works and *why*) →
+rules) → [BASE-MANUAL.md](BASE-MANUAL.md) (how the base works and *why* — incl. how to
+**fork it for a new product** and **how each part scales**) →
 [ARCHITECTURE.md](ARCHITECTURE.md) (the locked decisions) →
 [BUILD-A-MODULE.md](BUILD-A-MODULE.md) (add a module end to end) →
 [CONVENTIONS.md](CONVENTIONS.md) + [UI-CONVENTIONS.md](UI-CONVENTIONS.md) (how code
 and screens are written) → the reference docs below as you need them →
 [EDGE-CASES.md](EDGE-CASES.md) before touching anything subtle →
-[OPERATIONS.md](OPERATIONS.md) to ship. With your own Cloudflare account, that path
-takes you from zero to rebuilding and extending the base.
+[OPERATIONS.md](OPERATIONS.md) to ship.
+
+**Rebuilding the whole base from nothing?** Follow
+**[BOOTSTRAP.md](BOOTSTRAP.md)** — the day-zero, command-by-command runbook that takes
+a fresh Cloudflare account to a live staging + production Brimba. It is the concrete
+answer to "with only these docs and the repo, could I recreate the base?" — yes: run
+that list.
+
+> **The completeness bar this doc set is held to:** a non-technical owner, an AI agent,
+> or a new developer, armed with *only* the repository and these documents, can (1)
+> understand exactly how the base works — BASE-MANUAL + ARCHITECTURE; (2) rebuild it
+> from scratch — BOOTSTRAP + OPERATIONS; (3) edit it safely — CONVENTIONS + the Laws in
+> CLAUDE/RULES; (4) reuse it as the foundation for a bigger product (an ERP, a portal)
+> — BASE-MANUAL §5 + BUILD-A-MODULE; (5) read the ruleset — RULES + CLAUDE; (6) wire the
+> base's core features into their app — BUILD-A-MODULE + the reference docs; and (7)
+> scale every subsystem (teams, roles, permissions, invites, emails, realtime, the
+> agent) — BASE-MANUAL §6. If you hit something the docs can't answer, that gap is a
+> bug in the docs — file it.
 
 0. **[CLAUDE.md](CLAUDE.md)** — read first if you're an agent (or a new
    developer): the **Laws of the Base** (machine-enforced rules), the build

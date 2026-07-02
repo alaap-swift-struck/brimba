@@ -344,6 +344,116 @@ tool maps to a gated route` — the invariant §2 relies on, made machine-checke
 
 ---
 
+## 5 · Fork the base for a new product (ERP, portal, CRM…)
+
+Brimba is not an app — it's the **foundation** you start a new product on. When you
+build, say, an ERP or a client portal, you inherit login, teams, member roles +
+permissions, invites, emails, live-sync, the screen engine, the CSV import, and the
+AI agent **for free** — and you add your product's own modules on top. Here's the
+whole story.
+
+**What you keep, untouched.** The six workers, the two-tier database, the gate
+(`teamContext → requireRight`), the realtime layer, the auth/email flow, the agent,
+and the Laws. These are the base. You do not re-solve multi-tenancy, permissions, or
+live updates — they're done.
+
+**What you rename (once).** The product's identity, not its plumbing: the app name +
+brand (in the web app's config + the `PUBLIC_APP_URL`/URLs), the worker name prefix
+if you want your own (`brimba-*` → `<yourapp>-*` in the `wrangler.jsonc` files and the
+deploy scripts), and the GitHub/Cloudflare project names (the `/new-app` skill
+automates the scaffold + backup + staging + production wiring). Everything the base
+does keeps working because none of the *seams* changed.
+
+**Where your product lives.** Every product-specific thing users work with is a
+**module** — an ERP's `invoices`, `products`, `purchase_orders`; a portal's `tickets`,
+`documents`. Each is one team-scoped table + a permission row + gated CRUD + a screen,
+added exactly as **BUILD-A-MODULE.md** describes. Your ERP is "the base + N modules."
+Because a module plugs into the same six seams (§3), your `invoices` module gets
+live-sync, activity, the Overview/Activity detail, search/filters, and **agent
+control** (the AI can act on invoices AS the user) without extra work — you just
+follow the golden path.
+
+**The order to build a new product.**
+1. Stand up the base on your own account — **BOOTSTRAP.md**, end to end.
+2. Rename the identity (or run `/new-app` to scaffold a fresh one on this base).
+3. Add your first module — **BUILD-A-MODULE.md** (`invoices`, say). Ship it. Repeat
+   per module.
+4. Add agent tools for your module (an entry in `data-ops`'s tool catalog per
+   endpoint) so the AI can drive it — same act-as-user, same confirm rule.
+5. Keep `npm run check` green and obey the Laws; they're what stop a fast-growing
+   product from drifting.
+
+**What a new product must NOT do.** Don't fork the UI library into the app (fix it in
+`@swift-struck/ui`), don't add a public worker (only the gateway is public), don't add
+a per-module database (one D1 per *team*, not per module — modules are tables inside
+it), and don't relitigate the locked decisions in ARCHITECTURE.md without a deliberate
+reason. Staying inside the seams is what keeps a big product lean and secure.
+
+---
+
+## 6 · How each part scales
+
+The base is built to grow along every axis the owner asked about. Here's the growth
+path for each subsystem — what's already in place, and what you turn on when you get
+bigger.
+
+- **Teams (tenants).** Each team has its **own D1 database**, so teams are isolated by
+  *physics*, not by a `WHERE team_id =` filter — one noisy tenant can't touch another,
+  and a team's data can move databases without collisions (every id is a ULID). Growth
+  path: today every team DB is created on demand; the D1 REST door
+  (`shared/workers/d1-rest.ts`) already supports **fanning a query across shard
+  databases** (`d1QueryAcross`), so a single logical team can be split across databases
+  when one hits D1's size cap. A nightly cron sizes every team DB and alarms at 80% of
+  the 10 GB cap (OPERATIONS.md), so you see the ceiling coming.
+
+- **Member roles + permissions.** The permission model is a **tall sheet**
+  (`role_permissions`: `role_id · module · read/create/edit/delete`). Adding a module
+  or a role is **new rows, never a schema change** — so permissions scale to any number
+  of modules and roles with zero migrations. Editing a role applies instantly to every
+  holder (members point at a role id, not a copy of the rights). The one invariant to
+  respect as you grow: a team always keeps **≥1 admin** (enforced race-safely —
+  CONCURRENCY.md).
+
+- **Invites.** An invite is a global index row (`invite_index`) + a per-team audit log.
+  Accepting is **race-safe** (email-ownership + pending + unexpired, UPSERT so a
+  re-joining removed member reactivates cleanly). Scales to any invite volume because
+  the accept path opens no team database until it writes. Emails are sent through the
+  one sender (below); the link uses `PUBLIC_APP_URL`.
+
+- **Emails.** Every outbound email goes through **one worker** (auth's
+  `/internal/send-email`, guarded by `INTERNAL_KEY`), so the provider is swappable in
+  one place and rate/retry policy lives in one place. Scale by swapping Resend for a
+  higher-tier provider (or adding a queue in front of that one seam) — no caller
+  changes.
+
+- **Live updates.** The realtime layer fans a **tiny `{resource, id, op}` ping** (never
+  row data), so a busy team costs bandwidth in bytes, not kilobytes. Each team is its
+  **own `TeamChannel` Durable Object**, hibernatable (idle channels cost ~nothing), so
+  ten thousand teams don't cost ten thousand always-on processes. The one hot-team
+  ceiling (a single team fanning thousands of writes/sec) is a known axis — DURABLE-
+  OBJECTS.md documents when to reach for a different DO.
+
+- **The AI agent.** Bounded by a **per-team credit quota** (free daily allowance +
+  purchasable balance) and a **step cap** — so cost and abuse scale with a knob, not
+  with hope. The brain is a **swappable model seam** (`selectModel`): move to a cheaper
+  or stronger model with one var as your volume/needs change. The tool catalog is
+  opt-in, so the agent's power grows only as fast as you add tools.
+
+- **The data layer's cost.** Every per-team query is an **HTTP round-trip** (the REST
+  door), so the base is built to **batch** (multi-statement `d1ExecScript`) and
+  **parallelise** independent reads (`Promise.all` / `d1QueryAcross`). As a screen grows
+  data-heavy, those are the levers (EDGE-CASES.md). The client cache-first + row-level
+  live-sync means more data does **not** mean more refetching.
+
+- **The web app.** A **static export** served from Cloudflare's edge — it scales like a
+  CDN asset (no server render per request). The whole `/t/*` tree is one shell, so
+  adding screens adds recipes, not routes.
+
+The through-line: every axis scales by a **seam or a knob that already exists**, not by
+a rewrite. That's the payoff of the locked architecture.
+
+---
+
 ## The base in one breath
 
 Six workers behind one public door. A global core DB for identity + billing, one
