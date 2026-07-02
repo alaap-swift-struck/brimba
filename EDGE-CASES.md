@@ -27,7 +27,7 @@ cache is wiped.
 so a "navigation" within it must not touch the router at all.
 
 **The rule.** Intra-shell navigation goes through the **History API**, not the
-router. `go()` in `web/components/deep-link-screen.tsx` (lines 263–276) decides
+router. `go()` in `web/components/deep-link-screen.tsx` decides
 per-path:
 
 ```ts
@@ -44,7 +44,7 @@ const go = (path, q) => {
 }
 ```
 
-The shell subscribes to `popstate` (line 103) so Back/Forward re-read the URL
+The shell subscribes to `popstate` so Back/Forward re-read the URL
 and re-render in place. **`/learning` and `/help`** are in `TOP_LEVEL_MODULES`,
 so they're host-owned too.
 
@@ -57,7 +57,7 @@ hard reload. This is expected; don't try to "fix" it by forcing the router
 through `/t` — that's the very thing that reloads.
 
 The same boundary is why agent **real-screen tracing** is dropped when it points
-at a team the shell isn't currently showing (lines 296–310): crossing into `/t`
+at a team the shell isn't currently showing: crossing into `/t`
 from a static route would hard-reload, so the panel narrates the step instead of
 yanking the page.
 
@@ -84,7 +84,7 @@ screen (or the agent's reading copy).
 `help:<teamId>`, members, …). A detail screen subscribes to that **same key**
 and `.find()`s its row — so the first tap paints instantly from the warm list
 cache, and a row-level live patch updates detail and list together. From
-`web/components/learning-detail.tsx` (lines 63–66):
+`web/components/learning-detail.tsx`:
 
 ```ts
 const learningQ = useCached<Learning[]>(`learning:${teamId}`, () => content.learning(teamId))
@@ -96,7 +96,7 @@ double-fetch a collection for a derived value.**
 
 **The rule.** The list `SELECT`s are intentionally **"fat"** — they carry every
 field the detail screen renders, not just the columns the list *shows*. Look at
-`listLearning` in `workers/content/src/lib/learning.ts` (lines 161–173): it
+`listLearning` in `workers/content/src/lib/learning.ts`: it
 selects `content_body` — the full article HTML the detail screen and the agent
 read — even though the list card only shows a title + a short
 `content_description`. **Don't blindly trim a list SELECT to reduce payload.**
@@ -128,7 +128,7 @@ cheap); only per-team data pays the REST tax.
 
 - **Batch dependent writes into one multi-statement script.** `d1ExecScript`
   runs several statements in a single hop. `appendMessage` in
-  `workers/data-ops/src/lib/threads.ts` (lines 112–117) inserts the message
+  `workers/data-ops/src/lib/threads.ts` inserts the message
   **and** updates the thread's `last_message_at` in **one** script:
 
   ```sql
@@ -141,13 +141,13 @@ cheap); only per-team data pays the REST tax.
   non-string body can't 500 the one SQL door).
 
 - **`Promise.all` genuinely independent reads.** `d1QueryAcross` in
-  `d1-rest.ts` (lines 113–123) fans a query across shard databases with
+  `d1-rest.ts` fans a query across shard databases with
   `Promise.all(databaseIds.map(...))` — the template for parallelising reads
   that don't depend on each other.
 
 - **Deny-before-read must still hold when you batch a gate.** Every route gates
   *before* it reads (`await requireRight(cfg, guard, "member_roles", "read")` in
-  `workers/tenancy/src/routes/roles.ts:30`, before any `d1Query`). If you
+  `workers/tenancy/src/routes/roles.ts`, before any `d1Query`). If you
   restructure a handler to run reads in parallel for speed, the permission gate
   must still resolve — and throw its `GuardError` — **before** any data query
   fires. Never `Promise.all([requireRight(...), d1Query(...)])`: that races the
@@ -165,7 +165,7 @@ are exactly the signed-in user's — no more; (b) the URL host the agent's inner
 requests carry is a **fake internal host**, not the public app origin.
 
 **Why (a) — permissions are the spine.** `executeTool` in
-`workers/data-ops/src/lib/tools.ts` (lines 443–474) fetches the real endpoint
+`workers/data-ops/src/lib/tools.ts` fetches the real endpoint
 over a service binding with `headers: { Cookie: request.headers.get("Cookie") }`
 and `https://internal<path>`. The real door re-runs `requireRight` and
 re-validates the body. There is **no separate agent role** — a tool can never
@@ -222,14 +222,14 @@ turns a helpful agent into a nagging one.
 | **Confirm-with-a-count** | `bulk_set_help_status`, `bulk_set_learning_active` | High-blast: "Set 12 tickets to resolved" is confirmed by the count before it runs. |
 | **Run straight away** | everything else | Ordinary re-gated CRUD; the server gates each call, so no panel. |
 
-The system prompt (`agent.ts`, line 29) tells the model **not** to also ask in
+The system prompt (`agent.ts`) tells the model **not** to also ask in
 chat for the two panel actions — the app shows one yes/no panel, and a
 chat-level "are you sure?" on top would double-check the user.
 
 **What runs on confirm comes from the server, not the client.** When a turn
 proposes a dangerous call, the **full proposal** (name + input) is stored
 server-side as `status:"proposed"` on the assistant message
-(`agent.ts` lines 221–231). `/confirm` executes the **server-recorded** proposal
+(`agent.ts`). `/confirm` executes the **server-recorded** proposal
 (`confirmAndRun` → `getPendingProposal`), ignoring any `calls` the client sends
 — so a client can't approve a call the model never proposed. After running, the
 proposal is flipped `"proposed" → "done"` (`consumePendingProposal`) so a stray
@@ -245,9 +245,9 @@ body, the client hangs or double-settles.
 
 **Why.** A client that sends `Accept: text/event-stream` gets a live stream of
 text deltas + `step_start`/`step_end` events; anything else gets the plain JSON
-outcome (`wantsStream` in `workers/data-ops/src/routes/agent.ts` lines 34–36).
+outcome (`wantsStream` in `workers/data-ops/src/routes/agent.ts`).
 The stream is a `TransformStream` whose **readable side is returned immediately**
-while an async IIFE writes to the writable side (`streamRun`, lines 41–67).
+while an async IIFE writes to the writable side (`streamRun`).
 
 **The rules.**
 
@@ -260,9 +260,9 @@ while an async IIFE writes to the writable side (`streamRun`, lines 41–67).
 
 - **Exactly one terminal event.** The **route** owns the single terminal frame:
   a finished `ChatOutcome` becomes one `final` (or `confirm`) event via
-  `terminalEvent` (lines 26–30); a throw becomes one `error` event. The agent
+  `terminalEvent`; a throw becomes one `error` event. The agent
   loop emits *progress* (`text`, `step_start`, `step_end`) but **never** the
-  terminal — see the `Emit` contract note in `agent.ts` (line 117). Two terminal
+  terminal — see the `Emit` contract note in `agent.ts`. Two terminal
   events double-settle the client.
 
 - **Disable proxy buffering.** The response sets
@@ -300,26 +300,26 @@ the token budget trying to feed it everything.
 
 **Why + the rules** (`workers/data-ops/src/lib/agent.ts`):
 
-- **`MAX_STEPS = 12`** (line 18) caps the tool loop so a runaway plan can't spin
+- **`MAX_STEPS = 12`** caps the tool loop so a runaway plan can't spin
   forever; hitting it ends the turn with "I took several steps and paused here."
-- **`MAX_HISTORY = 24`** (line 20) windows what's *replayed* to the model:
-  `history.slice(-MAX_HISTORY)` (line 135). The **full** thread stays in the DB
+- **`MAX_HISTORY = 24`** windows what's *replayed* to the model:
+  `history.slice(-MAX_HISTORY)`. The **full** thread stays in the DB
   (audit + panel rehydration); only the recent slice is sent as context. So
   cost/context is bounded, but "the model saw the whole thread" is false.
 - Only **user + assistant text** is replayed across requests (`replayable`,
-  lines 70–74). Intermediate `tool_use`/`tool_result` pairs live **within a
+). Intermediate `tool_use`/`tool_result` pairs live **within a
   single loop** and are dropped from cross-request history — pairing them across
   turns breaks provider APIs.
 - Tool results are handed back **fenced as DATA**, capped at 2000 chars
-  (`fence`, lines 62–66), never as instructions — a big list can't blow context,
+  (`fence`), never as instructions — a big list can't blow context,
   and data can't smuggle in a prompt.
 
 **Resume is per-device and best-effort.** The panel remembers the last thread
-per team in **`localStorage`** (`agent-panel.tsx` lines 64–84) so reopening
+per team in **`localStorage`** (`agent-panel.tsx`) so reopening
 resumes that conversation instead of minting a fresh one. It's a nicety, not a
 guarantee: another device won't see it, and a write failure is swallowed. Thread
 ownership is enforced server-side regardless — `ownThreadOrThrow`
-(`threads.ts` lines 75–85) 404s a thread that isn't the caller's.
+(`threads.ts`) 404s a thread that isn't the caller's.
 
 ---
 
@@ -333,7 +333,7 @@ keyed by `team_id`. It's natural to assume "my 25 free requests" — but it's th
 a team database. `agent_usage` is keyed by **`(team_id, period)`** where
 `period` is `YYYY-MM-DD` (the daily free counter); `agent_credits` is keyed by
 `team_id` (the purchasable balance). See `getQuota` / `consumeAiUnit` in
-`workers/data-ops/src/lib/credits.ts` (lines 22–90) and DATA-MODEL.md.
+`workers/data-ops/src/lib/credits.ts` and DATA-MODEL.md.
 
 **The rules / subtleties.**
 
@@ -349,10 +349,10 @@ a team database. `agent_usage` is keyed by **`(team_id, period)`** where
   `INSERT … ON CONFLICT DO UPDATE SET used = used + 1`; under heavy concurrency
   it may **overshoot by a hair**, which is fine — free units cost nothing.
 - **Confirmed actions are metered up front.** `confirmAndRun` spends one unit
-  **before any write** (`agent.ts` lines 330–337) so an out-of-credit team can't
+  **before any write** (`agent.ts`) so an out-of-credit team can't
   drive confirmed actions for free; the resumed loop skips re-metering that
   first step (`prepaid`).
-- **Usage logging is never fatal.** `logUsage` (credits.ts lines 114–132)
+- **Usage logging is never fatal.** `logUsage` (credits.ts)
   swallows every error — a missing table or write hiccup must not break the turn
   the user cares about.
 
@@ -367,8 +367,7 @@ zero out the team's admins.
 
 **Why + the rule.** The count is kept as the fast, friendly rejection — but the
 real guarantee is **inside the write statement**. `changeMemberRole` and
-`removeMember` in `workers/tenancy/src/lib/members.ts` (lines 189–199 and
-240–250) re-check the admin floor in the `UPDATE … WHERE`:
+`removeMember` in `workers/tenancy/src/lib/members.ts` re-check the admin floor in the `UPDATE … WHERE`:
 
 ```sql
 UPDATE team_members SET deactivated_at = ?

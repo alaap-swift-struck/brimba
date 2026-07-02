@@ -51,6 +51,42 @@ export function supportsEffort(model: string): boolean {
   return /claude-(sonnet-5|opus-4-(7|8)|fable|mythos)/.test(model)
 }
 
+/** Our internal ChatMessage[] → the Anthropic Messages array. This is the canonical
+ *  wire shape and the ONE place it's built, so complete() and stream() can't drift:
+ *   • system messages are pulled out separately (not here) — dropped from this list;
+ *   • a role:"tool" result becomes a `tool_result` block on a USER message;
+ *   • consecutive same-role messages are COALESCED into one message of content blocks
+ *     (the API rejects two user or two assistant messages in a row) — so a multi-tool
+ *     turn's results collapse into ONE user message of tool_result blocks, and a
+ *     trailing text note (e.g. the failure wrap-up ask) rides that same user turn;
+ *   • an assistant turn that made tool calls becomes one assistant message carrying its
+ *     text block (if any) + a tool_use block per call;
+ *   • empty-text turns are skipped (the API rejects an empty text block).
+ *  Exported pure so a unit test can lock the coalescing without a network call. */
+export function toAnthropicMessages(messages: ChatMessage[]): { role: string; content: unknown[] }[] {
+  const msgs: { role: string; content: unknown[] }[] = []
+  const push = (role: string, blocks: unknown[]) => {
+    const last = msgs[msgs.length - 1]
+    if (last && last.role === role) last.content.push(...blocks)
+    else msgs.push({ role, content: blocks })
+  }
+  for (const m of messages) {
+    if (m.role === "system") continue
+    if (m.role === "tool") {
+      push("user", [{ type: "tool_result", tool_use_id: m.toolCallId, content: m.content }])
+    } else if (m.role === "assistant" && m.toolCalls && m.toolCalls.length) {
+      const blocks: unknown[] = []
+      if (m.content) blocks.push({ type: "text", text: m.content })
+      for (const tc of m.toolCalls)
+        blocks.push({ type: "tool_use", id: tc.id, name: tc.name, input: tc.input })
+      push("assistant", blocks)
+    } else if (m.content) {
+      push(m.role, [{ type: "text", text: m.content }])
+    }
+  }
+  return msgs
+}
+
 type AnthropicBlock =
   | { type: "text"; text: string }
   | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> }
@@ -68,37 +104,12 @@ class ClaudeModel implements Model {
   ) {}
 
   /** The one request body both complete() and stream() send — same messages/tools/effort
-   *  rules, only the `stream` flag differs. Keeps the two paths from drifting.
-   *  Consecutive same-role messages are COALESCED into one message of content blocks —
-   *  the canonical Messages format: a multi-tool turn's results become ONE user message
-   *  of tool_result blocks (the API rejects same-role runs), and a trailing text note
-   *  (e.g. the failure wrap-up ask) rides the same user turn as a text block. */
+   *  rules, only the `stream` flag differs. Keeps the two paths from drifting. */
   private buildBody(messages: ChatMessage[], tools: ToolSpec[], stream: boolean): Record<string, unknown> {
     const system = messages
       .filter((m) => m.role === "system")
       .map((m) => m.content)
       .join("\n\n")
-    const msgs: { role: string; content: unknown[] }[] = []
-    const push = (role: string, blocks: unknown[]) => {
-      const last = msgs[msgs.length - 1]
-      if (last && last.role === role) last.content.push(...blocks)
-      else msgs.push({ role, content: blocks })
-    }
-    for (const m of messages) {
-      if (m.role === "system") continue
-      if (m.role === "tool") {
-        push("user", [{ type: "tool_result", tool_use_id: m.toolCallId, content: m.content }])
-      } else if (m.role === "assistant" && m.toolCalls && m.toolCalls.length) {
-        const blocks: unknown[] = []
-        if (m.content) blocks.push({ type: "text", text: m.content })
-        for (const tc of m.toolCalls)
-          blocks.push({ type: "tool_use", id: tc.id, name: tc.name, input: tc.input })
-        push("assistant", blocks)
-      } else if (m.content) {
-        // Plain text turn (empty ones are skipped — the API rejects empty text blocks).
-        push(m.role, [{ type: "text", text: m.content }])
-      }
-    }
     return {
       model: this.name,
       max_tokens: 1024,
@@ -113,7 +124,7 @@ class ClaudeModel implements Model {
       ...(supportsEffort(this.name) ? { output_config: { effort: this.effort } } : {}),
       ...(stream ? { stream: true } : {}),
       ...(system ? { system } : {}),
-      messages: msgs,
+      messages: toAnthropicMessages(messages),
       ...(tools.length
         ? { tools: tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.schema })) }
         : {}),

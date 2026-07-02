@@ -9,9 +9,65 @@
 import { describe, expect, it } from "vitest"
 
 import { sseFrame, terminalEvent } from "../src/routes/agent"
-import { parseAnthropicStream, supportsEffort } from "../src/lib/model"
+import { parseAnthropicStream, supportsEffort, toAnthropicMessages } from "../src/lib/model"
+import type { ChatMessage } from "../src/lib/model"
 import type { ChatOutcome, StreamEvent } from "../../../shared/types"
 import type { AgentQuota } from "../../../shared/types"
+
+describe("toAnthropicMessages: canonical wire shape (coalescing is API-safe)", () => {
+  it("collapses a multi-tool turn's results into ONE user message, wrap-up ask riding it", () => {
+    // The exact shape the failure path builds: an assistant turn with 3 tool calls,
+    // then 3 tool results, then a trailing user text (the wrap-up ask). The API rejects
+    // two user messages in a row, so the 3 results + the ask must be ONE user message.
+    const convo: ChatMessage[] = [
+      { role: "system", content: "SYS" },
+      { role: "user", content: "do three things" },
+      {
+        role: "assistant",
+        content: "on it",
+        toolCalls: [
+          { id: "t1", name: "create_role", input: {} },
+          { id: "t2", name: "create_learning", input: {} },
+          { id: "t3", name: "raise_help_ticket", input: {} },
+        ],
+      },
+      { role: "tool", content: "FAILED: no permission", toolCallId: "t1", toolName: "create_role" },
+      { role: "tool", content: "FAILED: no permission", toolCallId: "t2", toolName: "create_learning" },
+      { role: "tool", content: "OK", toolCallId: "t3", toolName: "raise_help_ticket" },
+      { role: "user", content: "explain what failed" },
+    ]
+    const msgs = toAnthropicMessages(convo)
+
+    // system dropped; then user / assistant / user — no same-role run.
+    expect(msgs.map((m) => m.role)).toEqual(["user", "assistant", "user"])
+
+    // The assistant turn carries its text + one tool_use per call.
+    expect(msgs[1].content).toEqual([
+      { type: "text", text: "on it" },
+      { type: "tool_use", id: "t1", name: "create_role", input: {} },
+      { type: "tool_use", id: "t2", name: "create_learning", input: {} },
+      { type: "tool_use", id: "t3", name: "raise_help_ticket", input: {} },
+    ])
+
+    // The 3 tool_results AND the wrap-up ask are ONE coalesced user message.
+    expect(msgs[2].content).toEqual([
+      { type: "tool_result", tool_use_id: "t1", content: "FAILED: no permission" },
+      { type: "tool_result", tool_use_id: "t2", content: "FAILED: no permission" },
+      { type: "tool_result", tool_use_id: "t3", content: "OK" },
+      { type: "text", text: "explain what failed" },
+    ])
+  })
+
+  it("skips empty-text turns (the API rejects an empty text block)", () => {
+    const msgs = toAnthropicMessages([
+      { role: "user", content: "hi" },
+      { role: "assistant", content: "" }, // empty — must be dropped
+      { role: "user", content: "still there?" },
+    ])
+    // The two user messages coalesce (the empty assistant between them is gone).
+    expect(msgs).toEqual([{ role: "user", content: [{ type: "text", text: "hi" }, { type: "text", text: "still there?" }] }])
+  })
+})
 
 const QUOTA: AgentQuota = {
   freeDaily: 25,

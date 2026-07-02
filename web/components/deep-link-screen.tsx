@@ -69,7 +69,9 @@ import {
 // Aliased: the local `content()` dispatcher (below) shadows the api namespace.
 import { ApiFailure, content as contentApi, tenancy } from "@/lib/api"
 import { usePermissions } from "@/lib/perms"
-import { invalidate, primeCache, useCached } from "@/lib/store"
+import { invalidate, primeCache } from "@/lib/store"
+import { useScreenData } from "@/lib/use-screen-data"
+import { useScreenActions } from "@/lib/use-screen-actions"
 import { useActiveTeam } from "@/lib/use-active-team"
 import { reportError } from "@/lib/log"
 import { personName } from "@/lib/identity"
@@ -157,77 +159,29 @@ export function DeepLinkScreen() {
   const enabled = Boolean(teamId && onTeam)
   const { perms, can } = usePermissions(enabled ? teamId : null)
 
-  // Per-module data — cache-first, null-keyed when the module doesn't need it.
-  const overridesQ = useCached(enabled ? `screens:${teamId}` : null, () =>
-    tenancy.screenOverrides().then((r) => r.screens)
-  )
-  const membersQ = useCached(
-    enabled && module === "members" ? `members:${teamId}` : null,
-    () => tenancy.members().then((r) => r.members)
-  )
-  // Roles back the roles list, the breadcrumb label, the change-role picker and
-  // the invite form's role options — load them for the whole team area.
-  const rolesQ = useCached(enabled ? `member_roles:${teamId}` : null, () =>
-    tenancy.roles().then((r) => r.roles)
-  )
-  // Invites back the invites list AND the section-tab count badge, so load them
-  // across the team area (cache-first + live, so the count stays honest).
-  const invitesQ = useCached(enabled ? `invites:${teamId}` : null, () =>
-    tenancy.invites().then((r) => r.invites)
-  )
-  const metaQ = useCached(enabled && module === "team" ? `team-meta:${teamId}` : null, () =>
-    tenancy.teamMeta()
-  )
-  // Learning backs its list, the breadcrumb label and the article detail; load it
-  // for the whole learning area (cache-first + row-level live, decision below).
-  const learningQ = useCached(enabled && module === "learning" ? `learning:${teamId}` : null, () =>
-    contentApi.learning().then((r) => r.learning)
-  )
-  // Help backs its list (All set), the breadcrumb label and the ticket thread.
-  // ONE cache holds the whole team's tickets (the live registry patches it
-  // row-by-row); the My/All toggle filters that set client-side by raiser.
-  const helpQ = useCached(enabled && module === "help" ? `help:${teamId}` : null, () =>
-    contentApi.help("all").then((r) => r.tickets)
-  )
-  // The team's dropdown values — feed the help/learning forms' Type/Category pickers
-  // AND the Dropdown-values tab's count badge, so load them across the team area
-  // (cache-first + live, like roles/invites, so the count stays honest).
-  const formSelectableQ = useCached(
-    enabled ? `selectable:${teamId}` : null,
-    () => tenancy.selectable().then((r) => r.values)
-  )
-  const selectableValues = formSelectableQ.data ?? []
-  const helpTypeOptions = selectableValues.filter((v) => v.type === "Help type").map((v) => v.value)
-  const learningCategoryOptions = selectableValues
-    .filter((v) => v.type === "Learning category")
-    .map((v) => v.value)
-  const contentTypeOptions = selectableValues.filter((v) => v.type === "File type").map((v) => v.value)
+  // Per-module data — cache-first + null-keyed (a screen fetches only the modules
+  // it shows). Lifted into one hook so the host reads as "fetch, then render".
+  const {
+    overridesQ,
+    membersQ,
+    rolesQ,
+    invitesQ,
+    metaQ,
+    learningQ,
+    helpQ,
+    formSelectableQ,
+    selectableValues,
+    helpTypeOptions,
+    learningCategoryOptions,
+    contentTypeOptions,
+    activityScope,
+    activityKey,
+    activityQ,
+    inviteAuditQ,
+  } = useScreenData({ teamId, enabled, module, recordId })
+
+  // The help My/All toggle filters the one cached ticket set client-side by raiser.
   const [helpScope, setHelpScope] = React.useState<"mine" | "all">("all")
-  const activityScope: "team" | "user" | "invite" | null =
-    module === "team"
-      ? "team"
-      : module === "members" && recordId
-        ? "user"
-        : module === "invites" && recordId
-          ? "invite"
-          : null
-  const activityKey =
-    !enabled || !activityScope
-      ? null
-      : activityScope === "team"
-        ? `activity:team:${teamId}`
-        : `activity:${activityScope}:${recordId}`
-  const activityQ = useCached(activityKey, () =>
-    tenancy
-      .activity(activityScope ?? "team", activityScope === "team" ? undefined : (recordId ?? undefined))
-      .then((r) => r.activity)
-  )
-  // The invite-detail audit (inviter snapshot + acceptance) — only when viewing
-  // one invite. Cache-first + live (a revoke/accept ping refreshes its invite row).
-  const inviteAuditQ = useCached(
-    enabled && module === "invites" && recordId ? `invite-audit:${recordId}` : null,
-    () => tenancy.inviteAudit(recordId as string)
-  )
 
   const roles = rolesQ.data ?? []
   const activeRoles = roles.filter((r) => r.active)
@@ -318,83 +272,11 @@ export function DeepLinkScreen() {
 
   /* ------------------------------- mutations ------------------------------ */
 
-  // The named-action dispatcher. Calls the permission-checked endpoint, primes
-  // the actor's cache (others get a realtime ping → invalidate), and toasts
-  // success. THROWS on failure so the calling dialog / confirm surfaces it.
-  const runAction = React.useCallback(
-    async (actionId: string, payload: Record<string, string>) => {
-      if (!teamId) return
-      switch (actionId) {
-        case "members.changeRole": {
-          const { members } = await tenancy.setMemberRole(payload.userId, payload.roleId)
-          primeCache(`members:${teamId}`, members)
-          invalidate(`member_roles:${teamId}`) // member counts per role changed
-          invalidate(`activity:user:${payload.userId}`) // their activity feed gained a row
-          toast.success("Role updated.")
-          break
-        }
-        case "members.remove": {
-          const { members } = await tenancy.removeMember(payload.userId)
-          primeCache(`members:${teamId}`, members)
-          invalidate(`member_roles:${teamId}`)
-          invalidate(`activity:user:${payload.userId}`)
-          toast.success("Member removed.")
-          break
-        }
-        case "invites.create": {
-          const { invites } = await tenancy.createInvite(payload.email, payload.roleId)
-          primeCache(`invites:${teamId}`, invites)
-          toast.success(`Invited ${payload.email}.`)
-          break
-        }
-        case "invites.revoke": {
-          const { invites } = await tenancy.revokeInvite(payload.inviteId)
-          primeCache(`invites:${teamId}`, invites)
-          toast.success("Invite revoked.")
-          break
-        }
-        case "roles.create": {
-          const { roles: next } = await tenancy.createRole(payload.title, payload.description)
-          primeCache(`member_roles:${teamId}`, next)
-          toast.success(`Created ${payload.title}.`)
-          break
-        }
-      }
-    },
-    [teamId]
-  )
-
-  // Create a learning article — its own handler (a rich payload, not the flat
-  // string map runAction takes). Primes the list so the new article appears at
-  // once; the realtime "add" ping refreshes it for everyone else.
-  const createLearning = React.useCallback(
-    async (values: LearningFormValues) => {
-      if (!teamId) return
-      const { learning: next } = await contentApi.createLearning({
-        title: values.title,
-        category: values.category || null,
-        contentType: values.contentType || null,
-        contentLink: values.contentLink || null,
-        body: values.body || null,
-      })
-      primeCache(`learning:${teamId}`, next)
-      toast.success(`Created "${values.title}".`)
-    },
-    [teamId]
-  )
-
-  // Raise a help ticket — its own handler (a small object payload). Primes the
-  // list so the ticket shows at once; the realtime "add" ping refreshes everyone
-  // else.
-  const createHelp = React.useCallback(
-    async (input: { description: string; helpType?: string }) => {
-      if (!teamId) return
-      const { tickets } = await contentApi.createHelp(input)
-      primeCache(`help:${teamId}`, tickets)
-      toast.success("Ticket raised.")
-    },
-    [teamId]
-  )
+  // The write layer (named-action dispatcher + the two rich-payload creators),
+  // lifted into one hook. Each action calls the permission-checked endpoint, primes
+  // the actor's cache and invalidates any changed sibling count; runAction throws on
+  // failure so the calling dialog / confirm surfaces it.
+  const { runAction, createLearning, createHelp } = useScreenActions(teamId)
 
   /* ------------------------- engine intent + action ------------------------ */
 

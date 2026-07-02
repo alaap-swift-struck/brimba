@@ -50,7 +50,7 @@ array** — never an edit to an existing migration (existing databases have alre
 run them). The runner stamps each applied version into the per-team `_migrations`
 table and only applies what's missing.
 
-Look at how Learning did it (migration `0004_modules`, team-schema.ts:141):
+Look at how Learning did it (migration `0004_modules`, team-schema.ts):
 
 ```sql
 CREATE TABLE learning (
@@ -105,9 +105,9 @@ CREATE INDEX idx_notes_category ON notes (category);
 ```
 
 **How it rolls out.** A *brand-new* team runs every migration on creation
-(`applyTeamSchema`, `workers/tenancy/src/lib/teams.ts:40`). *Existing* teams get it
+(`applyTeamSchema`, `workers/tenancy/src/lib/teams.ts`). *Existing* teams get it
 from the migration robot: `POST /api/tenancy/admin/migrate-teams`
-(`workers/tenancy/src/routes/admin.ts:18`), guarded by `ADMIN_KEY`, which finds
+(`workers/tenancy/src/routes/admin.ts`), guarded by `ADMIN_KEY`, which finds
 every ready team, diffs its `_migrations` against `TEAM_MIGRATIONS`, and applies
 the gap. After you ship a new migration, the owner runs migrate-teams once. That is
 the whole story — no per-table binding, no wrangler migration file.
@@ -123,7 +123,7 @@ gated, so the server would refuse every request. Registering is three edits, all
 ### 2a. Add the module key
 
 ```ts
-// TEAM_MODULES (team-schema.ts:11) — one row per module
+// TEAM_MODULES (team-schema.ts) — one row per module
 export const TEAM_MODULES = [
   "teams", "team_members", "member_roles", "learning", "help",
   "selectable_data", "screens", "agent",
@@ -149,7 +149,7 @@ both the worker gate and the Roles UI.
 
 ### 2c. Seed the two default roles
 
-`buildTeamSeed` (team-schema.ts:299) writes the starter permission sheet every new
+`buildTeamSeed` (team-schema.ts) writes the starter permission sheet every new
 team gets: **Admin** (full) and **Viewer** (read-only). The loop already iterates
 `TEAM_MODULES`, so your module is seeded automatically — Admin gets
 `read/create/edit/delete = 1,1,1,1`, Viewer gets `1,0,0,0`. You only touch this if
@@ -185,7 +185,7 @@ delegate to lib → publish → return). Then one line per route in `index.ts`.
   (single-quote doubling; it also `String()`-coerces any non-string so the one door
   never 500s). Never string-concatenate a raw value into SQL.
 
-A create, distilled from `createLearning` (learning.ts:191):
+A create, distilled from `createLearning` (learning.ts):
 
 ```ts
 export async function createNote(
@@ -211,13 +211,13 @@ export async function createNote(
 }
 ```
 
-**Deactivate, not delete** — copy `setLearningActive` (learning.ts:265): one
+**Deactivate, not delete** — copy `setLearningActive` (learning.ts): one
 `UPDATE` that either stamps the `deactivator_*` block + `deactivated_at`, or clears
 them to reactivate. Never write a `DELETE`. Fetch-or-404 first (`learningOrThrow`,
-learning.ts:117) so a bad id is a clean 404, not a silent no-op.
+learning.ts) so a bad id is a clean 404, not a silent no-op.
 
 Return rows shaped into a **shared type** (`shared/types.ts`), not raw DB columns —
-`toLearning` (learning.ts:96) maps `content_title → title`, `deactivated_at === null
+`toLearning` (learning.ts) maps `content_title → title`, `deactivated_at === null
 → active`, etc. The client and the AI agent both consume the shared type. Add
 `export type Note = { … }` to `shared/types.ts` alongside `Learning`.
 
@@ -241,7 +241,7 @@ catch maps to a clean 400. This seam is **locked** by
 
 The handler is thin. Every team-scoped handler opens with `teamContext` and gates
 with `requireRight` (`shared/workers/gating.ts`). This is
-`postCreateLearning` (routes/learning.ts:36):
+`postCreateLearning` (routes/learning.ts):
 
 ```ts
 export async function postCreateNote(request: Request, env: Env): Promise<Response> {
@@ -255,11 +255,11 @@ export async function postCreateNote(request: Request, env: Env): Promise<Respon
 }
 ```
 
-`teamContext` (gating.ts:96) returns `{ user, actor, cfg, guard }`: it asks the auth
+`teamContext` (gating.ts) returns `{ user, actor, cfg, guard }`: it asks the auth
 worker who you are (401 if signed out), reads your active team (409 if none),
-confirms you're an **active member** of it (403 `not_member`, gating.ts:76), and
+confirms you're an **active member** of it (403 `not_member`, gating.ts), and
 hands back the guard carrying your `roleId` + the team's `databaseId`.
-`requireRight` (gating.ts:132) reads the tall sheet and throws `403 forbidden` if
+`requireRight` (gating.ts) reads the tall sheet and throws `403 forbidden` if
 your role lacks that right on `"notes"`. The check is on the **real module key** —
 security is never just hiding UI, and the **AI agent goes through these same gated
 endpoints** as the signed-in user, so it can never exceed your rights.
@@ -274,14 +274,14 @@ Map right → HTTP verb consistently, exactly as Learning does:
 | deactivate / reactivate | `delete` | `POST /api/content/notes/active` |
 
 Throw, don't catch: any rule failure is a `throw new GuardError(status, code, msg)`
-(gating.ts:37); the worker's central `try/catch` (`index.ts:97`) turns it into the
+(gating.ts); the worker's central `try/catch` (`index.ts`) turns it into the
 response. You never build error responses by hand inside a handler.
 
 ### 3d. The live-sync law (R1) — `publishChange`
 
 **Every mutation publishes a live change.** After a successful write, call
 `publishChange(env.REALTIME, guard.teamId, resource, id, op)`
-(`shared/workers/realtime.ts:46`). The payload carries only `{resource, id, op}` —
+(`shared/workers/realtime.ts`). The payload carries only `{resource, id, op}` —
 **never row data** — so every open screen re-pulls *just that one row* through the
 permission-checked endpoint (row-level live-sync; nothing can leak). `op` is
 advisory (`add` | `edit` | `remove`); the client re-pulls and decides keep-or-drop.
@@ -293,7 +293,7 @@ add one.)
 
 ### 3e. Register the routes
 
-Add a line per route to the `ROUTES` table in `workers/content/src/index.ts:66`.
+Add a line per route to the `ROUTES` table in `workers/content/src/index.ts`.
 Every non-GET route is **classified** — `mutation` (must publish) or `housekeeping`
 (the reviewed deny-list of writes that intentionally broadcast nothing, e.g. the R2
 file upload). This classification is not decoration: `publish-seam.test.ts` reads it
@@ -307,14 +307,14 @@ and fails CI if a `mutation` handler's source doesn't contain a `publishChange` 
 ```
 
 The gateway already forwards `/api/content/*` to this worker
-(`workers/gateway/src/index.ts:26`) — no gateway change needed.
+(`workers/gateway/src/index.ts`) — no gateway change needed.
 
 > **Optional: file uploads.** If your module attaches files (as Learning does),
-> follow `postUploadLearningFile` (routes/learning.ts:121): accept a base64 data
+> follow `postUploadLearningFile` (routes/learning.ts): accept a base64 data
 > URL, `parseUploadDataUrl` it with a byte cap, `env.<BUCKET>.put(\`${teamId}/${ulid()}\`, …)`,
 > and return a `/media/<module>/…` URL. It's classified **`housekeeping`** (it
 > writes a file, not a record — no row to patch) and needs a matching R2 bucket
-> binding + a gateway serving branch (gateway index.ts:48).
+> binding + a gateway serving branch (gateway index.ts).
 
 ---
 
@@ -326,7 +326,7 @@ The web app never fetches ad hoc. All four pieces below are small and formulaic.
 
 Add your calls to the `content` namespace. Same-origin `/api` calls; the shared
 `api<T>()` helper throws a typed `ApiFailure` on non-OK. Mirror the Learning block
-(api.ts:406):
+(api.ts):
 
 ```ts
 export const content = {
@@ -345,7 +345,7 @@ export const content = {
 
 ### 4b. The nav entry + the count badge (`web/lib/pages.ts`, Law R8)
 
-Add a `TeamSection` (pages.ts:56). `module` is the read-right that reveals it;
+Add a `TeamSection` (pages.ts). `module` is the read-right that reveals it;
 `segment` is the URL segment; `placement` is `"sidebar"` (a first-class page, like
 Learning/Help), `"tab"` (an admin section in the team tab strip), or `"contextual"`
 (reached from a button). Learning/Help are `"sidebar"`.
@@ -360,15 +360,15 @@ hand-listed count. Sidebar sections don't need one.
   placement: "sidebar", countCacheKey: "notes" },
 ```
 
-Also give the concept one icon in `CONCEPT_ICON` (pages.ts:79) — the single icon
+Also give the concept one icon in `CONCEPT_ICON` (pages.ts) — the single icon
 vocabulary, reused at page/tab/button level. If it's a top-level URL like
-`/notes`, add `"notes"` to `TOP_LEVEL_MODULES` (`web/components/deep-link/route.ts:35`)
-and the gateway's top-level shell loop (gateway index.ts:93).
+`/notes`, add `"notes"` to `TOP_LEVEL_MODULES` (`web/components/deep-link/route.ts`)
+and the gateway's top-level shell loop (gateway index.ts).
 
 ### 4c. The screen recipe (`web/lib/screens.ts`)
 
 A **list** is described as *data* — a `ScreenRecipe` the library engine renders. Copy
-`learningListRecipe` (screens.ts:258). `listCollection(...)` turns on client-side
+`learningListRecipe` (screens.ts). `listCollection(...)` turns on client-side
 search over the shaped columns and adds a filter bar per facet:
 
 ```ts
@@ -385,8 +385,8 @@ export const notesListRecipe: ScreenRecipe = {
 }
 ```
 
-Register it in `BASE_RECIPES` under `"notes.list"` (screens.ts:298), and map the URL
-segment to its permission module in `MODULE_PERMISSION` (screens.ts:55) — for a
+Register it in `BASE_RECIPES` under `"notes.list"` (screens.ts), and map the URL
+segment to its permission module in `MODULE_PERMISSION` (screens.ts) — for a
 content module the segment *is* the module: `notes: "notes"`. Each facet `field`
 must be a real column on the *shaped* rows (next step). A team can override any
 recipe at runtime; `resolveRecipe` merges override-over-base defensively, so a bad
@@ -394,13 +394,13 @@ override can never blank the screen.
 
 > The **detail** screen for Learning has no engine block (its Article body + Done
 > toggle are bespoke), so it's a host-composed component, not a recipe — see Layer 5.
-> A purely metadata detail *can* be a recipe (see `memberDetailRecipe`, screens.ts:129,
+> A purely metadata detail *can* be a recipe (see `memberDetailRecipe`, screens.ts,
 > whose `tabs` carry the Overview + Activity blocks as data).
 
 ### 4d. The shaper (`web/components/deep-link/shape.ts`)
 
 Pure functions turn the loaded shared-type rows into the flat rows the recipe reads.
-Copy `shapeLearningList` (shape.ts:123). `name`/`detail` are what the row renders;
+Copy `shapeLearningList` (shape.ts). `name`/`detail` are what the row renders;
 any extra key is a **facet column** the filter engine reads (it must match the
 recipe's facet `field`):
 
@@ -422,9 +422,9 @@ export function shapeNotesList(items: Note[]): ScreenData {
 
 `deep-link-screen.tsx` is the one shell backing the whole `/t/*` tree. Add a
 **cache-first read**, then a list branch and a detail branch, mirroring Learning
-(deep-link-screen.tsx:183, :606, :739).
+(deep-link-screen.tsx, :606, :739).
 
-- **Cache-first read** with `useCached(key, fetcher)` (`web/lib/store.ts:124`): it
+- **Cache-first read** with `useCached(key, fetcher)` (`web/lib/store.ts`): it
   returns cached data instantly and revalidates in the background, and a live ping
   patches the one row in place. Key by team so a team switch re-fetches:
 
@@ -434,7 +434,7 @@ export function shapeNotesList(items: Note[]): ScreenData {
   ```
 
   The cache-key prefix (`notes`) is exactly the `countCacheKey` from 4b; add it to
-  `loadedByCacheKey` (deep-link-screen.tsx:466) so the tab badge is derived from the
+  `loadedByCacheKey` (deep-link-screen.tsx) so the tab badge is derived from the
   same rows the screen shows.
 
 - **List branch** — shape, apply `withDataDrivenCollection` (hides dead search/facets
@@ -447,7 +447,7 @@ export function shapeNotesList(items: Note[]): ScreenData {
 - **Create handler** — a small `createNote` callback that calls the api, then
   **`primeCache(\`notes:${teamId}\`, next)`** so the new row appears instantly for
   the actor (everyone else gets the realtime ping). See `createLearning`
-  (deep-link-screen.tsx:370).
+  (deep-link-screen.tsx).
 
 **The cache/live contract in one line:** the mutating call primes the actor's cache
 with the fresh list; other devices get the `publishChange` ping → re-pull the one
@@ -461,7 +461,7 @@ changed row. Never refetch the whole collection on a change. (CACHING.md.)
 `TabsView` + `ActivityFeed`. For a bespoke detail this is on you to render;
 `learning-detail.tsx` is the exact template.
 
-Three data reads, all cache-first (learning-detail.tsx:62):
+Three data reads, all cache-first (learning-detail.tsx):
 
 ```ts
 const learningQ  = useCached(`learning:${teamId}`, () => content.learning().then(r => r.learning))
@@ -472,12 +472,12 @@ const selectableQ = useCached(`selectable:${teamId}`, () => tenancy.selectable()
 
 The activity read is the **one generic (table, id) path** — Law R5. You do **not**
 write a per-module history query; `tenancy.recordActivity("notes", id)`
-(`web/lib/api.ts:380`) reads it, gated server-side by the module's read right.
+(`web/lib/api.ts`) reads it, gated server-side by the module's read right.
 
 The Overview tab is a `DescriptionList` built from `auditItems(...)`
 (`web/lib/audit-overview.ts`) — the shared audit block (created by/when, edited
 by/when, status) that keeps Overviews consistent across the app. The tabs render
-through the library `TabsView` (learning-detail.tsx:214):
+through the library `TabsView` (learning-detail.tsx):
 
 ```tsx
 const tabsConfig = { ...defaultTabsConfig, variant: "line", tabs: [
@@ -490,7 +490,7 @@ const tabsConfig = { ...defaultTabsConfig, variant: "line", tabs: [
 
 After an edit or (de)activate, prime the list cache with the returned rows and
 re-pull the record's activity so the Activity tab reflects the new row
-(`invalidateActivity`, learning-detail.tsx:127). Action buttons carry their lucide
+(`invalidateActivity`, learning-detail.tsx). Action buttons carry their lucide
 icon (CLAUDE.md): edit = `Pencil`, deactivate = `Power`, destructive actions get the
 red colour + a confirm.
 
@@ -510,11 +510,11 @@ where a test looks for it.
 | Law | What it checks | What you do |
 |---|---|---|
 | **R1** publish-seam | `workers/content/test/publish-seam.test.ts` reads `ROUTES` + handler source: every `mutation` must contain a `publishChange` call; non-GET routes must be classified. | Classify each route (3e) and actually publish (3d). A `housekeeping` route (e.g. upload) must be added to the test's reviewed `HOUSEKEEPING` set. |
-| **R2** record-detail-tabs | `web/test/rules.test.ts` reads each name in `RECORD_DETAIL_COMPONENTS` and asserts the file contains `TabsView` + `ActivityFeed`. | Add `"note-detail"` to `RECORD_DETAIL_COMPONENTS` in `shared/rules/registry.ts:84`; the test then forces Layer 5. |
+| **R2** record-detail-tabs | `web/test/rules.test.ts` reads each name in `RECORD_DETAIL_COMPONENTS` and asserts the file contains `TabsView` + `ActivityFeed`. | Add `"note-detail"` to `RECORD_DETAIL_COMPONENTS` in `shared/rules/registry.ts`; the test then forces Layer 5. |
 | **R3** no-handrolled-toggles | No component fakes a tab strip with `variant={x === y ? …}`. | Use `TabsView` for any tab strip (Learning's Articles/Team-progress does). |
-| **R4/R7** forms | Every dialog in `FORM_DIALOGS` imports `FormShell` and `useFormDraft`. | If you add a `note-form-dialog`, add it to `FORM_DIALOGS` (registry.ts:100) and build it on `FormShell` + `useFormDraft`. |
+| **R4/R7** forms | Every dialog in `FORM_DIALOGS` imports `FormShell` and `useFormDraft`. | If you add a `note-form-dialog`, add it to `FORM_DIALOGS` (registry.ts) and build it on `FormShell` + `useFormDraft`. |
 | **R5** generic-activity-path | The activity read has a generic `record` scope; the web reads via `recordActivity`. | Read history only via `tenancy.recordActivity(...)` (Layer 5). No new SQL. |
-| **R8** tab-counts-derived | Every `placement:"tab"` collection section declares a `countCacheKey`, derived generically. | Declare `countCacheKey` (4b) — or, if your tab isn't a collection, add a reviewed `TAB_COUNT_EXCEPTIONS` line (registry.ts:94). |
+| **R8** tab-counts-derived | Every `placement:"tab"` collection section declares a `countCacheKey`, derived generically. | Declare `countCacheKey` (4b) — or, if your tab isn't a collection, add a reviewed `TAB_COUNT_EXCEPTIONS` line (registry.ts). |
 | **boundary** validate | `workers/content/test/validate.test.ts` locks `requireText`/`optionalText`. | Validate every write at the top (3b). Bad input → 400, never 500. |
 
 Also add a plain unit test for your lib's business rules (see how Learning's
