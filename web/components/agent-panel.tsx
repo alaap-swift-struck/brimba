@@ -328,6 +328,32 @@ export function AgentPanel({
     })
   }
 
+  /** The stream broke mid-turn (phones drop long-held connections when the screen
+   * locks or the network blips) — but the SERVER almost always FINISHED the turn
+   * and saved every step + the reply. Re-load the saved thread and show the truth
+   * instead of a scary "something went wrong" that makes completed work look
+   * failed (the owner hit exactly this on 5G). Returns false if even the re-sync
+   * fails, so the caller can fall back to the plain message. */
+  async function resyncAfterDrop(): Promise<boolean> {
+    try {
+      // The turn may have CREATED the thread server-side before we ever got its id.
+      const id = threadId ?? (await dataOps.agentThreads()).threads[0]?.id
+      if (!id) return false
+      const r = await dataOps.agentThread(id)
+      setItems(toChatItems(r.messages))
+      setThreadId(id)
+      setPending(null)
+      if (teamId) writeLastThread(teamId, id)
+      dataOps
+        .agentUsage()
+        .then((u) => setQuota(u.quota))
+        .catch(() => {})
+      return true
+    } catch {
+      return false
+    }
+  }
+
   async function send(text: string) {
     if (busy) return
     const assistantId = newId()
@@ -343,8 +369,10 @@ export function AgentPanel({
     try {
       await consume((onEvent) => dataOps.agentChatStream({ message: text, threadId }, onEvent), assistantId)
     } catch (err) {
-      const msg = err instanceof ApiFailure ? err.message : "Something went wrong. Try again."
-      setItems((prev) => prev.map((it) => (it.id === assistantId ? { ...it, content: msg } : it)))
+      if (!(await resyncAfterDrop())) {
+        const msg = err instanceof ApiFailure ? err.message : "The connection dropped. Reopen the chat to see what happened."
+        setItems((prev) => prev.map((it) => (it.id === assistantId ? { ...it, content: msg } : it)))
+      }
     } finally {
       setBusy(false)
     }
@@ -375,9 +403,11 @@ export function AgentPanel({
         assistantId
       )
     } catch (err) {
-      const msg =
-        err instanceof ApiFailure ? err.message : "I couldn't make those changes. Please try again."
-      setItems((prev) => prev.map((it) => (it.id === assistantId ? { ...it, content: msg } : it)))
+      if (!(await resyncAfterDrop())) {
+        const msg =
+          err instanceof ApiFailure ? err.message : "The connection dropped. Reopen the chat to see what happened."
+        setItems((prev) => prev.map((it) => (it.id === assistantId ? { ...it, content: msg } : it)))
+      }
     } finally {
       setBusy(false)
     }
@@ -461,29 +491,31 @@ export function AgentPanel({
                   </button>
                 )}
                 {/* History: past conversations (resume any, incl. one started on
-                 * another device). Icon-only to fit the narrow header. */}
+                 * another device). size-10 ≈ a real thumb target (the size-8 pair
+                 * was too small to hit on a phone); bordered so they read as
+                 * buttons, not decorations. */}
                 <Button
-                  variant="ghost"
+                  variant="outline"
                   size="icon"
-                  className="size-8"
+                  className="size-10"
                   onClick={() => setHistoryOpen(true)}
                   disabled={busy}
                   title="Past conversations"
                   aria-label="Past conversations"
                 >
-                  <History className="size-4" aria-hidden />
+                  <History className="size-5" aria-hidden />
                 </Button>
                 {items.length > 0 && (
                   <Button
-                    variant="ghost"
+                    variant="outline"
                     size="icon"
-                    className="size-8"
+                    className="size-10"
                     onClick={newChat}
                     disabled={busy}
                     title="New chat"
                     aria-label="New chat"
                   >
-                    <Plus className="size-4" aria-hidden />
+                    <Plus className="size-5" aria-hidden />
                   </Button>
                 )}
               </div>
@@ -497,7 +529,10 @@ export function AgentPanel({
             The assistant isn&apos;t available for your role here.
           </div>
         ) : (
-          <div className="flex min-h-0 flex-1 flex-col">
+          // agent-chat-host also scopes the INTERIM step-row wrap override in
+          // globals.css (the library ToolRow truncates its label — unusable on
+          // phones; a library fix is flagged in UI-GAPS).
+          <div className="agent-chat-host flex min-h-0 flex-1 flex-col">
             <div className="min-h-0 flex-1">
               {/* Fill the sheet and shed the component's own card chrome (it ships
                * as a standalone fixed-height card) so it reads as one panel, not a

@@ -14,6 +14,8 @@ type Env = {
   DATAOPS: Fetcher
   MEDIA: R2Bucket
   LEARNING_MEDIA: R2Bucket
+  /** shared secret for auth's /internal/* doors (same value as auth/tenancy/content). */
+  INTERNAL_KEY?: string
 }
 
 export default {
@@ -28,13 +30,38 @@ export default {
     // Live channels (WebSocket upgrade + health) → the realtime switchboard.
     if (pathname.startsWith("/api/realtime")) return env.REALTIME.fetch(request)
 
-    // Client error beacon → this Worker's logs (Cloudflare observability). No
-    // data store; just structured logging so a crash on staging/prod is visible
-    // without the user reporting it. The swappable seam is web/lib/log.ts; the
-    // ruleset is ERROR-HANDLING.md. Body is capped to avoid log-spam abuse.
+    // Client error beacon → console (Cloudflare observability, live tails) AND
+    // the central error_logs table via auth's internal door, so a crash on a
+    // user's phone is queryable + resolvable later, not just visible for a week.
+    // Only forwarded when the browser carries a session cookie — an anonymous
+    // drive-by can't fill the table (it still lands in the console line). The
+    // swappable client seam is web/lib/log.ts; the ruleset is ERROR-HANDLING.md.
     if (pathname === "/api/log/client" && request.method === "POST") {
       const raw = await request.text().catch(() => "")
       console.error("client_error", raw.slice(0, 4000))
+      if (request.headers.get("Cookie")?.includes("session")) {
+        let b: { where?: string; message?: string; stack?: string; url?: string } = {}
+        try {
+          b = JSON.parse(raw)
+        } catch {
+          /* an unparsable beacon stays console-only */
+        }
+        if (b.message)
+          await env.AUTH.fetch("https://internal/internal/log-error", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-internal-key": env.INTERNAL_KEY ?? "",
+            },
+            body: JSON.stringify({
+              source: "web",
+              place: b.where ?? "unknown",
+              message: b.message,
+              stack: b.stack,
+              url: b.url,
+            }),
+          }).catch(() => null) // recording must never break the beacon
+      }
       return new Response(null, { status: 204 })
     }
 

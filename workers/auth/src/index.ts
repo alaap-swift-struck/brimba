@@ -11,6 +11,7 @@
 //   GET  /api/auth/health                                -> is this worker alive?
 
 import { fail, json } from "../../../shared/workers/http"
+import { logError, recordWorkerError } from "../../../shared/workers/error-log"
 import type { Env } from "./env"
 import { randomCode, sha256Hex } from "./lib/crypto"
 import { isValidEmail, normalizeEmail, sendEmail, sendLoginCode } from "./lib/email"
@@ -61,11 +62,19 @@ export default {
         // only a service binding (env.AUTH.fetch) can reach it.
         case "POST /internal/send-email":
           return await internalSendEmail(request, env)
+        // Internal: the gateway forwards CLIENT error beacons here so web errors
+        // land in the same central error_logs table the workers write to (auth
+        // owns the door because it holds the core DB + the internal-key guard).
+        case "POST /internal/log-error":
+          return await internalLogError(request, env)
         default:
           return fail(404, "not_found", "No such auth action.")
       }
     } catch (e) {
       console.error("auth worker error:", e)
+      // Record the crash in the central error log (core DB) — best-effort,
+      // never blocks the response. Clean GuardError refusals never reach here.
+      await recordWorkerError(env.DB, "auth", `${request.method} ${new URL(request.url).pathname}`, e)
       return fail(500, "internal", "Something went wrong on our side. Try again.")
     }
   },
@@ -93,6 +102,31 @@ async function internalSendEmail(request: Request, env: Env): Promise<Response> 
     text: m.text ?? "",
   })
   return json({ sent })
+}
+
+/** Internal (service-binding only): record a CLIENT-side error into the central
+ * error_logs table. Same defense-in-depth key as send-email; every field is
+ * capped inside logError, and a bad body is simply dropped (a log endpoint must
+ * never become an error source itself). */
+async function internalLogError(request: Request, env: Env): Promise<Response> {
+  if (env.INTERNAL_KEY && request.headers.get("x-internal-key") !== env.INTERNAL_KEY)
+    return fail(403, "forbidden", "Bad internal key.")
+  const b = (await request.json().catch(() => ({}))) as {
+    source?: string
+    place?: string
+    message?: string
+    stack?: string
+    url?: string
+  }
+  if (b.message)
+    await logError(env.DB, {
+      source: b.source || "web",
+      place: b.place || "unknown",
+      message: b.message,
+      stack: b.stack,
+      url: b.url,
+    })
+  return new Response(null, { status: 204 })
 }
 
 /** Step 1 of email login: create + send a 6-digit code. */

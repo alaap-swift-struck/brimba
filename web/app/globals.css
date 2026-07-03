@@ -12,3 +12,13 @@
 .glass {
   background-color: color-mix(in oklch, var(--card) 94%, transparent);
 }
+
+/* INTERIM (UI-GAPS #9): the library AgentChat step row truncates its label — on a
+ * phone the useful half of "Set access rights for the sub-admin role" vanishes.
+ * Let it wrap until the library ships the wrap (prompt handed to the owner).
+ * Scoped to the agent panel; remove once @swift-struck/ui updates ToolRow. */
+.agent-chat-host span.truncate {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}

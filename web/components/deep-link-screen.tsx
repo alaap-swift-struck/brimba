@@ -463,6 +463,11 @@ export function DeepLinkScreen() {
               label: "Import CSV",
               onClick: () => go(`/t/${teamId}/import/member_roles`),
             }}
+            download={{
+              show: (data.rows?.length ?? 0) > 0, // export needs READ — implied by seeing this list
+              label: "Export CSV",
+              href: "/api/tenancy/roles/export",
+            }}
             onCreate={() => go(sectionPath, { panel: "add", module: "roles" })}
           >
             <ScreenRenderer recipe={rolesRecipe} data={data} rights={rights} onAction={onAction} onIntent={onIntent} />
@@ -499,6 +504,11 @@ export function DeepLinkScreen() {
               show: can("learning", "create"),
               label: "Import CSV",
               onClick: () => go(`/t/${teamId}/import/learning`),
+            }}
+            download={{
+              show: (data.rows?.length ?? 0) > 0, // export needs READ — implied by seeing this list
+              label: "Export CSV",
+              href: "/api/content/learning/export",
             }}
             onCreate={() => go(sectionPath, { panel: "add", module: "learning" })}
           >

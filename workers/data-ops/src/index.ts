@@ -22,6 +22,7 @@
 import { brand } from "../../../shared/brand"
 import { fail, json } from "../../../shared/workers/http"
 import { GuardError } from "../../../shared/workers/gating"
+import { recordWorkerError } from "../../../shared/workers/error-log"
 import type { Env } from "./env"
 import {
   getImportPreview,
@@ -31,7 +32,7 @@ import {
   postImportMapping,
   postImportStart,
 } from "./routes/import"
-import { postSeedTargets } from "./routes/admin"
+import { getErrors, postResolveError, postSeedTargets } from "./routes/admin"
 import {
   getAgentThread,
   getAgentThreads,
@@ -65,6 +66,10 @@ export const ROUTES: Record<string, { handler: Handler; kind: RouteKind }> = {
   "POST /api/data-ops/import/mapping": { handler: postImportMapping, kind: "housekeeping" },
   "POST /api/data-ops/import/confirm": { handler: postImportConfirm, kind: "mutation" },
   "POST /api/data-ops/admin/seed-targets": { handler: postSeedTargets, kind: "housekeeping" },
+  // The central error log (owner-only, x-admin-key). Resolve is housekeeping:
+  // private maintainer bookkeeping in the core DB — broadcasts nothing (rule 4).
+  "GET /api/data-ops/admin/errors": { handler: getErrors, kind: "read" },
+  "POST /api/data-ops/admin/errors/resolve": { handler: postResolveError, kind: "housekeeping" },
   "GET /api/data-ops/agent/usage": { handler: getAgentUsage, kind: "read" },
   "GET /api/data-ops/agent/usage-log": { handler: getAgentUsageLog, kind: "read" },
   "POST /api/data-ops/admin/grant-credits": { handler: postGrantCredits, kind: "mutation" },
@@ -90,6 +95,9 @@ export default {
     } catch (e) {
       if (e instanceof GuardError) return fail(e.status, e.code, e.message)
       console.error("data-ops worker error:", e)
+      // Record the crash in the central error log (core DB) — best-effort,
+      // never blocks the response. Clean GuardError refusals never reach here.
+      await recordWorkerError(env.DB, "data-ops", `${request.method} ${new URL(request.url).pathname}`, e)
       const message = e instanceof Error ? e.message : ""
       if (message.startsWith("cloud_key_missing:"))
         return fail(503, "cloud_key_missing", `${brand.name}'s cloud key isn't set up yet — imports are paused.`)

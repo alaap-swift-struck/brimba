@@ -3,6 +3,7 @@
 // (Admin is locked, auto-flip-read) live in lib/roles.
 
 import { fail, json } from "../../../../shared/workers/http"
+import { csvResponse, toCsv } from "../../../../shared/workers/csv"
 import { requireText, TEXT_LIMITS } from "../../../../shared/workers/validate"
 import { publishChange } from "../../../../shared/workers/realtime"
 import { listRoles } from "../lib/members"
@@ -31,6 +32,22 @@ export async function getRoles(request: Request, env: Env): Promise<Response> {
   const roles = await listRoles(env, cfg, guard)
   const id = new URL(request.url).searchParams.get("id") // ?id= → one role
   return json({ roles: id ? roles.filter((r) => r.id === id) : roles })
+}
+
+/** GET /api/tenancy/roles/export — the team's roles as a CSV download. The
+ * cross-cutting rule: EXPORT NEEDS READ (import needs create). Team-bound by
+ * construction (teamContext → the caller's own team database). Columns lead with
+ * the import format (title, description) so the file round-trips through the CSV
+ * importer; active + members ride along as information. */
+export async function getRolesExport(request: Request, env: Env): Promise<Response> {
+  const { cfg, guard } = await teamContext(request, env)
+  await requireRight(cfg, guard, "member_roles", "read")
+  const roles = await listRoles(env, cfg, guard)
+  const csv = toCsv(
+    ["title", "description", "active", "members"],
+    roles.map((r) => [r.title, r.description, r.active, r.memberCount])
+  )
+  return csvResponse("member-roles.csv", csv)
 }
 
 export async function getRolePerms(request: Request, env: Env): Promise<Response> {

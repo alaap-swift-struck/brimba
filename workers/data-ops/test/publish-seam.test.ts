@@ -42,6 +42,9 @@ const HOUSEKEEPING = new Set<string>([
   // team-visible effect is published by the gated endpoint the executor calls.
   "POST /api/data-ops/agent/chat",
   "POST /api/data-ops/agent/confirm",
+  // Resolving an error-log row is private maintainer bookkeeping in the core DB
+  // (owner-only, x-admin-key) — no team screen shows it, so nothing to broadcast.
+  "POST /api/data-ops/admin/errors/resolve",
 ])
 
 describe("live-sync seam: every mutation publishes", () => {

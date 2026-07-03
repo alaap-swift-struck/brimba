@@ -133,6 +133,16 @@ view. Real data: `id`, `team_id`, `actor_id`, `actor_name`, `created_at`,
 `GET /api/data-ops/agent/usage-log`. Lives in the global core DB beside the
 quota tables it explains.
 
+### error_logs — KEEP (BUILT 2026-07-03, GLOBAL — `db/core/0012`)
+Purpose: the central error store (ERROR-HANDLING.md) — one row per UNEXPECTED
+failure (worker crash or client-side error), never a clean GuardError refusal.
+Real data: `id`, `at`, `source`, `place`, `message`, `stack` (capped), optional
+`team_id`/`user_id`/`url`, and the resolve workflow (`status` open→resolved,
+`resolved_at`, `resolution_note`). Owner-only doors (x-admin-key):
+`GET /api/data-ops/admin/errors` + `POST /api/data-ops/admin/errors/resolve`.
+Lives in the global core DB — system health is cross-team; each environment has
+its own core DB so staging/production histories never mix.
+
 ### selectable_data_types — KEEP (TO BUILD) — Q2 RESOLVED (see Resolutions:
 global standard GROUPS + per-team VALUES)
 Glide: 3 rows (`File type`, `Learning category`, `Help type`), no team key, no

@@ -72,7 +72,7 @@ scripts already encode this order.
 
 One global D1 database holds users, teams, the team→member→role index, and the agent
 quota tables. Create it for each environment and apply the core migrations in
-`db/core/` (they are numbered `0001` … and applied in order).
+`db/core/` (they are numbered `0001` … and applied in order; `0012` adds the central error log).
 
 ```bash
 # Create the core DB for each env (copy the returned database_id into the
@@ -80,7 +80,7 @@ quota tables. Create it for each environment and apply the core migrations in
 npx wrangler d1 create brimba-core-staging
 npx wrangler d1 create brimba-core
 
-# Apply every core migration (0001…0011) to each env. Any core-bound worker can run it;
+# Apply every core migration (0001…0012) to each env. Any core-bound worker can run it;
 # auth is the canonical one. Run WITHOUT --env for production.
 cd workers/auth
 npx wrangler d1 migrations apply brimba-core-staging --env staging --remote
@@ -88,9 +88,10 @@ npx wrangler d1 migrations apply brimba-core --remote
 cd ../..
 ```
 
-The current core migrations are `0001`–`0011` (users, teams, team_members, the
+The current core migrations are `0001`–`0012` (users, teams, team_members, the
 email-change security records, account activity, the import catalog, and the three
-agent quota tables `agent_usage` / `agent_credits` / `agent_usage_log`). DATA-MODEL.md
+agent quota tables `agent_usage` / `agent_credits` / `agent_usage_log`, plus the
+central error log `error_logs`). DATA-MODEL.md
 lists every table. **Migrations are additive — never edit an applied one.**
 
 > **Per-team databases are NOT created here.** Each team's database is created at
@@ -131,7 +132,7 @@ ARCHITECTURE.md `/media/*` note before storing anything sensitive.
 | `RESEND_API_KEY` | auth | send login codes + notifications. Until it's set, staging echoes login codes in the API response and production refuses email login. |
 | `CF_D1_TOKEN` | tenancy, content, data-ops | the scoped D1 REST token (Cloudflare → D1 → Edit) that reaches per-team databases. |
 | `ADMIN_KEY` | tenancy, data-ops | guards the maintenance endpoints (migrate-teams, db-sizes, seed the import catalog, grant credits). |
-| `INTERNAL_KEY` | auth, tenancy, content | shared secret gating auth's `/internal/send-email` (tenancy + content call it). MUST match across all three. |
+| `INTERNAL_KEY` | auth, tenancy, content, gateway | shared secret gating auth's `/internal/send-email` (tenancy + content call it). MUST match across all four. |
 | `ANTHROPIC_API_KEY` | data-ops | *optional* — when set, the agent's brain is Claude; unset falls back to Workers AI. Both do full tool use. |
 
 **Vars** (plain config in `wrangler.jsonc`, not secret):

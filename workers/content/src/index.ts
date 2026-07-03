@@ -26,6 +26,7 @@
 import { brand } from "../../../shared/brand"
 import { fail, json } from "../../../shared/workers/http"
 import { GuardError } from "../../../shared/workers/gating"
+import { recordWorkerError } from "../../../shared/workers/error-log"
 import type { Env } from "./env"
 import {
   getLearning,
@@ -36,6 +37,7 @@ import {
   postSetLearningActive,
   postUpdateLearning,
   postUploadLearningFile,
+  getLearningExport,
 } from "./routes/learning"
 import {
   getHelp,
@@ -65,6 +67,7 @@ type RouteKind = "read" | "mutation" | "housekeeping"
 type Handler = (request: Request, env: Env) => Promise<Response>
 export const ROUTES: Record<string, { handler: Handler; kind: RouteKind }> = {
   "GET /api/content/learning": { handler: getLearning, kind: "read" },
+  "GET /api/content/learning/export": { handler: getLearningExport, kind: "read" },
   "POST /api/content/learning": { handler: postCreateLearning, kind: "mutation" },
   "POST /api/content/learning/update": { handler: postUpdateLearning, kind: "mutation" },
   "POST /api/content/learning/active": { handler: postSetLearningActive, kind: "mutation" },
@@ -97,6 +100,9 @@ export default {
     } catch (e) {
       if (e instanceof GuardError) return fail(e.status, e.code, e.message)
       console.error("content worker error:", e)
+      // Record the crash in the central error log (core DB) — best-effort,
+      // never blocks the response. Clean GuardError refusals never reach here.
+      await recordWorkerError(env.DB, "content", `${request.method} ${new URL(request.url).pathname}`, e)
       const message = e instanceof Error ? e.message : ""
       if (message.startsWith("cloud_key_missing:"))
         return fail(503, "cloud_key_missing", `${brand.name}'s cloud key isn't set up yet — content is paused.`)

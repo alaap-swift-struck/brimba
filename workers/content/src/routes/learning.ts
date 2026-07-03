@@ -7,6 +7,7 @@
 // lib/learning.
 
 import { fail, json } from "../../../../shared/workers/http"
+import { csvResponse, toCsv } from "../../../../shared/workers/csv"
 import { requireText, TEXT_LIMITS } from "../../../../shared/workers/validate"
 import { publishChange } from "../../../../shared/workers/realtime"
 import { parseUploadDataUrl } from "../../../../shared/workers/image"
@@ -31,6 +32,23 @@ export async function getLearning(request: Request, env: Env): Promise<Response>
   const items = await listLearning(cfg, guard)
   const id = new URL(request.url).searchParams.get("id") // ?id= → one item
   return json({ learning: id ? items.filter((l) => l.id === id) : items })
+}
+
+/** GET /api/content/learning/export — the team's articles as a CSV download.
+ * The cross-cutting rule: EXPORT NEEDS READ (import needs create). Team-bound by
+ * construction — teamContext resolves the caller's own team database and rows come
+ * only from there. Columns lead with the import format (title, category,
+ * description, contentType, contentLink, body) so an exported file round-trips
+ * straight back through the CSV importer; `active` rides along as information. */
+export async function getLearningExport(request: Request, env: Env): Promise<Response> {
+  const { cfg, guard } = await teamContext(request, env)
+  await requireRight(cfg, guard, "learning", "read")
+  const items = await listLearning(cfg, guard)
+  const csv = toCsv(
+    ["title", "category", "description", "contentType", "contentLink", "body", "active"],
+    items.map((l) => [l.title, l.category, l.description, l.contentType, l.contentLink, l.body, l.active])
+  )
+  return csvResponse("learning.csv", csv)
 }
 
 export async function postCreateLearning(request: Request, env: Env): Promise<Response> {

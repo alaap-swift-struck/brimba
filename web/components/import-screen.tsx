@@ -46,7 +46,7 @@ export function ImportScreen({
    * skips the picker. Falls back to the picker if it isn't an allowed target. */
   initialTarget?: string
 }) {
-  const { can } = usePermissions(teamId)
+  const { can, perms, loading: permsLoading } = usePermissions(teamId)
   const targetsQ = useCached<ImportableTarget[]>(`import-targets:${teamId}`, () =>
     dataOps.importTargets().then((r) => r.targets)
   )
@@ -142,7 +142,13 @@ export function ImportScreen({
   }
 
   if (targetsQ.error) return <p className="text-destructive text-sm">Couldn&apos;t load what you can import into.</p>
-  if (targetsQ.data === undefined) return <Skeleton variant="list" lines={4} />
+  // Wait for BOTH the catalog AND your rights — `can` answers false while rights
+  // are still loading, so deciding "nothing to import into" before they're known
+  // showed an Admin the wrong message (the bug the owner hit on mobile).
+  if (targetsQ.data === undefined || (perms === undefined && permsLoading))
+    return <Skeleton variant="list" lines={4} />
+  if (perms === undefined)
+    return <p className="text-destructive text-sm">Couldn&apos;t load your access rights. Refresh to try again.</p>
   if (allowed.length === 0)
     return (
       <p className="text-muted-foreground text-sm">

@@ -38,6 +38,7 @@
 
 import { brand } from "../../../shared/brand"
 import { fail, json } from "../../../shared/workers/http"
+import { recordWorkerError } from "../../../shared/workers/error-log"
 import { GuardError } from "./lib/permissions"
 import { checkDatabaseSizes } from "./lib/sharding"
 import { d1Config } from "./lib/teams"
@@ -57,6 +58,7 @@ import {
   getMyPerms,
   getRolePerms,
   getRoles,
+  getRolesExport,
   postCreateRole,
   postRolePerms,
   postSetRoleActive,
@@ -107,6 +109,7 @@ export const ROUTES: Record<string, { handler: Handler; kind: RouteKind }> = {
   "POST /api/tenancy/members/remove": { handler: postMemberRemove, kind: "mutation" },
   "GET /api/tenancy/my-permissions": { handler: getMyPerms, kind: "read" },
   "GET /api/tenancy/roles": { handler: getRoles, kind: "read" },
+  "GET /api/tenancy/roles/export": { handler: getRolesExport, kind: "read" },
   "POST /api/tenancy/roles": { handler: postCreateRole, kind: "mutation" },
   "POST /api/tenancy/roles/update": { handler: postUpdateRole, kind: "mutation" },
   "POST /api/tenancy/roles/active": { handler: postSetRoleActive, kind: "mutation" },
@@ -146,6 +149,9 @@ export default {
     } catch (e) {
       if (e instanceof GuardError) return fail(e.status, e.code, e.message)
       console.error("tenancy worker error:", e)
+      // Record the crash in the central error log (core DB) — best-effort,
+      // never blocks the response. Clean GuardError refusals never reach here.
+      await recordWorkerError(env.DB, "tenancy", `${request.method} ${new URL(request.url).pathname}`, e)
       const message = e instanceof Error ? e.message : ""
       if (message.startsWith("cloud_key_missing:"))
         return fail(503, "cloud_key_missing", `${brand.name}'s cloud key isn't set up yet — team creation is paused.`)
