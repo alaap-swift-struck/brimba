@@ -22,6 +22,7 @@ import {
   setLearningActive,
   setLearningDone,
   updateLearning,
+  listLearningForExport,
   type LearningInput,
 } from "../lib/learning"
 import type { Env } from "../env"
@@ -43,10 +44,18 @@ export async function getLearning(request: Request, env: Env): Promise<Response>
 export async function getLearningExport(request: Request, env: Env): Promise<Response> {
   const { cfg, guard } = await teamContext(request, env)
   await requireRight(cfg, guard, "learning", "read")
-  const items = await listLearning(cfg, guard)
+  const items = await listLearningForExport(cfg, guard)
   const csv = toCsv(
-    ["title", "category", "description", "contentType", "contentLink", "body", "active"],
-    items.map((l) => [l.title, l.category, l.description, l.contentType, l.contentLink, l.body, l.active])
+    [
+      "title", "category", "description", "contentType", "contentLink", "body",
+      "sequence", "required", "active",
+      "created_at", "created_by", "updated_at", "updated_by", "deactivated_at", "deactivated_by",
+    ],
+    items.map((l) => [
+      l.content_title, l.category, l.content_description, l.content_type, l.content_link, l.content_body,
+      l.sequence, l.is_required === 1, l.deactivated_at == null,
+      l.created_at, l.creator_name, l.updated_at, l.editor_name, l.deactivated_at, l.deactivator_name,
+    ])
   )
   return csvResponse("learning.csv", csv)
 }

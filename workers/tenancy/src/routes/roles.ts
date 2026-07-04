@@ -7,6 +7,7 @@ import { csvResponse, toCsv } from "../../../../shared/workers/csv"
 import { requireText, TEXT_LIMITS } from "../../../../shared/workers/validate"
 import { publishChange } from "../../../../shared/workers/realtime"
 import { listRoles } from "../lib/members"
+import { TEAM_MODULE_CATALOG } from "../team-schema"
 import { requireRight } from "../lib/permissions"
 import {
   createRole,
@@ -16,6 +17,9 @@ import {
   setRolePermissions,
   updateRole,
   type PermissionValue,
+  buildPermissionValue,
+  listAllRolePermissions,
+  listRoleAudit,
 } from "../lib/roles"
 import { teamContext } from "../context"
 import type { Env } from "../env"
@@ -34,20 +38,54 @@ export async function getRoles(request: Request, env: Env): Promise<Response> {
   return json({ roles: id ? roles.filter((r) => r.id === id) : roles })
 }
 
-/** GET /api/tenancy/roles/export — the team's roles as a CSV download. The
- * cross-cutting rule: EXPORT NEEDS READ (import needs create). Team-bound by
- * construction (teamContext → the caller's own team database). Columns lead with
- * the import format (title, description) so the file round-trips through the CSV
- * importer; active + members ride along as information. */
+/** GET /api/tenancy/roles/export — the team's roles as a CSV download carrying
+ * EVERY captured field (the owner's export rule): the role row, the FULL
+ * permission matrix flattened to one `<module>.<right>` yes/no column each
+ * (spreadsheet-filterable), and the whole audit block. The cross-cutting rule:
+ * EXPORT NEEDS READ (import needs create). Team-bound by construction
+ * (teamContext → the caller's own team database). Leading columns still match
+ * the import format (title, description) so the file round-trips. */
 export async function getRolesExport(request: Request, env: Env): Promise<Response> {
   const { cfg, guard } = await teamContext(request, env)
   await requireRight(cfg, guard, "member_roles", "read")
-  const roles = await listRoles(env, cfg, guard)
-  const csv = toCsv(
-    ["title", "description", "active", "members"],
-    roles.map((r) => [r.title, r.description, r.active, r.memberCount])
-  )
-  return csvResponse("member-roles.csv", csv)
+  const [roles, audit, permsByRole] = await Promise.all([
+    listRoles(env, cfg, guard),
+    listRoleAudit(cfg, guard),
+    listAllRolePermissions(cfg, guard),
+  ])
+  const auditBy = new Map(audit.map((a) => [a.id, a]))
+  const RIGHTS = ["read", "create", "edit", "delete"] as const
+  const header = [
+    "title",
+    "description",
+    "active",
+    "members",
+    ...TEAM_MODULE_CATALOG.flatMap((m) => RIGHTS.map((rt) => `${m.key}.${rt}`)),
+    "created_at",
+    "created_by",
+    "updated_at",
+    "updated_by",
+    "deactivated_at",
+    "deactivated_by",
+  ]
+  const rows = roles.map((r) => {
+    const a = auditBy.get(r.id)
+    const value = permsByRole.get(r.id) ?? buildPermissionValue([])
+    return [
+      r.title,
+      r.description,
+      r.active,
+      r.memberCount,
+      ...TEAM_MODULE_CATALOG.flatMap((m) => RIGHTS.map((rt) => value[m.key]?.[rt] ?? false)),
+      a?.created_at,
+      a?.creator_name,
+      a?.updated_at,
+      a?.editor_name,
+      a?.deactivated_at,
+      a?.deactivator_name,
+    ]
+  })
+  return csvResponse("member-roles.csv", toCsv(header, rows))
 }
 
 export async function getRolePerms(request: Request, env: Env): Promise<Response> {

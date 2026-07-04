@@ -188,6 +188,39 @@ export type LearningInput = {
 /** Create a learning item. Title is required; everything else is optional. A
  * free-typed category is picked-or-created as a 'Learning category' selectable.
  * Returns the new item's id. */
+/** Export-only reader: every article's FULL row (sequence, required, the whole
+ * audit block). The shared list SELECT stays untouched — it doubles as the
+ * detail source (EDGE-CASES §2); this one is read only by the CSV export. */
+export type LearningExportRow = {
+  content_title: string
+  category: string | null
+  content_description: string | null
+  content_type: string | null
+  content_link: string | null
+  content_body: string | null
+  sequence: number
+  is_required: number
+  deactivated_at: string | null
+  deactivator_name: string | null
+  created_at: string | null
+  creator_name: string | null
+  updated_at: string | null
+  editor_name: string | null
+}
+export async function listLearningForExport(
+  cfg: D1Rest,
+  guard: MemberGuard
+): Promise<LearningExportRow[]> {
+  return d1Query<LearningExportRow>(
+    cfg,
+    guard.databaseId,
+    `SELECT content_title, category, content_description, content_type, content_link, content_body,
+            sequence, is_required, deactivated_at, deactivator_name,
+            created_at, creator_name, updated_at, editor_name
+     FROM learning ORDER BY sequence, created_at`
+  )
+}
+
 export async function createLearning(
   cfg: D1Rest,
   guard: MemberGuard,

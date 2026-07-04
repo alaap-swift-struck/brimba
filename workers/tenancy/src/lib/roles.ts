@@ -36,9 +36,9 @@ type PermRow = {
 type RoleRow = { id: string; title: string; is_default: number }
 
 /** Build a full PermissionValue (every module present; missing DB rows → all-
- * off) from raw permission rows — ONE source for getRolePermissions and
- * getMyPermissions, so the two can't shape the value differently. */
-function buildPermissionValue(rows: PermRow[]): PermissionValue {
+ * off) from raw permission rows — ONE source for getRolePermissions,
+ * getMyPermissions and the CSV export, so they can't shape the value differently. */
+export function buildPermissionValue(rows: PermRow[]): PermissionValue {
   const byModule = new Map(rows.map((r) => [r.module, r]))
   const value: PermissionValue = {}
   for (const m of TEAM_MODULE_CATALOG) {
@@ -51,6 +51,48 @@ function buildPermissionValue(rows: PermRow[]): PermissionValue {
     }
   }
   return value
+}
+
+/** Export-only reader: every role's FULL audit block (the export carries every
+ * captured field — the owner's rule). The list type stays lean; this is read
+ * only by the CSV export route. */
+export type RoleAuditRow = {
+  id: string
+  created_at: string | null
+  creator_name: string | null
+  updated_at: string | null
+  editor_name: string | null
+  deactivated_at: string | null
+  deactivator_name: string | null
+}
+export async function listRoleAudit(cfg: D1Rest, guard: MemberGuard): Promise<RoleAuditRow[]> {
+  return d1Query<RoleAuditRow>(
+    cfg,
+    guard.databaseId,
+    "SELECT id, created_at, creator_name, updated_at, editor_name, deactivated_at, deactivator_name FROM member_roles"
+  )
+}
+
+/** Export-only reader: the whole team's permission sheet in ONE read, shaped into
+ * a PermissionValue per role id (missing modules → all-off via the one builder). */
+export async function listAllRolePermissions(
+  cfg: D1Rest,
+  guard: MemberGuard
+): Promise<Map<string, PermissionValue>> {
+  const rows = await d1Query<PermRow & { role_id: string }>(
+    cfg,
+    guard.databaseId,
+    "SELECT role_id, module, can_read, can_create, can_edit, can_delete FROM role_permissions"
+  )
+  const byRole = new Map<string, PermRow[]>()
+  for (const row of rows) {
+    const list = byRole.get(row.role_id) ?? []
+    list.push(row)
+    byRole.set(row.role_id, list)
+  }
+  const out = new Map<string, PermissionValue>()
+  for (const [roleId, list] of byRole) out.set(roleId, buildPermissionValue(list))
+  return out
 }
 
 /** Fetch an active role in this team, or throw a clean 404. */

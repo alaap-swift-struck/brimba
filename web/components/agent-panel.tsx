@@ -184,6 +184,18 @@ export function AgentPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, canUse, teamId])
 
+  // Hand focus to the composer once the sheet has animated in — Radix focuses the
+  // PANEL by default, so keystrokes hit it (and paint a focus ring around the whole
+  // slide-in) instead of the message box. Best-effort: if the textarea isn't there
+  // (no rights), nothing happens.
+  React.useEffect(() => {
+    if (!open || !canUse) return
+    const t = setTimeout(() => {
+      document.querySelector<HTMLTextAreaElement>(".agent-chat-host textarea")?.focus()
+    }, 120)
+    return () => clearTimeout(t)
+  }, [open, canUse])
+
   // Load the conversation list the moment the history view opens (newest activity
   // first, own conversations only). Lazy + refetched each open so a just-run turn's
   // thread shows at the top.
@@ -466,7 +478,11 @@ export function AgentPanel({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="flex w-full flex-col gap-0 p-0 sm:max-w-lg">
+      {/* outline-none: the Radix panel itself takes focus on open — without this,
+       * pressing Enter/arrows draws the browser's focus ring around the WHOLE
+       * slide-in (the owner's "weird outline"). Harmless but ugly; the effect
+       * below moves focus into the composer instead. */}
+      <SheetContent side="right" className="flex w-full flex-col gap-0 p-0 outline-none sm:max-w-lg">
         {/* pe-8 reserves room on the right for the Sheet's own absolute close ✕
          * (top-4 right-4) — without it the ✕ sits on top of the New chat button and
          * swallows its taps (the bug the owner hit). */}
