@@ -12,6 +12,8 @@ import type {
   HelpMessage,
   HelpStakeholder,
   HelpTicket,
+  ImportBatchReport,
+  ImportBatchView,
   ImportColumn,
   ImportableTarget,
   ImportPreview,
@@ -470,6 +472,16 @@ export const dataOps = {
       "/api/data-ops/import/confirm",
       post({ sessionId })
     ),
+
+  // Agentic multi-file batch import (AGENTIC-IMPORT.md).
+  batchStart: () => api<{ batch: ImportBatchView }>("/api/data-ops/import/batch", post({})),
+  batchAddFile: (batchId: string, name: string, csv: string) =>
+    api<{ batch: ImportBatchView }>("/api/data-ops/import/batch/file", post({ batchId, name, csv })),
+  batchPlan: (batchId: string) =>
+    api<{ batch: ImportBatchView; quota: AgentQuota }>("/api/data-ops/import/batch/plan", post({ batchId })),
+  batchConfirm: (batchId: string) =>
+    api<{ report: ImportBatchReport }>("/api/data-ops/import/batch/confirm", post({ batchId })),
+  batchGet: (id: string) => api<{ batch: ImportBatchView }>(`/api/data-ops/import/batch?id=${enc(id)}`),
 
   agentUsage: () => api<{ quota: AgentQuota }>("/api/data-ops/agent/usage"),
   /** The team's agent usage log — one row per turn, newest-first. Powers the

@@ -334,8 +334,8 @@ export type ImportResult = { created: number; skipped: number; failed: number; e
 
 /** Write one mapped row through the target's gated create endpoint, AS the caller
  * (the original request's cookie is forwarded — the create endpoint re-checks the
- * caller's permission + validates the row). */
-async function writeRow(
+ * caller's permission + validates the row). Shared with the batch engine. */
+export async function writeRow(
   env: Env,
   request: Request,
   target: TargetDef,

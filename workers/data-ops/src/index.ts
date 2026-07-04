@@ -25,8 +25,13 @@ import { GuardError } from "../../../shared/workers/gating"
 import { recordWorkerError } from "../../../shared/workers/error-log"
 import type { Env } from "./env"
 import {
+  getBatch,
   getImportPreview,
   getImportTargets,
+  postBatchConfirm,
+  postBatchFile,
+  postBatchPlan,
+  postBatchStart,
   postImportConfirm,
   postImportFile,
   postImportMapping,
@@ -65,6 +70,14 @@ export const ROUTES: Record<string, { handler: Handler; kind: RouteKind }> = {
   "POST /api/data-ops/import/file": { handler: postImportFile, kind: "housekeeping" },
   "POST /api/data-ops/import/mapping": { handler: postImportMapping, kind: "housekeeping" },
   "POST /api/data-ops/import/confirm": { handler: postImportConfirm, kind: "mutation" },
+  // Agentic multi-file batch. Draft/file/plan only shape the caller's OWN batch
+  // (returned synchronously) — housekeeping, no broadcast. Only confirm creates
+  // rows in shared tables, so only confirm publishes (per changed module).
+  "POST /api/data-ops/import/batch": { handler: postBatchStart, kind: "housekeeping" },
+  "POST /api/data-ops/import/batch/file": { handler: postBatchFile, kind: "housekeeping" },
+  "POST /api/data-ops/import/batch/plan": { handler: postBatchPlan, kind: "housekeeping" },
+  "POST /api/data-ops/import/batch/confirm": { handler: postBatchConfirm, kind: "mutation" },
+  "GET /api/data-ops/import/batch": { handler: getBatch, kind: "read" },
   "POST /api/data-ops/admin/seed-targets": { handler: postSeedTargets, kind: "housekeeping" },
   // The central error log (owner-only, x-admin-key). Resolve is housekeeping:
   // private maintainer bookkeeping in the core DB — broadcasts nothing (rule 4).

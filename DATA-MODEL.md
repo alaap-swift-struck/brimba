@@ -227,6 +227,17 @@ skipped, failed}` counts + up to five error messages — recorded on the session
 (rows missing required values are skipped at preview; a failed row never blocks
 the rest).
 
+### data_import_batches — KEEP (BUILT 2026-07-04, team migration `0006_import_batches`) — agentic multi-file import
+Purpose: the shell for an AGENTIC, multi-file import (AGENTIC-IMPORT.md). Groups the
+uploaded files, the agent-built PLAN (targets, column mappings, normalizations,
+references, dependency order) and the per-row REPORT — all JSON columns here; per-file
+parsing reuses the single-target session engine. Real data: `id`, `overall_status`
+(draft→analyzing→planned→running→complete), `files_json`, `plan_json`, `report_json`,
+the audit block, `completed_at`. Creator-scoped (a batch belongs to who started it),
+like `data_import_sessions`. Lives in the TEAM database (the data being imported is the
+team's). Execution writes every row through the module's gated create endpoint
+(act-as-user → audit parity); the plan step is metered on the AI credit pool.
+
 ### agent_threads + agent_messages — KEEP (BUILT 2026-06-23, team migration `0004_modules`) — the AI agent's saved conversations
 The agent gets its OWN tables (not help's). `agent_threads`: audit + the thread
 title/owner — one saved conversation per row, scoped to its creator (a private

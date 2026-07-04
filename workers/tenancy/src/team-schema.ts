@@ -268,6 +268,26 @@ CREATE TABLE help_stakeholders (
 CREATE INDEX idx_help_stakeholders_help ON help_stakeholders (help_id);
 `,
   },
+  {
+    // Agentic multi-file import (AGENTIC-IMPORT.md). A BATCH groups several uploaded
+    // files, the agent-built PLAN (targets, mappings, normalization, references,
+    // dependency order), and the per-row REPORT — all as JSON here. Per-file parsing
+    // reuses the single-target session engine; this table is the batch shell.
+    // Creator-scoped like data_import_sessions (a batch belongs to who started it).
+    version: "0006_import_batches",
+    sql: `
+CREATE TABLE data_import_batches (
+  id TEXT PRIMARY KEY,
+  overall_status TEXT NOT NULL DEFAULT 'draft',   -- draft|analyzing|planned|running|complete
+  files_json TEXT,          -- [{fileId,name,headers,sampleRows,rowCount,rawRows}]
+  plan_json TEXT,           -- the agent plan (steps, order) the user reviews
+  report_json TEXT,         -- the per-target result + rejections
+  created_at TEXT NOT NULL, creator_id TEXT, creator_email TEXT, creator_name TEXT,
+  updated_at TEXT, completed_at TEXT
+);
+CREATE INDEX idx_import_batches_creator ON data_import_batches (creator_id, created_at DESC);
+`,
+  },
 ]
 
 export type Actor = { id: string; email: string; name: string }

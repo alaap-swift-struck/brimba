@@ -96,7 +96,7 @@ lists every table. **Migrations are additive — never edit an applied one.**
 
 > **Per-team databases are NOT created here.** Each team's database is created at
 > runtime when the team is created (`applyTeamSchema` runs the `TEAM_MIGRATIONS` from
-> `workers/tenancy/src/team-schema.ts`). You only apply *team-schema* migrations to
+> `workers/tenancy/src/team-schema.ts` — `0001`…`0006` today). You only apply *team-schema* migrations to
 > *existing* teams later, via the migrate-teams robot (§7).
 
 ---

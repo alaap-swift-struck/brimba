@@ -318,6 +318,56 @@ export type ImportPreview = {
   issues: string[]
 }
 
+/* ---- Agentic multi-file import (AGENTIC-IMPORT.md) ---- */
+
+/** The safe, fixed vocabulary of per-column normalizers the agent may pick from
+ * (no arbitrary code runs — a transform key maps to a pure function). */
+export type TransformKey = "trim" | "titlecase" | "lowercase" | "uppercase" | "iso_date" | "boolean"
+
+/** One file's step in the plan: which target it feeds, how its columns map, the
+ * chosen normalizations, the references it carries, and a reject prediction. */
+export type ImportPlanStep = {
+  fileId: string
+  fileName: string
+  target: string
+  targetName: string
+  mapping: Record<string, string | null> // our column key → their header (null = unmapped)
+  transforms: Record<string, TransformKey> // our column key → normalizer
+  references: { column: string; target: string; mode: "id" | "value" }[]
+  rowCount: number
+  predictedRejects: number
+  notes?: string
+}
+
+/** The reviewable plan: the ordered steps + any warnings (cycle, unknown target…). */
+export type ImportPlan = {
+  order: string[] // tableKeys, dependency order (parents first)
+  steps: ImportPlanStep[] // one per file, already in run order
+  warnings: string[]
+  bySource: "agent" | "fallback" // did the model plan it, or the deterministic fallback?
+}
+
+export type ImportRejection = { file: string; row: number; reason: string }
+
+/** The per-target tally + every rejected row's reason, produced by execution. */
+export type ImportBatchReport = {
+  perTarget: { target: string; targetName: string; created: number; skipped: number; failed: number }[]
+  created: number
+  skipped: number
+  failed: number
+  rejections: ImportRejection[]
+}
+
+/** The whole batch as the wizard sees it (files + plan + report + status). */
+export type ImportBatchView = {
+  id: string
+  status: string
+  files: { fileId: string; name: string; headers: string[]; rowCount: number }[]
+  plan: ImportPlan | null
+  report: ImportBatchReport | null
+  createdAt: string
+}
+
 /** One action the agent proposes that needs the user's confirmation before it runs. */
 export type PendingCall = { name: string; input: Record<string, unknown>; summary: string }
 

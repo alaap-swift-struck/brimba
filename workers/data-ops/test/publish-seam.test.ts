@@ -38,6 +38,12 @@ const HOUSEKEEPING = new Set<string>([
   "POST /api/data-ops/import/file",
   "POST /api/data-ops/import/mapping",
   "POST /api/data-ops/admin/seed-targets",
+  // The batch draft/file/plan steps only shape the caller's OWN batch (returned in
+  // the same response) — no other screen needs a ping. Only /batch/confirm writes
+  // shared rows, so only it publishes (it's classified "mutation").
+  "POST /api/data-ops/import/batch",
+  "POST /api/data-ops/import/batch/file",
+  "POST /api/data-ops/import/batch/plan",
   // The agent's chat/confirm write only the caller's own private conversation; any
   // team-visible effect is published by the gated endpoint the executor calls.
   "POST /api/data-ops/agent/chat",

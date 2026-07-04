@@ -7,7 +7,7 @@
 
 import { fail, json } from "../../../../shared/workers/http"
 import { publishChange } from "../../../../shared/workers/realtime"
-import { requireRight, teamContext } from "../../../../shared/workers/gating"
+import { GuardError, hasRight, requireRight, teamContext } from "../../../../shared/workers/gating"
 import {
   applyFile,
   applyMapping,
@@ -17,7 +17,18 @@ import {
   startSession,
   targetForSession,
 } from "../lib/import"
+import {
+  addBatchFile,
+  confirmBatch,
+  createBatch,
+  getBatchView,
+  planBatch,
+  planModules,
+} from "../lib/import-batch"
+import { consumeAiUnit } from "../lib/credits"
 import { TARGETS } from "../lib/targets"
+import type { D1Rest } from "../../../../shared/workers/d1-rest"
+import type { MemberGuard } from "../../../../shared/workers/gating"
 import type { Env } from "../env"
 
 /** Reject oversized CSV uploads BEFORE parsing/persisting — a huge file would
@@ -99,4 +110,67 @@ export async function postImportConfirm(request: Request, env: Env): Promise<Res
   const out = await confirmImport(env, request, cfg, guard, actor, body.sessionId)
   await publishChange(env.REALTIME, guard.teamId, target.module)
   return json({ session: out.summary, result: out.result })
+}
+
+/* -------------------- agentic multi-file batch (AGENTIC-IMPORT.md) -------------------- */
+
+/** The caller may use the import batch only if they can `create` into at least one
+ * catalog target — otherwise a Viewer could burn credits planning an import they
+ * could never run. Each write is still re-gated per target at confirm + per row. */
+async function requireAnyImportRight(cfg: D1Rest, guard: MemberGuard): Promise<void> {
+  for (const t of Object.values(TARGETS)) if (await hasRight(cfg, guard, t.module, "create")) return
+  throw new GuardError(403, "forbidden", "You don't have permission to import into any table on this team.")
+}
+
+/** POST /api/data-ops/import/batch — start a batch (draft). */
+export async function postBatchStart(request: Request, env: Env): Promise<Response> {
+  const { actor, cfg, guard } = await teamContext(request, env)
+  await requireAnyImportRight(cfg, guard)
+  return json({ batch: await createBatch(cfg, guard, actor) })
+}
+
+/** POST /api/data-ops/import/batch/file — parse + attach one CSV to the batch. */
+export async function postBatchFile(request: Request, env: Env): Promise<Response> {
+  const { cfg, guard } = await teamContext(request, env)
+  await requireAnyImportRight(cfg, guard)
+  const body = (await request.json().catch(() => ({}))) as { batchId?: string; name?: string; csv?: string }
+  if (!body.batchId || typeof body.csv !== "string")
+    return fail(400, "invalid_input", "batchId and csv are required.")
+  return json({ batch: await addBatchFile(cfg, guard, body.batchId, body.name ?? "file", body.csv) })
+}
+
+/** POST /api/data-ops/import/batch/plan — the AGENT builds the plan. Metered on the
+ * team AI credit pool (one turn), like a chat turn. */
+export async function postBatchPlan(request: Request, env: Env): Promise<Response> {
+  const { cfg, guard } = await teamContext(request, env)
+  await requireAnyImportRight(cfg, guard)
+  const body = (await request.json().catch(() => ({}))) as { batchId?: string }
+  if (!body.batchId) return fail(400, "invalid_input", "A batchId is required.")
+  const c = await consumeAiUnit(env, guard.teamId)
+  if (!c.ok)
+    return fail(429, "over_quota", "You're out of AI requests for now — the plan step uses the assistant. They reset tomorrow, or an admin can add credits.")
+  return json({ batch: await planBatch(env, cfg, guard, body.batchId), quota: c.quota })
+}
+
+/** POST /api/data-ops/import/batch/confirm — run the plan in dependency order. Gates
+ * `create` on every target in the plan up front (fail fast), then publishes one
+ * coarse ping per changed module. */
+export async function postBatchConfirm(request: Request, env: Env): Promise<Response> {
+  const { actor, cfg, guard } = await teamContext(request, env)
+  const body = (await request.json().catch(() => ({}))) as { batchId?: string }
+  if (!body.batchId) return fail(400, "invalid_input", "A batchId is required.")
+  const view = await getBatchView(cfg, guard, body.batchId)
+  if (!view.plan) return fail(409, "no_plan", "Plan the import before running it.")
+  for (const m of planModules(view.plan)) await requireRight(cfg, guard, m, "create")
+  const { report, modules } = await confirmBatch(env, request, cfg, guard, actor, body.batchId)
+  for (const m of modules) await publishChange(env.REALTIME, guard.teamId, m)
+  return json({ report })
+}
+
+/** GET /api/data-ops/import/batch?id= — the batch (files + plan + report). */
+export async function getBatch(request: Request, env: Env): Promise<Response> {
+  const { cfg, guard } = await teamContext(request, env)
+  const id = new URL(request.url).searchParams.get("id")
+  if (!id) return fail(400, "invalid_input", "A batch id is required.")
+  return json({ batch: await getBatchView(cfg, guard, id) })
 }
