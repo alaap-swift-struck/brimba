@@ -89,6 +89,8 @@ type TargetDef = {
   buildBody: (row, refs) => Record<string, unknown>            // shape one row (refs = resolved ids)
   references?: ReferenceDef[]                    // NEW — cross-target foreign keys
   naturalKey?: string                           // NEW — the column that identifies a row for FK resolution
+  list?: { path; key; idField; nameField }      // NEW — ONLY on a target referenced by mode:"id":
+                                                //   how to read its rows back (naturalKey→newId) after import
 }
 
 type ReferenceDef = {
@@ -114,8 +116,10 @@ base**, with no emails fired and no destructive surface.
 **The canonical `id`-mode example (for your next app): products → inventory.**
 
 ```ts
-products:  { naturalKey: "sku", columns: [{key:"sku",required:true},{key:"name",required:true}], … }
-locations: { naturalKey: "code", … }
+// A mode:"id" PARENT must declare `list` so the engine can read its new rows back
+// (naturalKey→newId) — omit it and every child row rejects ("no product matches …").
+products:  { naturalKey: "sku",  list: { path:"/api/…/products",  key:"products",  idField:"id", nameField:"sku"  }, columns: [{key:"sku",required:true},{key:"name",required:true}], … }
+locations: { naturalKey: "code", list: { path:"/api/…/locations", key:"locations", idField:"id", nameField:"code" }, … }
 inventory: {
   columns: [{key:"product",required:true},{key:"location",required:true},{key:"qty",required:true}],
   references: [

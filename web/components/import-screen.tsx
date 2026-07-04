@@ -121,7 +121,11 @@ export function ImportScreen({ teamId }: { teamId: string; initialTarget?: strin
 
   function downloadRejections() {
     if (!report?.rejections.length) return
-    const esc = (s: string) => (/[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s)
+    // Neutralize formula-injection (a file named "=cmd()") like the server exporter.
+    const esc = (raw: string) => {
+      const s = /^[=+\-@\t\r]/.test(raw) ? `'${raw}` : raw
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+    }
     const csv =
       "file,row,reason\r\n" +
       report.rejections.map((r) => [esc(r.file), r.row, esc(r.reason)].join(",")).join("\r\n")

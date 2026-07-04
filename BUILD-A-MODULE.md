@@ -30,7 +30,7 @@ shared notes). Substitute your real name everywhere you see `notes` / `note`.
 | 2. Register + permissions | same file — `TEAM_MODULES`, `MODULE_LABELS`, `buildTeamSeed` | one module key, one label, seed rows for the two default roles |
 | 3. Worker handler | `workers/content/src/{routes,lib}/notes.ts` + `index.ts` `ROUTES` | gated CRUD → validate → audit → activity → `publishChange` |
 | 4. Web client + screen | `web/lib/api.ts`, `web/lib/screens.ts`, `web/lib/pages.ts`, `web/components/deep-link/shape.ts`, `deep-link-screen.tsx` | api wrapper, a list recipe, a nav section, a shaper, wiring |
-| 5. Record detail | `web/components/note-detail.tsx` | Overview + Activity tabs (Law R2) |
+| 5. Record detail | `web/components/note-detail.tsx` | Overview + Activity tabs (Law R2) — the filename MUST equal the string you register in `RECORD_DETAIL_COMPONENTS` (the R2 check reads `web/components/<that-string>.tsx` off disk) |
 | 6. Tests | the existing seam/rule tests + `shared/rules/registry.ts` | register the detail component; the tests then force you to comply |
 
 The workers involved: **content** (`workers/content`) is the right home for a
@@ -360,10 +360,20 @@ hand-listed count. Sidebar sections don't need one.
   placement: "sidebar", countCacheKey: "notes" },
 ```
 
+**Widen the `TeamSection["key"]` union first.** `key` in `pages.ts` is a CLOSED
+hand-maintained union (`"overview" | "members" | …`), so adding `{ key: "notes", … }`
+is a TypeScript error until you add `"notes"` to that union — `npm run check` fails at
+the `web` typecheck otherwise. Add your key to the union, then add the section.
+
 Also give the concept one icon in `CONCEPT_ICON` (pages.ts) — the single icon
 vocabulary, reused at page/tab/button level. If it's a top-level URL like
 `/notes`, add `"notes"` to `TOP_LEVEL_MODULES` (`web/components/deep-link/route.ts`)
 and the gateway's top-level shell loop (gateway index.ts).
+
+**Add your product words to the glossary (Law R6).** Any new term your UI shows —
+`invoices`, `purchase order`, `SKU` — goes in `shared/glossary.ts` (one term, one
+clear ≤140-char definition), and UI copy must use exactly that word, never a synonym.
+`web/test/rules.test.ts` checks the glossary is well-formed (`glossary-wellformed`).
 
 ### 4c. The screen recipe (`web/lib/screens.ts`)
 

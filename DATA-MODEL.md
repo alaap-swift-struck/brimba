@@ -101,7 +101,7 @@ across all teams, so it lives in the global core DB. Maintained via an owner-onl
 endpoint (`POST /api/data-ops/admin/seed-targets`, x-admin-key) — a standard
 catalog the owner curates, kept SEPARATE from the screen/recipe system (the
 earlier "likely merges with recipes" open question was resolved: they stay
-separate). Two targets are wired today: `member_roles` + `learning`.
+separate). Three targets are wired today: `selectable_data` (Dropdown values), `member_roles`, and `learning` — and the agentic multi-file importer (AGENTIC-IMPORT.md) orders them by their declared references.
 
 ### agent_usage — KEEP (BUILT 2026-06-23, GLOBAL — `db/core/0009`)
 Purpose: the per-team **free** half of the AI agent quota. Real data: `team_id`,
@@ -259,6 +259,10 @@ these rows are a record of intent, never a separate set of powers.
   2026-06-23)**: importable_databases, agent_usage, agent_credits (GLOBAL core
   0008/0009/0010); learning, learning_progress, help, help_threads,
   data_import_sessions, agent_threads, agent_messages (per-team `0004_modules`).
+  **Since:** agent_usage_log (GLOBAL core `0011`, BUILT 2026-07-01), error_logs
+  (GLOBAL core `0012`, the central error store, BUILT 2026-07-03),
+  data_import_batches (per-team `0006_import_batches`, the agentic multi-file
+  import, BUILT 2026-07-04).
 - **To build (tables)**: selectable_data_types (the only remaining one) — the
   global authoritative dropdown-GROUP list.
 

@@ -105,6 +105,13 @@ that list.
 17. **[EDGE-CASES.md](EDGE-CASES.md)** — the non-obvious traps a maintainer must
     know (the static-export reload, the list-cache-as-detail-source, the REST-door
     round-trips, the confirm model, streaming, and more).
+18. **[AGENTIC-IMPORT.md](AGENTIC-IMPORT.md)** — the agent-driven, multi-table data
+    import: dump old-system CSV exports, the agent normalizes + maps + orders
+    interdependent tables + resolves foreign keys + rejects honestly, writing every
+    row through the gated door (audit parity). How an app declares an import target
+    + references. Read before building an import for a new module.
+19. **[BOOTSTRAP.md](BOOTSTRAP.md)** — the day-zero, command-by-command runbook to
+    rebuild the whole base from a fresh Cloudflare account (also linked at the top).
 
 ## Develop
 

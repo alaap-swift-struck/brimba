@@ -31,6 +31,17 @@ describe("toCsv — RFC-4180 quoting", () => {
     expect(toCsv(["active"], [[true], [false]])).toContain("yes\r\nno")
   })
 
+  it("neutralizes formula-injection (a value a spreadsheet would execute)", () => {
+    // A user-controlled role description of `=HYPERLINK(...)` must NOT run in Excel —
+    // it's prefixed with the text-literal apostrophe (which Excel hides on display).
+    const csv = toCsv(["description"], [["=HYPERLINK(\"http://evil\",\"x\")"], ["-2+3"], ["@SUM(A1)"], ["safe"]])
+    expect(csv).toContain(`"'=HYPERLINK`) // quoted (has a comma) + leading '
+    expect(csv).toContain("'-2+3")
+    expect(csv).toContain("'@SUM(A1)")
+    expect(csv).toContain("safe") // a normal value is untouched
+    expect(csv).not.toMatch(/(^|,)=HYPERLINK/m) // never a bare leading =
+  })
+
   it("csvResponse sets the download headers", () => {
     const res = csvResponse("learning.csv", "a\r\n")
     expect(res.headers.get("Content-Type")).toContain("text/csv")

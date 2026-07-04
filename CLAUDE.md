@@ -54,6 +54,7 @@ Start with **[README.md](README.md)** (the doc map), then:
 - **[UI-CONVENTIONS.md](UI-CONVENTIONS.md)** — how screens are built (library-is-lego, recipe vs bespoke, the enforced UI Laws, the action-icon mapping, the voice).
 - **[DURABLE-OBJECTS.md](DURABLE-OBJECTS.md)** — the realtime Durable Object (`TeamChannel`), the code-vs-runtime model, and when a DO is the lock vs plain atomic D1.
 - **[EDGE-CASES.md](EDGE-CASES.md)** — the non-obvious traps (static-export reload, list-cache-as-detail-source, REST-door round-trips, the confirm model, streaming, and more).
+- **[AGENTIC-IMPORT.md](AGENTIC-IMPORT.md)** — the agent-driven multi-table import (normalize → map → order interdependent tables → resolve foreign keys → reject honestly → write through the gated door). How to declare an import target + references for a new module.
 
 ## Working agreement
 

@@ -74,9 +74,18 @@ One global D1 database holds users, teams, the team→member→role index, and t
 quota tables. Create it for each environment and apply the core migrations in
 `db/core/` (they are numbered `0001` … and applied in order; `0012` adds the central error log).
 
+> **CRITICAL — the checked-in ids are the ORIGINAL author's, overwrite them.** The
+> `wrangler.jsonc` files ship with a real `database_id` (and `CF_ACCOUNT_ID`, §4)
+> pinned to the account this base was built on. On YOUR account those are wrong, and
+> wrangler binds D1 by `database_id` when present — so a stale id silently binds to
+> nothing and **every per-team DB write fails**. After creating each core DB below,
+> paste its returned `database_id` into the `d1_databases` block of **all five
+> core-bound workers — auth, tenancy, content, data-ops, realtime** (top-level =
+> production, `env.staging` = staging).
+
 ```bash
-# Create the core DB for each env (copy the returned database_id into the
-# tenancy + auth wrangler.jsonc d1_databases blocks if they aren't already set).
+# Create the core DB for each env, then paste each returned database_id into ALL
+# FIVE core-bound workers' wrangler.jsonc (auth, tenancy, content, data-ops, realtime).
 npx wrangler d1 create brimba-core-staging
 npx wrangler d1 create brimba-core
 
@@ -132,17 +141,24 @@ ARCHITECTURE.md `/media/*` note before storing anything sensitive.
 | `RESEND_API_KEY` | auth | send login codes + notifications. Until it's set, staging echoes login codes in the API response and production refuses email login. |
 | `CF_D1_TOKEN` | tenancy, content, data-ops | the scoped D1 REST token (Cloudflare → D1 → Edit) that reaches per-team databases. |
 | `ADMIN_KEY` | tenancy, data-ops | guards the maintenance endpoints (migrate-teams, db-sizes, seed the import catalog, grant credits). |
-| `INTERNAL_KEY` | auth, tenancy, content, gateway | shared secret gating auth's `/internal/send-email` (tenancy + content call it). MUST match across all four. |
+| `INTERNAL_KEY` | auth, tenancy, content, gateway | shared secret gating auth's `/internal/*` doors. tenancy + content call `/internal/send-email`; the **gateway** forwards client error beacons to `/internal/log-error` (a DIFFERENT reason — the gateway sends no email but still needs the key, or web errors never reach `error_logs`). MUST match across all four. |
 | `ANTHROPIC_API_KEY` | data-ops | *optional* — when set, the agent's brain is Claude; unset falls back to Workers AI. Both do full tool use. |
 
 **Vars** (plain config in `wrangler.jsonc`, not secret):
 
+- **`CF_ACCOUNT_ID`** on `tenancy` + `content` + `data-ops` — **your Cloudflare account
+  id.** Load-bearing: it builds the per-team D1 REST URL (`/accounts/<id>/d1/…`), so a
+  wrong value fails EVERY per-team DB operation (team creation, all content/import/agent
+  writes). The checked-in value is the original author's account — **overwrite it** in
+  both the top-level and `env.staging` vars blocks of those three workers.
 - `tenancy` → `PUBLIC_APP_URL` = the environment's absolute origin (e.g.
   `https://brimba-staging.swift-struck.workers.dev`). Outbound email links use it;
   leave it unset and agent-sent invite links point at the internal binding host.
+- `auth` → `APP_ORIGIN` / `EMAIL_FROM` — pinned to the author's URLs/domain; update
+  them if yours differ.
 - `data-ops` → `AGENT_MODEL` (default `claude-sonnet-5`), `AGENT_EFFORT` (default
-  `low`), `AGENT_FREE_DAILY` (the free daily agent allowance — code default 25),
-  `WORKERS_AI_MODEL` (the keyless fallback).
+  `low`), `AGENT_FREE_DAILY` (the free daily agent allowance — code default 25; the
+  checked-in wrangler var sets **50**), `WORKERS_AI_MODEL` (the keyless fallback).
 
 ---
 

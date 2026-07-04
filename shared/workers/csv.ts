@@ -7,10 +7,16 @@
 // import needs CREATE) and always built from the caller's OWN team database.
 
 const needsQuoting = /[",\r\n]/
+// CSV / formula injection: a cell a spreadsheet would evaluate as a formula
+// (leads with = + - @, or a tab/CR) is neutralized with a leading apostrophe —
+// Excel/Sheets treat `'` as the text-literal marker and HIDE it, so legit values
+// (a "-50% off" description) still read right while `=HYPERLINK(...)` can't run.
+const formulaLead = /^[=+\-@\t\r]/
 
 function field(v: string | number | boolean | null | undefined): string {
   if (v === null || v === undefined) return ""
-  const s = typeof v === "boolean" ? (v ? "yes" : "no") : String(v)
+  let s = typeof v === "boolean" ? (v ? "yes" : "no") : String(v)
+  if (formulaLead.test(s)) s = `'${s}`
   return needsQuoting.test(s) ? `"${s.replace(/"/g, '""')}"` : s
 }
 
