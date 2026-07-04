@@ -64,6 +64,20 @@ environment (staging and production errors never mix), cross-team by design
 - **User-reported bugs stay in Help** (tickets); this store is the system's own
   telemetry. The two meet when you resolve an error and answer the ticket.
 
+## Analysing the store — the `error_analyst` skill
+
+The store is the data; **`error_analyst`** (a global skill) is how you read it at
+scale. It's platform-aware (it finds where errors live — this table on Brimba,
+Supabase/CloudWatch/etc. on another app), **clusters rows by root cause** (ten rows
+with one signature = one bug seen ten times), flags **first-of-its-kind vs
+recurring** (and, for a recurrence after a fix, digs up the prior `resolution_note`
+to escalate a patch into a structural fix), shows trends per module, and — for the
+fixes it's confident about — applies them, runs `npm run check`, ships to **staging**,
+and resolves the errors with a note. Production stays owner-gated. Run it when you
+want to understand + fix what's breaking, not patch one row. It is the operational
+sibling of the pre-ship trio (`lean_mean_check` · `story_checks_out` ·
+`security_sentry`).
+
 ## How planet-scale apps do it (what we're set up to grow into)
 - **Capture everything with context** (request id, user, route, release/version).
 - **Sample** at high volume — you don't store 100% of billions of events.
