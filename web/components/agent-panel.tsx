@@ -545,9 +545,8 @@ export function AgentPanel({
             The assistant isn&apos;t available for your role here.
           </div>
         ) : (
-          // agent-chat-host also scopes the INTERIM step-row wrap override in
-          // globals.css (the library ToolRow truncates its label — unusable on
-          // phones; a library fix is flagged in UI-GAPS).
+          // agent-chat-host scopes the composer autofocus selector (and used to
+          // scope an interim wrap override — the library wraps natively since 0.3.0).
           <div className="agent-chat-host flex min-h-0 flex-1 flex-col">
             <div className="min-h-0 flex-1">
               {/* Fill the sheet and shed the component's own card chrome (it ships
