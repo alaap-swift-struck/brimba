@@ -18,6 +18,9 @@
 //   • Fence — tool RESULTS are returned to the model as DATA (role:"tool"), never as
 //     instructions; the system prompt reinforces it.
 
+import { GuardError, requireRight, teamContext } from "../../../../shared/workers/gating"
+import { publishChange } from "../../../../shared/workers/realtime"
+import { confirmBatch, getBatchView, planModules } from "./import-batch"
 import type { Env } from "../env"
 import type { ToolSpec } from "./model"
 
@@ -25,7 +28,7 @@ export type AgentTool = {
   name: string
   description: string
   schema: Record<string, unknown>
-  binding: "CONTENT" | "TENANCY"
+  binding: "CONTENT" | "TENANCY" | "SELF"
   method: "GET" | "POST"
   path: string
   write: boolean
@@ -39,6 +42,10 @@ export type AgentTool = {
   /** One-line confirm-panel summary. `names` maps an id → a friendly name so the
    * two confirming tools read "Remove Jane Doe" not a ULID; other tools ignore it. */
   summarize: (input: Record<string, unknown>, names?: Record<string, string>) => string
+  /** binding:"SELF" tools run INSIDE data-ops (e.g. the import batch engine) instead
+   * of fetching another worker — still act-as-user: the handler re-opens teamContext
+   * from the same request, so nothing escapes the caller's rights. */
+  run?: (env: Env, request: Request, input: Record<string, unknown>) => Promise<ToolResult>
 }
 
 const str = (input: Record<string, unknown>, key: string): string => {
@@ -441,7 +448,61 @@ export const TOOL_CATALOG: AgentTool[] = [
     summarize: (i) =>
       `Mark learning article ${str(i, "id")} ${i.done === true ? "done" : "not done"}`,
   },
+  {
+    // Runs INSIDE data-ops (binding SELF): the import batch engine, not a worker
+    // fetch. Only reachable for a batch the SAME user created (creator-scoped
+    // load) — the model can't run someone else's import, and every target module
+    // is re-gated for `create` before a row is written.
+    name: "run_import_batch",
+    description:
+      "Run a file import the user attached in THIS chat, after the app planned it. Call it ONLY with " +
+      "the batchId given in an ATTACHED-IMPORT-PLAN block, plus a short human summary of what will be " +
+      "imported. The app shows its own confirm panel first. Never invent a batchId.",
+    schema: obj({ batchId: S, summary: S }, ["batchId"]),
+    binding: "SELF",
+    method: "POST",
+    path: "(import batch engine)",
+    write: true,
+    confirm: true, // writing a whole file of rows is high-blast — always confirm
+    summarize: (i) => (typeof i.summary === "string" && i.summary ? i.summary : "Run the attached file import"),
+    run: (env, request, input) => runImportBatchTool(env, request, input),
+  },
 ]
+
+/** binding:"SELF" — run the attached-in-chat import batch through the SAME engine
+ * the Import screen uses: re-open teamContext from the request (act-as-user), gate
+ * `create` on every target in the plan up front, execute in dependency order, then
+ * publish one coarse ping per changed module. Mirrors routes/import postBatchConfirm. */
+async function runImportBatchTool(
+  env: Env,
+  request: Request,
+  input: Record<string, unknown>
+): Promise<ToolResult> {
+  try {
+    const { actor, cfg, guard } = await teamContext(request, env)
+    const batchId = str(input, "batchId")
+    if (!batchId) return { ok: false, status: 400, data: null, error: "A batchId is required." }
+    const view = await getBatchView(cfg, guard, batchId)
+    if (!view.plan) return { ok: false, status: 409, data: null, error: "That import hasn't been planned." }
+    for (const m of planModules(view.plan)) await requireRight(cfg, guard, m, "create")
+    const { report, modules } = await confirmBatch(env, request, cfg, guard, actor, batchId)
+    for (const m of modules) await publishChange(env.REALTIME, guard.teamId, m)
+    return {
+      ok: true,
+      status: 200,
+      data: {
+        created: report.created,
+        skipped: report.skipped,
+        failed: report.failed,
+        perTarget: report.perTarget,
+        rejections: report.rejections.slice(0, 10),
+      },
+    }
+  } catch (e) {
+    if (e instanceof GuardError) return { ok: false, status: e.status, data: null, error: e.message }
+    throw e
+  }
+}
 
 export function getTool(name: string): AgentTool | undefined {
   return TOOL_CATALOG.find((t) => t.name === name)
@@ -471,6 +532,7 @@ export async function executeTool(
 ): Promise<ToolResult> {
   if (tool.identityBlocked)
     return { ok: false, status: 403, data: null, error: "That action can only be done by you, in person." }
+  if (tool.run) return tool.run(env, request, input)
 
   const fetcher = tool.binding === "CONTENT" ? env.CONTENT : env.TENANCY
   const query = tool.method === "GET" && tool.buildQuery ? tool.buildQuery(input) : ""

@@ -22,28 +22,12 @@ import { toast } from "@swift-struck/ui/registry/primitives/sonner/sonner"
 
 import type { ImportableTarget, ImportBatchReport, ImportBatchSummary, ImportBatchView } from "@shared/types"
 import { ApiFailure, dataOps } from "@/lib/api"
+import { fileToCsv, UserFileError } from "@/lib/file-to-csv"
 import { formatActivityWhen } from "@/lib/format"
 import { usePermissions } from "@/lib/perms"
 import { useCached } from "@/lib/store"
 
 type Phase = "upload" | "review" | "done"
-
-/** A friendly error whose message we surface verbatim (vs a generic toast). */
-class UserFileError extends Error {}
-
-/** Read a dropped file to CSV text. CSV/TSV are read directly. XLSX is intentionally
- * NOT parsed in-app yet: the only mature browser parser (SheetJS npm) ships with a
- * HIGH security advisory, and this base is meant to stay clean + reusable — so we ask
- * for a CSV (one export click in Excel/Numbers) rather than pull in a risky dep.
- * Safe direct-XLSX support is the next enhancement (UI-GAPS / AGENTIC-IMPORT §9). */
-async function fileToCsv(file: File): Promise<string> {
-  const lower = file.name.toLowerCase()
-  if (lower.endsWith(".xlsx") || lower.endsWith(".xls"))
-    throw new UserFileError(
-      `Excel files aren't read directly yet. In Excel or Numbers, choose File → Export / Save As → CSV, then drop "${file.name.replace(/\.xl\w+$/i, ".csv")}" here.`
-    )
-  return file.text()
-}
 
 export function ImportScreen({ teamId, initialTarget }: { teamId: string; initialTarget?: string }) {
   const { perms, loading: permsLoading } = usePermissions(teamId)

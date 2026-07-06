@@ -26,7 +26,7 @@
 // the step — crossing a static route into /t would hard-reload, so we never do that.
 
 import * as React from "react"
-import { History, Plus } from "lucide-react"
+import { History, Paperclip, Plus, X } from "lucide-react"
 
 import { Button } from "@swift-struck/ui/registry/primitives/button/button"
 import { Badge } from "@swift-struck/ui/registry/primitives/badge/badge"
@@ -53,6 +53,8 @@ import { RunSteps, type RunStep } from "@swift-struck/ui/registry/collections/ru
 
 import type { AgentMessage, AgentQuota, AgentThread, PendingCall } from "@shared/types"
 import { ApiFailure, dataOps, type AgentStreamEvent, type UsageLogRow } from "@/lib/api"
+import { toast } from "@swift-struck/ui/registry/primitives/sonner/sonner"
+import { fileToCsv, UserFileError } from "@/lib/file-to-csv"
 import { emitTrace, traceFor } from "@/lib/agent-trace"
 import { usePermissions } from "@/lib/perms"
 import { formatActivityWhen } from "@/lib/format"
@@ -118,6 +120,10 @@ export function AgentPanel({
 
   const [items, setItems] = React.useState<AgentChatItem[]>([])
   const [threadId, setThreadId] = React.useState<string | undefined>(undefined)
+  // CSV files staged for the NEXT message (the chat import): picked or dropped,
+  // sent with the message, planned server-side, run via the normal confirm panel.
+  const [attached, setAttached] = React.useState<{ name: string; csv: string }[]>([])
+  const attachRef = React.useRef<HTMLInputElement>(null)
   const [busy, setBusy] = React.useState(false)
   const [quota, setQuota] = React.useState<AgentQuota | null>(null)
   // A paused turn awaiting the user's go-ahead — the proposed actions + the text.
@@ -366,20 +372,47 @@ export function AgentPanel({
     }
   }
 
+  async function addAttachments(list: FileList | null) {
+    if (!list || !list.length || busy) return
+    const next = [...attached]
+    for (const file of Array.from(list)) {
+      if (next.length >= 8) {
+        toast.error("Attach up to 8 files at a time.")
+        break
+      }
+      try {
+        const csv = await fileToCsv(file)
+        if (csv.length > 5_000_000) {
+          toast.error(`"${file.name}" is too large (up to about 5 MB).`)
+          continue
+        }
+        next.push({ name: file.name, csv })
+      } catch (err) {
+        toast.error(err instanceof UserFileError ? err.message : `Couldn't read "${file.name}".`)
+      }
+    }
+    setAttached(next)
+    if (attachRef.current) attachRef.current.value = ""
+  }
+
   async function send(text: string) {
     if (busy) return
     const assistantId = newId()
+    const files = attached.length ? attached : undefined
+    // Same attachment note the server saves, so the optimistic bubble matches history.
+    const shown = files ? `${text}\n(Attached: ${files.map((f) => f.name).join(", ")})` : text
     // Optimistic: the user's message appears instantly, and an empty assistant row
     // carries the animated 3-dot indicator (showTyping) until reply text streams.
     setItems((prev) => [
       ...prev,
-      { id: newId(), role: "user", content: text },
+      { id: newId(), role: "user", content: shown },
       { id: assistantId, role: "assistant", content: "" },
     ])
     setBusy(true)
     setPending(null)
+    setAttached([])
     try {
-      await consume((onEvent) => dataOps.agentChatStream({ message: text, threadId }, onEvent), assistantId)
+      await consume((onEvent) => dataOps.agentChatStream({ message: text, threadId, files }, onEvent), assistantId)
     } catch (err) {
       if (!(await resyncAfterDrop())) {
         const msg = err instanceof ApiFailure ? err.message : "The connection dropped. Reopen the chat to see what happened."
@@ -547,7 +580,14 @@ export function AgentPanel({
         ) : (
           // agent-chat-host scopes the composer autofocus selector (and used to
           // scope an interim wrap override — the library wraps natively since 0.3.0).
-          <div className="agent-chat-host flex min-h-0 flex-1 flex-col">
+          <div
+            className="agent-chat-host flex min-h-0 flex-1 flex-col"
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => {
+              e.preventDefault()
+              void addAttachments(e.dataTransfer.files)
+            }}
+          >
             <div className="min-h-0 flex-1">
               {/* Fill the sheet and shed the component's own card chrome (it ships
                * as a standalone fixed-height card) so it reads as one panel, not a
@@ -568,6 +608,49 @@ export function AgentPanel({
                 }
                 onSend={(t) => void send(t)}
               />
+            </div>
+
+            {/* Attach CSVs for a chat import: staged chips + the picker. Files are
+             * planned server-side with the next message; the run goes through the
+             * normal confirm panel. Dropping files anywhere on the panel works too. */}
+            <div className="flex flex-wrap items-center gap-1.5 border-t px-3 py-2">
+              <input
+                ref={attachRef}
+                type="file"
+                accept=".csv,.tsv,.xlsx,.xls,text/csv"
+                multiple
+                className="hidden"
+                onChange={(e) => void addAttachments(e.target.files)}
+                disabled={busy}
+              />
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-muted-foreground gap-1.5"
+                onClick={() => attachRef.current?.click()}
+                disabled={busy || quota?.blocked}
+              >
+                <Paperclip className="size-3.5" aria-hidden /> Attach CSV
+              </Button>
+              {attached.map((f, i) => (
+                <span
+                  key={`${f.name}-${i}`}
+                  className="bg-muted/60 inline-flex max-w-40 items-center gap-1 rounded-md px-2 py-0.5 text-xs"
+                >
+                  <span className="truncate">{f.name}</span>
+                  <button
+                    type="button"
+                    aria-label={`Remove ${f.name}`}
+                    onClick={() => setAttached((prev) => prev.filter((_, j) => j !== i))}
+                    className="text-muted-foreground hover:text-foreground"
+                  >
+                    <X className="size-3" aria-hidden />
+                  </button>
+                </span>
+              ))}
+              {attached.length > 0 && (
+                <span className="text-muted-foreground text-xs">sent with your next message</span>
+              )}
             </div>
 
             {/* A paused turn: the proposed actions + approve / decline. */}

@@ -73,6 +73,13 @@ export const RULES_REGISTRY: Rule[] = [
     checkId: "tab-counts-derived",
     status: "enforced",
   },
+  {
+    id: "R9",
+    dimension: "arch",
+    law: "The agent knows what the app can do — its system prompt carries a capability brief GENERATED from the import/export catalog (+ the glossary), so the UI and the agent can never disagree about a capability.",
+    checkId: "agent-app-parity",
+    status: "enforced",
+  },
 ]
 
 /** Worker test suites that enforce R1. A new mutating worker without a

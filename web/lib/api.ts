@@ -506,7 +506,7 @@ export const dataOps = {
    * step_start/step_end, ending in one terminal event (confirm | final | error).
    * The non-streaming agentChat above stays as a fallback. */
   agentChatStream: (
-    body: { message: string; threadId?: string },
+    body: { message: string; threadId?: string; files?: { name: string; csv: string }[] },
     onEvent: (ev: AgentStreamEvent) => void
   ) => streamSse("/api/data-ops/agent/chat", body, onEvent),
 

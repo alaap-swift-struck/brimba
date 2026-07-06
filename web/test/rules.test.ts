@@ -135,6 +135,7 @@ describe("RULES — the laws of the base", () => {
       "glossary-wellformed",
       "forms-persist-drafts",
       "tab-counts-derived",
+      "agent-app-parity", // workers/data-ops/test/agent-parity.test.ts
     ])
     for (const r of RULES_REGISTRY) {
       if (r.status === "enforced")

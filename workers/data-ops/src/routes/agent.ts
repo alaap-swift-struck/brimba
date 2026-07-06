@@ -7,7 +7,7 @@
 import { fail, json } from "../../../../shared/workers/http"
 import { optionalText, requireText, TEXT_LIMITS } from "../../../../shared/workers/validate"
 import { publishChange } from "../../../../shared/workers/realtime"
-import { adminGuard, requireRight, teamContext } from "../../../../shared/workers/gating"
+import { GuardError, adminGuard, requireRight, teamContext } from "../../../../shared/workers/gating"
 import { getQuota, grantCredits, readUsageLog } from "../lib/credits"
 import { confirmAndRun, runChat, type Emit } from "../lib/agent"
 import { listMessages, listThreads } from "../lib/threads"
@@ -102,10 +102,29 @@ export async function postGrantCredits(request: Request, env: Env): Promise<Resp
 export async function postAgentChat(request: Request, env: Env): Promise<Response> {
   const { actor, cfg, guard } = await teamContext(request, env)
   await requireRight(cfg, guard, "agent", "create")
-  const body = (await request.json().catch(() => ({}))) as { threadId?: unknown; message?: unknown }
+  const body = (await request.json().catch(() => ({}))) as {
+    threadId?: unknown
+    message?: unknown
+    files?: unknown
+  }
   const message = requireText(body.message, "Message", TEXT_LIMITS.message)
   const threadId = optionalText(body.threadId, "Thread", 64)
-  const opts = { threadId, message, source: "in-app" }
+  // Attached CSVs (the chat import): validated here at the boundary; the batch
+  // engine re-enforces its own caps (file count, rows, bytes) when they're added.
+  let files: { name: string; csv: string }[] | undefined
+  if (Array.isArray(body.files) && body.files.length) {
+    if (body.files.length > 8) return fail(400, "too_many_files", "Attach up to 8 files at a time.")
+    files = body.files.map((f) => {
+      const raw = (f ?? {}) as { name?: unknown; csv?: unknown }
+      const name = optionalText(raw.name, "File name", 200) ?? "file"
+      if (typeof raw.csv !== "string" || !raw.csv.trim())
+        throw new GuardError(400, "invalid_input", "Each attached file needs CSV text.")
+      if (raw.csv.length > 5_000_000)
+        throw new GuardError(413, "file_too_large", `"${name}" is too large. Export a smaller CSV (up to about 5 MB).`)
+      return { name, csv: raw.csv }
+    })
+  }
+  const opts = { threadId, message, source: "in-app", files }
   if (wantsStream(request))
     return streamRun((emit) => runChat(env, request, cfg, guard, actor, opts, emit))
   return json(await runChat(env, request, cfg, guard, actor, opts))

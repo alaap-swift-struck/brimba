@@ -115,8 +115,21 @@ describe("agent tool catalog + confirm rule", () => {
 
   it("every write tool declares how it's gated (a module the real door checks)", () => {
     for (const t of TOOL_CATALOG) {
+      if (t.binding === "SELF") {
+        // A SELF tool runs inside data-ops — its gate is its own handler, which
+        // must exist (it re-opens teamContext + requireRight from the request).
+        expect(typeof t.run, `SELF tool "${t.name}" must carry a run handler`).toBe("function")
+        continue
+      }
       expect(t.binding === "CONTENT" || t.binding === "TENANCY").toBe(true)
       expect(t.path.startsWith("/api/")).toBe(true)
     }
+  })
+
+  it("the chat-import runner always confirms (writing a whole file is high-blast)", () => {
+    const t = TOOL_CATALOG.find((x) => x.name === "run_import_batch")
+    expect(t).toBeDefined()
+    expect(t?.confirm).toBe(true)
+    expect(t?.write).toBe(true)
   })
 })

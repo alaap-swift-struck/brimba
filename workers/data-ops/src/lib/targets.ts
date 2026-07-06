@@ -71,6 +71,10 @@ export type TargetDef = {
    * back its rows to build naturalKey→newId after import. Base targets omit it (the
    * base's one dependency is value-mode); an app adds it to be an id-parent. */
   list?: { path: string; key: string; idField: string; nameField: string }
+  /** the full-field CSV export door for this table, when one exists (export = READ
+   * right; the agent's capability brief + the parity test read this, so the agent
+   * always knows which tables can be exported). */
+  exportPath?: string
   /** One example row (columnKey → example value) for the downloadable SAMPLE file
    * (AGENTIC-IMPORT §10). A column with no example falls back to `Example <label>`,
    * so every target always yields a usable sample. Show users a good file BEFORE
@@ -91,6 +95,7 @@ export const TARGETS: Record<string, TargetDef> = {
       { key: "value", label: "Value", required: true },
     ],
     endpoint: { binding: "TENANCY", path: "/api/tenancy/selectable" },
+    exportPath: "/api/tenancy/selectable/export",
     naturalKey: "value",
     sample: { type: "Learning category", value: "Getting Started" },
     buildBody: (r) => ({ type: r.type, value: r.value }),
@@ -107,6 +112,7 @@ export const TARGETS: Record<string, TargetDef> = {
       ...MATRIX_COLUMNS,
     ],
     endpoint: { binding: "TENANCY", path: "/api/tenancy/roles" },
+    exportPath: "/api/tenancy/roles/export",
     naturalKey: "title",
     sample: {
       title: "Editor",
@@ -138,6 +144,7 @@ export const TARGETS: Record<string, TargetDef> = {
       { key: "body", label: "Body", required: false },
     ],
     endpoint: { binding: "CONTENT", path: "/api/content/learning" },
+    exportPath: "/api/content/learning/export",
     naturalKey: "title",
     sample: {
       title: "How to log in",

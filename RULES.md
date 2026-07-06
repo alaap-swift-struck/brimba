@@ -24,6 +24,7 @@ every exception is a visible, conscious line — never a silent bypass.
 | R6 | ui | Product terms live in ONE glossary (clear, brief, no over-explaining) — the app speaks one dictionary. | `glossary-wellformed` | enforced |
 | R7 | ui | Every form dialog persists its draft per session (useFormDraft) — unsaved input survives navigating away (CACHING.md §11). | `forms-persist-drafts` | enforced |
 | R8 | ui | Every team collection tab derives its count from its loaded rows — a placement:'tab' section that shows a collection must declare a countCacheKey. | `tab-counts-derived` | enforced |
+| R9 | arch | The agent knows what the app can do — its system prompt carries a capability brief GENERATED from the import/export catalog (+ the glossary), so the UI and the agent can never disagree about a capability. | `agent-app-parity` (workers/data-ops/test/agent-parity.test.ts) | enforced |
 
 ## How to add a new law
 
