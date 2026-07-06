@@ -75,6 +75,7 @@ import {
 import { getScreens, postScreen } from "./routes/config"
 import {
   getSelectable,
+  getSelectableExport,
   postCreateSelectable,
   postSetSelectableActive,
   postUpdateSelectable,
@@ -126,6 +127,7 @@ export const ROUTES: Record<string, { handler: Handler; kind: RouteKind }> = {
   "GET /api/tenancy/config/screens": { handler: getScreens, kind: "read" },
   "POST /api/tenancy/config/screens": { handler: postScreen, kind: "mutation" },
   "GET /api/tenancy/selectable": { handler: getSelectable, kind: "read" },
+  "GET /api/tenancy/selectable/export": { handler: getSelectableExport, kind: "read" },
   "POST /api/tenancy/selectable": { handler: postCreateSelectable, kind: "mutation" },
   "POST /api/tenancy/selectable/update": { handler: postUpdateSelectable, kind: "mutation" },
   "POST /api/tenancy/selectable/active": { handler: postSetSelectableActive, kind: "mutation" },

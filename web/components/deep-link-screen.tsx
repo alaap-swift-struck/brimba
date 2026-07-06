@@ -409,7 +409,12 @@ export function DeepLinkScreen() {
 
     if (module === "dropdowns") {
       if (!can("selectable_data", "read")) return <NoAccess />
-      return <SelectableScreen teamId={teamId as string} />
+      return (
+        <SelectableScreen
+          teamId={teamId as string}
+          onImport={() => go(`/t/${teamId}/import/selectable_data`)}
+        />
+      )
     }
 
     const permKey = module ? MODULE_PERMISSION[module] : undefined

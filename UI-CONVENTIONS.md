@@ -360,7 +360,21 @@ add a concept to the vocabulary, never a one-off icon at a call site.
 | Revoke (an invite) | `Ban` | the canonical icon for a revoke action |
 | Create / add | `Plus` | "New role", "New article", "Raise ticket" — wired (`screen-bits`) |
 | Import | `Upload` | "Import CSV" — wired (`screen-bits`) |
+| Export | `Download` | "Export CSV" — wired (`screen-bits`) |
 | Invite | `Mail` | the one create action with its own concept icon — wired |
+
+### Action-button rows never clip (responsive rule)
+
+A horizontal group of action buttons (e.g. **Export CSV · Import CSV · New role**)
+must **wrap**, never clip, on a narrow screen. Use `flex flex-wrap` on the row —
+`justify-end` alone (no wrap) pushes the overflow off the **left** edge, where the
+container hides it, so the leftmost button silently disappears on a phone (a real
+bug the owner hit). Every action-button row in the host uses `flex flex-wrap
+justify-end gap-2` (`screen-bits` `SectionWithCreate`, `form-shell` footer, the
+import wizard, the agent confirm panel). On a very narrow screen, dropping to
+icon-only buttons is also acceptable (the mapping above). This is a **documented
+convention**, not a machine-checked Law (responsive CSS is out of the rules-test
+scope) — but it applies everywhere buttons sit in a row.
 
 Remove and Revoke currently run through the engine's `?confirm=` route (a `destructive`
 text button, not yet an icon button); when they *do* carry an icon, use `UserMinus` and

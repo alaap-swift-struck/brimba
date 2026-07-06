@@ -41,6 +41,11 @@ export type TargetDef = {
    * back its rows to build naturalKey→newId after import. Base targets omit it (the
    * base's one dependency is value-mode); an app adds it to be an id-parent. */
   list?: { path: string; key: string; idField: string; nameField: string }
+  /** One example row (columnKey → example value) for the downloadable SAMPLE file
+   * (AGENTIC-IMPORT §10). A column with no example falls back to `Example <label>`,
+   * so every target always yields a usable sample. Show users a good file BEFORE
+   * they prepare theirs. */
+  sample?: Record<string, string>
 }
 
 export const TARGETS: Record<string, TargetDef> = {
@@ -57,6 +62,7 @@ export const TARGETS: Record<string, TargetDef> = {
     ],
     endpoint: { binding: "TENANCY", path: "/api/tenancy/selectable" },
     naturalKey: "value",
+    sample: { type: "Learning category", value: "Getting Started" },
     buildBody: (r) => ({ type: r.type, value: r.value }),
   },
   member_roles: {
@@ -70,6 +76,7 @@ export const TARGETS: Record<string, TargetDef> = {
     ],
     endpoint: { binding: "TENANCY", path: "/api/tenancy/roles" },
     naturalKey: "title",
+    sample: { title: "Editor", description: "Can create and edit, but not remove" },
     buildBody: (r) => ({ title: r.title, description: r.description ?? "" }),
   },
   learning: {
@@ -87,6 +94,14 @@ export const TARGETS: Record<string, TargetDef> = {
     ],
     endpoint: { binding: "CONTENT", path: "/api/content/learning" },
     naturalKey: "title",
+    sample: {
+      title: "How to log in",
+      category: "Getting Started",
+      description: "Step-by-step sign-in guide",
+      contentType: "Other link",
+      contentLink: "https://example.com/guide",
+      body: "1. Open the app. 2. Enter your email. 3. Type the code we send you.",
+    },
     // The worked base dependency: a learning article's category is a Dropdown value.
     // mode:"value" (the endpoint auto-creates a missing category), so the reference's
     // job is ORDER — import dropdowns before articles so categories are canonical.
@@ -102,6 +117,17 @@ export const TARGETS: Record<string, TargetDef> = {
       body: r.body || undefined,
     }),
   },
+}
+
+/** A downloadable SAMPLE CSV for a target: a header row of the column LABELS + one
+ * example data row (from `sample`, falling back to `Example <label>`). So every
+ * import place can show "here's what a good file looks like" (AGENTIC-IMPORT §10) —
+ * built from the target's own columns, so it's automatic for every target. RFC-4180
+ * quoting is applied by the route's `toCsv`; here we just assemble the two rows. */
+export function sampleRows(target: TargetDef): { header: string[]; row: string[] } {
+  const header = target.columns.map((c) => c.label)
+  const row = target.columns.map((c) => target.sample?.[c.key] ?? `Example ${c.label.toLowerCase()}`)
+  return { header, row }
 }
 
 /** The default catalog rows the owner-only seed endpoint upserts (kept in sync with

@@ -28,6 +28,7 @@ export const GLOSSARY = {
   dropdownValues: { term: "Dropdown values", def: "The options behind your team's dropdowns — like Help types and Learning categories." },
   importCsv: { term: "Import", def: "Bring rows in from a spreadsheet (CSV) instead of typing them one by one." },
   exportCsv: { term: "Export", def: "Download what you can see as a spreadsheet (CSV) file." },
+  sampleFile: { term: "Sample file", def: "A downloadable example that shows what a good import file looks like." },
   assistant: { term: "Assistant", def: "Your in-app helper — it can find things, explain them, and make changes for you." },
   activity: { term: "Activity", def: "A history of what changed on a record, and who changed it." },
   overview: { term: "Overview", def: "The key facts about a record at a glance." },

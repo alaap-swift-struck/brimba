@@ -26,7 +26,8 @@ import {
   planModules,
 } from "../lib/import-batch"
 import { consumeAiUnit } from "../lib/credits"
-import { TARGETS } from "../lib/targets"
+import { sampleRows, TARGETS } from "../lib/targets"
+import { csvResponse, toCsv } from "../../../../shared/workers/csv"
 import type { D1Rest } from "../../../../shared/workers/d1-rest"
 import type { MemberGuard } from "../../../../shared/workers/gating"
 import type { Env } from "../env"
@@ -39,6 +40,19 @@ const MAX_CSV_BYTES = 5_000_000
 export async function getImportTargets(request: Request, env: Env): Promise<Response> {
   await teamContext(request, env) // any signed-in member may see the catalog
   return json({ targets: await getActiveCatalog(env) })
+}
+
+/** GET /api/data-ops/import/sample?tableKey= — a downloadable sample CSV showing a
+ * good file for that target (headers = column labels + one example row). Just a
+ * template (no team data), so any signed-in member may fetch it. Every import place
+ * offers this — AGENTIC-IMPORT §10 (show a good file before people prepare theirs). */
+export async function getImportSample(request: Request, env: Env): Promise<Response> {
+  await teamContext(request, env)
+  const key = new URL(request.url).searchParams.get("tableKey") ?? ""
+  const target = TARGETS[key]
+  if (!target) return fail(400, "invalid_target", "That isn't an importable target.")
+  const { header, row } = sampleRows(target)
+  return csvResponse(`${target.tableKey}-sample.csv`, toCsv(header, [row]))
 }
 
 /** POST /api/data-ops/import — start a session for a target (gated on target create). */

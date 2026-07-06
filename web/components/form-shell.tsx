@@ -39,7 +39,7 @@ export function FormShell({
       <Separator />
       <div className="flex flex-col gap-4 py-4">{children}</div>
       <Separator />
-      <div className="flex justify-end gap-2 pt-4">{footer}</div>
+      <div className="flex flex-wrap justify-end gap-2 pt-4">{footer}</div>
     </form>
   )
 }

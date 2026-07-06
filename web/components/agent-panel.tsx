@@ -575,7 +575,7 @@ export function AgentPanel({
               <div className="flex flex-col gap-3 border-t p-4">
                 <p className="text-sm font-medium">I&apos;d like to make these changes:</p>
                 <RunSteps steps={confirmSteps} />
-                <div className="flex justify-end gap-2">
+                <div className="flex flex-wrap justify-end gap-2">
                   <Button variant="outline" size="sm" onClick={() => void resolve(false)} disabled={busy}>
                     Not now
                   </Button>

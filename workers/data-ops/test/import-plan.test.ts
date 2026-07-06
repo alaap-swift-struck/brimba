@@ -14,7 +14,7 @@ import {
   TRANSFORMS,
   type PlanFile,
 } from "../src/lib/import-plan"
-import type { ReferenceDef } from "../src/lib/targets"
+import { sampleRows, TARGETS, type ReferenceDef } from "../src/lib/targets"
 
 describe("detectTarget: pick the table a file feeds by its required columns", () => {
   it("matches learning by title (+ fuzzy headers)", () => {
@@ -103,5 +103,17 @@ describe("resolveRow: the id-mode foreign-key resolver (pure)", () => {
     const out = resolveRow({ category: "Getting Started" }, valueRef, new Map())
     expect(out.error).toBeUndefined()
     expect(out.refs).toEqual({})
+  })
+})
+
+describe("every import target yields a downloadable sample (AGENTIC-IMPORT §10)", () => {
+  it("produces a header + one example row per catalog target, always", () => {
+    for (const t of Object.values(TARGETS)) {
+      const { header, row } = sampleRows(t)
+      expect(header.length, `${t.tableKey} header`).toBe(t.columns.length)
+      expect(row.length, `${t.tableKey} row`).toBe(t.columns.length)
+      // No empty example cells — a required column with no `sample` still gets a hint.
+      expect(row.every((c) => c.trim().length > 0), `${t.tableKey} has no blank sample cells`).toBe(true)
+    }
   })
 })

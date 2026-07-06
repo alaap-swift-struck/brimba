@@ -73,7 +73,11 @@ export function SectionWithCreate({
   return (
     <div className="flex flex-col gap-4">
       {(show || showSecondary || showDownload) && (
-        <div className="flex justify-end gap-2">
+        // flex-wrap: on a narrow phone a row of action buttons (Export/Import/New)
+        // must REFLOW to a new line, never clip. `justify-end` alone pushes overflow
+        // off the LEFT edge where the container hides it (the owner's cut-off button).
+        // Global UI rule — see UI-CONVENTIONS "Action-button rows never clip".
+        <div className="flex flex-wrap justify-end gap-2">
           {showDownload && download && (
             <Button asChild variant="outline" className="gap-1.5">
               <a href={download.href}>

@@ -12,14 +12,21 @@ import { Button } from "@swift-struck/ui/registry/primitives/button/button"
 import { Input } from "@swift-struck/ui/registry/primitives/input/input"
 import { Skeleton } from "@swift-struck/ui/registry/primitives/skeleton/skeleton"
 import { toast } from "@swift-struck/ui/registry/primitives/sonner/sonner"
-import { Plus, Pencil, X, Check } from "lucide-react"
+import { Plus, Pencil, X, Check, Upload, Download } from "lucide-react"
 
 import type { SelectableValue } from "@shared/types"
 import { ApiFailure, tenancy } from "@/lib/api"
 import { usePermissions } from "@/lib/perms"
 import { primeCache, useCached } from "@/lib/store"
 
-export function SelectableScreen({ teamId }: { teamId: string }) {
+export function SelectableScreen({
+  teamId,
+  onImport,
+}: {
+  teamId: string
+  /** Host-provided soft-nav to the import wizard (pre-targeted to dropdown values). */
+  onImport?: () => void
+}) {
   const { can } = usePermissions(teamId)
   const valuesQ = useCached<SelectableValue[]>(`selectable:${teamId}`, () =>
     tenancy.selectable().then((r) => r.values)
@@ -86,12 +93,30 @@ export function SelectableScreen({ teamId }: { teamId: string }) {
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Dropdown values</h1>
-        <p className="text-muted-foreground mt-1 text-sm">
-          The options behind your team&apos;s dropdowns — Help types, Learning categories and more.
-          Pick a group, or start a new one.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Dropdown values</h1>
+          <p className="text-muted-foreground mt-1 text-sm">
+            The options behind your team&apos;s dropdowns — Help types, Learning categories and more.
+            Pick a group, or start a new one.
+          </p>
+        </div>
+        {/* Import / Export — dropdown values are a full import target now. flex-wrap
+         * so the buttons never clip on a phone (UI-CONVENTIONS action-row rule). */}
+        <div className="flex flex-wrap justify-end gap-2">
+          {values.length > 0 && (
+            <Button asChild variant="outline" className="gap-1.5">
+              <a href="/api/tenancy/selectable/export">
+                <Download className="size-4" aria-hidden /> Export CSV
+              </a>
+            </Button>
+          )}
+          {canCreate && onImport && (
+            <Button variant="outline" onClick={onImport} className="gap-1.5">
+              <Upload className="size-4" aria-hidden /> Import CSV
+            </Button>
+          )}
+        </div>
       </div>
 
       {canCreate && (

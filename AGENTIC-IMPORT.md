@@ -219,6 +219,20 @@ it isn't a hard dependency (mirrors the chat agent's Workers-AI fallback).
 
 ---
 
+## 10 · Every import place shows a sample (enforceable)
+
+**Rule:** wherever a user can import, they can first **download a sample file** that
+shows a good file for that table. So no one guesses the format — they see it. This is
+automatic: the sample is built from the target's own `columns` (header = the labels,
+one example row from the target's optional `sample` map, falling back to
+`Example <label>`), served by `GET /api/data-ops/import/sample?tableKey=X` and offered
+in the wizard as a "Download a sample" link per target. Because it's generated from the
+columns every target already declares, **every target yields a sample** — locked by
+`workers/data-ops/test/import-plan.test.ts` (every `TARGETS` entry produces a non-empty
+sample with no blank cells). When you add an import target (BUILD-A-MODULE), give it a
+nice `sample` row; a missing one still works. The sample uses the import format
+(labels + one row) so it round-trips straight back through the importer.
+
 ## 9 · Build phases
 
 1. **v1 (this milestone):** batch table + endpoints, the agent analyze/plan step

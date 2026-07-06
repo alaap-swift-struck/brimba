@@ -473,6 +473,8 @@ export const dataOps = {
       post({ sessionId })
     ),
 
+  /** A downloadable sample CSV href for a target — a good-file template. */
+  importSampleHref: (tableKey: string) => `/api/data-ops/import/sample?tableKey=${enc(tableKey)}`,
   // Agentic multi-file batch import (AGENTIC-IMPORT.md).
   batchStart: () => api<{ batch: ImportBatchView }>("/api/data-ops/import/batch", post({})),
   batchAddFile: (batchId: string, name: string, csv: string) =>

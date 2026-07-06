@@ -27,6 +27,7 @@ import type { Env } from "./env"
 import {
   getBatch,
   getImportPreview,
+  getImportSample,
   getImportTargets,
   postBatchConfirm,
   postBatchFile,
@@ -65,6 +66,7 @@ type RouteKind = "read" | "mutation" | "housekeeping"
 type Handler = (request: Request, env: Env) => Promise<Response>
 export const ROUTES: Record<string, { handler: Handler; kind: RouteKind }> = {
   "GET /api/data-ops/import/targets": { handler: getImportTargets, kind: "read" },
+  "GET /api/data-ops/import/sample": { handler: getImportSample, kind: "read" },
   "GET /api/data-ops/import/preview": { handler: getImportPreview, kind: "read" },
   "POST /api/data-ops/import": { handler: postImportStart, kind: "housekeeping" },
   "POST /api/data-ops/import/file": { handler: postImportFile, kind: "housekeeping" },

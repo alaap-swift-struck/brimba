@@ -43,6 +43,20 @@ a fresh Cloudflare account to a live staging + production Brimba. It is the conc
 answer to "with only these docs and the repo, could I recreate the base?" — yes: run
 that list.
 
+**The rulebook — what governs the base (read before you change it).** Every rule for
+modifying, recreating, or building on Brimba lives in one of these, and each is
+concrete + checkable:
+
+- **The two prime directives** (stay lean; obey the Laws) — [CLAUDE.md](CLAUDE.md), the entry point.
+- **The Laws of the Base** (R1–R8) — [RULES.md](RULES.md), *machine-checked*: pinned to `shared/rules/registry.ts` and enforced by tests that read the source off disk (`web/test/rules.test.ts`, the per-worker `publish-seam.test.ts`). Break one → the build goes red. Adding a Law requires the rule, the registry entry, and a check — all three.
+- **Code house style** — [CONVENTIONS.md](CONVENTIONS.md): the handler shape, the two data doors, gating, boundary validation, deactivate-not-delete, the comment style.
+- **UI conventions** — [UI-CONVENTIONS.md](UI-CONVENTIONS.md): library-is-lego, recipe vs bespoke, the enforced UI Laws, the action-icon mapping, the *action-button rows never clip* responsive rule, the voice.
+- **Import + export rules** — [AGENTIC-IMPORT.md](AGENTIC-IMPORT.md): audit parity, export-needs-read/import-needs-create, one-confirm, insert-only, and every import place offers a sample file (test-enforced).
+- **Error rules** — [ERROR-HANDLING.md](ERROR-HANDLING.md): never swallow; one client seam; every worker records to the central store.
+- **The single vocabulary** — `shared/glossary.ts` (Law R6, machine-checked): one word per concept, used in all UI copy.
+
+If a rule isn't machine-checked (e.g. a responsive-CSS convention), the doc says so and names where it's applied.
+
 > **The completeness bar this doc set is held to:** a non-technical owner, an AI agent,
 > or a new developer, armed with *only* the repository and these documents, can (1)
 > understand exactly how the base works — BASE-MANUAL + ARCHITECTURE; (2) rebuild it

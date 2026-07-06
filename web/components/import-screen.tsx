@@ -20,9 +20,10 @@ import { Badge } from "@swift-struck/ui/registry/primitives/badge/badge"
 import { Skeleton } from "@swift-struck/ui/registry/primitives/skeleton/skeleton"
 import { toast } from "@swift-struck/ui/registry/primitives/sonner/sonner"
 
-import type { ImportBatchReport, ImportBatchView } from "@shared/types"
+import type { ImportableTarget, ImportBatchReport, ImportBatchView } from "@shared/types"
 import { ApiFailure, dataOps } from "@/lib/api"
 import { usePermissions } from "@/lib/perms"
+import { useCached } from "@/lib/store"
 
 type Phase = "upload" | "review" | "done"
 
@@ -53,6 +54,13 @@ export function ImportScreen({ teamId }: { teamId: string; initialTarget?: strin
   const [busy, setBusy] = React.useState(false)
   const [busyNote, setBusyNote] = React.useState("")
   const fileRef = React.useRef<HTMLInputElement>(null)
+
+  // The catalog — powers the "download a sample" links so a user can see what a good
+  // file looks like for each table BEFORE preparing theirs (AGENTIC-IMPORT §10).
+  const targetsQ = useCached<ImportableTarget[]>(`import-targets:${teamId}`, () =>
+    dataOps.importTargets().then((r) => r.targets)
+  )
+  const samples = targetsQ.data ?? []
 
   const files = batch?.files ?? []
 
@@ -184,6 +192,22 @@ export function ImportScreen({ teamId }: { teamId: string; initialTarget?: strin
             />
           </label>
 
+          {/* Sample files — see a good file for each table before preparing yours. */}
+          {samples.length > 0 && (
+            <div className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+              <span>New to this? Download a sample:</span>
+              {samples.map((t) => (
+                <a
+                  key={t.tableKey}
+                  href={dataOps.importSampleHref(t.tableKey)}
+                  className="text-foreground inline-flex items-center gap-1 underline underline-offset-2"
+                >
+                  <FileSpreadsheet className="size-3.5" aria-hidden /> {t.displayName}
+                </a>
+              ))}
+            </div>
+          )}
+
           {files.length > 0 && (
             <div className="flex flex-col gap-2">
               {files.map((f) => (
@@ -279,7 +303,7 @@ export function ImportScreen({ teamId }: { teamId: string; initialTarget?: strin
             </div>
           ))}
 
-          <div className="flex justify-end gap-2">
+          <div className="flex flex-wrap justify-end gap-2">
             <Button variant="outline" onClick={() => setPhase("upload")} disabled={busy}>
               Back
             </Button>

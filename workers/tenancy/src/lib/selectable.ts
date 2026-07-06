@@ -30,6 +30,23 @@ export async function listSelectable(cfg: D1Rest, guard: MemberGuard): Promise<S
 
 /** Add a value to a type group (pick-or-create the type by name). Rejects empty
  * input and an exact (type,value) that's already active. Returns the new id. */
+/** Export-only reader: every value's full row (type, value, active + audit block). */
+export type SelectableExportRow = {
+  type: string
+  value: string
+  is_default: number
+  deactivated_at: string | null
+  created_at: string | null
+  creator_name: string | null
+}
+export async function listSelectableForExport(cfg: D1Rest, guard: MemberGuard): Promise<SelectableExportRow[]> {
+  return d1Query<SelectableExportRow>(
+    cfg,
+    guard.databaseId,
+    "SELECT type, value, is_default, deactivated_at, created_at, creator_name FROM selectable_data ORDER BY type ASC, value ASC"
+  )
+}
+
 export async function createSelectable(
   cfg: D1Rest,
   guard: MemberGuard,
