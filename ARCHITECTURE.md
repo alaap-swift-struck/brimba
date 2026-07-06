@@ -153,10 +153,11 @@ on top follows [CACHING.md](CACHING.md).
 | POST /api/data-ops/import/batch/confirm | data-ops | run the plan in dependency order; per-row report; one ping per changed module |
 | GET /api/content/learning/export · GET /api/tenancy/roles/export · GET /api/tenancy/selectable/export | content/tenancy | full-field CSV export (EXPORT NEEDS READ; team-bound) |
 | GET /api/data-ops/import/sample | data-ops | a downloadable sample CSV for a target — a good-file template (AGENTIC-IMPORT §10) |
+| GET /api/data-ops/import/batches | data-ops | the team's import history, newest first — summaries only (who, when, files → tables, totals) |
 | POST /api/data-ops/admin/seed-targets | data-ops | seed the global import catalog (owner-only, x-admin-key) |
 | POST /api/data-ops/admin/grant-credits | data-ops | top up a team's AI credits (owner-only, x-admin-key) |
 | GET /api/data-ops/agent/usage | data-ops | the team's AI quota snapshot (free + credits) |
-| POST /api/data-ops/agent/chat | data-ops | run one agent turn (answer, or propose/take an action act-as-you) |
+| POST /api/data-ops/agent/chat | data-ops | run one agent turn (answer, or propose/take an action act-as-you); accepts attached CSVs — planned through the import batch engine, run via run_import_batch behind the confirm panel (AGENTIC-IMPORT §8.5) |
 | POST /api/data-ops/agent/confirm | data-ops | approve/decline a proposed dangerous action; resume the turn |
 | GET /api/data-ops/agent/threads | data-ops | the caller's saved agent conversations |
 | GET /api/data-ops/agent/thread | data-ops | one conversation's messages (`?id=`) |

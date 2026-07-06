@@ -228,11 +228,12 @@ for (const c of RECORD_DETAIL_COMPONENTS) {          // ["help-detail", "learnin
 `Overview` (a `DescriptionList` of `auditItems(...)`) / `Activity` (an `ActivityFeed`
 fed by the generic `tenancy.recordActivity("learning", id)` path).
 
-**Reviewed exception:** `role-detail` is listed in `RECORD_DETAIL_EXCEPTIONS` with a
-mandatory reason (*"permission grid is a bespoke matrix with no Overview/Activity yet
-— tracked in UI-GAPS"*). Exceptions are **data** in the registry, so every bypass is a
-visible, conscious line — never a silent skip. A new bespoke record detail must either
-join `RECORD_DETAIL_COMPONENTS` (and get the tabs) or earn a reasoned exception.
+**No exceptions today.** `role-detail` — the last one — grew its tabs on 2026-07-06
+(Permissions is its main tab, then Overview + Activity) and joined
+`RECORD_DETAIL_COMPONENTS`, so `RECORD_DETAIL_EXCEPTIONS` is empty: **every record
+detail in the app now carries the tabs, machine-checked.** Exceptions remain **data**
+in the registry — a new bespoke record detail must either join
+`RECORD_DETAIL_COMPONENTS` (and get the tabs) or earn a reasoned, visible exception.
 
 ### R3 — no hand-rolled toggles
 

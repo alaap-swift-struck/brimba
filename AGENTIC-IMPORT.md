@@ -73,6 +73,21 @@ upload N files ─▶ AGENT ANALYZES ─▶ PLAN (review) ─▶ one confirm ─
 
 ---
 
+### 2.5 · The plan tells the truth (one scan backs plan AND run)
+
+The plan is not a hope — it is a **prediction the run is bound to**. One pure pass,
+`scanRows` (import-plan.ts), maps + normalizes every row and decides rejections
+(missing required value; an exact duplicate of an earlier row in the same file —
+same required values — is skipped, importing the first). `planStep` runs that scan
+at plan time and stores the predicted rejections (row + reason, capped at 200 —
+the count stays exact); `confirmBatch` runs the SAME scan at execution. Same
+checks, same wording — the review screen can never promise something the run
+won't do. The review shows per-step reasons, a bottom big-number strip (will
+import / will be skipped / columns not in your files) and a **downloadable
+fix-list before anything runs**. Database-level conflicts (e.g. a dropdown value
+that already exists in the team) still surface at run time as honest per-row
+failures from the gated endpoint itself.
+
 ## 3 · The catalog + declaring a target (how an app plugs in)
 
 An importable target is one entry in `TARGETS` (`workers/data-ops/src/lib/targets.ts`)
@@ -137,6 +152,22 @@ injects them via `refs`. An inventory row whose product SKU wasn't in the produc
 file is **rejected** ("no product matches SKU X"), never written half-formed.
 
 ---
+
+**Extra field — `exportPath`.** A target that also has a full-field CSV export door
+declares it (`exportPath: "/api/tenancy/roles/export"`). Export = the READ right;
+import = CREATE. The agent's capability brief (Law R9) is generated from this same
+catalog, so declaring it here is what makes the assistant KNOW the table can be
+exported.
+
+**The worked matrix case — member roles.** The roles export flattens the permission
+matrix to one `<module>.<right>` yes/no column each (built from
+`shared/team-modules.ts`, the ONE module list). The member_roles import target
+declares the same 32 optional columns, so an exported roles file imports straight
+back (**export ↔ import round-trip**) — and a hand-made file can carry permissions
+too (the sample shows the pattern). A row WITH matrix cells creates the role AND
+sets its matrix (the create door then demands create **and** edit — the same gate
+the Roles screen's matrix editor goes through); a row without stays a plain create
+with permissions off.
 
 ## 4 · Reference resolution (the hard part, made deterministic)
 
@@ -209,6 +240,29 @@ or skip validation — same safety model as the chat agent.
 
 ---
 
+**Import history.** `GET /api/data-ops/import/batches` — the team's past import runs,
+newest first (who, when, files → tables, totals). TEAM-visible summaries (any
+signed-in member): the same altitude as the activity feed's "imported N rows" line —
+row contents and rejection reasons stay on the creator-scoped batch. Shown as
+"Past imports" on the Import screen.
+
+## 8.5 · Import straight from the assistant chat
+
+The user can also **attach CSV files in the assistant panel** (paperclip or drop).
+The files go straight into the SAME batch engine — never into the model prompt
+(injection-safe by construction): the app creates + plans the batch (metered one AI
+unit, exactly like the wizard's plan step), then hands the model a compact
+`ATTACHED-IMPORT-PLAN` block (tables, counts, what will be skipped and why, the
+batchId). The model presents the plan in a sentence and proposes
+`run_import_batch` — a `binding:"SELF"` tool that runs inside data-ops: its handler
+re-opens `teamContext` from the same request (act-as-user), re-gates `create` on
+every target module, executes in dependency order, and publishes one ping per
+changed module. It is `confirm:true` (writing a whole file is high-blast), so the
+normal confirm panel shows first, and the batch is creator-scoped — the model can
+never run someone else's import. Locked by `agent.test.ts` (a SELF tool must carry
+a run handler; the runner must confirm) and by the Law R9 parity test (the brief
+tells the agent this capability exists).
+
 ## 8 · Degrade gracefully (no key = still works)
 
 When `ANTHROPIC_API_KEY` is unset, the analyze step falls back to the deterministic
@@ -224,14 +278,19 @@ it isn't a hard dependency (mirrors the chat agent's Workers-AI fallback).
 **Rule:** wherever a user can import, they can first **download a sample file** that
 shows a good file for that table. So no one guesses the format — they see it. This is
 automatic: the sample is built from the target's own `columns` (header = the labels,
-one example row from the target's optional `sample` map, falling back to
-`Example <label>`), served by `GET /api/data-ops/import/sample?tableKey=X` and offered
-in the wizard as a "Download a sample" link per target. Because it's generated from the
-columns every target already declares, **every target yields a sample** — locked by
-`workers/data-ops/test/import-plan.test.ts` (every `TARGETS` entry produces a non-empty
-sample with no blank cells). When you add an import target (BUILD-A-MODULE), give it a
-nice `sample` row; a missing one still works. The sample uses the import format
-(labels + one row) so it round-trips straight back through the importer.
+one example row from the target's optional `sample` map; a REQUIRED column with no
+example falls back to `Example <label>`, an optional one stays **empty** — a good file
+doesn't have to fill every column), served by
+`GET /api/data-ops/import/sample?tableKey=X` and offered in the wizard as a
+"Download a sample" link. **Arriving from a specific tab** (Roles → Import,
+Dropdown values → Import…) shows ONLY that table's sample — the one the user came to
+import; the generic Import screen shows all. Locked by
+`workers/data-ops/test/import-plan.test.ts`: every `TARGETS` entry yields a sample,
+every required cell carries an example, and **every sample must itself import
+cleanly** (a sample that would be rejected is a broken sample). When you add an import
+target (BUILD-A-MODULE), give it a nice `sample` row; a missing one still works. The
+sample uses the import format (labels + one row) so it round-trips straight back
+through the importer.
 
 ## 9 · Build phases
 

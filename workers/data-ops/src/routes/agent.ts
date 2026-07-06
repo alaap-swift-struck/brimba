@@ -8,6 +8,7 @@ import { fail, json } from "../../../../shared/workers/http"
 import { optionalText, requireText, TEXT_LIMITS } from "../../../../shared/workers/validate"
 import { publishChange } from "../../../../shared/workers/realtime"
 import { GuardError, adminGuard, requireRight, teamContext } from "../../../../shared/workers/gating"
+import { recordWorkerError } from "../../../../shared/workers/error-log"
 import { getQuota, grantCredits, readUsageLog } from "../lib/credits"
 import { confirmAndRun, runChat, type Emit } from "../lib/agent"
 import { listMessages, listThreads } from "../lib/threads"
@@ -36,9 +37,12 @@ function wantsStream(request: Request): boolean {
 }
 
 /** Run an agent turn as an SSE stream: `run(emit)` produces the ChatOutcome while emitting
- * text + step events; when it returns we write the ONE terminal event and close. Any
- * throw becomes a safe `error` event — a raw 500 never leaks into the stream. */
-function streamRun(run: (emit: Emit) => Promise<ChatOutcome>): Response {
+ * text + step events; when it returns we write the ONE terminal event and close. A
+ * thrown GuardError keeps its own clean message (an over-quota or file-too-large
+ * refusal must say WHY — never the generic line); anything else becomes the safe
+ * generic event AND is recorded in the central error store (the worker's main catch
+ * can't see a throw that happens inside the stream). */
+function streamRun(env: Env, run: (emit: Emit) => Promise<ChatOutcome>): Response {
   const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>()
   const writer = writable.getWriter()
   const enc = new TextEncoder()
@@ -48,8 +52,14 @@ function streamRun(run: (emit: Emit) => Promise<ChatOutcome>): Response {
     try {
       const outcome = await run((ev) => void write(ev))
       await write(terminalEvent(outcome))
-    } catch {
-      await write({ t: "error", message: "The assistant had trouble just now. Please try again in a moment." })
+    } catch (e) {
+      if (e instanceof GuardError) {
+        await write({ t: "error", message: e.message })
+      } else {
+        console.error("agent stream error:", e)
+        await recordWorkerError(env.DB, "data-ops", "POST /api/data-ops/agent (stream)", e)
+        await write({ t: "error", message: "The assistant had trouble just now. Please try again in a moment." })
+      }
     } finally {
       await writer.close().catch(() => {})
     }
@@ -126,7 +136,7 @@ export async function postAgentChat(request: Request, env: Env): Promise<Respons
   }
   const opts = { threadId, message, source: "in-app", files }
   if (wantsStream(request))
-    return streamRun((emit) => runChat(env, request, cfg, guard, actor, opts, emit))
+    return streamRun(env, (emit) => runChat(env, request, cfg, guard, actor, opts, emit))
   return json(await runChat(env, request, cfg, guard, actor, opts))
 }
 
@@ -142,7 +152,7 @@ export async function postAgentConfirm(request: Request, env: Env): Promise<Resp
   // client — any client-supplied `calls` are ignored, so nothing un-proposed executes.
   const opts = { threadId: body.threadId, approve: body.approve, source: "in-app" }
   if (wantsStream(request))
-    return streamRun((emit) => confirmAndRun(env, request, cfg, guard, actor, opts, emit))
+    return streamRun(env, (emit) => confirmAndRun(env, request, cfg, guard, actor, opts, emit))
   return json(await confirmAndRun(env, request, cfg, guard, actor, opts))
 }
 

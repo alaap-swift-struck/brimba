@@ -17,6 +17,7 @@ The laws live in **[RULES.md](RULES.md)** (the human law-book) and are pinned to
 - **Every form renders through the shared `FormShell`.** (`forms-use-formshell`)
 - **One generic record-activity read path.** (`generic-activity-path`)
 - **The glossary is the single source of product terms** — `shared/glossary.ts`, one clear, brief definition each. Use those words in UI copy; never invent a synonym. (`glossary-wellformed`)
+- **The agent knows what the app can do** — its system prompt carries a capability brief GENERATED from the import/export catalog + the glossary, so the UI and the agent can never disagree about a capability. (`agent-app-parity`, `workers/data-ops/test/agent-parity.test.ts`)
 - **Input is validated at the boundary.** Never trust request bodies. Use `shared/workers/validate.ts` (`requireText` / `optionalText`: type-check, strip NUL bytes, cap length, throw the `GuardError` the workers map to a clean 400). Bad input is a 400, never a 500. Locked by `workers/content/test/validate.test.ts`.
 
 A law cannot be added without its check (`registry-integrity`). When you add a rule, add it to RULES.md **and** the registry **and** a check — or the build fails.

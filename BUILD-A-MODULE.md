@@ -370,7 +370,7 @@ vocabulary, reused at page/tab/button level. If it's a top-level URL like
 `/notes`, add `"notes"` to `TOP_LEVEL_MODULES` (`web/components/deep-link/route.ts`)
 and the gateway's top-level shell loop (gateway index.ts).
 
-**Importable? Declare a target + a sample.** If your module accepts CSV import, add a `TargetDef` in `workers/data-ops/src/lib/targets.ts` (columns, the gated create endpoint, optional `references`, and a `sample` example row) — see AGENTIC-IMPORT.md. The downloadable sample file is then automatic (a test enforces every target yields one).
+**Importable? Declare a target + a sample.** If your module accepts CSV import, add a `TargetDef` in `workers/data-ops/src/lib/targets.ts` (columns, the gated create endpoint, optional `references`, a `sample` example row, and `exportPath` if the module also has a CSV export door) — see AGENTIC-IMPORT.md. The downloadable sample file is then automatic (tests enforce every target yields one AND that the sample itself imports cleanly), and — because the agent's capability brief is generated from the same catalog (Law R9) — the assistant automatically knows your module can be imported/exported the moment you declare it. Nothing else to teach it.
 
 **Add your product words to the glossary (Law R6).** Any new term your UI shows —
 `invoices`, `purchase order`, `SKU` — goes in `shared/glossary.ts` (one term, one
