@@ -27,11 +27,26 @@ function send(ctx: ErrorContext) {
   }
 }
 
+/** A transient CONNECTIVITY failure, not a code bug: a fetch rejected because the
+ * network dropped, went offline, or the request was aborted (a navigation cancels
+ * in-flight requests). These flood the store with noise — the browser's generic
+ * "Failed to fetch" / "Load failed" / an AbortError — so they're logged to the
+ * console but NOT beaconed to the central store. A real bug has a real message. */
+function isBenignNetworkError(e: Error): boolean {
+  const m = e.message || ""
+  return (
+    e.name === "AbortError" ||
+    /^(failed to fetch|load failed|networkerror when attempting to fetch resource\.?)$/i.test(m.trim())
+  )
+}
+
 /** Report a handled error with context. Logs to the console (for the dev) and
- * beacons it (so we see it even when the user doesn't report it). */
+ * beacons it to the central store — EXCEPT transient network blips (see above),
+ * which stay console-only so the store keeps only real, actionable failures. */
 export function reportError(where: string, error: unknown, extra?: Record<string, unknown>) {
   const e = error instanceof Error ? error : new Error(String(error))
   console.error(`[${where}]`, e, extra ?? "")
+  if (isBenignNetworkError(e)) return
   send({ where, message: e.message, stack: e.stack, extra })
 }
 

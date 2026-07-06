@@ -151,7 +151,8 @@ on top follows [CACHING.md](CACHING.md).
 | POST /api/data-ops/import/batch(/file) | data-ops | start an agentic multi-file batch; attach a parsed CSV (AGENTIC-IMPORT.md) |
 | POST /api/data-ops/import/batch/plan | data-ops | the agent builds the plan (targets, mappings, order, references) — METERED on the credit pool |
 | POST /api/data-ops/import/batch/confirm | data-ops | run the plan in dependency order; per-row report; one ping per changed module |
-| GET /api/content/learning/export · GET /api/tenancy/roles/export | content/tenancy | full-field CSV export (EXPORT NEEDS READ; team-bound) |
+| GET /api/content/learning/export · GET /api/tenancy/roles/export · GET /api/tenancy/selectable/export | content/tenancy | full-field CSV export (EXPORT NEEDS READ; team-bound) |
+| GET /api/data-ops/import/sample | data-ops | a downloadable sample CSV for a target — a good-file template (AGENTIC-IMPORT §10) |
 | POST /api/data-ops/admin/seed-targets | data-ops | seed the global import catalog (owner-only, x-admin-key) |
 | POST /api/data-ops/admin/grant-credits | data-ops | top up a team's AI credits (owner-only, x-admin-key) |
 | GET /api/data-ops/agent/usage | data-ops | the team's AI quota snapshot (free + credits) |

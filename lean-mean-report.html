@@ -103,46 +103,42 @@
 /* DATA:START */
 window.LEAN_MEAN_DATA = {
   "project": "Brimba",
-  "scannedAt": "2026-07-02",
+  "scannedAt": "2026-07-06",
   "overall": {
     "score": 92,
     "grade": "A",
-    "verdict": "An A-grade base that got leaner and better-tested through the agent-failure round — the host file split into named concerns, the risky new wire-format and money-safety are test-locked, and the docs can now rebuild the base from zero.",
-    "sub": "219 files · 22.1k lines · 214 tests · 6 workers + web"
+    "verdict": "Held its A through a major feature round — agentic multi-table import, a central error store, and full-field exports all landed test-locked; the docs are audited to rebuild the base from zero.",
+    "sub": "228 files · 23.7k lines · 238 tests · 6 workers + web"
   },
   "dimensions": [
     {
       "key": "size",
       "title": "Size & Scope",
       "icon": "📦",
-      "score": 86,
+      "score": 85,
       "status": "green",
-      "headline": "God-file split up",
+      "headline": "Grown, still layered",
       "metrics": [
         {
           "label": "Files",
-          "value": "219"
+          "value": "228"
         },
         {
           "label": "Lines",
-          "value": "22.1k"
+          "value": "23.7k"
         },
         {
-          "label": "Biggest file",
-          "value": "706 (was 823)"
+          "label": "Over 400 LOC",
+          "value": "6"
         }
       ],
       "strengths": [
-        "The 823-line host (deep-link-screen.tsx) dropped to 706 — its read layer and write layer moved into named hooks (use-screen-data, use-screen-actions)."
+        "The whole agentic-import engine landed as four small, single-purpose files (pure plan · agent · batch · catalog) rather than one blob."
       ],
       "improvements": [
         {
-          "what": "The AI panel grew as it gained history + resume (~591 lines).",
-          "why": "agent-panel.tsx is cohesive but now the second-biggest file; its two dialogs (usage, history) could extract if it grows again."
-        },
-        {
-          "what": "Six files still over 400 lines.",
-          "why": "deep-link-screen (706), agent-panel (591), tools/agent/teams/api — natural for a base this capable; split the tool catalog by module next."
+          "what": "Two host files stay large.",
+          "why": "deep-link-screen.tsx (721) + agent-panel.tsx (639) grew with the dropdowns wiring + chat history; split further when either passes ~800."
         }
       ]
     },
@@ -156,26 +152,26 @@ window.LEAN_MEAN_DATA = {
       "metrics": [
         {
           "label": "Tests",
-          "value": "214"
+          "value": "238"
         },
         {
           "label": "Test files",
-          "value": "32"
+          "value": "35"
         },
         {
-          "label": "New this round",
-          "value": "+5 groups"
+          "label": "TODOs",
+          "value": "1"
         }
       ],
       "strengths": [
-        "The new wire-format coalescing (toAnthropicMessages) is unit-locked — the exact multi-tool + wrap-up shape that would otherwise 400 the API.",
-        "A source-invariant test locks the credit money-safety guard (never-negative balance) so a refactor can't drop it.",
-        "Machine-checked Laws + a publish-seam test per worker; the one security XSS is fixed and test-locked."
+        "The new import planner, foreign-key resolver, normalizers and sample-per-target are all unit-tested; the wire-format + credit + CSV-injection invariants stay locked.",
+        "The error store now self-cleans: the reporter filters benign network blips so only real failures land — a structural fix the error skill made this round.",
+        "Machine-checked Laws + a publish-seam test per worker."
       ],
       "improvements": [
         {
-          "what": "The confirm-resume rebuild + browser e2e still lean on manual verification.",
-          "why": "both are review- and staging-verified; a DB-level integration test would lock them fully."
+          "what": "Confirm-resume + browser e2e still lean on manual verification.",
+          "why": "both are staging-verified but not unit/integration-locked."
         }
       ]
     },
@@ -185,15 +181,15 @@ window.LEAN_MEAN_DATA = {
       "icon": "📖",
       "score": 96,
       "status": "green",
-      "headline": "Rebuildable from docs",
+      "headline": "Audited to rebuild",
       "metrics": [
         {
           "label": "Doc files",
-          "value": "24"
+          "value": "25"
         },
         {
-          "label": "Runbook",
-          "value": "BOOTSTRAP"
+          "label": "Rulebook",
+          "value": "README"
         },
         {
           "label": "Comments",
@@ -201,14 +197,13 @@ window.LEAN_MEAN_DATA = {
         }
       ],
       "strengths": [
-        "BOOTSTRAP.md is a command-by-command 'rebuild from a fresh account' runbook — the concrete answer to 'could I recreate the base from GitHub?'",
-        "BASE-MANUAL now covers forking the base for a new product AND how every subsystem scales; the README states the 7-point completeness bar the docs are held to.",
-        "Drift-prone line-number citations were stripped in favour of stable function/file names."
+        "Three independent audits confirmed the docs can rebuild the base from a fresh account and support a big new app; the two real blockers (hardcoded ids) are fixed.",
+        "A README 'rulebook' now names every rule to modify/recreate/build, marking which are machine-checked; AGENTIC-IMPORT documents the sample-file rule."
       ],
       "improvements": [
         {
-          "what": "A couple of reference docs still describe planned pieces.",
-          "why": "the external mcp worker is correctly marked PLANNED everywhere, but a reader must cross-check status — a one-line status header per doc would help."
+          "what": "A one-line 'current status' header per reference doc would help.",
+          "why": "a reader still cross-checks whether a described piece is built vs planned."
         }
       ]
     },
@@ -218,15 +213,15 @@ window.LEAN_MEAN_DATA = {
       "icon": "🧭",
       "score": 91,
       "status": "green",
-      "headline": "Fetch, act, render",
+      "headline": "Layered + named",
       "metrics": [
         {
           "label": "Worker shape",
           "value": "1 pattern"
         },
         {
-          "label": "Host reads",
-          "value": "fetch→act→render"
+          "label": "Import",
+          "value": "plan·agent·batch"
         },
         {
           "label": "TODOs",
@@ -234,13 +229,13 @@ window.LEAN_MEAN_DATA = {
         }
       ],
       "strengths": [
-        "The deep-link host now reads as three named concerns (useScreenData → useScreenActions → render) instead of one 800-line wall.",
-        "Every worker mirrors the same switchboard → routes → lib → gating shape; conventions are documented, not tribal."
+        "The import engine reads top-down: a pure planner, the agent proposal, then deterministic execution — the model can't do anything code doesn't re-derive.",
+        "One worker shape everywhere; the host split into named hooks."
       ],
       "improvements": [
         {
-          "what": "The host still holds nav + trace + render inline.",
-          "why": "the remaining ~700 lines are navigation, trace wiring and JSX — a further split is possible but higher-risk; not worth it right before a ship."
+          "what": "The 721-line host still holds nav + trace + render inline.",
+          "why": "a further split is possible but higher-risk; not worth it mid-round."
         }
       ]
     },
@@ -250,11 +245,11 @@ window.LEAN_MEAN_DATA = {
       "icon": "♻️",
       "score": 88,
       "status": "green",
-      "headline": "DRY, wrapper deferred",
+      "headline": "Reused, not rebuilt",
       "metrics": [
         {
           "label": "Duplication",
-          "value": "6.7%"
+          "value": "6.6%"
         },
         {
           "label": "UI",
@@ -266,12 +261,12 @@ window.LEAN_MEAN_DATA = {
         }
       ],
       "strengths": [
-        "UI primitives come from the shared library; the extracted hooks removed inline duplication in the host."
+        "The batch importer reuses the single-target primitives (writeRow, parseCsv); the sample file is generated from columns every target already declares (no per-target boilerplate)."
       ],
       "improvements": [
         {
-          "what": "Route handlers still repeat the gate-then-work shape.",
-          "why": "the teamContext→requireRight boilerplate remains (~6.7% dup); a wrapper is DEFERRED on purpose — the 56 handlers gate heterogeneously, so a blanket wrapper right before a prod ship is the wrong risk. Do it as a dedicated, test-backed task."
+          "what": "Route handlers still repeat the gate-then-work dance.",
+          "why": "~6.6% duplication; the wrapper stays deferred (heterogeneous gates)."
         }
       ]
     },
@@ -281,15 +276,15 @@ window.LEAN_MEAN_DATA = {
       "icon": "📐",
       "score": 92,
       "status": "green",
-      "headline": "Seams + knobs",
+      "headline": "Declarative seams",
       "metrics": [
         {
           "label": "Workers",
           "value": "6"
         },
         {
-          "label": "Data",
-          "value": "per-team D1"
+          "label": "Import",
+          "value": "declare a target"
         },
         {
           "label": "Model",
@@ -297,28 +292,28 @@ window.LEAN_MEAN_DATA = {
         }
       ],
       "strengths": [
-        "Every growth axis (teams, roles, invites, emails, realtime, the agent) scales by an existing seam or knob — now written up in BASE-MANUAL §6.",
-        "The model seam proved itself: effort-only-where-supported means AGENT_MODEL can swap to a cheaper brain with no code change."
+        "Adding an import target (even a multi-table one) is one declarative TargetDef — the ERP inventory case is documented + the id-resolver unit-tested.",
+        "Every growth axis scales by an existing seam (per-team D1, the model seam, the catalog, the error store)."
       ],
       "improvements": [
         {
           "what": "The external mcp worker is still a plan.",
-          "why": "the token→session bridge is designed but unbuilt; build it on the existing gating seam."
+          "why": "build it on the existing gating seam when the machine surface is needed."
         }
       ]
     }
   ],
   "callouts": {
     "strong": [
-      "The docs can now rebuild the base from zero (BOOTSTRAP) and scale it (BASE-MANUAL §6).",
-      "The risky new wire-format + credit money-safety are test-locked — regressions can't ship silently."
+      "Held 92/A through a major feature round — agentic import + error store, both test-locked.",
+      "The docs are audited (3 passes) to rebuild the base from zero and support a new app."
     ],
     "watch": [
-      "agent-panel.tsx grew to ~591 lines with history/resume — watch it.",
-      "Route boilerplate (~6.7%) — the wrapper is deferred, not forgotten."
+      "deep-link-screen.tsx (721) + agent-panel.tsx (639) — the two big files to watch.",
+      "Route boilerplate ~6.6% — the wrapper is deferred, not forgotten."
     ],
     "fix": [
-      "Build the external mcp worker on the existing seam when the machine surface is needed."
+      "Build the external mcp worker on the existing seam when needed."
     ]
   }
 };
