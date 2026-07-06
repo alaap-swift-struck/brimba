@@ -26,6 +26,7 @@ import { recordWorkerError } from "../../../shared/workers/error-log"
 import type { Env } from "./env"
 import {
   getBatch,
+  getBatches,
   getImportPreview,
   getImportSample,
   getImportTargets,
@@ -80,6 +81,7 @@ export const ROUTES: Record<string, { handler: Handler; kind: RouteKind }> = {
   "POST /api/data-ops/import/batch/plan": { handler: postBatchPlan, kind: "housekeeping" },
   "POST /api/data-ops/import/batch/confirm": { handler: postBatchConfirm, kind: "mutation" },
   "GET /api/data-ops/import/batch": { handler: getBatch, kind: "read" },
+  "GET /api/data-ops/import/batches": { handler: getBatches, kind: "read" },
   "POST /api/data-ops/admin/seed-targets": { handler: postSeedTargets, kind: "housekeeping" },
   // The central error log (owner-only, x-admin-key). Resolve is housekeeping:
   // private maintainer bookkeeping in the core DB — broadcasts nothing (rule 4).

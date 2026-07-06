@@ -111,7 +111,7 @@ export async function updateSelectable(
   )
   await logActivity(cfg, guard.databaseId, actor, {
     type: "Dropdown value edited",
-    description: `${actor.name} renamed a ${row.type} value to "${v}"`,
+    description: `${actor.name} renamed a ${row.type} value: "${row.value}" → "${v}"`,
     relatedTable: "selectable_data",
     relatedRowId: id,
   })

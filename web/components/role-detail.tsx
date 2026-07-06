@@ -1,12 +1,14 @@
 "use client"
 
-// Role detail — one role's permission grid, at /t/<teamId>/roles/<id>. The grid
-// has no screen-engine block (it's a bespoke matrix), so the host composes it
-// here from the library PermissionMatrix while the roles LIST is engine-driven.
-// Self-contained: it fetches the role + its permissions cache-first, owns the
-// draft + Save (with the reconciliation guard that survives live pings), Edit
-// details, and Deactivate / Activate. Admin = locked (view-only); a read-only
-// viewer sees the grid view-only; never deleted — deactivate-only (ARCH §4).
+// Role detail — one role at /t/<teamId>/roles/<id>, with the standard record
+// tabs (Law R2): Permissions (the matrix — the main tab), Overview (the audit
+// block), Activity (the generic record feed). The matrix has no screen-engine
+// block (it's bespoke), so the host composes it from the library
+// PermissionMatrix while the roles LIST is engine-driven. Self-contained: it
+// fetches the role + its permissions cache-first, owns the draft + Save (with
+// the reconciliation guard that survives live pings), Edit details, and
+// Deactivate / Activate. Admin = locked (view-only); a read-only viewer sees
+// the grid view-only; never deleted — deactivate-only (ARCH §4).
 
 import * as React from "react"
 
@@ -30,11 +32,23 @@ import {
   defaultPermissionMatrixConfig,
   type PermissionMatrixConfig,
 } from "@swift-struck/ui/registry/collections/permission-matrix/permission-matrix"
+import { TabsView, defaultTabsConfig } from "@swift-struck/ui/registry/primitives/tabs/tabs"
+import {
+  DescriptionList,
+  defaultDescriptionListConfig,
+} from "@swift-struck/ui/registry/collections/description-list/description-list"
+import {
+  ActivityFeed,
+  defaultActivityFeedConfig,
+  type ActivityItem as ActivityFeedItem,
+} from "@swift-struck/ui/registry/collections/activity-feed/activity-feed"
 import { Lock, Pencil, Power } from "lucide-react"
 
-import type { PermissionValue, RolePermissions, TeamRole } from "@shared/types"
+import type { ActivityItem, PermissionValue, RolePermissions, TeamRole } from "@shared/types"
 import { RoleFormDialog } from "@/components/role-form-dialog"
 import { ApiFailure, tenancy } from "@/lib/api"
+import { auditItems } from "@/lib/audit-overview"
+import { formatActivityWhen } from "@/lib/format"
 import { usePermissions } from "@/lib/perms"
 import { primeCache, useCached } from "@/lib/store"
 
@@ -53,6 +67,13 @@ export function RoleDetailScreen({ teamId, roleId }: { teamId: string; roleId: s
   const [busyActive, setBusyActive] = React.useState(false)
   const [editingOpen, setEditingOpen] = React.useState(false)
   const [confirmDeactivate, setConfirmDeactivate] = React.useState(false)
+  const [tab, setTab] = React.useState("permissions")
+
+  // The generic record feed (Law R5): every role action lands here — created,
+  // details edited, permissions changed, deactivated — including imported roles.
+  const activityQ = useCached<ActivityItem[]>(`activity:record:member_roles:${roleId}`, () =>
+    tenancy.recordActivity("member_roles", roleId)
+  )
 
   // A deactivated role's permissions are frozen + not fetchable (the server 404s
   // it) — only load the matrix for an active role.
@@ -136,6 +157,35 @@ export function RoleDetailScreen({ teamId, roleId }: { teamId: string; roleId: s
   }
   const canSave = perms != null && !perms.isDefault && perms.canEdit
 
+  const overviewItems = [
+    { label: "Description", value: role.description || "—" },
+    { label: "Members with this role", value: String(role.memberCount) },
+    ...auditItems({
+      createdByName: role.createdByName,
+      createdAt: role.createdAt,
+      editedByName: role.editedByName,
+      updatedAt: role.updatedAt,
+      status: role.active ? "Active" : "Inactive",
+    }),
+  ]
+
+  const activityItems: ActivityFeedItem[] = (activityQ.data ?? []).map((a) => ({
+    id: a.id,
+    description: a.description,
+    actor: a.actorName ?? undefined,
+    timestamp: formatActivityWhen(a.createdAt),
+  }))
+
+  const tabsConfig = {
+    ...defaultTabsConfig,
+    variant: "line" as const,
+    tabs: [
+      { value: "permissions", label: "Permissions", icon: "shield-check", badge: "", badgeVariant: "" as const },
+      { value: "overview", label: "Overview", icon: "info", badge: "", badgeVariant: "" as const },
+      { value: "activity", label: "Activity", icon: "history", badge: "", badgeVariant: "" as const },
+    ],
+  }
+
   return (
     <div className="flex flex-col gap-6">
       {/* Role header */}
@@ -172,60 +222,86 @@ export function RoleDetailScreen({ teamId, roleId }: { teamId: string; roleId: s
         )}
       </div>
 
-      {!role.active ? (
-        // Deactivated: permissions frozen (holders keep access); offer reactivate.
-        <div className="border-border/60 flex flex-col gap-3 rounded-xl border p-6">
-          <p className="text-muted-foreground text-sm">
-            This role is deactivated. Members who have it keep their access, but you can&apos;t give
-            it to anyone new until you activate it again.
-          </p>
-          {canDeactivate && (
-            <Button
-              onClick={() => void setActive(true)}
-              disabled={busyActive}
-              className="w-full gap-1.5 sm:w-auto sm:self-start"
-            >
-              {busyActive ? <Spinner /> : <Power className="size-3.5" />}
-              {busyActive ? "Activating…" : "Activate"}
-            </Button>
-          )}
-        </div>
-      ) : permsQ.loading || !matrixConfig || !draft ? (
-        <Skeleton className="h-64 w-full rounded-xl" />
-      ) : (
-        <div className="flex flex-col gap-3">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-muted-foreground text-sm">
-              {perms?.isDefault
-                ? "The Admin role has full access and can't be changed."
-                : canSave
-                  ? "Switch on what this role can do. Turning on Create, Edit or Remove turns on Read too."
-                  : "You can view what this role can do, but not change it."}
-            </p>
-            <div className="flex shrink-0 flex-wrap items-center gap-2">
-              {!role.isDefault && canDeactivate && (
+      <TabsView
+        config={tabsConfig}
+        value={tab}
+        onValueChange={setTab}
+        renderPanel={(t) => {
+          if (t.value === "overview")
+            return (
+              <DescriptionList
+                config={{ ...defaultDescriptionListConfig, columns: 1 }}
+                items={overviewItems}
+              />
+            )
+          if (t.value === "activity")
+            return (
+              <ActivityFeed
+                config={{ ...defaultActivityFeedConfig, emptyText: "No activity yet." }}
+                items={activityItems}
+              />
+            )
+          // Permissions — the main tab.
+          return !role.active ? (
+            // Deactivated: permissions frozen (holders keep access); offer reactivate.
+            <div className="border-border/60 flex flex-col gap-3 rounded-xl border p-6">
+              <p className="text-muted-foreground text-sm">
+                This role is deactivated. Members who have it keep their access, but you can&apos;t
+                give it to anyone new until you activate it again.
+              </p>
+              {canDeactivate && (
                 <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setConfirmDeactivate(true)}
+                  onClick={() => void setActive(true)}
                   disabled={busyActive}
-                  className="text-destructive hover:text-destructive gap-1.5"
+                  className="w-full gap-1.5 sm:w-auto sm:self-start"
                 >
-                  <Power className="size-3.5" />
-                  Deactivate
-                </Button>
-              )}
-              {canSave && (
-                <Button onClick={() => void save()} disabled={!dirty || saving}>
-                  {saving ? <Spinner /> : null}
-                  {saving ? "Saving…" : "Save"}
+                  {busyActive ? <Spinner /> : <Power className="size-3.5" />}
+                  {busyActive ? "Activating…" : "Activate"}
                 </Button>
               )}
             </div>
-          </div>
-          <PermissionMatrix config={matrixConfig} value={draft} onChange={(next) => setDraft(next)} />
-        </div>
-      )}
+          ) : permsQ.loading || !matrixConfig || !draft ? (
+            <Skeleton className="h-64 w-full rounded-xl" />
+          ) : (
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-muted-foreground text-sm">
+                  {perms?.isDefault
+                    ? "The Admin role has full access and can't be changed."
+                    : canSave
+                      ? "Switch on what this role can do. Turning on Create, Edit or Remove turns on Read too."
+                      : "You can view what this role can do, but not change it."}
+                </p>
+                <div className="flex shrink-0 flex-wrap items-center gap-2">
+                  {!role.isDefault && canDeactivate && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setConfirmDeactivate(true)}
+                      disabled={busyActive}
+                      className="text-destructive hover:text-destructive gap-1.5"
+                    >
+                      <Power className="size-3.5" />
+                      Deactivate
+                    </Button>
+                  )}
+                  {canSave && (
+                    <Button onClick={() => void save()} disabled={!dirty || saving}>
+                      {saving ? <Spinner /> : null}
+                      {saving ? "Saving…" : "Save"}
+                    </Button>
+                  )}
+                </div>
+              </div>
+              <PermissionMatrix
+                config={matrixConfig}
+                value={draft}
+                onChange={(next) => setDraft(next)}
+              />
+            </div>
+          )
+        }}
+      />
 
       <RoleFormDialog
         open={editingOpen}

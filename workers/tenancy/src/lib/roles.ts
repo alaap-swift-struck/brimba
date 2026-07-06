@@ -5,7 +5,7 @@
 //   • auto-flip-read — turning on any write right (create/edit/delete) forces
 //     Read on (you can't have write without read).
 
-import { logActivity, type Actor } from "../../../../shared/workers/activity"
+import { describeChanges, logActivity, type Actor } from "../../../../shared/workers/activity"
 import {
   d1ExecScript,
   d1Query,
@@ -33,7 +33,7 @@ type PermRow = {
   can_edit: number
   can_delete: number
 }
-type RoleRow = { id: string; title: string; is_default: number }
+type RoleRow = { id: string; title: string; description: string | null; is_default: number }
 
 /** Build a full PermissionValue (every module present; missing DB rows → all-
  * off) from raw permission rows — ONE source for getRolePermissions,
@@ -104,7 +104,7 @@ async function roleOrThrow(
   const rows = await d1Query<RoleRow>(
     cfg,
     guard.databaseId,
-    "SELECT id, title, is_default FROM member_roles WHERE id = ? AND deactivated_at IS NULL",
+    "SELECT id, title, description, is_default FROM member_roles WHERE id = ? AND deactivated_at IS NULL",
     [roleId]
   )
   if (!rows[0]) throw new GuardError(404, "role_not_found", "That role doesn't exist.")
@@ -236,9 +236,15 @@ export async function updateRole(
     `UPDATE member_roles SET title = ${sqlString(cleanTitle)}, description = ${sqlString(description.trim() || null)}, updated_at = ${sqlString(now)}, editor_id = ${sqlString(actor.id)}, editor_email = ${sqlString(actor.email)}, editor_name = ${sqlString(actor.name)} WHERE id = ${sqlString(roleId)};`
   )
 
+  // Name exactly what changed, old -> new (the activity ruleset: edits carry
+  // their field diffs, not just "edited").
+  const changes = describeChanges([
+    { label: "Name", from: role.title, to: cleanTitle },
+    { label: "Description", from: role.description, to: description.trim() || null },
+  ])
   await logActivity(cfg, guard.databaseId, actor, {
     type: "Role edited",
-    description: `${actor.name} edited the ${cleanTitle} role`,
+    description: `${actor.name} edited the ${cleanTitle} role${changes ? ` — ${changes}` : ""}`,
     relatedTable: "member_roles",
     relatedRowId: roleId,
   })

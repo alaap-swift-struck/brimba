@@ -7,7 +7,7 @@
 //     'Learning category' selectable value gets added as one (Base v3 behaviour);
 //   • per-user progress is an explicit, reversible "mark as done" upsert.
 
-import { logActivity, type Actor } from "../../../../shared/workers/activity"
+import { describeChanges, logActivity, type Actor } from "../../../../shared/workers/activity"
 import {
   d1ExecScript,
   d1Query,
@@ -114,15 +114,25 @@ function toLearning(r: LearningRow): Learning {
 }
 
 /** Fetch a learning item (any status) in this team, or throw a clean 404. */
+type LearningBefore = {
+  id: string
+  content_title: string
+  category: string | null
+  content_description: string | null
+  content_type: string | null
+  content_link: string | null
+  content_body: string | null
+}
+
 async function learningOrThrow(
   cfg: D1Rest,
   guard: MemberGuard,
   id: string
-): Promise<{ id: string; content_title: string }> {
-  const rows = await d1Query<{ id: string; content_title: string }>(
+): Promise<LearningBefore> {
+  const rows = await d1Query<LearningBefore>(
     cfg,
     guard.databaseId,
-    "SELECT id, content_title FROM learning WHERE id = ?",
+    "SELECT id, content_title, category, content_description, content_type, content_link, content_body FROM learning WHERE id = ?",
     [id]
   )
   if (!rows[0]) throw new GuardError(404, "learning_not_found", "That learning item doesn't exist.")
@@ -266,7 +276,7 @@ export async function updateLearning(
   id: string,
   input: LearningInput
 ): Promise<void> {
-  await learningOrThrow(cfg, guard, id)
+  const before = await learningOrThrow(cfg, guard, id)
   const title = requireText(input.title, "Title", TEXT_LIMITS.short)
 
   const category = optionalText(input.category, "Category", TEXT_LIMITS.short) ?? null
@@ -283,9 +293,17 @@ export async function updateLearning(
     `UPDATE learning SET category = ${sqlString(category)}, content_title = ${sqlString(title)}, content_description = ${sqlString(description)}, content_type = ${sqlString(contentType)}, content_link = ${sqlString(safeLink(input.contentLink))}, content_body = ${sqlString(body)}, sequence = ${intOr(input.sequence, 0)}, is_required = ${input.required ? 1 : 0}, updated_at = ${sqlString(now)}, editor_id = ${sqlString(actor.id)}, editor_email = ${sqlString(actor.email)}, editor_name = ${sqlString(actor.name)} WHERE id = ${sqlString(id)};`
   )
 
+  const changes = describeChanges([
+    { label: "Title", from: before.content_title, to: title },
+    { label: "Category", from: before.category, to: category },
+    { label: "Description", from: before.content_description, to: description },
+    { label: "Type", from: before.content_type, to: contentType },
+    { label: "Link", from: before.content_link, to: safeLink(input.contentLink) },
+    { label: "Body", from: before.content_body, to: body, hideValues: true },
+  ])
   await logActivity(cfg, guard.databaseId, actor, {
     type: "Learning edited",
-    description: `${actor.name} edited the "${title}" learning item`,
+    description: `${actor.name} edited the "${title}" learning item${changes ? ` — ${changes}` : ""}`,
     relatedTable: "learning",
     relatedRowId: id,
   })

@@ -13,6 +13,7 @@ import type {
   HelpStakeholder,
   HelpTicket,
   ImportBatchReport,
+  ImportBatchSummary,
   ImportBatchView,
   ImportColumn,
   ImportableTarget,
@@ -481,6 +482,7 @@ export const dataOps = {
     api<{ batch: ImportBatchView }>("/api/data-ops/import/batch/file", post({ batchId, name, csv })),
   batchPlan: (batchId: string) =>
     api<{ batch: ImportBatchView; quota: AgentQuota }>("/api/data-ops/import/batch/plan", post({ batchId })),
+  importBatches: () => api<{ batches: ImportBatchSummary[] }>("/api/data-ops/import/batches"),
   batchConfirm: (batchId: string) =>
     api<{ report: ImportBatchReport }>("/api/data-ops/import/batch/confirm", post({ batchId })),
   batchGet: (id: string) => api<{ batch: ImportBatchView }>(`/api/data-ops/import/batch?id=${enc(id)}`),

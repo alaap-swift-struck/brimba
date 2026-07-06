@@ -20,8 +20,9 @@ import { Badge } from "@swift-struck/ui/registry/primitives/badge/badge"
 import { Skeleton } from "@swift-struck/ui/registry/primitives/skeleton/skeleton"
 import { toast } from "@swift-struck/ui/registry/primitives/sonner/sonner"
 
-import type { ImportableTarget, ImportBatchReport, ImportBatchView } from "@shared/types"
+import type { ImportableTarget, ImportBatchReport, ImportBatchSummary, ImportBatchView } from "@shared/types"
 import { ApiFailure, dataOps } from "@/lib/api"
+import { formatActivityWhen } from "@/lib/format"
 import { usePermissions } from "@/lib/perms"
 import { useCached } from "@/lib/store"
 
@@ -44,7 +45,7 @@ async function fileToCsv(file: File): Promise<string> {
   return file.text()
 }
 
-export function ImportScreen({ teamId }: { teamId: string; initialTarget?: string }) {
+export function ImportScreen({ teamId, initialTarget }: { teamId: string; initialTarget?: string }) {
   const { perms, loading: permsLoading } = usePermissions(teamId)
   const canImport = perms ? Object.values(perms).some((m) => m?.create) : false
 
@@ -56,11 +57,15 @@ export function ImportScreen({ teamId }: { teamId: string; initialTarget?: strin
   const fileRef = React.useRef<HTMLInputElement>(null)
 
   // The catalog — powers the "download a sample" links so a user can see what a good
-  // file looks like for each table BEFORE preparing theirs (AGENTIC-IMPORT §10).
+  // file looks like BEFORE preparing theirs (AGENTIC-IMPORT §10). Arriving from a
+  // specific tab (initialTarget) shows ONLY that table's sample — the one they came
+  // to import — not the whole catalog; the generic Import screen still shows all.
   const targetsQ = useCached<ImportableTarget[]>(`import-targets:${teamId}`, () =>
     dataOps.importTargets().then((r) => r.targets)
   )
-  const samples = targetsQ.data ?? []
+  const allTargets = targetsQ.data ?? []
+  const scoped = initialTarget ? allTargets.filter((t) => t.tableKey === initialTarget) : []
+  const samples = scoped.length ? scoped : allTargets
 
   const files = batch?.files ?? []
 
@@ -127,19 +132,18 @@ export function ImportScreen({ teamId }: { teamId: string; initialTarget?: strin
     setPhase("upload")
   }
 
-  function downloadRejections() {
-    if (!report?.rejections.length) return
+  function downloadRejections(rows: { file: string; row: number; reason: string }[], filename: string) {
+    if (!rows.length) return
     // Neutralize formula-injection (a file named "=cmd()") like the server exporter.
     const esc = (raw: string) => {
       const s = /^[=+\-@\t\r]/.test(raw) ? `'${raw}` : raw
       return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
     }
     const csv =
-      "file,row,reason\r\n" +
-      report.rejections.map((r) => [esc(r.file), r.row, esc(r.reason)].join(",")).join("\r\n")
+      "file,row,reason\r\n" + rows.map((r) => [esc(r.file), r.row, esc(r.reason)].join(",")).join("\r\n")
     const a = document.createElement("a")
     a.href = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv" }))
-    a.download = "import-rejections.csv"
+    a.download = filename
     a.click()
     URL.revokeObjectURL(a.href)
   }
@@ -217,7 +221,7 @@ export function ImportScreen({ teamId }: { teamId: string; initialTarget?: strin
                   <span className="text-muted-foreground shrink-0 text-xs">{f.rowCount} rows</span>
                 </div>
               ))}
-              <div className="mt-1 flex items-center justify-between gap-2">
+              <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
                 <p className="text-muted-foreground text-xs">
                   Planning uses the assistant (a few credits), so you can review before anything is written.
                 </p>
@@ -227,6 +231,8 @@ export function ImportScreen({ teamId }: { teamId: string; initialTarget?: strin
               </div>
             </div>
           )}
+
+          {files.length === 0 && <PastImports teamId={teamId} />}
         </div>
       )}
 
@@ -296,12 +302,28 @@ export function ImportScreen({ teamId }: { teamId: string; initialTarget?: strin
               </div>
 
               {step.predictedRejects > 0 && (
-                <p className="text-amber-600 text-xs dark:text-amber-500">
-                  ~{step.predictedRejects} row(s) may be skipped — {step.notes}
-                </p>
+                <div className="bg-amber-500/10 flex flex-col gap-1 rounded-lg p-2.5">
+                  <p className="text-xs font-medium text-amber-600 dark:text-amber-500">
+                    {step.predictedRejects} of {step.rowCount} row(s) will be skipped
+                    {step.notes ? ` — ${step.notes}` : ""}
+                  </p>
+                  {(step.predictedRejections ?? []).slice(0, 3).map((r, j) => (
+                    <p key={j} className="text-muted-foreground text-xs">
+                      Row {r.row}: {r.reason}
+                    </p>
+                  ))}
+                  {(step.predictedRejections?.length ?? 0) > 3 && (
+                    <p className="text-muted-foreground text-xs">
+                      …and {step.predictedRejects - 3} more — download the list below.
+                    </p>
+                  )}
+                </div>
               )}
             </div>
           ))}
+
+          {/* The honest bottom line — big numbers, so nobody has to count by eye. */}
+          <PlanSummary plan={batch.plan} onDownload={downloadRejections} />
 
           <div className="flex flex-wrap justify-end gap-2">
             <Button variant="outline" onClick={() => setPhase("upload")} disabled={busy}>
@@ -334,9 +356,14 @@ export function ImportScreen({ teamId }: { teamId: string; initialTarget?: strin
 
           {report.rejections.length > 0 && (
             <div className="flex flex-col gap-2">
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-sm font-medium">Rejected rows ({report.rejections.length})</p>
-                <Button variant="outline" size="sm" onClick={downloadRejections} className="gap-1.5">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => downloadRejections(report.rejections, "import-rejections.csv")}
+                  className="gap-1.5"
+                >
                   <Download className="size-3.5" aria-hidden /> Download to fix
                 </Button>
               </div>
@@ -358,6 +385,89 @@ export function ImportScreen({ teamId }: { teamId: string; initialTarget?: strin
               <Upload className="size-4" aria-hidden /> Import more
             </Button>
           </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** The team's import history under the drop zone — who ran what, when, into which
+ * tables, with the totals. Answers "several people import different sets — how do
+ * we see past import runs?" without leaving the Import screen. Summaries only
+ * (never row contents); a draft/planned batch shows as "not run". */
+function PastImports({ teamId }: { teamId: string }) {
+  const q = useCached<ImportBatchSummary[]>(`import-batches:${teamId}`, () =>
+    dataOps.importBatches().then((r) => r.batches)
+  )
+  const batches = q.data ?? []
+  if (!batches.length) return null
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-sm font-medium">Past imports</p>
+      <div className="flex flex-col gap-1.5">
+        {batches.map((b) => (
+          <div key={b.id} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 rounded-lg border p-2.5 text-xs">
+            <span className="font-medium">{b.by}</span>
+            <span className="text-muted-foreground">{formatActivityWhen(b.at)}</span>
+            <span className="text-muted-foreground min-w-0 flex-1 truncate">
+              {b.files.map((f) => f.name).join(", ")}
+              {b.targets.length ? ` → ${b.targets.join(", ")}` : ""}
+            </span>
+            {b.status === "complete" ? (
+              <span className="shrink-0">
+                <span className="text-emerald-600 dark:text-emerald-500">{b.created} added</span>
+                {b.skipped + b.failed > 0 && (
+                  <span className="text-amber-600 dark:text-amber-500"> · {b.skipped + b.failed} skipped</span>
+                )}
+              </span>
+            ) : (
+              <span className="text-muted-foreground shrink-0">not run</span>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/** The plan's bottom line, above the Run button: how many rows WILL import, how many
+ * will be skipped (with a downloadable fix-list BEFORE running), and how many of the
+ * targets' columns weren't in the files — big numbers, separated from the step detail,
+ * so a bad file is obvious at a glance (a plan must look different from a clean one). */
+function PlanSummary({
+  plan,
+  onDownload,
+}: {
+  plan: NonNullable<ImportBatchView["plan"]>
+  onDownload: (rows: { file: string; row: number; reason: string }[], filename: string) => void
+}) {
+  const totalRows = plan.steps.reduce((n, s) => n + s.rowCount, 0)
+  const skipped = plan.steps.reduce((n, s) => n + s.predictedRejects, 0)
+  const unmatched = plan.steps.reduce(
+    (n, s) => n + Object.values(s.mapping).filter((v) => v === null).length,
+    0
+  )
+  const rejections = plan.steps.flatMap((s) => s.predictedRejections ?? [])
+  return (
+    <div className="flex flex-col gap-3 border-t pt-4">
+      <div className="flex flex-wrap gap-3">
+        <Stat label="Will import" value={totalRows - skipped} tone={totalRows - skipped ? "good" : "muted"} />
+        <Stat label="Will be skipped" value={skipped} tone={skipped ? "warn" : "muted"} />
+        <Stat label="Columns not in your files" value={unmatched} tone="muted" />
+      </div>
+      {rejections.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-muted-foreground text-xs">
+            Skipped rows are listed with reasons — fix them and re-import, or run now without them.
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onDownload(rejections, "rows-to-fix.csv")}
+            className="gap-1.5"
+          >
+            <Download className="size-3.5" aria-hidden /> Download the list
+          </Button>
         </div>
       )}
     </div>

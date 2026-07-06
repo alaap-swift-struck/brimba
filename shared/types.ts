@@ -127,6 +127,11 @@ export type TeamRole = {
   memberCount: number
   /** false = deactivated (kept, never deleted; holders keep their access) */
   active: boolean
+  /** the audit block, for the detail Overview tab (same shape every record shows) */
+  createdAt?: string | null
+  createdByName?: string | null
+  updatedAt?: string | null
+  editedByName?: string | null
 }
 
 /** The signed-in person's current working context — powers the app shell. */
@@ -336,6 +341,11 @@ export type ImportPlanStep = {
   references: { column: string; target: string; mode: "id" | "value" }[]
   rowCount: number
   predictedRejects: number
+  /** The predicted rejections themselves (row + reason), computed from the file's
+   * ROWS at plan time so a bad file is visible BEFORE running — capped in size (the
+   * count above is always the full number). Uses the same scan as execution, so the
+   * plan never over- or under-promises what the run will do. */
+  predictedRejections?: ImportRejection[]
   notes?: string
 }
 
@@ -366,6 +376,21 @@ export type ImportBatchView = {
   plan: ImportPlan | null
   report: ImportBatchReport | null
   createdAt: string
+}
+
+/** One line of the team's import HISTORY (who ran what, when, into which tables,
+ * with the totals) — summaries only, never row contents. */
+export type ImportBatchSummary = {
+  id: string
+  status: string
+  by: string
+  at: string
+  completedAt: string | null
+  files: { name: string; rowCount: number }[]
+  targets: string[]
+  created: number
+  skipped: number
+  failed: number
 }
 
 /** One action the agent proposes that needs the user's confirmation before it runs. */

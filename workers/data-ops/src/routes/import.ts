@@ -22,6 +22,7 @@ import {
   confirmBatch,
   createBatch,
   getBatchView,
+  listBatchSummaries,
   planBatch,
   planModules,
 } from "../lib/import-batch"
@@ -179,6 +180,15 @@ export async function postBatchConfirm(request: Request, env: Env): Promise<Resp
   const { report, modules } = await confirmBatch(env, request, cfg, guard, actor, body.batchId)
   for (const m of modules) await publishChange(env.REALTIME, guard.teamId, m)
   return json({ report })
+}
+
+/** GET /api/data-ops/import/batches — the team's import history (newest first).
+ * Any signed-in member may see it: summaries only (who, when, files → tables,
+ * totals) — the same altitude as the activity feed's "imported N rows" line;
+ * row contents and rejection reasons stay on the creator-scoped batch. */
+export async function getBatches(request: Request, env: Env): Promise<Response> {
+  const { cfg, guard } = await teamContext(request, env)
+  return json({ batches: await listBatchSummaries(cfg, guard) })
 }
 
 /** GET /api/data-ops/import/batch?id= — the batch (files + plan + report). */

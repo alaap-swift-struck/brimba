@@ -6,8 +6,38 @@
 // the catalog. Locked for now (owner's call): member roles + learning content only.
 
 import type { ImportColumn } from "../../../../shared/types"
+import { MODULE_RIGHTS, TEAM_MODULE_CATALOG } from "../../../../shared/team-modules"
 
 export type { ImportColumn }
+
+/** The permission matrix flattened to one optional `<module>.<right>` column each —
+ * the SAME headers the roles export writes, so an exported roles file imports
+ * straight back (round-trip). Built from the shared module list: a new module
+ * appears in the matrix, the export, and the import columns in one move. */
+const MATRIX_COLUMNS: ImportColumn[] = TEAM_MODULE_CATALOG.flatMap((m) =>
+  MODULE_RIGHTS.map((rt) => ({ key: `${m.key}.${rt}`, label: `${m.key}.${rt}`, required: false }))
+)
+
+/** yes/true/1 (however the spreadsheet says it) → the right is ON. */
+const isYes = (v?: string) => /^(1|y|yes|true|t)$/i.test((v ?? "").trim())
+
+/** Read the flattened matrix cells off a mapped row → a PermissionValue-shaped
+ * object, or undefined when the row carries NO matrix data at all (a plain
+ * title+description import stays a plain create — no extra right demanded). */
+function matrixFromRow(r: Record<string, string>): Record<string, Record<string, boolean>> | undefined {
+  let any = false
+  const permissions: Record<string, Record<string, boolean>> = {}
+  for (const m of TEAM_MODULE_CATALOG) {
+    const rights: Record<string, boolean> = {}
+    for (const rt of MODULE_RIGHTS) {
+      const v = r[`${m.key}.${rt}`]
+      if (v && v.trim() !== "") any = true
+      rights[rt] = isYes(v)
+    }
+    permissions[m.key] = rights
+  }
+  return any ? permissions : undefined
+}
 
 /** A cross-target foreign key: OUR `column` (a natural key in the file) points at
  * another `target`, matched against that parent's `by` natural key. `mode:"id"`
@@ -69,15 +99,30 @@ export const TARGETS: Record<string, TargetDef> = {
     tableKey: "member_roles",
     module: "member_roles",
     displayName: "Member roles",
-    description: "Create team roles in bulk. Permissions stay off until set on the Roles screen.",
+    description:
+      "Create team roles in bulk — optionally with their permission matrix (one module.right column each, yes/no). Rows without matrix columns start with permissions off.",
     columns: [
       { key: "title", label: "Role name", required: true },
       { key: "description", label: "Description", required: false },
+      ...MATRIX_COLUMNS,
     ],
     endpoint: { binding: "TENANCY", path: "/api/tenancy/roles" },
     naturalKey: "title",
-    sample: { title: "Editor", description: "Can create and edit, but not remove" },
-    buildBody: (r) => ({ title: r.title, description: r.description ?? "" }),
+    sample: {
+      title: "Editor",
+      description: "Can create and edit, but not remove",
+      "learning.read": "yes",
+      "learning.create": "yes",
+      "learning.edit": "yes",
+      "help.read": "yes",
+      "selectable_data.read": "yes",
+    },
+    // A row WITH matrix cells also sets the role's permissions (the endpoint then
+    // requires the edit right too); a row without stays a plain create.
+    buildBody: (r) => {
+      const permissions = matrixFromRow(r)
+      return { title: r.title, description: r.description ?? "", ...(permissions ? { permissions } : {}) }
+    },
   },
   learning: {
     tableKey: "learning",
@@ -120,13 +165,17 @@ export const TARGETS: Record<string, TargetDef> = {
 }
 
 /** A downloadable SAMPLE CSV for a target: a header row of the column LABELS + one
- * example data row (from `sample`, falling back to `Example <label>`). So every
- * import place can show "here's what a good file looks like" (AGENTIC-IMPORT §10) —
- * built from the target's own columns, so it's automatic for every target. RFC-4180
- * quoting is applied by the route's `toCsv`; here we just assemble the two rows. */
+ * example data row (from `sample`; a REQUIRED column with no example falls back to
+ * `Example <label>` so the sample always imports; an optional one stays empty — a
+ * good file doesn't have to fill every column). So every import place can show
+ * "here's what a good file looks like" (AGENTIC-IMPORT §10) — built from the
+ * target's own columns, so it's automatic for every target. RFC-4180 quoting is
+ * applied by the route's `toCsv`; here we just assemble the two rows. */
 export function sampleRows(target: TargetDef): { header: string[]; row: string[] } {
   const header = target.columns.map((c) => c.label)
-  const row = target.columns.map((c) => target.sample?.[c.key] ?? `Example ${c.label.toLowerCase()}`)
+  const row = target.columns.map(
+    (c) => target.sample?.[c.key] ?? (c.required ? `Example ${c.label.toLowerCase()}` : "")
+  )
   return { header, row }
 }
 

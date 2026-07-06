@@ -9,7 +9,7 @@
 //   • the AI agent's first-draft reply is a HOOK (maybeDraftFirstReply) left off
 //     until the agent worker exists — a ticket always opens regardless.
 
-import { logActivity, type Actor } from "../../../../shared/workers/activity"
+import { describeChanges, logActivity, type Actor } from "../../../../shared/workers/activity"
 import { d1ExecScript, d1Query, sqlString, type D1Rest } from "../../../../shared/workers/d1-rest"
 import { ulid } from "../../../../shared/workers/id"
 import type { HelpMessage, HelpTicket } from "../../../../shared/types"
@@ -203,7 +203,7 @@ export async function updateTicket(
   id: string,
   input: TicketInput
 ): Promise<void> {
-  await ticketOrThrow(cfg, guard, id)
+  const before = await ticketOrThrow(cfg, guard, id)
   const description = requireText(input.description, "Description", TEXT_LIMITS.long)
 
   const now = new Date().toISOString()
@@ -213,9 +213,20 @@ export async function updateTicket(
     `UPDATE help SET help_type = ${sqlString((optionalText(input.helpType, "Type", TEXT_LIMITS.short) ?? null))}, description = ${sqlString(description)}, screen_recording_link = ${sqlString((optionalText(input.screenRecordingLink, "Screen recording link", TEXT_LIMITS.link) ?? null))}, source_screen = ${sqlString((optionalText(input.sourceScreen, "Source", TEXT_LIMITS.short) ?? null))}, updated_at = ${sqlString(now)}, editor_id = ${sqlString(actor.id)}, editor_email = ${sqlString(actor.email)}, editor_name = ${sqlString(actor.name)} WHERE id = ${sqlString(id)};`
   )
 
+  const changes = describeChanges([
+    { label: "Type", from: before.help_type, to: optionalText(input.helpType, "Type", TEXT_LIMITS.short) ?? null },
+    { label: "Description", from: before.description, to: description },
+    {
+      label: "Screen recording",
+      from: before.screen_recording_link,
+      to: optionalText(input.screenRecordingLink, "Screen recording link", TEXT_LIMITS.link) ?? null,
+      hideValues: true,
+    },
+    { label: "Source", from: before.source_screen, to: optionalText(input.sourceScreen, "Source", TEXT_LIMITS.short) ?? null },
+  ])
   await logActivity(cfg, guard.databaseId, actor, {
     type: "Help ticket edited",
-    description: `${actor.name} edited a support ticket`,
+    description: `${actor.name} edited a support ticket${changes ? ` — ${changes}` : ""}`,
     relatedTable: "help",
     relatedRowId: id,
   })

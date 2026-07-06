@@ -10,10 +10,10 @@ import { d1ExecScript, d1Query, sqlString, type D1Rest } from "../../../../share
 import { ulid } from "../../../../shared/workers/id"
 import { GuardError, type Actor, type MemberGuard } from "../../../../shared/workers/gating"
 import type { Env } from "../env"
-import type { ImportBatchReport, ImportBatchView, ImportPlan, ImportRejection } from "../../../../shared/types"
+import type { ImportBatchReport, ImportBatchSummary, ImportBatchView, ImportPlan, ImportRejection } from "../../../../shared/types"
 import { parseCsv } from "./csv"
 import { norm, TARGETS, type TargetDef } from "./targets"
-import { applyTransform, resolveRow } from "./import-plan"
+import { resolveRow, scanRows } from "./import-plan"
 import { analyzeBatch, type AnalyzeFile } from "./import-agent"
 import { writeRow } from "./import"
 
@@ -125,6 +125,7 @@ export async function planBatch(
     name: f.name,
     headers: f.headers,
     rowCount: f.rowCount,
+    rows: f.rows, // full rows → planStep predicts per-row rejections (never sent to the model)
     sampleRows: f.rows.slice(0, 3),
   }))
   const plan = await analyzeBatch(env, analyzeFiles)
@@ -203,24 +204,16 @@ export async function confirmBatch(
     const step = plan.steps.find((s) => s.target === targetKey)
     const file = step ? files.get(step.fileId) : undefined
     if (!def || !step || !file) continue
-    const idx: Record<string, number> = {}
-    file.headers.forEach((h, i) => {
-      if (!(h in idx)) idx[h] = i
-    })
     const tally = { target: targetKey, targetName: def.displayName, created: 0, skipped: 0, failed: 0 }
 
-    for (let i = 0; i < file.rows.length; i++) {
-      const raw = file.rows[i]
-      const mapped: Record<string, string> = {}
-      for (const col of def.columns) {
-        const src = step.mapping[col.key]
-        const value = src != null && idx[src] != null ? (raw[idx[src]] ?? "") : ""
-        mapped[col.key] = applyTransform(value, step.transforms[col.key])
-      }
-      const missing = def.columns.find((c) => c.required && !mapped[c.key])
-      if (missing) {
+    // The SAME scan the plan predicted with (missing required / duplicate rows) —
+    // so the review screen and the run can never disagree.
+    const scans = scanRows(def, step.mapping, step.transforms, file.headers, file.rows)
+    for (let i = 0; i < scans.length; i++) {
+      const { mapped, reject } = scans[i]
+      if (reject) {
         tally.skipped++
-        report.rejections.push({ file: file.name, row: i + 1, reason: `Missing required "${missing.label}".` })
+        report.rejections.push({ file: file.name, row: i + 1, reason: reject })
         continue
       }
       const { refs, error } = resolveRow(mapped, def.references ?? [], resolved)
@@ -263,4 +256,38 @@ export async function confirmBatch(
 
 export async function getBatchView(cfg: D1Rest, guard: MemberGuard, id: string): Promise<ImportBatchView> {
   return toView(await loadBatch(cfg, guard, id))
+}
+
+/** The team's import history, newest first — who ran what, into which tables,
+ * with the totals. TEAM-visible (unlike the working batch, which stays creator-
+ * scoped): summaries carry file names + counts, never row contents or rejection
+ * reasons — the same altitude as the activity feed's "imported N rows" line. */
+export async function listBatchSummaries(
+  cfg: D1Rest,
+  guard: MemberGuard,
+  limit = 20
+): Promise<ImportBatchSummary[]> {
+  const rows = await d1Query<BatchRow & { creator_name: string | null; completed_at: string | null }>(
+    cfg,
+    guard.databaseId,
+    `SELECT ${COLS}, creator_name, completed_at FROM data_import_batches ORDER BY created_at DESC LIMIT ?`,
+    [Math.max(1, Math.min(100, limit))]
+  )
+  return rows.map((b) => {
+    const files = filesOf(b)
+    const plan = planOf(b)
+    const report = b.report_json ? (JSON.parse(b.report_json) as ImportBatchReport) : null
+    return {
+      id: b.id,
+      status: b.overall_status,
+      by: b.creator_name ?? "Someone",
+      at: b.created_at,
+      completedAt: b.completed_at,
+      files: files.map((f) => ({ name: f.name, rowCount: f.rowCount })),
+      targets: [...new Set((plan?.steps ?? []).map((s) => s.targetName))],
+      created: report?.created ?? 0,
+      skipped: report?.skipped ?? 0,
+      failed: report?.failed ?? 0,
+    }
+  })
 }

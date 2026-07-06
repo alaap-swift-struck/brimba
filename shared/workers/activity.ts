@@ -19,6 +19,33 @@ export type ActivityEntry = {
   relatedRowId?: string
 }
 
+export type FieldDiff = {
+  label: string
+  from?: string | null
+  to?: string | null
+  /** long/rich fields (an article body) log "<label> updated" without the values */
+  hideValues?: boolean
+}
+
+/** Name exactly WHAT changed in an edit, old → new — so the activity feed answers
+ * "which fields, from what, to what" instead of just "X edited Y". Unchanged
+ * fields are dropped; values are clipped so the feed stays readable. Returns ""
+ * when nothing differs (callers keep their plain sentence then). */
+export function describeChanges(fields: FieldDiff[]): string {
+  const clip = (v: string) => (v.length > 60 ? `${v.slice(0, 57)}…` : v)
+  const parts: string[] = []
+  for (const f of fields) {
+    const from = (f.from ?? "").trim()
+    const to = (f.to ?? "").trim()
+    if (from === to) continue
+    if (f.hideValues) parts.push(`${f.label} updated`)
+    else if (!from) parts.push(`${f.label} set to "${clip(to)}"`)
+    else if (!to) parts.push(`${f.label} cleared (was "${clip(from)}")`)
+    else parts.push(`${f.label}: "${clip(from)}" → "${clip(to)}"`)
+  }
+  return parts.join("; ")
+}
+
 /** Write one activity row into a team's own database. Best-effort by contract:
  * it swallows + logs its own failures so a logging hiccup can NEVER break the
  * action it describes — callers just `await logActivity(...)`, no `.catch` needed. */

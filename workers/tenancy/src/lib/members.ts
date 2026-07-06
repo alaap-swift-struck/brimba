@@ -101,10 +101,14 @@ export async function listRoles(
     description: string | null
     is_default: number
     deactivated_at: string | null
+    created_at: string | null
+    creator_name: string | null
+    updated_at: string | null
+    editor_name: string | null
   }>(
     cfg,
     guard.databaseId,
-    "SELECT id, title, description, is_default, deactivated_at FROM member_roles ORDER BY (deactivated_at IS NULL) DESC, is_default DESC, title"
+    "SELECT id, title, description, is_default, deactivated_at, created_at, creator_name, updated_at, editor_name FROM member_roles ORDER BY (deactivated_at IS NULL) DESC, is_default DESC, title"
   )
   const counts = await env.DB.prepare(
     "SELECT role_id, COUNT(*) AS n FROM team_members WHERE team_id = ? AND deactivated_at IS NULL GROUP BY role_id"
@@ -120,6 +124,11 @@ export async function listRoles(
     isDefault: r.is_default === 1,
     memberCount: countBy.get(r.id) ?? 0,
     active: r.deactivated_at == null,
+    // The audit block, for the role detail's Overview tab (audit-overview parity).
+    createdAt: r.created_at,
+    createdByName: r.creator_name,
+    updatedAt: r.updated_at,
+    editedByName: r.editor_name,
   }))
 }
 

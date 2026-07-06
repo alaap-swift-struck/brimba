@@ -116,9 +116,16 @@ export async function postCreateRole(request: Request, env: Env): Promise<Respon
   const body = (await request.json().catch(() => ({}))) as {
     title?: string
     description?: string
+    permissions?: PermissionValue
   }
   const title = requireText(body.title, "Name", TEXT_LIMITS.short)
+  // Creating WITH a permission matrix (the import round-trip / a matrix-carrying
+  // CSV) is create + edit in one move, so it demands BOTH rights — the same gate
+  // setting a matrix on the Roles screen goes through. A plain create is unchanged.
+  const withMatrix = typeof body.permissions === "object" && body.permissions !== null
+  if (withMatrix) await requireRight(cfg, guard, "member_roles", "edit")
   const roleId = await createRole(cfg, guard, actor, title, body.description ?? "")
+  if (withMatrix) await setRolePermissions(cfg, guard, actor, roleId, body.permissions as PermissionValue)
   // Row-level: carry the new role's id so open role lists patch just that row.
   await publishChange(env.REALTIME, guard.teamId, "member_roles", roleId, "add")
   return json({ roles: await listRoles(env, cfg, guard) })

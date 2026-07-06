@@ -6,36 +6,12 @@
 import { sqlString } from "../../../shared/workers/d1-rest"
 import { ulid } from "../../../shared/workers/id"
 
-/** The modules every role's permission sheet covers today (tall sheet: one
- * row per role × module). Future modules just add rows, never columns. */
-export const TEAM_MODULES = [
-  "teams",
-  "team_members",
-  "member_roles",
-  "learning",
-  "help",
-  "selectable_data",
-  "screens",
-  "agent",
-] as const
-
-/** Plain-English label for each module, shown as the rows of the permission
- * matrix. Keyed off TEAM_MODULES so a new module can't be added without a
- * label. ONE source for both the worker and the Roles screen. */
-const MODULE_LABELS: Record<(typeof TEAM_MODULES)[number], string> = {
-  teams: "Team",
-  team_members: "Members",
-  member_roles: "Roles & permissions",
-  learning: "Learning",
-  help: "Help",
-  selectable_data: "Dropdown data",
-  screens: "Screens",
-  agent: "AI agent",
-}
-
-/** The matrix rows: { key, label } per module, in display order. */
-export const TEAM_MODULE_CATALOG: { key: string; label: string }[] =
-  TEAM_MODULES.map((key) => ({ key, label: MODULE_LABELS[key] }))
+// The module list itself lives in shared/team-modules.ts — data-ops builds the
+// import/export permission-matrix columns from the SAME list, so the matrix a
+// role screen shows and the matrix a CSV carries can never drift apart.
+// Re-exported here so tenancy code keeps its one habitual import site.
+import { TEAM_MODULES } from "../../../shared/team-modules"
+export { TEAM_MODULES, TEAM_MODULE_CATALOG } from "../../../shared/team-modules"
 
 export const TEAM_MIGRATIONS: { version: string; sql: string }[] = [
   {

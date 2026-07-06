@@ -81,12 +81,12 @@ export const MUTATING_WORKERS = ["tenancy", "content", "data-ops"] as const
 
 /** R2 — the bespoke (host-composed) record-detail components that MUST render the
  * Overview + Activity tabs themselves (the engine-recipe details get them for free). */
-export const RECORD_DETAIL_COMPONENTS = ["help-detail", "learning-detail"] as const
+export const RECORD_DETAIL_COMPONENTS = ["help-detail", "learning-detail", "role-detail"] as const
 
-/** R2 — reviewed bypasses. Each MUST get tabs over time; the reason is mandatory. */
-export const RECORD_DETAIL_EXCEPTIONS: Record<string, string> = {
-  "role-detail": "permission grid is a bespoke matrix with no Overview/Activity yet — tracked in UI-GAPS.",
-}
+/** R2 — reviewed bypasses. Each MUST get tabs over time; the reason is mandatory.
+ * (Empty today: role-detail — the last exception — grew its Permissions/Overview/
+ * Activity tabs on 2026-07-06. Every record detail now carries the tabs.) */
+export const RECORD_DETAIL_EXCEPTIONS: Record<string, string> = {}
 
 /** R8 — reviewed bypasses: placement:"tab" sections that DON'T lead with a
  * collection, so they carry no count badge (and thus no countCacheKey). Each MUST
