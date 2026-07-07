@@ -25,21 +25,14 @@ export function LoadError({ what }: { what: string }) {
 }
 
 /** Box a collection (its title/search/filter/rows) into ONE card surface so it
- * reads as a single unit. The engine renders each list as surface="none" (a flat,
- * un-rounded div — the library's screen-renderer passes it so this Card is the
- * single box, no card-in-a-card). The catch: a flat list's full-bleed selected/
- * hover row shows SQUARE corners inside this rounded card — the library's own
- * surface="card" List avoids that by clipping its rows to a rounded Card. We
- * reproduce that clip here: round + hide-overflow on the list row-group (the
- * element the library marks `divide-y`), so the highlight follows the corners
- * exactly like the library demo. Host-side interim; the proper fix is the library
- * rounding its own surface="none" list — tracked as UI-GAPS #12. */
+ * reads as a single unit. The engine renders each list as surface="none" so this
+ * Card is the single box (no card-in-a-card); since library 0.4.0 the flat list
+ * rounds + clips its own row-group, so the hover/selected highlight follows the
+ * corners here just like the library demo (UI-GAPS #12, shipped). */
 export function CollectionCard({ children }: { children: React.ReactNode }) {
   return (
     <Card>
-      <CardContent className="p-4 [&_.divide-y]:overflow-hidden [&_.divide-y]:rounded-xl">
-        {children}
-      </CardContent>
+      <CardContent className="p-4">{children}</CardContent>
     </Card>
   )
 }

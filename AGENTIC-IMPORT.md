@@ -49,8 +49,12 @@ upload N files ─▶ AGENT ANALYZES ─▶ PLAN (review) ─▶ one confirm ─
                                                                                           + reasons)
 ```
 
-1. **Upload** — one or many files into a **batch**. XLSX is converted to CSV
-   **client-side** (the wizard) before upload; the worker only ever sees CSV text.
+1. **Upload** — one or many files into a **batch**. `.xlsx` is converted to CSV
+   **client-side** by Brimba's own zero-dependency reader (`web/lib/xlsx-to-csv.ts`:
+   hand-parsed ZIP + browser-native `DecompressionStream` + DOMParser — SheetJS was
+   never bundled, its npm build carries a HIGH advisory); first sheet only, no
+   formulas evaluated, date cells arrive as Excel serial numbers. The worker only
+   ever sees CSV text. Legacy `.xls` asks for a Save-As.
 2. **Analyze (agentic, metered).** The agent reads each file's headers + a small
    sample of rows and, against the catalog, produces a **plan**: which target each
    file feeds, the column **mapping** (their header → our field), deterministic

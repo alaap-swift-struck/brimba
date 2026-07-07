@@ -14,7 +14,7 @@ export function capabilityBrief(): string {
     "THE APP AROUND YOU — generated from the app's own catalog, so it is always current. When a user asks about getting data in or out, point them at these; NEVER say a capability listed here doesn't exist:"
   )
   lines.push(
-    "Bulk CSV IMPORT — the Import screen (Settings → your team → an Import CSV button sits on each importable tab, and the screen accepts several files at once). The assistant reads the files, maps the columns, orders tables that depend on each other, previews any rows that will be skipped (with reasons and a downloadable fix list), then writes every row through the same doors the screens use — imported rows carry the same audit trail and activity as hand-typed ones. Every import place offers a downloadable SAMPLE file showing what a good file looks like. Excel files: export as CSV first. Importable tables:"
+    "Bulk CSV IMPORT — the Import screen (Settings → your team → an Import CSV button sits on each importable tab, and the screen accepts several files at once). The assistant reads the files, maps the columns, orders tables that depend on each other, previews any rows that will be skipped (with reasons and a downloadable fix list), then writes every row through the same doors the screens use — imported rows carry the same audit trail and activity as hand-typed ones. Every import place offers a downloadable SAMPLE file showing what a good file looks like. Excel (.xlsx) files can be dropped straight in too (first sheet is read); only old .xls needs a Save-As first. Importable tables:"
   )
   for (const t of Object.values(TARGETS)) {
     const required = t.columns

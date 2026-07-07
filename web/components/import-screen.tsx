@@ -166,8 +166,8 @@ export function ImportScreen({ teamId, initialTarget }: { teamId: string; initia
             <Upload className="text-muted-foreground size-6" aria-hidden />
             <span className="text-sm font-medium">Drop your spreadsheets here, or click to choose</span>
             <span className="text-muted-foreground text-xs">
-              CSV files. Add several at once — the assistant sorts out how they connect. (Excel? Export
-              it as CSV first.)
+              CSV or Excel (.xlsx) files. Add several at once — the assistant sorts out how they
+              connect.
             </span>
             <input
               ref={fileRef}
@@ -266,24 +266,45 @@ export function ImportScreen({ teamId, initialTarget }: { teamId: string; initia
                 </p>
               )}
 
-              <div className="flex flex-col gap-1">
-                {Object.entries(step.mapping).map(([ourCol, theirHeader]) => (
-                  <div key={ourCol} className="flex items-center gap-2 text-xs">
-                    <span className="w-28 shrink-0 font-medium">{ourCol}</span>
-                    <span className="text-muted-foreground">←</span>
-                    {theirHeader ? (
-                      <span>{theirHeader}</span>
-                    ) : (
-                      <span className="text-muted-foreground italic">not in your file</span>
-                    )}
-                    {step.transforms[ourCol] && (
-                      <Badge variant="secondary" className="text-[9px]">
-                        {step.transforms[ourCol]}
-                      </Badge>
+              {/* Mapped columns + unmapped REQUIRED ones only. Unmapped OPTIONAL
+               * columns fold into one quiet line — a simple file shouldn't read as a
+               * wall of "not in your file" (the roles matrix alone is 32 columns). */}
+              {(() => {
+                const required = new Set(
+                  (allTargets.find((t) => t.tableKey === step.target)?.requiredColumns ?? [])
+                    .filter((c) => c.required)
+                    .map((c) => c.key)
+                )
+                const entries = Object.entries(step.mapping)
+                const shown = entries.filter(([k, v]) => v !== null || required.has(k))
+                const folded = entries.length - shown.length
+                return (
+                  <div className="flex flex-col gap-1">
+                    {shown.map(([ourCol, theirHeader]) => (
+                      <div key={ourCol} className="flex items-center gap-2 text-xs">
+                        <span className="w-28 shrink-0 font-medium">{ourCol}</span>
+                        <span className="text-muted-foreground">←</span>
+                        {theirHeader ? (
+                          <span>{theirHeader}</span>
+                        ) : (
+                          <span className="text-muted-foreground italic">not in your file</span>
+                        )}
+                        {step.transforms[ourCol] && (
+                          <Badge variant="secondary" className="text-[9px]">
+                            {step.transforms[ourCol]}
+                          </Badge>
+                        )}
+                      </div>
+                    ))}
+                    {folded > 0 && (
+                      <p className="text-muted-foreground text-xs">
+                        + {folded} optional column{folded === 1 ? "" : "s"} not in your file — fine to
+                        leave out.
+                      </p>
                     )}
                   </div>
-                ))}
-              </div>
+                )
+              })()}
 
               {step.predictedRejects > 0 && (
                 <div className="bg-amber-500/10 flex flex-col gap-1 rounded-lg p-2.5">
@@ -427,17 +448,13 @@ function PlanSummary({
 }) {
   const totalRows = plan.steps.reduce((n, s) => n + s.rowCount, 0)
   const skipped = plan.steps.reduce((n, s) => n + s.predictedRejects, 0)
-  const unmatched = plan.steps.reduce(
-    (n, s) => n + Object.values(s.mapping).filter((v) => v === null).length,
-    0
-  )
   const rejections = plan.steps.flatMap((s) => s.predictedRejections ?? [])
   return (
     <div className="flex flex-col gap-3 border-t pt-4">
       <div className="flex flex-wrap gap-3">
         <Stat label="Will import" value={totalRows - skipped} tone={totalRows - skipped ? "good" : "muted"} />
         <Stat label="Will be skipped" value={skipped} tone={skipped ? "warn" : "muted"} />
-        <Stat label="Columns not in your files" value={unmatched} tone="muted" />
+        <Stat label="Tables" value={plan.order.length} tone="muted" />
       </div>
       {rejections.length > 0 && (
         <div className="flex flex-wrap items-center justify-between gap-2">
