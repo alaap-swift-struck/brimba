@@ -51,6 +51,36 @@ export async function createSession(
   return { setCookie: buildCookie(env, token, days(SESSION_DAYS) / 1000) }
 }
 
+/** A short-lived session PINNED to one team, minted for a verified MCP token
+ * (the internal bridge — never from a browser). /me answers with the pinned
+ * team, so every downstream door acts in the TOKEN's team regardless of the
+ * human's current app team. 60 minutes, never slid (see getSessionUser); the
+ * mcp worker re-verifies the token itself on every call, so revocation bites
+ * immediately even while a minted session is still alive. */
+export async function createPinnedSession(
+  env: Env,
+  userId: string,
+  teamId: string
+): Promise<{ token: string }> {
+  const token = randomToken()
+  const now = new Date()
+  await env.DB.prepare(
+    `INSERT INTO sessions (id, user_id, token_hash, created_at, expires_at, last_seen_at, team_pin)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  )
+    .bind(
+      ulid(),
+      userId,
+      await sha256Hex(token),
+      now.toISOString(),
+      new Date(now.getTime() + 60 * 60 * 1000).toISOString(),
+      now.toISOString(),
+      teamId
+    )
+    .run()
+  return { token }
+}
+
 /** Who is making this request? null = nobody (or an expired/deactivated user). */
 export async function getSessionUser(
   env: Env,
@@ -61,12 +91,14 @@ export async function getSessionUser(
 
   const tokenHash = await sha256Hex(token)
   const row = await env.DB.prepare(
-    `SELECT s.id AS session_id, s.expires_at, s.last_seen_at, u.*
+    `SELECT s.id AS session_id, s.expires_at, s.last_seen_at, s.team_pin, u.*
      FROM sessions s JOIN users u ON u.id = s.user_id
      WHERE s.token_hash = ?`
   )
     .bind(tokenHash)
-    .first<UserRow & { session_id: string; expires_at: string; last_seen_at: string }>()
+    .first<
+      UserRow & { session_id: string; expires_at: string; last_seen_at: string; team_pin: string | null }
+    >()
   if (!row) return null
 
   const now = new Date()
@@ -78,8 +110,14 @@ export async function getSessionUser(
   }
   if (row.deactivated_at !== null) return null
 
-  // Slide the expiry forward while the session is actively used.
+  // An MCP-minted session is PINNED: it acts in the token's team, not the
+  // human's current app team — the whole gating chain downstream just works.
+  if (row.team_pin) row.current_team_id = row.team_pin
+
+  // Slide the expiry forward while the session is actively used. A pinned
+  // (MCP) session is deliberately short-lived — never slid.
   const slide =
+    row.team_pin == null &&
     new Date(row.expires_at).getTime() - now.getTime() <
     days(SLIDE_THRESHOLD_DAYS)
   // last_seen_at needs no sub-minute precision — skip the write on the hottest

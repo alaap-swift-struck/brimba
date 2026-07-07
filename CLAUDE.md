@@ -11,7 +11,7 @@ You are working on **Brimba**, the multi-tenant SaaS base by Swift Struck — th
 
 The laws live in **[RULES.md](RULES.md)** (the human law-book) and are pinned to data in **`shared/rules/registry.ts`**. They are enforced by tests that read the source straight off disk — break a law and `npm run check` fails:
 
-- **Every mutation publishes a live change.** Any non-GET route that changes state must call `publishChange` (cache-first + row-level live-sync — patch the changed row, never refetch the list). Enforced by `workers/*/test/publish-seam.test.ts` (tenancy, content, data-ops; auth's user-channel publishes are the reviewed exception — CACHING rule 5). See [CACHING.md](CACHING.md).
+- **Every mutation publishes a live change.** Any non-GET route that changes state must call `publishChange` (cache-first + row-level live-sync — patch the changed row, never refetch the list). Enforced by `workers/*/test/publish-seam.test.ts` (tenancy, content, data-ops; auth's user-channel publishes and mcp's caller-private token rows are the reviewed exceptions — CACHING rule 5). See [CACHING.md](CACHING.md).
 - **Every record detail exposes Overview + Activity tabs**, via the library `TabsView` + `ActivityFeed`. Enforced by `web/test/rules.test.ts` (`record-detail-tabs`).
 - **No hand-rolled tab strips / toggles** — collection tabs use the library `TabsView`. (`no-handrolled-toggles`)
 - **Every form renders through the shared `FormShell`.** (`forms-use-formshell`)
@@ -24,7 +24,7 @@ A law cannot be added without its check (`registry-integrity`). When you add a r
 
 ## Build style — how code here is written
 
-- **Workers (6):** auth, tenancy, realtime, gateway (the only public door), content (learning + help), data-ops (import + AI agent). Per-team D1 databases reached over the REST door (`CF_D1_TOKEN`); the global core DB via the native `env.DB` binding. Shared worker code lives in `shared/workers/` (gating, http, validate, …).
+- **Workers (7):** auth, tenancy, realtime, gateway (the only public door), content (learning + help), data-ops (import + AI agent), mcp (the external machine surface: personal access tokens → team-pinned sessions → MCP tools over the same gated doors; reached only through the gateway at `/mcp` + `/api/mcp/*`). Per-team D1 databases reached over the REST door (`CF_D1_TOKEN`); the global core DB via the native `env.DB` binding. Shared worker code lives in `shared/workers/` (gating, http, validate, …).
 - **Worker handler shape:** a declarative `ROUTES` table (each route tagged read / mutation / housekeeping) → gate with `requireRight` from `shared/workers/gating` → team-DB CRUD via `d1Query` / `d1ExecScript` + `sqlString` + `ulid` → `publishChange` → return. Throw `GuardError(status, code, msg)`; the central catch maps it to a response.
 - **Deactivate, never delete** (data + audit survive). Keep an audit block (actor + timestamp) on every write.
 - **Permissions are the spine.** The AI agent **acts AS the signed-in user through the same gated endpoints** and never exceeds their rights. There is no separate agent role.

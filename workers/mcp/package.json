@@ -1,0 +1,17 @@
+{
+  "name": "brimba-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Brimba's MCP front desk: personal access tokens bridged to team-pinned sessions, exposing the gated doors as MCP tools.",
+  "scripts": {
+    "dev": "wrangler dev --env staging --port 8791 --inspector-port 9234 --local --persist-to ../../.dev-state",
+    "test": "vitest run",
+    "deploy:staging": "wrangler deploy --env staging",
+    "deploy:production": "wrangler deploy"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260101.0",
+    "typescript": "^5.7.3",
+    "vitest": "^4.1.8"
+  }
+}

@@ -19,7 +19,7 @@ Brimba is six Cloudflare Workers, a two-tier database, and a static web app the
 workers serve. Nothing more. The count does not grow with the number of teams or
 users — it grows only when you add a genuinely new capability.
 
-### The six workers, and why each exists
+### The seven workers, and why each exists
 
 A worker here is one small, single-purpose service, "small enough for an AI
 agent to hold fully in its head" (ARCHITECTURE.md §2). The split is by
@@ -277,7 +277,7 @@ the machine-checked Laws (§4) turn a careless change red before it ships.
 1. **Change the seam in one place.** There is one master copy of every rule, doc,
    and shared helper — reuse over recode. Don't fork a shared function into a
    module.
-2. **Run `npm run check`** — it type-checks `web` + the six workers and runs the
+2. **Run `npm run check`** — it type-checks `web` + the seven workers and runs the
    full test suite, including the rule + seam tests. It is the gate; keep it green.
 3. **If you changed a table**, add a **migration**, never an edit-in-place. Core
    migrations live in `db/core/*`; team migrations are appended to
@@ -352,7 +352,7 @@ permissions, invites, emails, live-sync, the screen engine, the CSV import, and 
 AI agent **for free** — and you add your product's own modules on top. Here's the
 whole story.
 
-**What you keep, untouched.** The six workers, the two-tier database, the gate
+**What you keep, untouched.** The seven workers, the two-tier database, the gate
 (`teamContext → requireRight`), the realtime layer, the auth/email flow, the agent,
 and the Laws. These are the base. You do not re-solve multi-tenancy, permissions, or
 live updates — they're done.

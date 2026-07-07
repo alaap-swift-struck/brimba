@@ -393,6 +393,16 @@ export type ImportBatchSummary = {
   failed: number
 }
 
+/** One personal access token (the MCP front desk) as the settings screen sees it. */
+export type McpTokenSummary = {
+  id: string
+  label: string
+  teamId: string
+  createdAt: string
+  lastUsedAt: string | null
+  revokedAt: string | null
+}
+
 /** One action the agent proposes that needs the user's confirmation before it runs. */
 export type PendingCall = { name: string; input: Record<string, unknown>; summary: string }
 

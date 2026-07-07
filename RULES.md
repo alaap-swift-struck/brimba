@@ -16,7 +16,7 @@ every exception is a visible, conscious line — never a silent bypass.
 
 | ID | Dimension | Law (plain English) | Check (test id) | Status |
 |----|-----------|---------------------|-----------------|--------|
-| R1 | arch | Every mutation route publishes a live change ping (so screens stay live). | `publish-seam` (per-worker tests: tenancy, content, data-ops; auth's two user-channel publishes are the reviewed, untested exception — CACHING rule 5) | enforced |
+| R1 | arch | Every mutation route publishes a live change ping (so screens stay live). | `publish-seam` (per-worker tests: tenancy, content, data-ops; auth's two user-channel publishes and mcp's caller-private token rows are the reviewed, untested exceptions — CACHING rule 5) | enforced |
 | R2 | ui | Every record-detail screen exposes Overview + Activity tabs. | `record-detail-tabs` | enforced |
 | R3 | ui | Collection tab strips use the library TabsView (icon + count badge) — no hand-rolled button toggles. | `no-handrolled-toggles` | enforced |
 | R4 | ui | Every form/dialog renders through the shared FormShell (title+subtitle · separator · fields · separator · action). | `forms-use-formshell` | enforced |

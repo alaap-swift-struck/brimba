@@ -10,9 +10,11 @@ their rights), all hosted on Cloudflare.
 
 UPDATED 2026-06-23: the **agent-modules build** landed (branch `agent-modules`) —
 learning, help, CSV import, and the AI agent are all BUILT. **Six workers are on
-disk**: auth, tenancy, realtime, gateway, **content** (learning + help) and
-**data-ops** (import + the AI agent). The external **mcp** worker (machine-facing
-tool surface) is the one remaining piece — PLANNED, not yet built. The agent's
+disk**: auth, tenancy, realtime, gateway, **content** (learning + help),
+**data-ops** (import + the AI agent), and **mcp** — the external machine surface
+(BUILT 2026-07-07): personal access tokens (hashed, shown-once, team-pinned,
+revocable; managed under Settings → Access tokens) bridged to short-lived
+team-pinned sessions, exposing the gated doors as MCP tools at `/mcp`. The agent's
 model is swappable: Claude when `ANTHROPIC_API_KEY` is set, else Cloudflare
 Workers AI (both do full tool use); it confirms on destructive + bulk actions
 and is metered by a credit quota (a free daily allowance — default 25, the

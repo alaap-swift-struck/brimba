@@ -133,6 +133,16 @@ view. Real data: `id`, `team_id`, `actor_id`, `actor_name`, `created_at`,
 `GET /api/data-ops/agent/usage-log`. Lives in the global core DB beside the
 quota tables it explains.
 
+### mcp_tokens — KEEP (BUILT 2026-07-07, GLOBAL — `db/core/0013`)
+
+Personal access tokens for the MCP front desk: `id, user_id, team_id, label,
+token_hash (sha256; the secret is shown ONCE and never stored), created_at,
+last_used_at, revoked_at` (deactivate-not-delete). Verified on EVERY /mcp
+request. The same migration adds **`sessions.team_pin`** — a session minted for
+a token is PINNED to the token's team (auth answers /me with the pinned team;
+short-lived, never slid), so a token can never act outside the team it was
+created for.
+
 ### error_logs — KEEP (BUILT 2026-07-03, GLOBAL — `db/core/0012`)
 Purpose: the central error store (ERROR-HANDLING.md) — one row per UNEXPECTED
 failure (worker crash or client-side error), never a clean GuardError refusal.
@@ -253,10 +263,10 @@ these rows are a record of intent, never a separate set of powers.
 
 - **Built**: users, teams, team_members, invite_index, member_roles,
   role_permissions, selectable_data, activity (table only), team_module_databases,
-  db_alerts, login_codes, sessions, account_activity, email_change_logs +
+  db_alerts, login_codes, sessions (+ `team_pin`, 0013), account_activity, email_change_logs +
   email_change_codes (the hashed-OTP split; BUILT 2026-06-17), invite_logs
   (per-team audit; BUILT 2026-06-22, M4). **Agent-modules build (BUILT
-  2026-06-23)**: importable_databases, agent_usage, agent_credits (GLOBAL core
+  2026-06-23)**: importable_databases, agent_usage, agent_credits, mcp_tokens (GLOBAL core
   0008/0009/0010); learning, learning_progress, help, help_threads,
   data_import_sessions, agent_threads, agent_messages (per-team `0004_modules`).
   **Since:** agent_usage_log (GLOBAL core `0011`, BUILT 2026-07-01), error_logs

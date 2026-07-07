@@ -16,7 +16,7 @@ import type { Env } from "./env"
 import { randomCode, sha256Hex } from "./lib/crypto"
 import { isValidEmail, normalizeEmail, sendEmail, sendLoginCode } from "./lib/email"
 import { startEmailChange, verifyEmailChange } from "./lib/email-change"
-import {
+import { createPinnedSession,
   createSession,
   destroySession,
   getSessionUser,
@@ -67,6 +67,12 @@ export default {
         // owns the door because it holds the core DB + the internal-key guard).
         case "POST /internal/log-error":
           return await internalLogError(request, env)
+        // Internal: the mcp worker bridges a verified personal access token to a
+        // short-lived session PINNED to the token's team (ARCHITECTURE: the MCP
+        // front desk). Live membership is re-checked here at mint AND by every
+        // downstream door per request.
+        case "POST /internal/mcp-session":
+          return await internalMcpSession(request, env)
         default:
           return fail(404, "not_found", "No such auth action.")
       }
@@ -79,6 +85,26 @@ export default {
     }
   },
 } satisfies ExportedHandler<Env>
+
+/** Internal (service-binding only): mint a short-lived TEAM-PINNED session for a
+ * verified MCP token. The mcp worker has already verified the token hash; this
+ * door re-verifies the user is an ACTIVE member of the pinned team, then mints. */
+async function internalMcpSession(request: Request, env: Env): Promise<Response> {
+  if (env.INTERNAL_KEY && request.headers.get("x-internal-key") !== env.INTERNAL_KEY)
+    return fail(403, "forbidden", "Bad internal key.")
+  const body = (await request.json().catch(() => ({}))) as { userId?: string; teamId?: string }
+  if (!body.userId || !body.teamId)
+    return fail(400, "invalid_input", "userId and teamId are required.")
+  const member = await env.DB.prepare(
+    "SELECT id FROM team_members WHERE team_id = ? AND user_id = ? AND deactivated_at IS NULL"
+  )
+    .bind(body.teamId, body.userId)
+    .first()
+  if (!member)
+    return fail(403, "not_a_member", "That account is no longer an active member of the token's team.")
+  const { token } = await createPinnedSession(env, body.userId, body.teamId)
+  return json({ token })
+}
 
 /** Internal (service-binding only): send a branded email composed by another
  * worker (e.g. tenancy's invite email). */

@@ -21,6 +21,7 @@ import {
 import { useRouter } from "next/navigation"
 import { ChevronRight, Mail } from "lucide-react"
 
+import { AccessTokensSection } from "@/components/access-tokens"
 import { AppShell, ShellLoading } from "@/components/app-shell"
 import { EmailChangeDialog } from "@/components/email-change-dialog"
 import { InvitationsPanel, useReceivedInvites } from "@/components/invitations"
@@ -108,6 +109,10 @@ export default function SettingsPage() {
             ]}
           />
         </section>
+
+        {/* Access tokens — the MCP front desk's human side (create / revoke;
+         * machines use them as Bearer tokens against /mcp). */}
+        <AccessTokensSection teamName={ctx.team?.name ?? null} />
 
         {/* Account activity — your own identity history (name / photo / email
          * changes), not tied to any team. From the library ActivityFeed. */}

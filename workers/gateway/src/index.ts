@@ -12,6 +12,7 @@ type Env = {
   REALTIME: Fetcher
   CONTENT: Fetcher
   DATAOPS: Fetcher
+  MCP: Fetcher
   MEDIA: R2Bucket
   LEARNING_MEDIA: R2Bucket
   /** shared secret for auth's /internal/* doors (same value as auth/tenancy/content). */
@@ -27,6 +28,10 @@ export default {
     // Content modules (Learning, Help) and data-ops (import + the AI agent).
     if (pathname.startsWith("/api/content/")) return env.CONTENT.fetch(request)
     if (pathname.startsWith("/api/data-ops/")) return env.DATAOPS.fetch(request)
+    // The MCP front desk: token management (session-gated) + the MCP endpoint
+    // itself (bearer-token-gated JSON-RPC) — ARCHITECTURE "gateway / MCP".
+    if (pathname.startsWith("/api/mcp/")) return env.MCP.fetch(request)
+    if (pathname === "/mcp") return env.MCP.fetch(request)
     // Live channels (WebSocket upgrade + health) → the realtime switchboard.
     if (pathname.startsWith("/api/realtime")) return env.REALTIME.fetch(request)
 

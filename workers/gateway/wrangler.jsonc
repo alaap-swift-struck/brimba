@@ -24,7 +24,8 @@
     { "binding": "TENANCY", "service": "brimba-tenancy" },
     { "binding": "REALTIME", "service": "brimba-realtime" },
     { "binding": "CONTENT", "service": "brimba-content" },
-    { "binding": "DATAOPS", "service": "brimba-data-ops" }
+    { "binding": "DATAOPS", "service": "brimba-data-ops" },
+    { "binding": "MCP", "service": "brimba-mcp" }
   ],
   "r2_buckets": [
     { "binding": "MEDIA", "bucket_name": "brimba-media" },
@@ -45,7 +46,8 @@
         { "binding": "TENANCY", "service": "brimba-tenancy-staging" },
         { "binding": "REALTIME", "service": "brimba-realtime-staging" },
         { "binding": "CONTENT", "service": "brimba-content-staging" },
-        { "binding": "DATAOPS", "service": "brimba-data-ops-staging" }
+        { "binding": "DATAOPS", "service": "brimba-data-ops-staging" },
+        { "binding": "MCP", "service": "brimba-mcp-staging" }
       ],
       "r2_buckets": [
         { "binding": "MEDIA", "bucket_name": "brimba-media-staging" },

@@ -141,7 +141,7 @@ ARCHITECTURE.md `/media/*` note before storing anything sensitive.
 | `RESEND_API_KEY` | auth | send login codes + notifications. Until it's set, staging echoes login codes in the API response and production refuses email login. |
 | `CF_D1_TOKEN` | tenancy, content, data-ops | the scoped D1 REST token (Cloudflare → D1 → Edit) that reaches per-team databases. |
 | `ADMIN_KEY` | tenancy, data-ops | guards the maintenance endpoints (migrate-teams, db-sizes, seed the import catalog, grant credits). |
-| `INTERNAL_KEY` | auth, tenancy, content, gateway | shared secret gating auth's `/internal/*` doors. tenancy + content call `/internal/send-email`; the **gateway** forwards client error beacons to `/internal/log-error` (a DIFFERENT reason — the gateway sends no email but still needs the key, or web errors never reach `error_logs`). MUST match across all four. |
+| `INTERNAL_KEY` | auth, tenancy, content, gateway, mcp | shared secret gating auth's `/internal/*` doors. tenancy + content call `/internal/send-email`; the **gateway** forwards client error beacons to `/internal/log-error` (a DIFFERENT reason — the gateway sends no email but still needs the key, or web errors never reach `error_logs`). The **mcp** worker uses it to mint team-pinned sessions (`/internal/mcp-session`). MUST match across all five. |
 | `ANTHROPIC_API_KEY` | data-ops | *optional* — when set, the agent's brain is Claude; unset falls back to Workers AI. Both do full tool use. |
 
 **Vars** (plain config in `wrangler.jsonc`, not secret):

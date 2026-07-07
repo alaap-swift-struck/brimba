@@ -14,6 +14,7 @@ import type {
   HelpTicket,
   ImportBatchReport,
   ImportBatchSummary,
+  McpTokenSummary,
   ImportBatchView,
   ImportColumn,
   ImportableTarget,
@@ -519,4 +520,16 @@ export const dataOps = {
   agentThreads: () => api<{ threads: AgentThread[] }>("/api/data-ops/agent/threads"),
   agentThread: (id: string) =>
     api<{ messages: AgentMessage[] }>(`/api/data-ops/agent/thread?id=${enc(id)}`),
+}
+
+/** The MCP front desk (personal access tokens; the /mcp endpoint itself is for
+ * machines with a Bearer token, not this session client). */
+export const mcp = {
+  tokens: () => api<{ tokens: McpTokenSummary[] }>("/api/mcp/tokens"),
+  createToken: (label: string) =>
+    api<{ token: { id: string; label: string; teamId: string; createdAt: string }; secret: string }>(
+      "/api/mcp/tokens",
+      post({ label })
+    ),
+  revokeToken: (id: string) => api<{ ok: true }>("/api/mcp/tokens/revoke", post({ id })),
 }
