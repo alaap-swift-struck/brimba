@@ -49,7 +49,7 @@ Start with **[README.md](README.md)** (the doc map), then:
 **The manual — to build on the base, or rebuild it from zero:**
 
 - **[BOOTSTRAP.md](BOOTSTRAP.md)** — the day-zero, command-by-command runbook to stand the WHOLE base up on a fresh Cloudflare account (core DB + migrations → R2 buckets → secrets/vars → realtime-first deploy → seed → first team → verify). The concrete "rebuild from nothing" answer.
-- **[BASE-MANUAL.md](BASE-MANUAL.md)** — how the base works AND *why*: the six workers, the two-tier database, the permission spine, how a new module and the base influence each other, how to change foundational code + how a change ripples, **how to fork the base for a new product (§5)**, and **how each subsystem scales (§6)**. Read this to understand the whole.
+- **[BASE-MANUAL.md](BASE-MANUAL.md)** — how the base works AND *why*: the seven workers, the two-tier database, the permission spine, how a new module and the base influence each other, how to change foundational code + how a change ripples, **how to fork the base for a new product (§5)**, and **how each subsystem scales (§6)**. Read this to understand the whole.
 - **[BUILD-A-MODULE.md](BUILD-A-MODULE.md)** — the end-to-end golden-path checklist to add a team module (table → permissions → worker → web → detail → tests).
 - **[CONVENTIONS.md](CONVENTIONS.md)** — the code + comment house style (handler shape, data doors, gating, validation, deactivate-not-delete).
 - **[UI-CONVENTIONS.md](UI-CONVENTIONS.md)** — how screens are built (library-is-lego, recipe vs bespoke, the enforced UI Laws, the action-icon mapping, the voice).
@@ -61,7 +61,7 @@ Start with **[README.md](README.md)** (the doc map), then:
 
 - **`npm run check` must stay green** (TypeScript across every workspace + the full test suite, including the rule + seam tests). Run it before you commit. It is the gate.
 - **Ship gate** (before `/ship-staging`): `npm run check`, then the quality skills — `lean_mean` (≥ 92), `story_checks_out`, and `security_sentry` (no critical/high) — then deploy. Adversarially verify your own findings.
-- **Deploy order is realtime-FIRST**, then auth → tenancy → content → data-ops → gateway. Production is owner-gated (apply new core + team migrations first). See OPERATIONS.md.
+- **Deploy order is realtime-FIRST**, then auth → tenancy → content → data-ops → mcp → gateway. Production is owner-gated (apply new core + team migrations first). See OPERATIONS.md.
 - **Commit messages** end with the Co-Authored-By line. Branch off `main`; don't commit straight to it.
 - **Resetting data:** `node scripts/reset-all.mjs <staging|production|both>` (destructive; schema + migrations survive). Confirm production explicitly.
 
