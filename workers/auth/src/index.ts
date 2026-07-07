@@ -90,7 +90,10 @@ export default {
  * verified MCP token. The mcp worker has already verified the token hash; this
  * door re-verifies the user is an ACTIVE member of the pinned team, then mints. */
 async function internalMcpSession(request: Request, env: Env): Promise<Response> {
-  if (env.INTERNAL_KEY && request.headers.get("x-internal-key") !== env.INTERNAL_KEY)
+  // FAIL CLOSED: minting a session is the highest-blast internal door, so unlike
+  // send-email it refuses outright when INTERNAL_KEY isn't configured (a fresh
+  // bootstrap must set the secret BEFORE the MCP bridge can work).
+  if (!env.INTERNAL_KEY || request.headers.get("x-internal-key") !== env.INTERNAL_KEY)
     return fail(403, "forbidden", "Bad internal key.")
   const body = (await request.json().catch(() => ({}))) as { userId?: string; teamId?: string }
   if (!body.userId || !body.teamId)

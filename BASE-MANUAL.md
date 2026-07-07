@@ -15,7 +15,7 @@ is downstream of them: **stay lean**, and **obey the Laws of the Base**.
 
 ## 1 · The shape
 
-Brimba is six Cloudflare Workers, a two-tier database, and a static web app the
+Brimba is seven Cloudflare Workers, a two-tier database, and a static web app the
 workers serve. Nothing more. The count does not grow with the number of teams or
 users — it grows only when you add a genuinely new capability.
 
@@ -491,11 +491,14 @@ out, not the day writes fail. When an alarm fires, this is the path, in order:
    consumer of the app never sees it.
 
 **What's built today vs what's a documented path:** the alarm cron, `db_alerts`,
-`d1QueryAcross`, ULID time-ordering and the single-door discipline are BUILT and
-tested; the per-module database map (stage 1) and the shard cutover script (stage 2)
-are deliberately NOT built until an alarm fires — building sharding before any team
-nears 8 GB would be dead weight (Prime Directive 1). The point of this section is
-that when it fires, the change is contained to one seam.
+`d1QueryAcross`, ULID time-ordering, the single-door discipline AND stage 1 itself
+are BUILT and tested: `POST /api/tenancy/admin/move-module` (x-admin-key; table and
+module names validated as strict SQL identifiers at the boundary) copies a module's
+tables to a fresh database, verifies row counts BEFORE touching the source, records
+the routing override in `team_module_databases`, empties the old home, and resolves
+the alarm; `databaseIdsFor(teamId, module)` then answers override-first + main so
+merged reads see both homes. Only the stage-2 same-table cutover script stays a
+documented path until a single module outgrows a whole database (Prime Directive 1).
 
 **Organizing many apps in Cloudflare:** Cloudflare has no folders. The base's
 convention is (a) a name prefix per product — every worker, database and bucket

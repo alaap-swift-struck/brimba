@@ -45,7 +45,7 @@ any cloud resource.
 
 ---
 
-## 1 · The six workers (what you are about to create)
+## 1 · The seven workers (what you are about to create)
 
 Each worker is its own `wrangler.jsonc` under `workers/<name>/`. Only the **gateway**
 is public; every other worker sets `"workers_dev": false` and is reachable **only**
@@ -61,7 +61,7 @@ route to a non-gateway worker).
 | `data-ops` | no | CSV import + the AI agent |
 | `gateway` | **YES** | the single front desk: serves the web app + routes `/api/*` + serves `/media/*` |
 
-**Deploy order is `realtime → auth → tenancy → content → data-ops → gateway`** and it
+**Deploy order is `realtime → auth → tenancy → content → data-ops → mcp → gateway`** and it
 matters: realtime is FIRST because every other worker service-binds it (deploying a
 binder before its target fails with "Worker not found"). The root `npm run deploy:*`
 scripts already encode this order.
@@ -89,7 +89,7 @@ quota tables. Create it for each environment and apply the core migrations in
 npx wrangler d1 create brimba-core-staging
 npx wrangler d1 create brimba-core
 
-# Apply every core migration (0001…0012) to each env. Any core-bound worker can run it;
+# Apply every core migration (0001…0013) to each env. Any core-bound worker can run it;
 # auth is the canonical one. Run WITHOUT --env for production.
 cd workers/auth
 npx wrangler d1 migrations apply brimba-core-staging --env staging --remote
@@ -97,7 +97,7 @@ npx wrangler d1 migrations apply brimba-core --remote
 cd ../..
 ```
 
-The current core migrations are `0001`–`0012` (users, teams, team_members, the
+The current core migrations are `0001`–`0013` (0013 = `mcp_tokens` + `sessions.team_pin` — the MCP front desk) (users, teams, team_members, the
 email-change security records, account activity, the import catalog, and the three
 agent quota tables `agent_usage` / `agent_credits` / `agent_usage_log`, plus the
 central error log `error_logs`). DATA-MODEL.md
@@ -164,11 +164,11 @@ ARCHITECTURE.md `/media/*` note before storing anything sensitive.
 
 ## 5 · Deploy (realtime-first) + the web build
 
-The root scripts build the web static export and deploy all six workers in the
+The root scripts build the web static export and deploy all seven workers in the
 correct order:
 
 ```bash
-npm run deploy:staging      # build web/ → deploy realtime,auth,tenancy,content,data-ops,gateway (staging) → smoke
+npm run deploy:staging      # build web/ → deploy realtime,auth,tenancy,content,data-ops,mcp,gateway (staging) → smoke
 npm run deploy:production   # same order, production names (run only after staging is verified)
 ```
 

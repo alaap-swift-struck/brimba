@@ -77,7 +77,7 @@ credit-based quota gate (free 25/day + purchasable balance) ; agent-vs-human + s
 audit ; saved threads in its own `agent_threads`/`agent_messages` tables ; a step cap +
 multi-step stop-and-report.
 
-**3C — `workers/mcp` (separate piece) — REMAINING.** personal access tokens (hashed,
+**3C — `workers/mcp` (separate piece) — ~~REMAINING~~ **SHIPPED 2026-07-07**.** personal access tokens (hashed,
 shown-once, revocable, pinned to one team, live role-check) → bridged to a real
 session ; the OPT-IN tool catalog (only tagged actions) ; abuse bounded by the quota.
 NOT yet on disk (the gateway already exposes the in-app agent; this is the EXTERNAL
@@ -99,7 +99,7 @@ Gate: green + tests (token gating, confirm rule, fence, quota, tool catalog).
   order).
 
 ## Remaining work (after Phases 1–4)
-- **The external `mcp` worker** (Phase 3C above) — not yet on disk.
+- **The external `mcp` worker** (Phase 3C above) — ~~not yet on disk~~ **SHIPPED 2026-07-07** (`workers/mcp`).
 - **Help attachments** — the `brimba-help-media` bucket is bound, but the upload hook
   isn't wired.
 - **The agent's auto first-draft help reply** — the `cheapText` seam exists; the
@@ -112,7 +112,7 @@ Gate: green + tests (token gating, confirm rule, fence, quota, tool catalog).
 - **R2 buckets**: `brimba-help-media`, `brimba-learning-media` (+ `-staging`), per-team
   key prefixes, bound to the content worker. (No `brimba-import-media` — CSV text is
   uploaded into the import session, not R2.)
-- **Workers**: `content` + `data-ops` BUILT ; `mcp` still PLANNED (gateway stays the
+- **Workers**: `content` + `data-ops` BUILT ; `mcp` **BUILT 2026-07-07** (gateway stays the
   single public door; it routes the in-app agent +, later, the external MCP surface).
 - Deploy order extends the realtime-first rule: realtime → auth → tenancy → content →
   data-ops → gateway (anything a binder needs must exist first; data-ops binds

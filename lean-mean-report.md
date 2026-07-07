@@ -1,46 +1,38 @@
 # Lean Mean Check — Brimba
-Scanned 2026-07-06 · Overall 92/100 (Grade A) · Held its A through a major feature round — agentic multi-table import, a central error store, and full-field exports all landed test-locked; the docs are audited to rebuild the base from zero.
+Scanned 2026-07-07 · Overall 92/100 (Grade A) · Held its A through the final mile: the MCP worker, native XLSX, the chat import and Law R9 all landed through existing seams; the agent panel was split; library 0.4.0 absorbed both interim host fixes.
 
 ## Fix first (ordered by impact)
-- [ ] **(Leanness)** Factor the repeated route-handler shape (`teamContext → requireRight → parse → publish`) into a thin wrapper — _why:_ ~6.6% duplication; DEFERRED (the 56 handlers gate heterogeneously). Do it as a dedicated task with a machine check. — _where:_ `workers/*/src/routes/*`.
-- [ ] **(Size/Understandability)** Watch `web/components/deep-link-screen.tsx` (721) + `agent-panel.tsx` (639) — _why:_ split further when either passes ~800; extract the host's nav/trace or the panel's dialogs. — _where:_ those files.
-- [ ] **(Robustness)** Integration test for the agentic-import confirm run + the confirm-resume rebuild — _why:_ unit-locked at the pure layer; a DB-level test locks execution. — _where:_ `workers/data-ops/test/`.
-- [ ] **(Robustness, carried)** Wire the Playwright e2e into CI with a seeded staging account. — _where:_ `web/e2e/`.
-- [ ] **(Scalability)** Build the external `mcp` worker on the existing gating seam. — _where:_ `workers/mcp/` (new).
-
-Done this round: agentic multi-table import (engine + wizard + tests) ✓, full-field exports (roles/learning/dropdowns) ✓, central error store + the error_analyst skill (which made a structural fix this round) ✓, sample-file-per-target rule (test-enforced) ✓, mobile action-row wrap rule ✓, 3-pass doc audit + rulebook ✓.
+- [ ] **(Leanness)** Split `web/components/deep-link-screen.tsx` (721 lines) — _why:_ the module resolver + per-module data branches can extract per-module renderers like the agent panel's hook split; largest file in the repo — _where:_ web/components/deep-link-screen.tsx
+- [ ] **(Leanness)** The route-handler wrapper across the workers — _why:_ ~56 handlers repeat open/gate/parse boilerplate; CONSCIOUSLY DEFERRED (handlers gate heterogeneously; wrong risk during ship windows) — revisit in a quiet window — _where:_ workers/*/src/routes
+- [ ] **(Size)** `web/lib/api.ts` (477) and `workers/data-ops/src/lib/tools.ts` (545) are drifting up — _why:_ both are declarative tables (fine) but watch for logic creeping in — _where:_ web/lib/api.ts, workers/data-ops/src/lib/tools.ts
 
 ## Scores
 | Dimension | Score | Status |
 |---|---|---|
 | Size & Scope | 85 | green |
-| Robustness | 95 | green |
-| Documentation | 96 | green |
-| Understandability | 91 | green |
+| Robustness | 93 | green |
+| Documentation | 97 | green |
+| Understandability | 93 | green |
 | Leanness & Optimization | 88 | green |
-| Scalability & Structure | 92 | green |
+| Scalability & Structure | 95 | green |
 
 ## Full findings
 ### Size & Scope — 85/100 (green)
-- Strengths: the agentic-import engine landed as four small files (pure plan · agent · batch · catalog), not a blob.
-- To improve: deep-link-screen (721) + agent-panel (639) are the two big files.
+- 251 files / 25.8k LOC for a full multi-tenant base: 7 workers, screen engine, AI agent, agentic import, MCP surface. Growth this round came through shared seams (scanRows, team-modules, file-to-csv, use-agent-chat).
+- To improve: deep-link-screen.tsx (721) is the last big file.
 
-### Robustness — 95/100 (green)
-- Strengths: the new planner/resolver/normalizers/sample are unit-tested; wire-format + credit + CSV-injection locked; the error store self-cleans (benign network blips no longer logged); machine-checked Laws + publish-seam per worker. 238 tests.
-- To improve: confirm-resume + e2e still manual.
+### Robustness — 93/100 (green)
+- 265 tests incl. machine-checked Laws (R1–R9), the publish seam, agent parity, MCP catalog drift, sample-imports-cleanly, real-fixture XLSX; the central error store catches worker + client + mid-stream crashes; GuardError refusals never 500.
 
-### Documentation — 96/100 (green)
-- Strengths: three audits confirm the docs rebuild the base + support a new app (2 blockers fixed); a README rulebook names every rule; AGENTIC-IMPORT §10 = the sample rule.
-- To improve: a one-line status header per reference doc.
+### Documentation — 97/100 (green)
+- 25 root docs incl. the day-zero BOOTSTRAP runbook, the fork guide, the shard runbook (§6.5), the module golden path, and a rulebook that names every enforceable rule. Docs are the spec — audited against the rebuild-from-zero bar.
 
-### Understandability — 91/100 (green)
-- Strengths: the import engine reads plan → propose → deterministic run; one worker shape; host split into hooks.
-- To improve: the 721-line host still inlines nav + trace + render.
+### Understandability — 93/100 (green)
+- One handler shape, one data door, one glossary, one icon map; comments explain constraints, not narration.
 
 ### Leanness & Optimization — 88/100 (green)
-- Strengths: the batch importer reuses writeRow/parseCsv; samples generate from existing columns.
-- To improve: the route-boilerplate wrapper (deferred).
+- Duplication 6.6% (scanner heuristic; mostly wrangler env blocks + route tables which are declaratively repetitive by design). Interim host fixes were DELETED when library 0.4.0 shipped the real ones — the flag-then-absorb loop works.
+- To improve: the two watch-files above; the deferred route wrapper.
 
-### Scalability & Structure — 92/100 (green)
-- Strengths: an import target (even multi-table) is one declarative TargetDef; every axis scales by an existing seam.
-- To improve: build the `mcp` worker on the existing seam.
+### Scalability & Structure — 95/100 (green)
+- Per-team D1 (isolation by physics), hibernating DOs, row-level pings, the ONE data door that makes sharding a routing change (§6.5), tall-sheet permissions (rows, never columns).

@@ -71,6 +71,12 @@ export async function moveModule(request: Request, env: Env): Promise<Response> 
   }
   if (!body.teamId || !body.module || !body.tables?.length)
     return fail(400, "invalid_input", "teamId, module and tables are required.")
+  // Table/module names are interpolated into DDL/DML downstream (the script API
+  // has no identifier params) — so they must be STRICT SQL identifiers here at
+  // the boundary. Kills injection even for an admin-key holder (defense-in-depth).
+  const IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/
+  if (!IDENT.test(body.module) || body.tables.some((t) => typeof t !== "string" || !IDENT.test(t)))
+    return fail(400, "invalid_input", "module and tables must be plain SQL identifiers (letters, digits, underscores).")
 
   const result = await moveModuleToOwnDatabase(
     env,

@@ -100,7 +100,6 @@ both owner-only:
 
 ## Verify before shipping
 
-- npm run check   (type-checks web + the 6 built workers — auth, tenancy, realtime, gateway, content, data-ops — and runs all unit/integration tests). UPDATED 2026-06-23: 6 workers are on disk (content + data-ops landed in the agent-modules build); the external `mcp` worker is still PLANNED, not built. The recipe config store lives in tenancy, not a separate worker.
 - CI runs the same on every push (.github/workflows/ci.yml)
 - deploy:staging ends with scripts/smoke-staging.mjs — the LIVE login→team journey must pass or the deploy is considered failed
 

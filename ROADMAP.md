@@ -5,7 +5,7 @@
 > agent co-pilot (branch `agent-modules`, staging). This file is the Phase-C
 > HISTORY + its still-open tail (see "Remaining"); for the current system read
 > README.md → BASE-MANUAL.md, and for what's next: the owner's staging verdict,
-> the external `mcp` worker (ARCHITECTURE.md, PLANNED), the two deferred perf
+> ~~the external `mcp` worker~~ (BUILT 2026-07-07 — ARCHITECTURE.md), the two deferred perf
 > wins (EDGE-CASES.md), and the `lean-mean-report.md` fix list.
 
 Decided 2026-06-13 with the user. Built **sequentially, phase by phase**, each
