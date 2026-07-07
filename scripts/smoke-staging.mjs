@@ -84,7 +84,40 @@ const ctx = await api("/api/tenancy/active", {}, cookie)
 ok("active context has the current team", ctx.body?.team?.dbStatus === "ready", JSON.stringify(ctx.body))
 ok("active context has your role (Admin)", ctx.body?.role?.title === "Admin", JSON.stringify(ctx.body?.role))
 
-// 7 · Session round-trip + logout leaves the world clean.
+// 7 · The MCP front desk, end to end: create a token (session-gated), act
+//     through /mcp AS the smoke user (bearer-gated, team-pinned), then revoke
+//     and prove revocation bites immediately.
+{
+  const created = await api(
+    "/api/mcp/tokens",
+    { method: "POST", body: JSON.stringify({ label: "smoke token" }) },
+    cookie
+  )
+  const secret = created.body?.secret
+  ok("mcp token created (secret shown once)", typeof secret === "string" && secret.startsWith("brimba_mcp_"))
+  if (secret) {
+    const rpc = async (method, params = {}) => {
+      const res = await fetch(`${BASE}/mcp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${secret}` },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+      })
+      return { res, body: await res.json().catch(() => null) }
+    }
+    const init = await rpc("initialize")
+    ok("mcp initialize answers", init.body?.result?.serverInfo?.name === "brimba-mcp")
+    const tools = await rpc("tools/list")
+    ok("mcp lists tools", Array.isArray(tools.body?.result?.tools) && tools.body.result.tools.length > 10)
+    const who = await rpc("tools/call", { name: "whoami", arguments: {} })
+    const whoText = who.body?.result?.content?.[0]?.text ?? ""
+    ok("mcp whoami acts AS the token owner", whoText.includes(EMAIL), whoText.slice(0, 120))
+    await api("/api/mcp/tokens/revoke", { method: "POST", body: JSON.stringify({ id: created.body?.token?.id }) }, cookie)
+    const dead = await rpc("tools/list")
+    ok("revoked token is refused immediately", dead.res.status === 401)
+  }
+}
+
+// 8 · Session round-trip + logout leaves the world clean.
 const me = await api("/api/auth/me", {}, cookie)
 ok("me() returns the smoke user", me.body?.user?.email === EMAIL)
 await api("/api/auth/logout", { method: "POST" }, cookie)
