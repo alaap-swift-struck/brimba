@@ -1,10 +1,10 @@
 # Lean Mean Check — Brimba
-Scanned 2026-07-07 · Overall 92/100 (Grade A) · Held its A through the final mile: the MCP worker, native XLSX, the chat import and Law R9 all landed through existing seams; the agent panel was split; library 0.4.0 absorbed both interim host fixes.
+Scanned 2026-07-07 · Overall 93/100 (Grade A) · The named debts are retired: the MCP worker, native XLSX, the chat import and Law R9 all landed through existing seams; the agent panel was split; library 0.4.0 absorbed both interim host fixes.
 
 ## Fix first (ordered by impact)
-- [ ] **(Leanness)** Split `web/components/deep-link-screen.tsx` (721 lines) — _why:_ the module resolver + per-module data branches can extract per-module renderers like the agent panel's hook split; largest file in the repo — _where:_ web/components/deep-link-screen.tsx
-- [ ] **(Leanness)** The route-handler wrapper across the workers — _why:_ ~56 handlers repeat open/gate/parse boilerplate; CONSCIOUSLY DEFERRED (handlers gate heterogeneously; wrong risk during ship windows) — revisit in a quiet window — _where:_ workers/*/src/routes
-- [ ] **(Size)** `web/lib/api.ts` (477) and `workers/data-ops/src/lib/tools.ts` (545) are drifting up — _why:_ both are declarative tables (fine) but watch for logic creeping in — _where:_ web/lib/api.ts, workers/data-ops/src/lib/tools.ts
+- [x] **(Leanness) DONE** — deep-link-screen.tsx split (775 → 515; the module-render switch moved to deep-link/module-content.tsx). No longer the outlier.
+- [x] **(Leanness) DONE** — the route-handler wrapper retired: shared/workers/route.ts (gated / gatedBody / openTeam); ~29 uniform handlers across 7 files converted; heterogeneous ones stay explicit.
+- [ ] **(Size)** `workers/data-ops/src/lib/tools.ts` (545) + `agent.ts` (531) are the largest now — both cohesive (the tool catalog + the agent loop). Watch for logic creep; no action needed today.
 
 ## Scores
 | Dimension | Score | Status |
