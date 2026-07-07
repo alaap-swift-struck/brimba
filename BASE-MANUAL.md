@@ -454,9 +454,59 @@ a rewrite. That's the payoff of the locked architecture.
 
 ---
 
+### 6.5 · When a team database approaches the cap — the shard runbook
+
+The nightly cron (tenancy, 03:10 UTC) measures every team database and writes a
+`db_alerts` row at **80% of D1's 10 GB cap** — so you see the ceiling coming months
+out, not the day writes fail. When an alarm fires, this is the path, in order:
+
+1. **Find the weight.** One module's table is almost always the bulk (a products or
+   events table, not roles). `SELECT name, SUM(pgsize) FROM dbstat GROUP BY name`
+   on the team DB names it.
+
+2. **Stage 1 — split by MODULE (the designed first move).** Every read and write in
+   the app flows through ONE seam: the data door (`d1Query`/`d1ExecScript` with
+   `guard.databaseId`). Nothing else touches a team database — not the UI, not the
+   agent, not MCP, not the import engine (they all call the gated endpoints, which
+   call the door). So moving one module's tables to a NEW D1 database for that team
+   is a **routing change at that seam**: create the database, copy the module's rows
+   (ULIDs are globally unique — no collisions), and teach the door a per-module
+   database map (`databaseIdFor(guard, module)` instead of the single
+   `guard.databaseId`). Every caller above the seam is untouched — that is why the
+   base bans raw DB access everywhere else.
+
+3. **Stage 2 — split ONE table across two databases (same-table sharding).** Only
+   when a single module outgrows a whole database. Shard by time: **ULIDs sort by
+   creation time**, so "shard 1 = rows before cutoff, shard 2 = after" needs no new
+   key. Writes go to the newest shard (one-line routing); reads use
+   `d1QueryAcross(cfg, [shard1, shard2], sql)` — already in
+   `shared/workers/d1-rest.ts` — which queries the shards IN PARALLEL and merges.
+   Performance: a fanned read costs the LATENCY OF THE SLOWEST SHARD (they run
+   concurrently), not the sum; sorting/paging happens on the merged rows, so keep
+   per-shard LIMITs generous and page in the worker.
+
+4. **Who has to know?** Nobody above the door. The developer API, the MCP tools and
+   the agent all call the same gated endpoints; the endpoints call the door; the
+   door owns routing. A human/agent doing the split follows THIS section; a
+   consumer of the app never sees it.
+
+**What's built today vs what's a documented path:** the alarm cron, `db_alerts`,
+`d1QueryAcross`, ULID time-ordering and the single-door discipline are BUILT and
+tested; the per-module database map (stage 1) and the shard cutover script (stage 2)
+are deliberately NOT built until an alarm fires — building sharding before any team
+nears 8 GB would be dead weight (Prime Directive 1). The point of this section is
+that when it fires, the change is contained to one seam.
+
+**Organizing many apps in Cloudflare:** Cloudflare has no folders. The base's
+convention is (a) a name prefix per product — every worker, database and bucket
+starts `brimba-` (a fork renames the prefix, BASE-MANUAL §5), and (b) for real
+isolation, **one Cloudflare account per product** (BOOTSTRAP assumes this): separate
+billing, separate limits, separate blast radius. Within one account, the prefix IS
+the project grouping — search boxes in the dash filter on it.
+
 ## The base in one breath
 
-Six workers behind one public door. A global core DB for identity + billing, one
+Seven workers behind one public door. A global core DB for identity + billing, one
 isolated D1 per team for its content. One gate (`teamContext → requireRight`) that
 every request — UI *and* agent — passes through, so the AI can do anything the
 user can and nothing they can't. A module plugs into six seams (permissions,
