@@ -1,14 +1,15 @@
 // Help routes: list tickets (My/All tabs = a creator filter), read one ticket's
 // thread, raise a ticket, edit it, move its fixed status, and reply. Mirrors the
-// learning routes: open with teamContext, gate with requireRight on the `help`
-// module, parse + 400 on bad input, then publishChange (row id + op) so open lists
-// + the thread patch just that row. Locked module rules live in lib/help; the
-// reply notify (raiser + @mentions) is best-effort in lib/notify.
+// learning routes: open with the shared gated opening (teamContext + requireRight
+// on the `help` module + defensive body read), parse + 400 on bad input, then
+// publishChange (row id + op) so open lists + the thread patch just that row.
+// Locked module rules live in lib/help; the reply notify (raiser + @mentions) is
+// best-effort in lib/notify.
 
 import { fail, json } from "../../../../shared/workers/http"
 import { requireText, TEXT_LIMITS } from "../../../../shared/workers/validate"
 import { publishChange } from "../../../../shared/workers/realtime"
-import { requireRight, teamContext } from "../../../../shared/workers/gating"
+import { gated, gatedBody } from "../../../../shared/workers/route"
 import { requireIdList } from "../lib/bulk"
 import {
   addReply,
@@ -30,8 +31,7 @@ import type { Env } from "../env"
 
 /** GET /api/content/help?scope=mine|all  (?id=<ticketId> → just that one). */
 export async function getHelp(request: Request, env: Env): Promise<Response> {
-  const { cfg, guard } = await teamContext(request, env)
-  await requireRight(cfg, guard, "help", "read")
+  const { cfg, guard } = await gated(request, env, "help", "read")
   const url = new URL(request.url)
   const scope = url.searchParams.get("scope") === "mine" ? "mine" : "all"
   const tickets = await listTickets(cfg, guard, scope)
@@ -41,8 +41,7 @@ export async function getHelp(request: Request, env: Env): Promise<Response> {
 
 /** GET /api/content/help/thread?id=<ticketId> → the ticket's replies (oldest first). */
 export async function getHelpThread(request: Request, env: Env): Promise<Response> {
-  const { cfg, guard } = await teamContext(request, env)
-  await requireRight(cfg, guard, "help", "read")
+  const { cfg, guard } = await gated(request, env, "help", "read")
   const id = new URL(request.url).searchParams.get("id")
   if (!id) return fail(400, "invalid_input", "A ticket id is required.")
   return json({ replies: await listReplies(cfg, guard, id) })
@@ -50,9 +49,7 @@ export async function getHelpThread(request: Request, env: Env): Promise<Respons
 
 /** POST /api/content/help — raise a ticket (help:create). */
 export async function postCreateHelp(request: Request, env: Env): Promise<Response> {
-  const { actor, cfg, guard } = await teamContext(request, env)
-  await requireRight(cfg, guard, "help", "create")
-  const body = (await request.json().catch(() => ({}))) as TicketInput
+  const { actor, cfg, guard, body } = await gatedBody<TicketInput>(request, env, "help", "create")
   const description = requireText(body.description, "Description", TEXT_LIMITS.long)
   const id = await createTicket(cfg, guard, actor, body)
   await publishChange(env.REALTIME, guard.teamId, "help", id, "add")
@@ -64,9 +61,7 @@ export async function postCreateHelp(request: Request, env: Env): Promise<Respon
 
 /** POST /api/content/help/update — edit a ticket (help:edit). */
 export async function postUpdateHelp(request: Request, env: Env): Promise<Response> {
-  const { actor, cfg, guard } = await teamContext(request, env)
-  await requireRight(cfg, guard, "help", "edit")
-  const body = (await request.json().catch(() => ({}))) as TicketInput & { id?: string }
+  const { actor, cfg, guard, body } = await gatedBody<TicketInput & { id?: string }>(request, env, "help", "edit")
   if (!body.id) return fail(400, "invalid_input", "id and description are required.")
   requireText(body.description, "Description", TEXT_LIMITS.long)
   await updateTicket(cfg, guard, actor, body.id, body)
@@ -77,9 +72,7 @@ export async function postUpdateHelp(request: Request, env: Env): Promise<Respon
 /** POST /api/content/help/status — move a ticket along its fixed lifecycle.
  * Gated PURELY by help:edit (every status move, including reopen — no raiser exception). */
 export async function postHelpStatus(request: Request, env: Env): Promise<Response> {
-  const { actor, cfg, guard } = await teamContext(request, env)
-  await requireRight(cfg, guard, "help", "edit")
-  const body = (await request.json().catch(() => ({}))) as { id?: string; status?: string }
+  const { actor, cfg, guard, body } = await gatedBody<{ id?: string; status?: string }>(request, env, "help", "edit")
   if (!body.id || !body.status || !(HELP_STATUSES as readonly string[]).includes(body.status))
     return fail(400, "invalid_input", "id and a valid status are required.")
   const status = body.status as HelpStatus
@@ -100,9 +93,7 @@ export async function postHelpStatus(request: Request, env: Env): Promise<Respon
  * and — the live-sync law — publishes ONE row-level ping per CHANGED row (patch
  * that row, never refetch the list). Returns { updated, skipped }. */
 export async function postBulkHelpStatus(request: Request, env: Env): Promise<Response> {
-  const { actor, cfg, guard } = await teamContext(request, env)
-  await requireRight(cfg, guard, "help", "edit")
-  const body = (await request.json().catch(() => ({}))) as { ids?: unknown; status?: unknown }
+  const { actor, cfg, guard, body } = await gatedBody<{ ids?: unknown; status?: unknown }>(request, env, "help", "edit")
   const ids = requireIdList(body.ids)
   if (typeof body.status !== "string" || !(HELP_STATUSES as readonly string[]).includes(body.status))
     return fail(400, "invalid_input", "A valid status is required.")
@@ -117,13 +108,11 @@ export async function postBulkHelpStatus(request: Request, env: Env): Promise<Re
  * member who can see tickets may join the conversation). Publishes the new reply
  * (thread view) AND the ticket (it re-sorts to the top), then notifies best-effort. */
 export async function postHelpReply(request: Request, env: Env): Promise<Response> {
-  const { actor, cfg, guard } = await teamContext(request, env)
-  await requireRight(cfg, guard, "help", "read")
-  const body = (await request.json().catch(() => ({}))) as {
+  const { actor, cfg, guard, body } = await gatedBody<{
     helpId?: string
     body?: string
     taggedUserIds?: unknown
-  }
+  }>(request, env, "help", "read")
   if (!body.helpId) return fail(400, "invalid_input", "helpId and a reply body are required.")
   const replyBody = requireText(body.body, "Reply", TEXT_LIMITS.long)
 
@@ -153,8 +142,7 @@ export async function postHelpReply(request: Request, env: Env): Promise<Respons
 /** GET /api/content/help/stakeholders?id=<ticketId> — the full derived ∪ added
  * set (raiser + admins + @mentions + manual adds). help:read gates it. */
 export async function getHelpStakeholders(request: Request, env: Env): Promise<Response> {
-  const { cfg, guard } = await teamContext(request, env)
-  await requireRight(cfg, guard, "help", "read")
+  const { cfg, guard } = await gated(request, env, "help", "read")
   const id = new URL(request.url).searchParams.get("id")
   if (!id) return fail(400, "invalid_input", "A ticket id is required.")
   return json({ stakeholders: await listStakeholders(cfg, env, guard, id) })
@@ -164,9 +152,7 @@ export async function getHelpStakeholders(request: Request, env: Env): Promise<R
  * any member who can see a ticket may pull a teammate in). Add-only — never
  * removes anyone. SEAM LAW: this mutation publishes the help row change. */
 export async function postAddStakeholder(request: Request, env: Env): Promise<Response> {
-  const { actor, cfg, guard } = await teamContext(request, env)
-  await requireRight(cfg, guard, "help", "read")
-  const body = (await request.json().catch(() => ({}))) as { id?: string; userId?: string }
+  const { actor, cfg, guard, body } = await gatedBody<{ id?: string; userId?: string }>(request, env, "help", "read")
   if (!body.id || !body.userId)
     return fail(400, "invalid_input", "id and userId are required.")
   const ticket = await getTicket(cfg, guard, body.id)

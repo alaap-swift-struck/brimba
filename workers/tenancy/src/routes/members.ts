@@ -4,13 +4,11 @@
 import { fail, json } from "../../../../shared/workers/http"
 import { publishChange, publishUserChange } from "../../../../shared/workers/realtime"
 import { changeMemberRole, listMembers, removeMember } from "../lib/members"
-import { requireRight } from "../lib/permissions"
-import { teamContext } from "../context"
+import { gated, gatedBody } from "../../../../shared/workers/route"
 import type { Env } from "../env"
 
 export async function getMembers(request: Request, env: Env): Promise<Response> {
-  const { cfg, guard } = await teamContext(request, env)
-  await requireRight(cfg, guard, "team_members", "read")
+  const { cfg, guard } = await gated(request, env, "team_members", "read")
   const members = await listMembers(env, cfg, guard)
   // ?id=<userId> → just that member (for row-level live patching); same filter
   // as the list, so a no-longer-active member yields [] and the client drops it.
@@ -19,12 +17,9 @@ export async function getMembers(request: Request, env: Env): Promise<Response> 
 }
 
 export async function postMemberRole(request: Request, env: Env): Promise<Response> {
-  const { actor, cfg, guard } = await teamContext(request, env)
-  await requireRight(cfg, guard, "team_members", "edit")
-  const body = (await request.json().catch(() => ({}))) as {
-    userId?: string
-    roleId?: string
-  }
+  const { actor, cfg, guard, body } = await gatedBody<{ userId?: string; roleId?: string }>(
+    request, env, "team_members", "edit"
+  )
   if (!body.userId || !body.roleId)
     return fail(400, "invalid_input", "userId and roleId are required.")
   await changeMemberRole(env, cfg, guard, actor, body.userId, body.roleId)
@@ -35,9 +30,9 @@ export async function postMemberRole(request: Request, env: Env): Promise<Respon
 }
 
 export async function postMemberRemove(request: Request, env: Env): Promise<Response> {
-  const { actor, cfg, guard } = await teamContext(request, env)
-  await requireRight(cfg, guard, "team_members", "delete")
-  const body = (await request.json().catch(() => ({}))) as { userId?: string }
+  const { actor, cfg, guard, body } = await gatedBody<{ userId?: string }>(
+    request, env, "team_members", "delete"
+  )
   if (!body.userId) return fail(400, "invalid_input", "userId is required.")
   await removeMember(env, cfg, guard, actor, body.userId)
   // Team channel: drop them from everyone else's member list (row-level).

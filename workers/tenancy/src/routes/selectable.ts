@@ -7,7 +7,7 @@ import { fail, json } from "../../../../shared/workers/http"
 import { csvResponse, toCsv } from "../../../../shared/workers/csv"
 import { requireText, TEXT_LIMITS } from "../../../../shared/workers/validate"
 import { publishChange } from "../../../../shared/workers/realtime"
-import { requireRight } from "../lib/permissions"
+import { gated, gatedBody } from "../../../../shared/workers/route"
 import {
   createSelectable,
   listSelectable,
@@ -15,12 +15,10 @@ import {
   updateSelectable,
   listSelectableForExport,
 } from "../lib/selectable"
-import { teamContext } from "../context"
 import type { Env } from "../env"
 
 export async function getSelectable(request: Request, env: Env): Promise<Response> {
-  const { cfg, guard } = await teamContext(request, env)
-  await requireRight(cfg, guard, "selectable_data", "read")
+  const { cfg, guard } = await gated(request, env, "selectable_data", "read")
   return json({ values: await listSelectable(cfg, guard) })
 }
 
@@ -28,8 +26,7 @@ export async function getSelectable(request: Request, env: Env): Promise<Respons
  * CSV (EXPORT NEEDS READ; team-bound). Columns lead with the import format
  * (type, value) so the file round-trips through the CSV importer. */
 export async function getSelectableExport(request: Request, env: Env): Promise<Response> {
-  const { cfg, guard } = await teamContext(request, env)
-  await requireRight(cfg, guard, "selectable_data", "read")
+  const { cfg, guard } = await gated(request, env, "selectable_data", "read")
   const rows = await listSelectableForExport(cfg, guard)
   const csv = toCsv(
     ["type", "value", "active", "created_at", "created_by"],
@@ -39,9 +36,7 @@ export async function getSelectableExport(request: Request, env: Env): Promise<R
 }
 
 export async function postCreateSelectable(request: Request, env: Env): Promise<Response> {
-  const { actor, cfg, guard } = await teamContext(request, env)
-  await requireRight(cfg, guard, "selectable_data", "create")
-  const body = (await request.json().catch(() => ({}))) as { type?: string; value?: string }
+  const { actor, cfg, guard, body } = await gatedBody<{ type?: string; value?: string }>(request, env, "selectable_data", "create")
   const type = requireText(body.type, "Group", TEXT_LIMITS.short)
   const value = requireText(body.value, "Option", TEXT_LIMITS.short)
   const id = await createSelectable(cfg, guard, actor, type, value)
@@ -51,9 +46,7 @@ export async function postCreateSelectable(request: Request, env: Env): Promise<
 }
 
 export async function postUpdateSelectable(request: Request, env: Env): Promise<Response> {
-  const { actor, cfg, guard } = await teamContext(request, env)
-  await requireRight(cfg, guard, "selectable_data", "edit")
-  const body = (await request.json().catch(() => ({}))) as { id?: string; value?: string }
+  const { actor, cfg, guard, body } = await gatedBody<{ id?: string; value?: string }>(request, env, "selectable_data", "edit")
   if (!body.id) return fail(400, "invalid_input", "id and value are required.")
   const value = requireText(body.value, "Option", TEXT_LIMITS.short)
   await updateSelectable(cfg, guard, actor, body.id, value)
@@ -62,9 +55,7 @@ export async function postUpdateSelectable(request: Request, env: Env): Promise<
 }
 
 export async function postSetSelectableActive(request: Request, env: Env): Promise<Response> {
-  const { actor, cfg, guard } = await teamContext(request, env)
-  await requireRight(cfg, guard, "selectable_data", "delete")
-  const body = (await request.json().catch(() => ({}))) as { id?: string; active?: boolean }
+  const { actor, cfg, guard, body } = await gatedBody<{ id?: string; active?: boolean }>(request, env, "selectable_data", "delete")
   if (!body.id || typeof body.active !== "boolean")
     return fail(400, "invalid_input", "id and active are required.")
   await setSelectableActive(cfg, guard, actor, body.id, body.active)

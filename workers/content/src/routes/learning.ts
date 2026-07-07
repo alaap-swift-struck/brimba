@@ -1,10 +1,10 @@
 // Learning routes: list the team's how-to items (with the caller's own progress),
 // create / edit / (de)activate an item, mark one done for the caller, and the
 // curator progress dashboard. Mirrors tenancy's roles routes exactly: open with
-// teamContext, gate with requireRight on the `learning` module, parse + 400 on
-// bad input, then publishChange (row id + op) so open lists patch just that row.
-// Locked module rules (pick-or-create category, deactivate-not-delete) live in
-// lib/learning.
+// the shared gated opening (teamContext + requireRight on the `learning` module
+// + defensive body read), parse + 400 on bad input, then publishChange (row id +
+// op) so open lists patch just that row. Locked module rules (pick-or-create
+// category, deactivate-not-delete) live in lib/learning.
 
 import { fail, json } from "../../../../shared/workers/http"
 import { csvResponse, toCsv } from "../../../../shared/workers/csv"
@@ -12,7 +12,7 @@ import { requireText, TEXT_LIMITS } from "../../../../shared/workers/validate"
 import { publishChange } from "../../../../shared/workers/realtime"
 import { parseUploadDataUrl } from "../../../../shared/workers/image"
 import { ulid } from "../../../../shared/workers/id"
-import { requireRight, teamContext } from "../../../../shared/workers/gating"
+import { gated, gatedBody } from "../../../../shared/workers/route"
 import { requireIdList } from "../lib/bulk"
 import {
   bulkSetLearningActive,
@@ -28,8 +28,7 @@ import {
 import type { Env } from "../env"
 
 export async function getLearning(request: Request, env: Env): Promise<Response> {
-  const { cfg, guard } = await teamContext(request, env)
-  await requireRight(cfg, guard, "learning", "read")
+  const { cfg, guard } = await gated(request, env, "learning", "read")
   const items = await listLearning(cfg, guard)
   const id = new URL(request.url).searchParams.get("id") // ?id= → one item
   return json({ learning: id ? items.filter((l) => l.id === id) : items })
@@ -42,8 +41,7 @@ export async function getLearning(request: Request, env: Env): Promise<Response>
  * description, contentType, contentLink, body) so an exported file round-trips
  * straight back through the CSV importer; `active` rides along as information. */
 export async function getLearningExport(request: Request, env: Env): Promise<Response> {
-  const { cfg, guard } = await teamContext(request, env)
-  await requireRight(cfg, guard, "learning", "read")
+  const { cfg, guard } = await gated(request, env, "learning", "read")
   const items = await listLearningForExport(cfg, guard)
   const csv = toCsv(
     [
@@ -61,9 +59,7 @@ export async function getLearningExport(request: Request, env: Env): Promise<Res
 }
 
 export async function postCreateLearning(request: Request, env: Env): Promise<Response> {
-  const { actor, cfg, guard } = await teamContext(request, env)
-  await requireRight(cfg, guard, "learning", "create")
-  const body = (await request.json().catch(() => ({}))) as LearningInput
+  const { actor, cfg, guard, body } = await gatedBody<LearningInput>(request, env, "learning", "create")
   requireText(body.title, "Title", TEXT_LIMITS.short)
   const id = await createLearning(cfg, guard, actor, body)
   // Row-level: carry the new item's id so open learning lists patch just that row.
@@ -72,9 +68,7 @@ export async function postCreateLearning(request: Request, env: Env): Promise<Re
 }
 
 export async function postUpdateLearning(request: Request, env: Env): Promise<Response> {
-  const { actor, cfg, guard } = await teamContext(request, env)
-  await requireRight(cfg, guard, "learning", "edit")
-  const body = (await request.json().catch(() => ({}))) as LearningInput & { id?: string }
+  const { actor, cfg, guard, body } = await gatedBody<LearningInput & { id?: string }>(request, env, "learning", "edit")
   if (!body.id) return fail(400, "invalid_input", "id and title are required.")
   requireText(body.title, "Title", TEXT_LIMITS.short)
   await updateLearning(cfg, guard, actor, body.id, body)
@@ -85,9 +79,7 @@ export async function postUpdateLearning(request: Request, env: Env): Promise<Re
 /** Deactivate / reactivate a learning item — never deleted (progress survives).
  * Gated by learning:delete (deactivate is our "delete" in the deactivate model). */
 export async function postSetLearningActive(request: Request, env: Env): Promise<Response> {
-  const { actor, cfg, guard } = await teamContext(request, env)
-  await requireRight(cfg, guard, "learning", "delete")
-  const body = (await request.json().catch(() => ({}))) as { id?: string; active?: boolean }
+  const { actor, cfg, guard, body } = await gatedBody<{ id?: string; active?: boolean }>(request, env, "learning", "delete")
   if (!body.id || typeof body.active !== "boolean")
     return fail(400, "invalid_input", "id and active are required.")
   await setLearningActive(cfg, guard, actor, body.id, body.active)
@@ -102,9 +94,7 @@ export async function postSetLearningActive(request: Request, env: Env): Promise
  * live-sync law — publishes ONE row-level ping per CHANGED row (patch that row,
  * never refetch the list). Returns { updated, skipped }. */
 export async function postBulkSetLearningActive(request: Request, env: Env): Promise<Response> {
-  const { actor, cfg, guard } = await teamContext(request, env)
-  await requireRight(cfg, guard, "learning", "delete")
-  const body = (await request.json().catch(() => ({}))) as { ids?: unknown; active?: unknown }
+  const { actor, cfg, guard, body } = await gatedBody<{ ids?: unknown; active?: unknown }>(request, env, "learning", "delete")
   const ids = requireIdList(body.ids)
   if (typeof body.active !== "boolean")
     return fail(400, "invalid_input", "active must be true or false.")
@@ -119,9 +109,7 @@ export async function postBulkSetLearningActive(request: Request, env: Env): Pro
  * may record their own). Publishes an "edit" on the row so open lists refresh the
  * viewer's done badge. */
 export async function postLearningDone(request: Request, env: Env): Promise<Response> {
-  const { cfg, guard } = await teamContext(request, env)
-  await requireRight(cfg, guard, "learning", "read")
-  const body = (await request.json().catch(() => ({}))) as { id?: string; done?: boolean }
+  const { cfg, guard, body } = await gatedBody<{ id?: string; done?: boolean }>(request, env, "learning", "read")
   if (!body.id || typeof body.done !== "boolean")
     return fail(400, "invalid_input", "id and done are required.")
   await setLearningDone(cfg, guard, body.id, body.done)
@@ -132,8 +120,7 @@ export async function postLearningDone(request: Request, env: Env): Promise<Resp
 /** Curator dashboard: every member's done state for the team's items. Gated on
  * learning:read for now (the curator view shares the read right). */
 export async function getLearningProgress(request: Request, env: Env): Promise<Response> {
-  const { cfg, guard } = await teamContext(request, env)
-  await requireRight(cfg, guard, "learning", "read")
+  const { cfg, guard } = await gated(request, env, "learning", "read")
   return json({ progress: await listProgress(cfg, guard) })
 }
 
@@ -146,9 +133,7 @@ export async function getLearningProgress(request: Request, env: Env): Promise<R
  * its own row). Gated by learning:create. */
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 export async function postUploadLearningFile(request: Request, env: Env): Promise<Response> {
-  const { cfg, guard } = await teamContext(request, env)
-  await requireRight(cfg, guard, "learning", "create")
-  const body = (await request.json().catch(() => ({}))) as { dataUrl?: unknown }
+  const { guard, body } = await gatedBody<{ dataUrl?: unknown }>(request, env, "learning", "create")
   const parsed = parseUploadDataUrl(body.dataUrl, MAX_UPLOAD_BYTES)
   if (!parsed) return fail(400, "invalid_input", "That file isn't a supported upload (max 25 MB).")
   const id = ulid()

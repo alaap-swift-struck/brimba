@@ -17,6 +17,7 @@ import {
   switchTeam,
   updateTeamDetails,
 } from "../lib/teams"
+import { gatedBody } from "../../../../shared/workers/route"
 import { teamContext, toActor, whoAmI } from "../context"
 import type { Env } from "../env"
 
@@ -92,12 +93,9 @@ export async function createNamedTeam(request: Request, env: Env): Promise<Respo
 }
 
 export async function postUpdateTeam(request: Request, env: Env): Promise<Response> {
-  const { actor, cfg, guard } = await teamContext(request, env)
-  await requireRight(cfg, guard, "teams", "edit")
-  const body = (await request.json().catch(() => ({}))) as {
-    name?: string
-    logoDataUrl?: string
-  }
+  const { actor, cfg, guard, body } = await gatedBody<{ name?: string; logoDataUrl?: string }>(
+    request, env, "teams", "edit"
+  )
   const name = requireText(body.name, "Name", TEXT_LIMITS.short)
   await updateTeamDetails(env, guard.teamId, name, body.logoDataUrl)
   // Record the edit on the team's Activity feed (was missing — team-edit feedback).
