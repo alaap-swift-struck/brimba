@@ -428,7 +428,7 @@ export type StreamEvent =
   /** append this delta to the current assistant reply bubble (word-by-word). */
   | { t: "text"; d: string }
   /** a tool is about to run (human, id→name-resolved summary). */
-  | { t: "step_start"; tool: string; summary: string }
+  | { t: "step_start"; tool: string; summary: string; ids?: Record<string, string> }
   /** that tool finished — ok true, or false on failure (`error` = the door's short,
    * human reason, e.g. which permission was missing — shown on the failed step row). */
   | { t: "step_end"; tool: string; ok: boolean; summary: string; error?: string }

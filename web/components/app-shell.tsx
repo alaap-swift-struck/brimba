@@ -24,6 +24,7 @@ import { NAV, TEAM_SECTIONS, bottomNavItems, isNavActive, type Crumb } from "@/l
 import { usePermissions } from "@/lib/perms"
 import { useTeamPrewarm } from "@/lib/use-team-prewarm"
 import { AgentPanel } from "@/components/agent-panel"
+import { useScreenTraceEngine } from "@/lib/screen-trace"
 import { CreateTeamDialog } from "@/components/create-team-dialog"
 import { ProfileMenu } from "@/components/profile-menu"
 import { TeamSwitcher } from "@/components/team-switcher"
@@ -124,6 +125,9 @@ export function AppShell({
   // The app-wide AI co-pilot sheet (a launcher opens it; gated by agent:create).
   const [agentOpen, setAgentOpen] = React.useState(false)
   const teamId = active.ctx?.team?.id ?? null
+  // The screen-trace engine: the assistant's steps drive the REAL screen from any
+  // page (soft go() inside /t via the host; a client router.push from elsewhere).
+  useScreenTraceEngine(teamId)
   const userId = active.user?.id ?? null
 
   // Warm the cheap always-needed team-wide caches on team entry so the first tap

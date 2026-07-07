@@ -170,6 +170,8 @@ a **Viewer** (read-only) role.
 
 ### The AI agent acts AS the signed-in user
 
+**Screen tracing.** While the agent works, its steps DRIVE the real screen: the panel emits one trace per write step (with the record ids), and the screen-trace engine in the app shell moves the user there — a soft in-place move when they're already inside the team screens, a client-side navigation from anywhere else — then rings the changed control. The tool→screen map is pure (`web/lib/agent-trace.ts`) and machine-checked: `trace-parity.test.ts` fails the build if a write tool ships without a screen mapping.
+
 This is the payoff of the spine, and the reason there is **no separate agent
 role**. The agent (`workers/data-ops/src/lib/`) does not have its own powers. Its
 tool catalogue (`tools.ts`) is an **opt-in** list where every tool maps to a

@@ -77,6 +77,18 @@ function fence(result: ToolResult): string {
   return result.ok ? `OK. Result data: ${body}` : `FAILED: ${result.error ?? "unknown error"}`
 }
 
+/** The id-ish fields of a tool call (id, roleId, userId, …) — slim enough to ride
+ * the step_start event so the panel's screen trace can land on the RECORD, never
+ * the whole input (a create_learning body doesn't belong in a UI event). */
+function traceIds(input: Record<string, unknown>): Record<string, string> | undefined {
+  const out: Record<string, string> = {}
+  for (const [k, v] of Object.entries(input)) {
+    if ((k === "id" || k.endsWith("Id")) && typeof v === "string" && v.length <= 64) out[k] = v
+    if (Object.keys(out).length >= 4) break
+  }
+  return Object.keys(out).length ? out : undefined
+}
+
 const FAIL_NOTE =
   "I couldn't finish — one of the steps was refused, so I stopped there. Nothing further was changed."
 
@@ -399,7 +411,7 @@ async function runPlanLoop(
     for (const tc of reply.toolCalls) {
       const t = getTool(tc.name)
       const summary = t ? t.summarize(tc.input, names) : `Run ${tc.name}`
-      emit?.({ t: "step_start", tool: tc.name, summary })
+      emit?.({ t: "step_start", tool: tc.name, summary, ids: traceIds(tc.input) })
       const result: ToolResult = t
         ? await executeTool(env, request, t, tc.input)
         : { ok: false, status: 404, data: null, error: `Unknown tool "${tc.name}".` }
@@ -495,7 +507,7 @@ export async function confirmAndRun(
   for (const tc of calls) {
     const t = getTool(tc.name)
     const summary = t ? t.summarize(tc.input, names) : `Run ${tc.name}`
-    emit?.({ t: "step_start", tool: tc.name, summary })
+    emit?.({ t: "step_start", tool: tc.name, summary, ids: traceIds(tc.input) })
     const result: ToolResult = t
       ? await executeTool(env, request, t, tc.input)
       : { ok: false, status: 404, data: null, error: `Unknown tool "${tc.name}".` }

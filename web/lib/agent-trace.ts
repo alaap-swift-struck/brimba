@@ -15,33 +15,9 @@
  * matching dialog, and a CSS selector to ring briefly once the screen is there. */
 export type TraceTarget = { path: string; query?: Record<string, string>; highlight?: string }
 
-/* --------------------------------- nav bus -------------------------------- */
-
-// The panel is mounted in AppShell, but go() (History-API soft nav) lives in
-// DeepLinkScreen. This tiny window-event bus bridges them WITHOUT lifting a callback
-// through three components: the panel emits a trace target; DeepLinkScreen — the only
-// listener — drives its own go() the same way a click would, but ONLY when it's
-// showing the /t host for that team (so we never hard-reload someone on /home into /t).
-const TRACE_EVENT = "brimba:agent-trace"
-
-/** Fired from the panel per traced step. `teamId` lets the listener ignore a trace
- * for a team it isn't currently showing. */
-export type TraceNav = { teamId: string; target: TraceTarget }
-
-/** Ask the deep-link host (if mounted) to gently move to a traced target. A no-op
- * when nothing is listening (e.g. the panel is open over /home). */
-export function emitTrace(nav: TraceNav): void {
-  if (typeof window === "undefined") return
-  window.dispatchEvent(new CustomEvent<TraceNav>(TRACE_EVENT, { detail: nav }))
-}
-
-/** Subscribe to trace-nav requests; returns an unsubscribe. Only DeepLinkScreen calls
- * this. Kept here so the event name has one owner. */
-export function onTrace(handler: (nav: TraceNav) => void): () => void {
-  const listener = (e: Event) => handler((e as CustomEvent<TraceNav>).detail)
-  window.addEventListener(TRACE_EVENT, listener)
-  return () => window.removeEventListener(TRACE_EVENT, listener)
-}
+// The nav bus + engine live in web/lib/screen-trace.tsx (DOM/React); THIS file
+// stays pure and DOM-free so the trace-parity test in workers/data-ops can import
+// it and prove every write tool in the agent catalog maps to a screen.
 
 const seg = (teamId: string, module: string) => `/t/${teamId}/${module}`
 const str = (input: Record<string, unknown>, key: string): string => {
@@ -123,6 +99,17 @@ export function traceFor(
     case "set_help_status":
       return { path: `${seg(teamId, "help")}/${str(input, "id")}`, highlight: "main" }
 
+    /* ------------------------------- imports -------------------------------- */
+    // Running an attached-files import (the chat import) → the Import screen,
+    // where the batch's plan/report lives. Bulk changes → the list that patches
+    // live as the rows change.
+    case "run_import_batch":
+      return { path: seg(teamId, "import"), highlight: "main" }
+    case "bulk_set_help_status":
+      return { path: seg(teamId, "help"), highlight: "main" }
+    case "bulk_set_learning_active":
+      return { path: seg(teamId, "learning"), highlight: "main" }
+
     /* --------------------------------- team -------------------------------- */
     // Rename the team → the team Overview (the bare /t/<team> path, as the host
     // builds it) with the edit dialog open, like the "Edit" action.
@@ -134,3 +121,8 @@ export function traceFor(
       return null
   }
 }
+
+/** Write tools that deliberately have NO screen to drive (none today — the
+ * trace-parity test forces every new write tool to either map above or be
+ * added here with a reason). */
+export const SCREENLESS_WRITE_TOOLS: string[] = []

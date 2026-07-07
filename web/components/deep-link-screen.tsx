@@ -76,7 +76,8 @@ import { useActiveTeam } from "@/lib/use-active-team"
 import { reportError } from "@/lib/log"
 import { personName } from "@/lib/identity"
 import { MODULE_PERMISSION, resolveRecipe, withDataDrivenCollection, withoutActions } from "@/lib/screens"
-import { onTrace, type TraceTarget } from "@/lib/agent-trace"
+import { type TraceTarget } from "@/lib/agent-trace"
+import { onHostTrace, takeTrace } from "@/lib/screen-trace"
 import { TEAM_SECTIONS, type Crumb } from "@/lib/pages"
 import type { TeamMember } from "@shared/types"
 
@@ -253,7 +254,13 @@ export function DeepLinkScreen() {
   // export, so a trace for a team we aren't showing is dropped (the panel narrates
   // it instead). Move softly via go(), then ring the traced control for a beat.
   React.useEffect(() => {
-    return onTrace(({ teamId: traceTeam, target }: { teamId: string; target: TraceTarget }) => {
+    // A trace stashed BEFORE we mounted (the engine navigated here from another
+    // page) fires now, once the host is showing this team.
+    if (teamId && onTeam) {
+      const stashed = takeTrace(teamId)
+      if (stashed) setTraceHighlight(stashed.highlight ?? null)
+    }
+    return onHostTrace(({ teamId: traceTeam, target }: { teamId: string; target: TraceTarget }) => {
       if (!teamId || traceTeam !== teamId || !onTeam) return
       if (!isInAppPath(target.path)) return
       go(target.path, target.query)

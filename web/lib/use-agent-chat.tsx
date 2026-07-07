@@ -17,7 +17,8 @@ import { toast } from "@swift-struck/ui/registry/primitives/sonner/sonner"
 import type { AgentMessage, AgentQuota, PendingCall } from "@shared/types"
 import { ApiFailure, dataOps, type AgentStreamEvent } from "@/lib/api"
 import { fileToCsv, UserFileError } from "@/lib/file-to-csv"
-import { emitTrace, traceFor } from "@/lib/agent-trace"
+import { traceFor } from "@/lib/agent-trace"
+import { emitTrace } from "@/lib/screen-trace"
 import { AgentMarkdown } from "@/components/agent-markdown"
 
 let nextId = 0
@@ -157,14 +158,12 @@ export function useAgentChat(teamId: string | null, open: boolean, canUse: boole
             if (idx < 0) return [...prev, row]
             return [...prev.slice(0, idx), row, ...prev.slice(idx)]
           })
-          // Real-screen trace: drive the matching screen if the host is showing this
-          // team (it ignores the request otherwise, and we just narrate the step).
-          // step_start carries only tool + summary (no input), so a detail-target
-          // tool resolves to its record path with an empty id — the host parses that
-          // as the LIST level, i.e. the collection where the row updates live. We
-          // strip the dangling "/" so it's a clean list URL, not "…/members/".
+          // Real-screen trace: the ENGINE (AppShell) moves the screen — soft go()
+          // inside /t, a client router.push from anywhere else. step_start now
+          // carries the call's record ids, so a detail-target tool lands on the
+          // RECORD; with no ids it falls back to the list (strip the dangling /).
           if (teamId) {
-            const target = traceFor(ev.tool, {}, teamId)
+            const target = traceFor(ev.tool, ev.ids ?? {}, teamId)
             if (target)
               emitTrace({ teamId, target: { ...target, path: target.path.replace(/\/$/, "") } })
           }
