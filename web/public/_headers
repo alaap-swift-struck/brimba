@@ -1,7 +1,19 @@
 # Cloudflare Workers Static Assets reads this file (copied into web/out by the
-# Next export). Content-hashed files under /_next/static/** can never change
-# under the same name, so cache them forever — the browser never re-validates
-# them on repeat loads. Everything else keeps the safe default (revalidated).
+# Next export).
+
+# Security headers on EVERY response (different header names from the Cache-Control
+# rules below, so they layer, not conflict): the app is never meant to be iframed
+# (anti-clickjacking), browsers must not MIME-sniff, and referrers stay origin-only.
+# A full Content-Security-Policy is deliberately omitted — it needs per-app testing
+# against the SPA's inline + CDN needs; these three are safe blanket defaults.
+/*
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+
+# Content-hashed files under /_next/static/** can never change under the same name,
+# so cache them forever — the browser never re-validates them on repeat loads.
+# Everything else keeps the safe default (revalidated).
 /_next/static/*
   Cache-Control: public, max-age=31536000, immutable
 
