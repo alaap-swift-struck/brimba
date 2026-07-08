@@ -69,7 +69,8 @@ export const MCP_TOOLS: McpTool[] = [
   },
   {
     name: "list_dropdown_values",
-    description: "The team's dropdown values (selectable data).",
+    description:
+      "The team's dropdown values (selectable data), active first then deactivated — each carries `active`. Deactivated values are listed too, so you can find one's id and reactivate it with set_dropdown_value_active.",
     inputSchema: obj({}),
     binding: "TENANCY",
     method: "GET",

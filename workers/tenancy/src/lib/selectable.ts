@@ -10,19 +10,22 @@ import { ulid } from "../../../../shared/workers/id"
 import type { SelectableValue } from "../../../../shared/types"
 import { GuardError, type MemberGuard } from "./permissions"
 
-type Row = { id: string; type: string; value: string; is_default: number }
+type Row = { id: string; type: string; value: string; is_default: number; deactivated_at: string | null }
 
 function toValue(r: Row): SelectableValue {
-  return { id: r.id, type: r.type, value: r.value, isDefault: r.is_default === 1 }
+  return { id: r.id, type: r.type, value: r.value, isDefault: r.is_default === 1, active: r.deactivated_at == null }
 }
 
-/** Every ACTIVE dropdown value in the team, ordered by type then value (the UI
- * groups by `type`). Deactivated values drop out, exactly like a retired role. */
+/** Every dropdown value in the team — ACTIVE first, then deactivated — grouped by
+ * type then value (the UI groups by `type`). Deactivated values ARE returned (each
+ * carries `active`), exactly like a retired role: the manager shows them greyed with
+ * an Activate button, and form pickers filter to `active`. This is what makes a
+ * deactivated value reachable to reactivate (never hidden, never a dead end). */
 export async function listSelectable(cfg: D1Rest, guard: MemberGuard): Promise<SelectableValue[]> {
   const rows = await d1Query<Row>(
     cfg,
     guard.databaseId,
-    "SELECT id, type, value, is_default FROM selectable_data WHERE deactivated_at IS NULL ORDER BY type ASC, value ASC",
+    "SELECT id, type, value, is_default, deactivated_at FROM selectable_data ORDER BY type ASC, (deactivated_at IS NULL) DESC, value ASC",
     []
   )
   return rows.map(toValue)

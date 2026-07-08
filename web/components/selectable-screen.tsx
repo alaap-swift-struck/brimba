@@ -12,7 +12,7 @@ import { Button } from "@swift-struck/ui/registry/primitives/button/button"
 import { Input } from "@swift-struck/ui/registry/primitives/input/input"
 import { Skeleton } from "@swift-struck/ui/registry/primitives/skeleton/skeleton"
 import { toast } from "@swift-struck/ui/registry/primitives/sonner/sonner"
-import { Plus, Pencil, X, Check, Upload, Download } from "lucide-react"
+import { Plus, Pencil, X, Check, Upload, Download, Power } from "lucide-react"
 
 import type { SelectableValue } from "@shared/types"
 import { ApiFailure, tenancy } from "@/lib/api"
@@ -77,13 +77,16 @@ export function SelectableScreen({
     }
   }
 
-  async function remove(v: SelectableValue) {
+  // Deactivate / reactivate one value. A deactivated value is retired, not deleted:
+  // it stays visible here (greyed, with an Activate button) so it's never a dead end,
+  // and drops out of the form pickers. Same key the pickers read, so both refresh.
+  async function setActive(v: SelectableValue, next: boolean) {
     try {
-      const { values: next } = await tenancy.setSelectableActive(v.id, false)
-      primeCache(`selectable:${teamId}`, next)
-      toast.success(`Removed "${v.value}".`)
+      const { values: list } = await tenancy.setSelectableActive(v.id, next)
+      primeCache(`selectable:${teamId}`, list)
+      toast.success(next ? `Activated "${v.value}".` : `Deactivated "${v.value}".`)
     } catch (err) {
-      toast.error(err instanceof ApiFailure ? err.message : "Couldn't remove that option.")
+      toast.error(err instanceof ApiFailure ? err.message : "Couldn't update that option.")
     }
   }
 
@@ -163,7 +166,9 @@ export function SelectableScreen({
                 {g.items.map((v) => (
                   <li
                     key={v.id}
-                    className="border-border/60 flex items-center gap-2 rounded-lg border px-3 py-1.5"
+                    className={`border-border/60 flex items-center gap-2 rounded-lg border px-3 py-1.5 ${
+                      v.active ? "" : "opacity-60"
+                    }`}
                   >
                     {editingId === v.id ? (
                       <>
@@ -194,28 +199,47 @@ export function SelectableScreen({
                     ) : (
                       <>
                         <span className="flex-1 text-sm">{v.value}</span>
-                        {canEdit && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => {
-                              setEditingId(v.id)
-                              setEditValue(v.value)
-                            }}
-                            aria-label={`Rename ${v.value}`}
-                          >
-                            <Pencil className="size-4" />
-                          </Button>
+                        {!v.active && (
+                          <span className="text-muted-foreground text-xs">Deactivated</span>
                         )}
-                        {canDelete && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => void remove(v)}
-                            aria-label={`Remove ${v.value}`}
-                          >
-                            <X className="size-4" />
-                          </Button>
+                        {v.active ? (
+                          <>
+                            {canEdit && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => {
+                                  setEditingId(v.id)
+                                  setEditValue(v.value)
+                                }}
+                                aria-label={`Rename ${v.value}`}
+                              >
+                                <Pencil className="size-4" />
+                              </Button>
+                            )}
+                            {canDelete && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => void setActive(v, false)}
+                                aria-label={`Deactivate ${v.value}`}
+                              >
+                                <Power className="size-4" />
+                              </Button>
+                            )}
+                          </>
+                        ) : (
+                          canDelete && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => void setActive(v, true)}
+                              className="gap-1.5"
+                              aria-label={`Activate ${v.value}`}
+                            >
+                              <Power className="size-3.5" /> Activate
+                            </Button>
+                          )
                         )}
                       </>
                     )}

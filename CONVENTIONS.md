@@ -387,9 +387,19 @@ Two rules travel together and appear on **every** write (ARCHITECTURE §4).
 
 ### Deactivate, never delete
 
-Records are *retired*, never removed. A `deactivated_at` timestamp (NULL = active) hides
-the row from the active list while its data and history survive. There is no `DELETE`
-statement for a user-facing record anywhere in the base.
+Records are *retired*, never removed. A `deactivated_at` timestamp (NULL = active)
+marks the row while its data and history survive. There is no `DELETE` statement for a
+user-facing record anywhere in the base.
+
+**Deactivate must stay reversible — never a dead end.** A management LIST must still
+RETURN deactivated rows (active first, each carrying an `active` flag) so the screen can
+show them greyed with an Activate button and the owner can bring one back. Only the
+form PICKERS filter to `active` (a retired value isn't offered as a new choice, but old
+rows that referenced it still read truthfully). Do **not** filter a management list to
+`WHERE deactivated_at IS NULL` — that hides the row *and* the way back (`listRoles`,
+`listLearning`, `listSelectable` all return inactive; only the pickers in
+`use-screen-data.ts` drop it). Guarded for dropdown values by
+`workers/tenancy/test/selectable-reactivatable.test.ts`.
 
 ```ts
 // learning.ts — setLearningActive

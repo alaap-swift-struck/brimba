@@ -62,6 +62,9 @@ export type SelectableValue = {
   type: string
   value: string
   isDefault: boolean
+  /** false = deactivated (retired). The manager shows these greyed with an Activate
+   * button; form pickers filter to active. Always present. */
+  active: boolean
 }
 
 /** A role's permission matrix as the tenancy worker returns it: the module rows

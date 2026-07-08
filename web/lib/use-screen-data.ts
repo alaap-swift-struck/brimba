@@ -66,11 +66,15 @@ export function useScreenData({ teamId, enabled, module, recordId }: ScreenDataI
     () => tenancy.selectable().then((r) => r.values)
   )
   const selectableValues = formSelectableQ.data ?? []
-  const helpTypeOptions = selectableValues.filter((v) => v.type === "Help type").map((v) => v.value)
-  const learningCategoryOptions = selectableValues
+  // The list now includes DEACTIVATED values (so the manager can reactivate them),
+  // so every form PICKER filters to `active` — a retired value never appears as a
+  // pickable option (but old rows that referenced it still read truthfully).
+  const activeSelectable = selectableValues.filter((v) => v.active)
+  const helpTypeOptions = activeSelectable.filter((v) => v.type === "Help type").map((v) => v.value)
+  const learningCategoryOptions = activeSelectable
     .filter((v) => v.type === "Learning category")
     .map((v) => v.value)
-  const contentTypeOptions = selectableValues.filter((v) => v.type === "File type").map((v) => v.value)
+  const contentTypeOptions = activeSelectable.filter((v) => v.type === "File type").map((v) => v.value)
 
   // Activity is one read path over three scopes (team / a member / an invite) — the
   // scope is derived from what's in view, and its cache key mirrors the scope so a
