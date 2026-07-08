@@ -92,3 +92,23 @@ describe("live-sync seam: every mutation publishes", () => {
     }
   })
 })
+
+// THE PERMISSION-GATING SEAM guard (LAW R10) — the security counterpart to the
+// live-sync seam. Every state-changing (non-GET) data-ops route must open with a
+// permission gate: requireRight / requireAnyImportRight (import steps gate on an
+// import right; confirm gates `create` on every destination module), the agent's
+// `agent:create` right, or adminGuard for the owner endpoints (grant-credits,
+// seed-targets, errors/resolve). No identity-gated writes here. Reads handler source
+// off disk, so a write that forgets to gate turns the build red.
+const GATED_RE = /require\w*Right|\bgated|adminGuard/
+
+describe("permission-gating seam (R10): every write gates", () => {
+  it("every non-GET handler gates on a right or an admin key", () => {
+    for (const [route, def] of Object.entries(ROUTES)) {
+      if (route.startsWith("GET ")) continue
+      const body = routeFns.get(def.handler.name)
+      expect(body, `handler source for ${route} (${def.handler.name})`).toBeTruthy()
+      expect(GATED_RE.test(body!), `${route} must gate (requireRight / requireAnyImportRight / adminGuard)`).toBe(true)
+    }
+  })
+})

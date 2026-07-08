@@ -86,3 +86,21 @@ describe("live-sync seam: every mutation publishes", () => {
     }
   })
 })
+
+// THE PERMISSION-GATING SEAM guard (LAW R10) — the security counterpart to the
+// live-sync seam. Every state-changing (non-GET) content route must open with a
+// permission gate (requireRight, or the gated()/gatedBody() wrapper that calls it).
+// Content has NO identity-gated writes — every one gates on a `learning`/`help` right.
+// Reads handler source off disk, so a write that forgets to gate turns the build red.
+const GATED_RE = /require\w*Right|\bgated|adminGuard/
+
+describe("permission-gating seam (R10): every write gates", () => {
+  it("every non-GET handler gates on a right", () => {
+    for (const [route, def] of Object.entries(ROUTES)) {
+      if (route.startsWith("GET ")) continue
+      const body = routeFns.get(def.handler.name)
+      expect(body, `handler source for ${route} (${def.handler.name})`).toBeTruthy()
+      expect(GATED_RE.test(body!), `${route} must gate (requireRight / gated)`).toBe(true)
+    }
+  })
+})

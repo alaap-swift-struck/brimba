@@ -80,6 +80,13 @@ export const RULES_REGISTRY: Rule[] = [
     checkId: "agent-app-parity",
     status: "enforced",
   },
+  {
+    id: "R10",
+    dimension: "arch",
+    law: "Every state-changing route opens with a permission gate — requireRight (or the gated()/gatedBody() wrapper / requireAnyImportRight / adminGuard) — unless it is a reviewed identity-gated write (teamless onboarding, own-pointer, ownership) that gates on whoAmI instead. No ungated door can ship.",
+    checkId: "gating-seam",
+    status: "enforced",
+  },
 ]
 
 /** Worker test suites that enforce R1. A new mutating worker without a

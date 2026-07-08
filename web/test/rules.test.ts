@@ -128,6 +128,7 @@ describe("RULES — the laws of the base", () => {
   it("every enforced law has a known check", () => {
     const known = new Set([
       "publish-seam", // the 3 per-worker publish-seam.test.ts suites
+      "gating-seam", // R10: the 3 per-worker gating-seam suites (beside publish-seam)
       "record-detail-tabs",
       "no-handrolled-toggles",
       "forms-use-formshell",

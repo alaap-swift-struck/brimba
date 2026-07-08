@@ -84,3 +84,40 @@ describe("live-sync seam: every mutation publishes", () => {
     }
   })
 })
+
+// THE PERMISSION-GATING SEAM guard (LAW R10) — the security counterpart to the
+// live-sync seam above. Every state-changing (non-GET) route must open with a
+// permission gate: requireRight / requireAnyImportRight, the gated()/gatedBody()
+// wrapper that calls it, or adminGuard for an owner endpoint. The ONE reviewed
+// exception is an IDENTITY-gated write — a teamless / own-pointer / ownership action
+// with no team-right to check, which gates on whoAmI instead. Reads handler source
+// off disk, so a new write that forgets to gate turns the build red: no ungated door
+// can ship.
+const GATED_RE = /require\w*Right|\bgated|adminGuard/
+const IDENTITY_GATED = new Set<string>([
+  "POST /api/tenancy/bootstrap", // teamless onboarding — no team-right exists yet
+  "POST /api/tenancy/switch-team", // flips the caller's OWN current-team pointer
+  "POST /api/tenancy/teams", // create a team — any signed-in user, no prior membership
+  "POST /api/tenancy/invitations/accept", // accept a received invite — gates on email ownership
+])
+
+describe("permission-gating seam (R10): every write gates", () => {
+  it("every non-GET handler gates on a right — or is a reviewed identity-gated write", () => {
+    for (const [route, def] of Object.entries(ROUTES)) {
+      if (route.startsWith("GET ")) continue
+      const body = routeFns.get(def.handler.name)
+      expect(body, `handler source for ${route} (${def.handler.name})`).toBeTruthy()
+      if (IDENTITY_GATED.has(route)) {
+        expect(/whoAmI/.test(body!), `${route} must still gate on identity (whoAmI)`).toBe(true)
+      } else {
+        expect(GATED_RE.test(body!), `${route} must gate (requireRight / gated / adminGuard)`).toBe(true)
+      }
+    }
+  })
+
+  it("the identity-gated allow-list has no stale entries", () => {
+    const all = new Set(Object.keys(ROUTES))
+    for (const route of IDENTITY_GATED)
+      expect(all.has(route), `${route} is allow-listed but no longer a route`).toBe(true)
+  })
+})

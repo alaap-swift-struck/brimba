@@ -25,6 +25,7 @@ every exception is a visible, conscious line — never a silent bypass.
 | R7 | ui | Every form dialog persists its draft per session (useFormDraft) — unsaved input survives navigating away (CACHING.md §11). | `forms-persist-drafts` | enforced |
 | R8 | ui | Every team collection tab derives its count from its loaded rows — a placement:'tab' section that shows a collection must declare a countCacheKey. | `tab-counts-derived` | enforced |
 | R9 | arch | The agent knows what the app can do — its system prompt carries a capability brief GENERATED from the import/export catalog (+ the glossary), so the UI and the agent can never disagree about a capability. | `agent-app-parity` (workers/data-ops/test/agent-parity.test.ts) | enforced |
+| R10 | arch | Every state-changing route opens with a permission gate (requireRight / gated / requireAnyImportRight / adminGuard) — unless it's a reviewed identity-gated write (teamless onboarding, own-pointer, ownership) that gates on whoAmI. No ungated door ships. | `gating-seam` (per-worker tests: tenancy, content, data-ops — the security counterpart to `publish-seam`) | enforced |
 
 ## How to add a new law
 
@@ -39,6 +40,7 @@ no working check is not a law — delete it or write the check.
 ## Dimensions
 
 Laws are cross-cutting: **arch** (architecture/data), **ui** (interface),
-**workflow** (how we build), **ai** (the assistant). A future `R9 (ai): every
-agent tool maps to a gated route` is a natural next row once the tool catalog
-stabilises.
+**workflow** (how we build), **ai** (the assistant). The agent/MCP tool surface is
+already held to the doors it forwards to (`workers/mcp/test/catalog.test.ts` +
+`workers/data-ops/test/trace-parity.test.ts`); a natural next row is a UI law once a
+new interface pattern stabilises.

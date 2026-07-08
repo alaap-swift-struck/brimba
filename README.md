@@ -49,8 +49,9 @@ that list.
 modifying, recreating, or building on Brimba lives in one of these, and each is
 concrete + checkable:
 
+- **The global habits every Swift Struck build follows** — [SWIFT-STRUCK-WAY.md](SWIFT-STRUCK-WAY.md): the cross-app rules (lean, machine-checked laws, act-as-user, every route gates, deactivate-not-delete, the ship pipeline). Travels with every fork; the `new-app` skill reads it first.
 - **The two prime directives** (stay lean; obey the Laws) — [CLAUDE.md](CLAUDE.md), the entry point.
-- **The Laws of the Base** (R1–R9) — [RULES.md](RULES.md), *machine-checked*: pinned to `shared/rules/registry.ts` and enforced by tests that read the source off disk (`web/test/rules.test.ts`, the per-worker `publish-seam.test.ts`). Break one → the build goes red. Adding a Law requires the rule, the registry entry, and a check — all three.
+- **The Laws of the Base** (R1–R10) — [RULES.md](RULES.md), *machine-checked*: pinned to `shared/rules/registry.ts` and enforced by tests that read the source off disk (`web/test/rules.test.ts`, the per-worker `publish-seam.test.ts` for live-sync R1, and the per-worker `gating-seam` suite for permission-gating R10). Break one → the build goes red. Adding a Law requires the rule, the registry entry, and a check — all three.
 - **Code house style** — [CONVENTIONS.md](CONVENTIONS.md): the handler shape, the two data doors, gating, boundary validation, deactivate-not-delete, the comment style.
 - **UI conventions** — [UI-CONVENTIONS.md](UI-CONVENTIONS.md): library-is-lego, recipe vs bespoke, the enforced UI Laws, the action-icon mapping, the *action-button rows never clip* responsive rule, the voice.
 - **Import + export rules** — [AGENTIC-IMPORT.md](AGENTIC-IMPORT.md): audit parity, export-needs-read/import-needs-create, one-confirm, insert-only, and every import place offers a sample file (test-enforced).
