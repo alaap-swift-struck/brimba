@@ -103,29 +103,29 @@
 /* DATA:START */
 window.LEAN_MEAN_DATA = {
   "project": "Brimba",
-  "scannedAt": "2026-07-07",
+  "scannedAt": "2026-07-08",
   "overall": {
     "score": 93,
     "grade": "A",
-    "verdict": "The named debts are retired: deep-link-screen split (775 to 515), the route-boilerplate wrapper shipped (~29 handlers), the agent panel already split, and the screen-trace engine rebuilt (machine-checked). Error store clean on both envs; MCP + trace all green.",
-    "sub": "255 files · 26k lines · 268 tests · 7 workers + web"
+    "verdict": "Lean additions this round: Law R10 (permission-gating seam) added via the base's own registry+check machinery, 18 deterministic MCP write tools (thin declarative forwards), and the deactivated-dropdown dead-end fixed to match roles/learning — all with tests. No new debt; largest file 545 LOC.",
+    "sub": "256 files · 26k lines · 274 tests · 7 workers + web"
   },
   "dimensions": [
     {
       "key": "size",
       "title": "Size & Scope",
       "icon": "📦",
-      "score": 85,
+      "score": 86,
       "status": "green",
       "headline": "Grown, still layered",
       "metrics": [
         {
           "label": "Files",
-          "value": "255"
+          "value": "256"
         },
         {
           "label": "Lines",
-          "value": "25.8k"
+          "value": "26.4k"
         },
         {
           "label": "Over 400 LOC",
@@ -133,12 +133,13 @@ window.LEAN_MEAN_DATA = {
         }
       ],
       "strengths": [
-        "The whole agentic-import engine landed as four small, single-purpose files (pure plan · agent · batch · catalog) rather than one blob."
+        "The whole agentic-import engine landed as four small, single-purpose files (pure plan · agent · batch · catalog) rather than one blob.",
+        "The 18 new MCP write tools are pure declarative data (name/path/schema), not logic — the catalog grew, the code didn't."
       ],
       "improvements": [
         {
-          "what": "Two host files stay large.",
-          "why": "deep-link-screen.tsx (721) + agent-panel.tsx (639) grew with the dropdowns wiring + chat history; split further when either passes ~800."
+          "what": "The agent tool catalog + loop are the largest files.",
+          "why": "tools.ts (545) + agent.ts (531) are cohesive but the biggest; split if either passes ~800."
         }
       ]
     },
@@ -152,11 +153,11 @@ window.LEAN_MEAN_DATA = {
       "metrics": [
         {
           "label": "Tests",
-          "value": "268"
+          "value": "274"
         },
         {
           "label": "Test files",
-          "value": "35"
+          "value": "38"
         },
         {
           "label": "TODOs",
@@ -164,9 +165,9 @@ window.LEAN_MEAN_DATA = {
         }
       ],
       "strengths": [
-        "The new import planner, foreign-key resolver, normalizers and sample-per-target are all unit-tested; the wire-format + credit + CSV-injection invariants stay locked.",
-        "The error store now self-cleans: the reporter filters benign network blips so only real failures land — a structural fix the error skill made this round.",
-        "Machine-checked Laws + a publish-seam test per worker."
+        "Ten machine-checked Laws now — R10 adds a permission-gating seam per worker (the security twin of the publish-seam), so no ungated route can ship.",
+        "The deactivated-dropdown dead-end is fixed AND guarded by a regression test; every deactivate/reactivate path across modules was hand-swept.",
+        "The MCP catalog is machine-checked against the real ROUTES — the 18 new write tools can't drift from their gated doors."
       ],
       "improvements": [
         {
@@ -185,7 +186,7 @@ window.LEAN_MEAN_DATA = {
       "metrics": [
         {
           "label": "Doc files",
-          "value": "25"
+          "value": "27"
         },
         {
           "label": "Rulebook",

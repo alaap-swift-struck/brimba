@@ -192,18 +192,27 @@ or zero, by choice.
   or write another team's data (isolation by physics — separate databases).
 - **No god mode.** The tool catalog is **opt-in** — only the listed, gated actions are
   exposed. Internal/maintenance endpoints, other people's device sessions, deleting the
-  team: not in the catalog, structurally unreachable.
+  team: not in the catalog, structurally unreachable. Every write route gates on a
+  permission (machine-checked — Law R10), so a tool can't skip the gate.
+- **Writes are reversible + audited.** The write tools deactivate, never hard-delete;
+  every change stamps an audit block (who + when) and the locked guards fire even here —
+  you can't remove yourself or the last admin.
 - **Revoke bites immediately.** The token is re-verified on every request, so revoking
   it stops the next call — even if a session was mid-flight.
 - **Hashed at rest.** Only the token's hash is stored; the secret is shown once.
 
-**One honest limit:** the assistant/import tools are bounded by the team's AI quota,
-but the *cheap* tools (reads, exports) aren't application-rate-limited today — they
-lean on the fact that a token is a trusted, role-scoped, instantly-revocable party
-behind Cloudflare's protection, and they expose nothing the holder couldn't already
-read in the app. If you ever hand a token to a *less*-trusted integration, prefer a
-tightly-scoped role and watch `last_used_at`; a per-token rate limit is a small future
-add if you need it.
+**Two honest limits:**
+
+1. **No per-token rate limit yet.** The non-AI tools (reads, exports, **and now
+   writes**) aren't application-rate-limited — they lean on a token being a trusted,
+   role-scoped, instantly-revocable party behind Cloudflare, and every write is
+   reversible (deactivate-not-delete), audited, and one-team. If you hand a token to a
+   *less*-trusted integration, prefer a tightly-scoped role, watch `last_used_at`, and
+   a per-token rate limit is a small future add.
+2. **`member_roles:edit` is a powerful right.** Anyone who can edit roles can grant
+   permissions — including to their own role — exactly as in the UI (there's no separate
+   admin tier). So give a machine token that right only when the integration genuinely
+   manages roles; a read/import/export integration never needs it.
 
 ---
 

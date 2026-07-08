@@ -1,19 +1,20 @@
 # Lean Mean Check — Brimba
-Scanned 2026-07-07 · Overall 93/100 (Grade A) · The named debts are retired: the MCP worker, native XLSX, the chat import and Law R9 all landed through existing seams; the agent panel was split; library 0.4.0 absorbed both interim host fixes.
+Scanned 2026-07-08 · Overall 93/100 (Grade A) · Lean additions: Law R10 (permission-gating seam) via the base's own registry+check machinery, 18 deterministic MCP write tools (declarative forwards), and the deactivated-dropdown dead-end fixed to match roles/learning — all test-covered, no new debt.
 
 ## Fix first (ordered by impact)
-- [x] **(Leanness) DONE** — deep-link-screen.tsx split (775 → 515; the module-render switch moved to deep-link/module-content.tsx). No longer the outlier.
-- [x] **(Leanness) DONE** — the route-handler wrapper retired: shared/workers/route.ts (gated / gatedBody / openTeam); ~29 uniform handlers across 7 files converted; heterogeneous ones stay explicit.
-- [ ] **(Size)** `workers/data-ops/src/lib/tools.ts` (545) + `agent.ts` (531) are the largest now — both cohesive (the tool catalog + the agent loop). Watch for logic creep; no action needed today.
+- [x] **(Robustness) DONE** — Law R10: every state-changing route gates (per-worker `gating-seam` test beside publish-seam) — the security twin of R1.
+- [x] **(Correctness) DONE** — deactivated dropdown values were a dead end (listSelectable filtered active-only); now returns inactive (active-first) + an Activate button, guarded by selectable-reactivatable.test.ts.
+- [ ] **(Size)** `workers/data-ops/src/lib/tools.ts` (545) + `agent.ts` (531) are the largest — both cohesive (the tool catalog + the agent loop). Watch for logic creep; no action needed today.
+- [ ] **(Robustness)** confirm-resume + browser e2e still lean on manual/staging verification — not unit-locked.
 
 ## Scores
 | Dimension | Score | Status |
 |---|---|---|
-| Size & Scope | 85 | green |
-| Robustness | 93 | green |
-| Documentation | 97 | green |
+| Size & Scope | 86 | green |
+| Robustness | 94 | green |
+| Documentation | 96 | green |
 | Understandability | 93 | green |
-| Leanness & Optimization | 88 | green |
+| Leanness & Optimization | 89 | green |
 | Scalability & Structure | 95 | green |
 
 ## Full findings
