@@ -145,6 +145,14 @@ or zero, by choice.
   it stops the next call — even if a session was mid-flight.
 - **Hashed at rest.** Only the token's hash is stored; the secret is shown once.
 
+**One honest limit:** the assistant/import tools are bounded by the team's AI quota,
+but the *cheap* tools (reads, exports) aren't application-rate-limited today — they
+lean on the fact that a token is a trusted, role-scoped, instantly-revocable party
+behind Cloudflare's protection, and they expose nothing the holder couldn't already
+read in the app. If you ever hand a token to a *less*-trusted integration, prefer a
+tightly-scoped role and watch `last_used_at`; a per-token rate limit is a small future
+add if you need it.
+
 ---
 
 ## 6 · For maintainers (where it lives)
