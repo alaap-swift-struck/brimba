@@ -232,6 +232,70 @@ After a reset, re-seed the import catalog (§6) and create a fresh first team (�
 
 ---
 
+## 10 · Teardown (delete everything the base created)
+
+The inverse of this runbook — for a **throwaway test** of `new-app`, or retiring a
+product. **Destructive and irreversible.** Everything the base makes carries the
+product's name prefix, so a teardown is "delete each `<name>-…` resource" — nothing
+outside the prefix is touched.
+
+**The safest option: use a throwaway Cloudflare account for the test.** Then cleanup is
+just deleting that account's resources below (or closing the account) — zero risk to any
+real product. Run each step from the clone's root (`<name>/`); replace `<name>`.
+
+**Order matters** — remove per-team databases *before* the core DB (the reset reads the
+core `teams` table to find them).
+
+1. **Per-team databases + core rows** (must run while the core DB still exists):
+
+   ```bash
+   node scripts/reset-all.mjs both
+   ```
+
+2. **The seven workers, both envs** (14 deployments). Delete each by name:
+
+   ```bash
+   for w in auth tenancy realtime content data-ops mcp gateway; do
+     npx wrangler delete --name <name>-$w
+     npx wrangler delete --name <name>-$w-staging
+   done
+   ```
+
+3. **The two core databases:**
+
+   ```bash
+   npx wrangler d1 delete <name>-core
+   npx wrangler d1 delete <name>-core-staging
+   ```
+
+4. **The six R2 buckets** (empty each first, then delete):
+
+   ```bash
+   for b in media learning-media help-media; do
+     npx wrangler r2 bucket delete <name>-$b
+     npx wrangler r2 bucket delete <name>-$b-staging
+   done
+   ```
+
+5. **The GitHub repo** (needs `gh` with the `delete_repo` scope):
+
+   ```bash
+   gh repo delete <owner>/<name> --yes
+   ```
+
+6. **The local clone:**
+
+   ```bash
+   cd .. && rm -rf <name>
+   ```
+
+**Verify it's gone:** `npx wrangler d1 list` and `npx wrangler r2 bucket list` show no
+`<name>-…` entries, and the staging/production URLs return an error (no worker). Secrets
+die with their workers — nothing to scrub. (Note: `wrangler d1 list` can throw a
+transient auth error; just retry.)
+
+---
+
 ## The one-screen summary
 
 ```
