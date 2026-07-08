@@ -117,4 +117,5 @@ export const FORM_DIALOGS = [
   "role-form-dialog",
   "invite-dialog",
   "team-edit-dialog",
+  "selectable-form-dialog",
 ] as const

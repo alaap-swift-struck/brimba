@@ -1,10 +1,10 @@
 "use client"
 
 // Dropdown values ("selectable data") manager — host-composed, a tab on the team
-// Settings area. Lists the team's values grouped by TYPE, and lets admins add a
-// value (pick-or-create its type), rename one, or remove (deactivate) one. Gated
-// by the selectable_data module; the server re-checks every write. Library
-// primitives only.
+// Settings area. Lists the team's values grouped by TYPE (with the standard search +
+// status filter), and lets admins add a value (via the shared form dialog — Law R4,
+// like every other create), rename one, or deactivate/reactivate one. Gated by the
+// selectable_data module; the server re-checks every write. Library primitives only.
 
 import * as React from "react"
 
@@ -23,6 +23,7 @@ import { Plus, Pencil, X, Check, Upload, Download, Power, Search } from "lucide-
 
 import type { SelectableValue } from "@shared/types"
 import { ApiFailure, tenancy } from "@/lib/api"
+import { SelectableFormDialog } from "@/components/selectable-form-dialog"
 import { usePermissions } from "@/lib/perms"
 import { primeCache, useCached } from "@/lib/store"
 
@@ -43,10 +44,8 @@ export function SelectableScreen({
   const canEdit = can("selectable_data", "edit")
   const canDelete = can("selectable_data", "delete")
 
-  // Add form — pick-or-create the type via a datalist of the existing types.
-  const [newType, setNewType] = React.useState("")
-  const [newValue, setNewValue] = React.useState("")
-  const [busy, setBusy] = React.useState(false)
+  // Add via the shared form dialog (Law R4); the screen just toggles it open.
+  const [addOpen, setAddOpen] = React.useState(false)
   // Inline rename state (one row at a time).
   const [editingId, setEditingId] = React.useState<string | null>(null)
   const [editValue, setEditValue] = React.useState("")
@@ -71,21 +70,12 @@ export function SelectableScreen({
     .sort()
     .map((t) => ({ type: t, items: filtered.filter((v) => v.type === t) }))
 
-  async function add(e: React.FormEvent) {
-    e.preventDefault()
-    if (!newType.trim() || !newValue.trim()) return
-    setBusy(true)
-    try {
-      const added = newValue.trim()
-      const { values: next } = await tenancy.createSelectable(newType, newValue)
-      primeCache(`selectable:${teamId}`, next)
-      setNewValue("")
-      toast.success(`Added "${added}".`)
-    } catch (err) {
-      toast.error(err instanceof ApiFailure ? err.message : "Couldn't add that option.")
-    } finally {
-      setBusy(false)
-    }
+  // Create — the dialog calls this; it throws on failure so the dialog surfaces the
+  // reason and stays open, and closes itself on success.
+  async function addValue(type: string, value: string) {
+    const { values: next } = await tenancy.createSelectable(type, value)
+    primeCache(`selectable:${teamId}`, next)
+    toast.success(`Added "${value}".`)
   }
 
   async function saveRename(id: string) {
@@ -127,8 +117,9 @@ export function SelectableScreen({
             Pick a group, or start a new one.
           </p>
         </div>
-        {/* Import / Export — dropdown values are a full import target now. flex-wrap
-         * so the buttons never clip on a phone (UI-CONVENTIONS action-row rule). */}
+        {/* Actions — New value / Import / Export. flex-wrap so the buttons never
+         * clip on a phone (UI-CONVENTIONS action-row rule). New records go through
+         * the shared form dialog (Law R4), never an inline row. */}
         <div className="flex flex-wrap justify-end gap-2">
           {values.length > 0 && (
             <Button asChild variant="outline" className="gap-1.5">
@@ -142,40 +133,22 @@ export function SelectableScreen({
               <Upload className="size-4" aria-hidden /> Import CSV
             </Button>
           )}
+          {canCreate && (
+            <Button onClick={() => setAddOpen(true)} className="gap-1.5">
+              <Plus className="size-4" aria-hidden /> New value
+            </Button>
+          )}
         </div>
       </div>
 
       {canCreate && (
-        <form onSubmit={add} className="flex flex-col gap-2 sm:flex-row">
-          <Input
-            list="dropdown-types"
-            value={newType}
-            onChange={(e) => setNewType(e.target.value)}
-            placeholder="Group (e.g. Help type)"
-            disabled={busy}
-            className="w-full sm:w-56"
-          />
-          <datalist id="dropdown-types">
-            {types.map((t) => (
-              <option key={t} value={t} />
-            ))}
-          </datalist>
-          <Input
-            value={newValue}
-            onChange={(e) => setNewValue(e.target.value)}
-            placeholder="New option"
-            disabled={busy}
-            className="w-full"
-          />
-          <Button
-            type="submit"
-            disabled={busy || !newType.trim() || !newValue.trim()}
-            className="gap-1.5"
-          >
-            <Plus className="size-4" />
-            Add
-          </Button>
-        </form>
+        <SelectableFormDialog
+          open={addOpen}
+          onOpenChange={setAddOpen}
+          types={types}
+          onSubmit={addValue}
+          draftKey={`selectable-add:${teamId}`}
+        />
       )}
 
       {/* Filter bar — search + status, matching the other collections. Deactivated
