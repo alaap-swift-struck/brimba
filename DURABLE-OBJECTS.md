@@ -30,7 +30,7 @@ are different again.
 
 An instance is **not** a worker. Addressing one by name conjures it; idle ones
 hibernate and cost ~nothing. Exactly like OOP: one `class` (code), millions of
-objects (runtime). 10,000 teams + their members is still 6 workers + one
+objects (runtime). 10,000 teams + their members is still 7 workers + one
 `TeamChannel` class, but that many instances — almost all asleep.
 
 This doc uses "the DO" for the runtime instance and "`TeamChannel`" for the class.

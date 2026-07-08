@@ -35,10 +35,11 @@ service-binding calls (never a public hop).
 | **data-ops** | `brimba-data-ops` | **CSV import** (the 3-stage single-target session + the agentic multi-file batch import, AGENTIC-IMPORT.md) and **the AI agent** | Both are "operations over the other modules' data" rather than modules of their own. Import writes act-as-user through a target's create endpoint; the agent acts-as-user through every gated endpoint. Neither owns a table of user content — they orchestrate. |
 | **gateway** | `brimba` / `brimba-staging` | The single public door: serves the web screens (static assets), serves uploaded media from R2, and routes `/api/*` to the right worker | **The only worker with a public URL.** Everything else sets `workers_dev: false` and is reachable *only* via service bindings. This is what makes `/internal/send-email` and the agent's act-as-user surface safe — no public route can reach them. |
 
-A seventh worker, **mcp** (personal-access-tokens → session bridge → an opt-in
-tool catalogue for external machines), is **planned but not on disk**. Don't
-build it speculatively; it slots onto the same gated endpoints the agent already
-uses.
+The seventh worker, **mcp** (personal access tokens → a team-pinned session
+bridge → an opt-in tool catalogue for external machines), is **BUILT (2026-07-07)**
+— and it proves the point of the door design: it slots onto the same gated
+endpoints the agent already uses, so it added zero new trust surface beyond the
+token itself. How an outside tool connects + the cost model: **MCP.md**.
 
 **Why the gateway is the only door.** UI and agents call the *same* endpoints.
 If any domain worker had its own public URL, you'd have two doors to secure and

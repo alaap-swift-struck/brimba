@@ -9,7 +9,7 @@ acts AS the signed-in user through the same gated endpoints (never exceeding
 their rights), all hosted on Cloudflare.
 
 UPDATED 2026-06-23: the **agent-modules build** landed (branch `agent-modules`) —
-learning, help, CSV import, and the AI agent are all BUILT. **Six workers are on
+learning, help, CSV import, and the AI agent are all BUILT. **Seven workers are on
 disk**: auth, tenancy, realtime, gateway, **content** (learning + help),
 **data-ops** (import + the AI agent), and **mcp** — the external machine surface
 (BUILT 2026-07-07): personal access tokens (hashed, shown-once, team-pinned,
@@ -103,7 +103,7 @@ If a rule isn't machine-checked (e.g. a responsive-CSS convention), the doc says
 ### The manual — build on it, understand it, rebuild it from zero
 
 12. **[BASE-MANUAL.md](BASE-MANUAL.md)** — how the whole base works AND *why*: the
-    six workers, the two-tier database, the permission spine, how a new module and
+    seven workers, the two-tier database, the permission spine, how a new module and
     the base influence each other, and how to change foundational code + how a
     change ripples. Start here to understand the system.
 13. **[BUILD-A-MODULE.md](BUILD-A-MODULE.md)** — the golden-path checklist to add a
@@ -128,6 +128,10 @@ If a rule isn't machine-checked (e.g. a responsive-CSS convention), the doc says
     + references. Read before building an import for a new module.
 19. **[BOOTSTRAP.md](BOOTSTRAP.md)** — the day-zero, command-by-command runbook to
     rebuild the whole base from a fresh Cloudflare account (also linked at the top).
+20. **[MCP.md](MCP.md)** — the machine door: how an outside developer/tool connects to
+    the base over MCP (get a token → `Bearer` on `/mcp`), the tool catalogue, and the
+    cost model (reads/exports/imports are free endpoint hits; only the assistant tools
+    draw the team's AI quota — scope the role to control it).
 
 ## Develop
 

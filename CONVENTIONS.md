@@ -469,7 +469,7 @@ The line is simple: **if two workers would write it the same way, it lives in `s
   `gating.ts` (`GuardError`, `teamContext`, `requireRight`), `validate.ts`, `d1-rest.ts`
   (`d1Query`/`d1ExecScript`/`sqlString`), `id.ts` (`ulid`), `activity.ts`
   (`logActivity`), `realtime.ts` (`publishChange`). Touch these carefully — a change
-  ripples across all six workers.
+  ripples across all seven workers.
 - **`shared/types.ts`** is the contract the web `web/` client and the workers both agree
   on (`SessionUser`, `Learning`, `ApiError`, …). Shape a DB row into a shared type at the
   lib boundary (`toLearning`) so the wire type is stable even as columns change.
@@ -605,7 +605,7 @@ between "I think it works" and "the laws still hold".
         && npm test"
 ```
 
-`check` = **type-check every workspace** (web + all six workers, each against its own
+`check` = **type-check every workspace** (web + all seven workers, each against its own
 tsconfig) **then run the full test suite** (`npm test` fans out to every worker's
 `vitest run` plus `web`).
 

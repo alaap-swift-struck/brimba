@@ -56,6 +56,7 @@ Start with **[README.md](README.md)** (the doc map), then:
 - **[DURABLE-OBJECTS.md](DURABLE-OBJECTS.md)** — the realtime Durable Object (`TeamChannel`), the code-vs-runtime model, and when a DO is the lock vs plain atomic D1.
 - **[EDGE-CASES.md](EDGE-CASES.md)** — the non-obvious traps (static-export reload, list-cache-as-detail-source, REST-door round-trips, the confirm model, streaming, and more).
 - **[AGENTIC-IMPORT.md](AGENTIC-IMPORT.md)** — the agent-driven multi-table import (normalize → map → order interdependent tables → resolve foreign keys → reject honestly → write through the gated door). How to declare an import target + references for a new module.
+- **[MCP.md](MCP.md)** — the external machine surface for developers: how an outside tool connects (token → `Bearer` on `/mcp`), the opt-in tool catalogue, the act-as-user/one-team/live-role security posture, and the cost model (reads/exports/imports = free endpoint hits; only `agent_chat`/`agent_confirm`/`plan_import` draw the team's AI quota — a role without the agent right spends zero AI).
 
 ## Working agreement
 
