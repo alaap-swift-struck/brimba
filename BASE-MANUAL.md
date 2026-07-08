@@ -197,13 +197,16 @@ call"), but the safety is structural, not a prompt promise.
 
 Four more structural guards layer on top (all in `agent.ts` / `tools.ts`):
 
-- **Confirm rule** — the two irreversible-feeling acts (remove a member, revoke
-  an invite) and the two high-blast BULK tools (`bulk_set_learning_active`,
-  `bulk_set_help_status`, whose summary carries the row COUNT) are `confirm: true`
-  and pause for a yes/no panel; every other tool runs straight away (the server
-  still gates each call by the caller's rights). The proposal is stored
-  server-side, so `/confirm` runs exactly what the model proposed — a client
-  can't approve a call it was never shown.
+- **Confirm rule** — every **privilege / identity write** (roles, permissions,
+  membership, invites, team details), the two only-destructive acts (remove a
+  member, revoke an invite), and the high-blast **bulk / import** tools (whose
+  summary carries the row COUNT) are `confirm: true` and pause for a yes/no panel;
+  low-blast single content edits (one learning / help / dropdown write) run
+  straight away (the server still gates each call by the caller's rights). This is
+  defense-in-depth: even acting AS the user, an agent that mis-picks a tool or is
+  prompt-injected must not silently rename a team or re-grant a role. The proposal
+  is stored server-side, so `/confirm` runs exactly what the model proposed — a
+  client can't approve a call it was never shown.
 - **Catastrophic blocks** — controlling device sessions and deleting the team are
   simply *not in the catalogue*; `identityBlocked` is the belt-and-braces backstop
   in `executeTool`.

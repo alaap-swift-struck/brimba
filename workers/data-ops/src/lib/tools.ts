@@ -8,10 +8,14 @@
 //     the agent has the user's EXACT rights and the real door re-checks each call.
 //     Managing existing members (set a role, remove someone) IS allowed — it's normal,
 //     re-gated CRUD.
-//   • Confirm rule — only the two ONLY-DESTRUCTIVE acts pause for a yes/no panel:
-//     removing a member and revoking an invite (confirm:true). Every other tool runs
-//     straight away — the server still gates each call by the caller's rights, so the
-//     confirm panel is only about the app double-checking an irreversible-feeling act.
+//   • Confirm rule — the agent pauses for a yes/no panel before any change to WHO-CAN-
+//     DO-WHAT or team identity (roles, permissions, membership, invites, team details),
+//     before the two only-destructive acts (remove a member, revoke an invite), and
+//     before any BULK / import write. Defense-in-depth: the server still gates every
+//     call by the caller's rights, but the confirm panel catches an agent that mis-picks
+//     a tool or is prompt-injected into an unintended privilege/identity write (a
+//     read-only question must never silently rename a team or re-grant a role). Low-blast
+//     single content edits (one learning / help / dropdown write) run straight away.
 //   • Catastrophic blocks — controlling your other DEVICE SESSIONS (sessions) and
 //     DELETING the team are not normal CRUD, so they're simply NOT in the catalog and
 //     the agent structurally cannot do them. The guard below is the belt-and-braces backstop.
@@ -32,8 +36,9 @@ export type AgentTool = {
   method: "GET" | "POST"
   path: string
   write: boolean
-  /** show the yes/no confirm panel before running — reserved for the two
-   * only-destructive acts (remove a member, revoke an invite). */
+  /** show the yes/no confirm panel before running — required for privilege/identity
+   * writes (roles, permissions, membership, invites, team details), the two
+   * only-destructive acts (remove a member, revoke an invite), and bulk/import writes. */
   confirm: boolean
   /** never exposed actions guard (identity acts) — true = always refuse. */
   identityBlocked?: boolean
@@ -193,7 +198,7 @@ export const TOOL_CATALOG: AgentTool[] = [
     method: "POST",
     path: "/api/tenancy/roles",
     write: true,
-    confirm: false,
+    confirm: true, // privilege: creates a role (its access rights)
     buildBody: (i) => ({ title: str(i, "title"), description: str(i, "description") || "" }),
     summarize: (i) => `Create the role "${str(i, "title")}"`,
   },
@@ -205,7 +210,7 @@ export const TOOL_CATALOG: AgentTool[] = [
     method: "POST",
     path: "/api/tenancy/roles/update",
     write: true,
-    confirm: false,
+    confirm: true, // privilege: edits a role
     buildBody: (i) => ({
       roleId: str(i, "roleId"),
       title: str(i, "title"),
@@ -222,7 +227,7 @@ export const TOOL_CATALOG: AgentTool[] = [
     method: "POST",
     path: "/api/tenancy/roles/active",
     write: true,
-    confirm: false,
+    confirm: true, // privilege: switching a role off/on changes access
     buildBody: (i) => ({ roleId: str(i, "roleId"), active: i.active === true }),
     summarize: (i, names) =>
       `${i.active === true ? "Activate" : "Deactivate"} ${roleLabel(i, names)}`,
@@ -252,7 +257,7 @@ export const TOOL_CATALOG: AgentTool[] = [
     method: "POST",
     path: "/api/tenancy/roles/permissions",
     write: true,
-    confirm: false,
+    confirm: true, // privilege: sets a role's access rights (who-can-do-what)
     buildBody: (i) => ({ roleId: str(i, "roleId"), value: i.value }),
     summarize: (i, names) => `Set access rights for ${roleLabel(i, names)}`,
   },
@@ -264,7 +269,7 @@ export const TOOL_CATALOG: AgentTool[] = [
     method: "POST",
     path: "/api/tenancy/invites",
     write: true,
-    confirm: false,
+    confirm: true, // access grant: invites someone into the team
     buildBody: (i) => ({ email: str(i, "email"), roleId: str(i, "roleId") }),
     summarize: (i, names) => {
       const id = str(i, "roleId")
@@ -292,7 +297,7 @@ export const TOOL_CATALOG: AgentTool[] = [
     method: "POST",
     path: "/api/tenancy/members/role",
     write: true,
-    confirm: false,
+    confirm: true, // privilege: changes a member's role (their access level)
     buildBody: (i) => ({ userId: str(i, "userId"), roleId: str(i, "roleId") }),
     summarize: (i, names) => {
       const id = str(i, "roleId")
@@ -357,7 +362,7 @@ export const TOOL_CATALOG: AgentTool[] = [
     method: "POST",
     path: "/api/tenancy/teams/update",
     write: true,
-    confirm: false,
+    confirm: true, // identity: changes the team's own details (name, etc.)
     buildBody: (i) => ({ name: str(i, "name") }),
     summarize: (i) => `Rename the team to "${str(i, "name")}"`,
   },

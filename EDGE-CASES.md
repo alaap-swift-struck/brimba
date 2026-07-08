@@ -218,9 +218,9 @@ turns a helpful agent into a nagging one.
 
 | Behaviour | Tools | Why |
 |---|---|---|
-| **Pause for a yes/no panel** | `remove_member`, `revoke_invite` | The two only-destructive acts — withdraw someone's access / an outstanding invite. |
-| **Confirm-with-a-count** | `bulk_set_help_status`, `bulk_set_learning_active` | High-blast: "Set 12 tickets to resolved" is confirmed by the count before it runs. |
-| **Run straight away** | everything else | Ordinary re-gated CRUD; the server gates each call, so no panel. |
+| **Pause for a yes/no panel** | every **privilege/identity write** — `create_role`, `update_role`, `set_role_active`, `set_role_permissions`, `set_member_role`, `invite_member`, `update_team` — plus the only-destructive `remove_member`, `revoke_invite` | Any change to who-can-do-what or team identity is double-checked. Defense-in-depth: even acting AS the user, an agent that mis-picks a tool or is prompt-injected must not silently rename a team or re-grant a role. |
+| **Confirm-with-a-count** | `bulk_set_help_status`, `bulk_set_learning_active`, `run_import_batch` | High-blast: "Set 12 tickets to resolved" is confirmed by the count before it runs. |
+| **Run straight away** | low-blast single content edits (`create_learning`, `update_learning`, help/dropdown writes) | Ordinary re-gated + reversible CRUD; the server gates each call, so no panel. |
 
 The system prompt (`agent.ts`) tells the model **not** to also ask in
 chat for the two panel actions — the app shows one yes/no panel, and a
