@@ -74,8 +74,44 @@ curl -s https://brimba.swift-struck.workers.dev/mcp \
 
 **An MCP client that speaks HTTP + a bearer header** (e.g. an agent framework, or a
 custom client) points at that URL with the header. For clients that only launch a
-local stdio command, put a thin MCP-over-HTTP bridge in front (any standard
-`mcp-remote`-style shim) — the server itself is a plain HTTP JSON-RPC endpoint.
+local stdio command (e.g. **Claude Desktop**), put a thin MCP-over-HTTP bridge in
+front with the standard `mcp-remote` shim — drop this into the client's MCP config:
+
+```json
+{
+  "mcpServers": {
+    "brimba": {
+      "command": "npx",
+      "args": [
+        "mcp-remote",
+        "https://brimba.swift-struck.workers.dev/mcp",
+        "--header", "Authorization: Bearer brimba_mcp_YOUR_TOKEN"
+      ]
+    }
+  }
+}
+```
+
+### Hand it to any AI (Claude / Gemini / GPT) — copy-paste prompt
+
+The app does this for you: after you create a token, **Settings → Access tokens** shows
+a **"Copy setup prompt for any AI"** button (and an **Instructions** button on every
+active token) that copies the block below with the live host filled in. Paste it into
+any assistant that can speak MCP:
+
+```
+Connect to my Brimba workspace over MCP (Model Context Protocol).
+
+Endpoint: https://brimba.swift-struck.workers.dev/mcp
+Auth header: Authorization: Bearer brimba_mcp_YOUR_TOKEN
+Protocol: MCP over HTTP — JSON-RPC 2.0 (initialize, tools/list, tools/call)
+
+Then call tools/list to see what I can do. You act as me, in one team, capped by my
+role — reads, exports and imports are free; only the assistant tools (agent_chat,
+agent_confirm, plan_import) use the team's AI quota.
+```
+
+(Staging is the same, on `https://brimba-staging.swift-struck.workers.dev/mcp`.)
 
 ### The tools
 

@@ -32,13 +32,49 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@swift-struck/ui/registry/primitives/alert-dialog/alert-dialog"
-import { Ban, Copy, Plus } from "lucide-react"
+import { Ban, ClipboardCopy, Copy, Plus } from "lucide-react"
 
 import type { McpTokenSummary } from "@shared/types"
 import { FormShell, fieldSpacing } from "@/components/form-shell"
 import { ApiFailure, mcp } from "@/lib/api"
 import { formatActivityWhen } from "@/lib/format"
 import { useCached, primeCache } from "@/lib/store"
+
+// A ready-to-paste connect prompt for ANY AI (Claude, Gemini, GPT, …) — endpoint,
+// the Bearer header, and a Claude-Desktop-style stdio config. Built from the LIVE
+// app host so it's correct for staging or production without a hardcoded URL. When
+// we hold the real secret (right after create) we embed it; otherwise we leave the
+// `brimba_mcp_YOUR_TOKEN` placeholder for the developer to swap in.
+function connectPrompt(token: string): string {
+  const origin = typeof window === "undefined" ? "https://brimba.swift-struck.workers.dev" : window.location.origin
+  const endpoint = `${origin}/mcp`
+  return `Connect to my Brimba workspace over MCP (Model Context Protocol).
+
+Endpoint: ${endpoint}
+Auth header: Authorization: Bearer ${token}
+Protocol: MCP over HTTP — JSON-RPC 2.0 (initialize, tools/list, tools/call)
+
+If your tool runs MCP servers locally over stdio (e.g. Claude Desktop), add this to its config:
+{
+  "mcpServers": {
+    "brimba": {
+      "command": "npx",
+      "args": ["mcp-remote", "${endpoint}", "--header", "Authorization: Bearer ${token}"]
+    }
+  }
+}
+
+Then call tools/list to see what I can do. You act as me, in one team, capped by my role —
+reads, exports and imports are free; only the assistant tools (agent_chat, agent_confirm,
+plan_import) use the team's AI quota.`
+}
+
+function copyInstructions(token: string) {
+  void navigator.clipboard?.writeText(connectPrompt(token)).then(
+    () => toast.success("Setup instructions copied — paste into any AI."),
+    () => toast.error("Couldn't copy — try again.")
+  )
+}
 
 export function AccessTokensSection({ teamName }: { teamName: string | null }) {
   const tokensQ = useCached<McpTokenSummary[]>("mcp-tokens", () =>
@@ -126,14 +162,30 @@ export function AccessTokensSection({ teamName }: { teamName: string | null }) {
                 {t.lastUsedAt ? ` · last used ${formatActivityWhen(t.lastUsedAt)}` : " · never used"}
               </span>
               {!t.revokedAt && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setRevoking(t)}
-                  className="text-destructive hover:text-destructive gap-1.5"
-                >
-                  <Ban className="size-3.5" aria-hidden /> Revoke
-                </Button>
+                <div className="flex items-center gap-2">
+                  {/* Copy the connect prompt for any AI. The secret can't be re-read,
+                   * so this carries the `brimba_mcp_YOUR_TOKEN` placeholder to swap.
+                   * Label collapses to icon-only below sm (narrow-screen rule). */}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => copyInstructions("brimba_mcp_YOUR_TOKEN")}
+                    className="gap-1.5"
+                    title="Copy setup instructions for any AI"
+                  >
+                    <ClipboardCopy className="size-3.5" aria-hidden />
+                    <span className="hidden sm:inline">Instructions</span>
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setRevoking(t)}
+                    className="text-destructive hover:text-destructive gap-1.5"
+                  >
+                    <Ban className="size-3.5" aria-hidden />
+                    <span className="hidden sm:inline">Revoke</span>
+                  </Button>
+                </div>
               )}
             </div>
           ))}
@@ -174,6 +226,16 @@ export function AccessTokensSection({ teamName }: { teamName: string | null }) {
                   <Copy className="size-3.5" aria-hidden /> Copy
                 </Button>
               </div>
+              {/* One-tap: the whole connect prompt WITH this token embedded, ready to
+               * paste into Claude, Gemini, GPT — the fastest way to hand it off. */}
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5 self-start"
+                onClick={() => copyInstructions(secret)}
+              >
+                <ClipboardCopy className="size-3.5" aria-hidden /> Copy setup prompt for any AI
+              </Button>
               <div className="flex justify-end">
                 <Button
                   onClick={() => {
