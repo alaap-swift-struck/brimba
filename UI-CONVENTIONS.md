@@ -151,6 +151,15 @@ The current bespoke details are **`role-detail`**, **`learning-detail`**, and
 hand because it carries a control (permission matrix / rich-text article body + media /
 ticket thread + status stepper) the engine doesn't render.
 
+The one bespoke **list** is **`selectable-screen.tsx`** (Dropdown values): it groups
+values by *type* and adds inline within each group — a shape the flat `list` recipe
+doesn't express. Because it's host-composed it doesn't get the recipe's filter bar for
+free, so it **assembles the same chrome from library primitives** — a search `Input` +
+a status `Select` (Active default · Inactive · All), matching the recipe collections
+(roles/learning) so a deactivated value is hidden by default but reachable to reactivate.
+The rule when you hand-compose a collection: **match the standard filter chrome** (search
++ status), don't invent a different one.
+
 ### The decision, in one table
 
 | The screen is…                                             | Build it as…                          | Example |

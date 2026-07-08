@@ -10,9 +10,16 @@ import * as React from "react"
 
 import { Button } from "@swift-struck/ui/registry/primitives/button/button"
 import { Input } from "@swift-struck/ui/registry/primitives/input/input"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@swift-struck/ui/registry/primitives/select/select"
 import { Skeleton } from "@swift-struck/ui/registry/primitives/skeleton/skeleton"
 import { toast } from "@swift-struck/ui/registry/primitives/sonner/sonner"
-import { Plus, Pencil, X, Check, Upload, Download, Power } from "lucide-react"
+import { Plus, Pencil, X, Check, Upload, Download, Power, Search } from "lucide-react"
 
 import type { SelectableValue } from "@shared/types"
 import { ApiFailure, tenancy } from "@/lib/api"
@@ -43,10 +50,26 @@ export function SelectableScreen({
   // Inline rename state (one row at a time).
   const [editingId, setEditingId] = React.useState<string | null>(null)
   const [editValue, setEditValue] = React.useState("")
+  // Collection filter chrome — the SAME shape the other collections (roles,
+  // learning, help) use: a text search + a status filter defaulting to Active, so
+  // deactivated values hide until you ask for them (then show greyed with Activate).
+  const [query, setQuery] = React.useState("")
+  const [status, setStatus] = React.useState<"active" | "inactive" | "all">("active")
 
   const values = valuesQ.data ?? []
+  // The add form's group datalist offers EVERY existing type (not just the filtered
+  // ones), so you can always add to any group.
   const types = Array.from(new Set(values.map((v) => v.type))).sort()
-  const grouped = types.map((t) => ({ type: t, items: values.filter((v) => v.type === t) }))
+  // The list is the filtered set, grouped by type.
+  const q = query.trim().toLowerCase()
+  const filtered = values.filter(
+    (v) =>
+      (status === "all" || (status === "active" ? v.active : !v.active)) &&
+      (q === "" || v.value.toLowerCase().includes(q) || v.type.toLowerCase().includes(q))
+  )
+  const grouped = Array.from(new Set(filtered.map((v) => v.type)))
+    .sort()
+    .map((t) => ({ type: t, items: filtered.filter((v) => v.type === t) }))
 
   async function add(e: React.FormEvent) {
     e.preventDefault()
@@ -155,8 +178,46 @@ export function SelectableScreen({
         </form>
       )}
 
+      {/* Filter bar — search + status, matching the other collections. Deactivated
+       * values are hidden under the Active default; switch to Inactive/All to see and
+       * reactivate them. flex-wrap so the controls never clip on a phone. */}
+      {values.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-muted-foreground mr-1 text-sm">
+            Showing {filtered.length} of {values.length}
+          </span>
+          <div className="relative w-full sm:w-56">
+            <Search
+              className="text-muted-foreground pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2"
+              aria-hidden
+            />
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search values…"
+              className="h-9 pl-8"
+              aria-label="Search dropdown values"
+            />
+          </div>
+          <Select value={status} onValueChange={(v) => setStatus(v as typeof status)}>
+            <SelectTrigger className="h-9 w-full sm:w-40" aria-label="Filter by status">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="active">Active</SelectItem>
+              <SelectItem value="inactive">Inactive</SelectItem>
+              <SelectItem value="all">All</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+
       {grouped.length === 0 ? (
-        <p className="text-muted-foreground text-sm">No options yet. Add your first above.</p>
+        <p className="text-muted-foreground text-sm">
+          {values.length === 0
+            ? "No options yet. Add your first above."
+            : "No values match your search or filter."}
+        </p>
       ) : (
         <div className="flex flex-col gap-5">
           {grouped.map((g) => (
