@@ -21,10 +21,25 @@ export type McpTool = {
 }
 
 const S = { type: "string" } as const
+const B = { type: "boolean" } as const
+const N = { type: "number" } as const
 const obj = (props: Record<string, unknown>, required: string[] = []) => ({
   type: "object",
   properties: props,
   required,
+})
+
+// Learning create/edit share the same optional field set (undefined keys drop out
+// of JSON.stringify, so the door treats them as omitted — same as an empty form field).
+const learningBody = (i: Record<string, unknown>) => ({
+  title: i.title,
+  category: i.category,
+  description: i.description,
+  contentType: i.contentType,
+  contentLink: i.contentLink,
+  body: i.body,
+  sequence: i.sequence,
+  required: i.required,
 })
 
 export const MCP_TOOLS: McpTool[] = [
@@ -102,6 +117,209 @@ export const MCP_TOOLS: McpTool[] = [
     method: "GET",
     path: "/api/tenancy/selectable/export",
   },
+  // ---- writes: deterministic create / edit / deactivate through the SAME gated
+  // doors the screens use (requireRight + validate + publishChange + audit + the
+  // locked guards — ≥1 admin, not-self — fire even here). FREE (no AI): the
+  // script-friendly alternative to driving writes through agent_chat. Deactivate,
+  // never delete. Every path is machine-checked against the target worker's ROUTES.
+
+  // roles (member_roles)
+  {
+    name: "create_role",
+    description: "Create a member role. Needs member_roles:create.",
+    inputSchema: obj({ title: S, description: S }, ["title"]),
+    binding: "TENANCY",
+    method: "POST",
+    path: "/api/tenancy/roles",
+    buildBody: (i) => ({ title: i.title, description: i.description ?? "" }),
+  },
+  {
+    name: "update_role",
+    description: "Rename a role / change its description. Needs member_roles:edit.",
+    inputSchema: obj({ roleId: S, title: S, description: S }, ["roleId", "title"]),
+    binding: "TENANCY",
+    method: "POST",
+    path: "/api/tenancy/roles/update",
+    buildBody: (i) => ({ roleId: i.roleId, title: i.title, description: i.description ?? "" }),
+  },
+  {
+    name: "set_role_active",
+    description:
+      "Deactivate (active:false — holders keep access) or reactivate a role. Needs member_roles:delete.",
+    inputSchema: obj({ roleId: S, active: B }, ["roleId", "active"]),
+    binding: "TENANCY",
+    method: "POST",
+    path: "/api/tenancy/roles/active",
+    buildBody: (i) => ({ roleId: i.roleId, active: i.active === true }),
+  },
+  {
+    name: "set_role_permissions",
+    description:
+      "Set a role's permission matrix. value = { <moduleKey>: { read, create, edit, delete } } booleans — call export_roles_csv to see the module keys. Needs member_roles:edit.",
+    inputSchema: obj({ roleId: S, value: { type: "object" } }, ["roleId", "value"]),
+    binding: "TENANCY",
+    method: "POST",
+    path: "/api/tenancy/roles/permissions",
+    buildBody: (i) => ({ roleId: i.roleId, value: i.value }),
+  },
+
+  // members (team_members) — people JOIN via invite; these change or remove them
+  {
+    name: "set_member_role",
+    description:
+      "Change a member's role. Needs team_members:edit. The last admin can't be demoted (guarded).",
+    inputSchema: obj({ userId: S, roleId: S }, ["userId", "roleId"]),
+    binding: "TENANCY",
+    method: "POST",
+    path: "/api/tenancy/members/role",
+    buildBody: (i) => ({ userId: i.userId, roleId: i.roleId }),
+  },
+  {
+    name: "remove_member",
+    description:
+      "Remove a member from the team. Needs team_members:delete. You can't remove yourself or the last admin (guarded).",
+    inputSchema: obj({ userId: S }, ["userId"]),
+    binding: "TENANCY",
+    method: "POST",
+    path: "/api/tenancy/members/remove",
+    buildBody: (i) => ({ userId: i.userId }),
+  },
+
+  // invites (team_members)
+  {
+    name: "create_invite",
+    description: "Invite someone by email to a role (sends the branded email). Needs team_members:create.",
+    inputSchema: obj({ email: S, roleId: S }, ["email", "roleId"]),
+    binding: "TENANCY",
+    method: "POST",
+    path: "/api/tenancy/invites",
+    buildBody: (i) => ({ email: i.email, roleId: i.roleId }),
+  },
+  {
+    name: "revoke_invite",
+    description: "Revoke a pending invite. Needs team_members:delete.",
+    inputSchema: obj({ inviteId: S }, ["inviteId"]),
+    binding: "TENANCY",
+    method: "POST",
+    path: "/api/tenancy/invites/revoke",
+    buildBody: (i) => ({ inviteId: i.inviteId }),
+  },
+
+  // dropdown values (selectable_data)
+  {
+    name: "create_dropdown_value",
+    description:
+      "Add a dropdown value: type = the group name, value = the option. Needs selectable_data:create.",
+    inputSchema: obj({ type: S, value: S }, ["type", "value"]),
+    binding: "TENANCY",
+    method: "POST",
+    path: "/api/tenancy/selectable",
+    buildBody: (i) => ({ type: i.type, value: i.value }),
+  },
+  {
+    name: "update_dropdown_value",
+    description: "Rename a dropdown value. Needs selectable_data:edit.",
+    inputSchema: obj({ id: S, value: S }, ["id", "value"]),
+    binding: "TENANCY",
+    method: "POST",
+    path: "/api/tenancy/selectable/update",
+    buildBody: (i) => ({ id: i.id, value: i.value }),
+  },
+  {
+    name: "set_dropdown_value_active",
+    description: "Deactivate or reactivate a dropdown value. Needs selectable_data:delete.",
+    inputSchema: obj({ id: S, active: B }, ["id", "active"]),
+    binding: "TENANCY",
+    method: "POST",
+    path: "/api/tenancy/selectable/active",
+    buildBody: (i) => ({ id: i.id, active: i.active === true }),
+  },
+
+  // learning
+  {
+    name: "create_learning",
+    description:
+      "Create a learning article (title required; category is picked-or-created). Needs learning:create.",
+    inputSchema: obj(
+      { title: S, category: S, description: S, contentType: S, contentLink: S, body: S, sequence: N, required: B },
+      ["title"]
+    ),
+    binding: "CONTENT",
+    method: "POST",
+    path: "/api/content/learning",
+    buildBody: (i) => learningBody(i),
+  },
+  {
+    name: "update_learning",
+    description: "Edit a learning article. Needs learning:edit.",
+    inputSchema: obj(
+      { id: S, title: S, category: S, description: S, contentType: S, contentLink: S, body: S, sequence: N, required: B },
+      ["id", "title"]
+    ),
+    binding: "CONTENT",
+    method: "POST",
+    path: "/api/content/learning/update",
+    buildBody: (i) => ({ id: i.id, ...learningBody(i) }),
+  },
+  {
+    name: "set_learning_active",
+    description:
+      "Deactivate or reactivate a learning article (member progress survives). Needs learning:delete.",
+    inputSchema: obj({ id: S, active: B }, ["id", "active"]),
+    binding: "CONTENT",
+    method: "POST",
+    path: "/api/content/learning/active",
+    buildBody: (i) => ({ id: i.id, active: i.active === true }),
+  },
+
+  // help
+  {
+    name: "create_help_ticket",
+    description: "Raise a support ticket (description required). Needs help:create.",
+    inputSchema: obj({ description: S, helpType: S, screenRecordingLink: S }, ["description"]),
+    binding: "CONTENT",
+    method: "POST",
+    path: "/api/content/help",
+    buildBody: (i) => ({
+      description: i.description,
+      helpType: i.helpType,
+      screenRecordingLink: i.screenRecordingLink,
+    }),
+  },
+  {
+    name: "update_help_ticket",
+    description: "Edit a ticket's details. Needs help:edit.",
+    inputSchema: obj({ id: S, description: S, helpType: S, screenRecordingLink: S }, ["id", "description"]),
+    binding: "CONTENT",
+    method: "POST",
+    path: "/api/content/help/update",
+    buildBody: (i) => ({
+      id: i.id,
+      description: i.description,
+      helpType: i.helpType,
+      screenRecordingLink: i.screenRecordingLink,
+    }),
+  },
+  {
+    name: "set_help_status",
+    description:
+      "Move a ticket along its lifecycle (e.g. open → in progress → fixed). Needs help:edit.",
+    inputSchema: obj({ id: S, status: S }, ["id", "status"]),
+    binding: "CONTENT",
+    method: "POST",
+    path: "/api/content/help/status",
+    buildBody: (i) => ({ id: i.id, status: i.status }),
+  },
+  {
+    name: "reply_help_ticket",
+    description: "Add a reply to a ticket's thread. Needs help:read (any member who can see tickets).",
+    inputSchema: obj({ helpId: S, body: S }, ["helpId", "body"]),
+    binding: "CONTENT",
+    method: "POST",
+    path: "/api/content/help/reply",
+    buildBody: (i) => ({ helpId: i.helpId, body: i.body }),
+  },
+
   // ---- the agentic import (plan is METERED on the team's AI quota) ----
   {
     name: "start_import",

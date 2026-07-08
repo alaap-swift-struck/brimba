@@ -122,14 +122,30 @@ Today it covers:
   `list_learning`, `list_help_tickets`, `list_imports`.
 - **Export (full-field CSV):** `export_roles_csv`, `export_learning_csv`,
   `export_dropdown_values_csv`.
-- **Import:** `start_import` → `add_import_file` → `plan_import` → `run_import`.
+- **Write — deterministic create / edit / deactivate** (free, no AI; each needs the
+  matching role right, e.g. `member_roles:create`):
+  - roles — `create_role`, `update_role`, `set_role_active`, `set_role_permissions`
+  - members — `set_member_role`, `remove_member` (people join via **invite**)
+  - invites — `create_invite`, `revoke_invite`
+  - dropdown values — `create_dropdown_value`, `update_dropdown_value`, `set_dropdown_value_active`
+  - learning — `create_learning`, `update_learning`, `set_learning_active`
+  - help — `create_help_ticket`, `update_help_ticket`, `set_help_status`, `reply_help_ticket`
+- **Bulk create:** the import pipeline — `start_import` → `add_import_file` →
+  `plan_import` → `run_import`.
 - **The in-app assistant:** `agent_chat`, `agent_confirm`.
 
 Every tool is a thin forward to the **same gated door the app's own screens use** — so
-input is validated, your rights are re-checked, and the change gets the same audit
-trail and live-sync as if a person had done it in the UI. A test
-(`workers/mcp/test/catalog.test.ts`) fails the build if the catalog ever drifts from
-those real doors.
+input is validated, **your live role is re-checked** (a Viewer's `create_role` is
+refused, exactly as in the UI), and the change gets the same audit trail and live-sync
+as if a person had done it in the UI. The **deactivate-not-delete** model holds (nothing
+is hard-deleted) and the locked guards fire even here (you can't remove yourself or the
+last admin). A test (`workers/mcp/test/catalog.test.ts`) fails the build if the catalog
+ever drifts from those real doors.
+
+There is deliberately **no confirm step on the direct write tools** — calling
+`remove_member` *is* the intent (like clicking through the UI's confirm). Route
+genuinely uncertain, natural-language actions through `agent_chat` instead: it proposes,
+you approve with `agent_confirm`.
 
 ---
 
