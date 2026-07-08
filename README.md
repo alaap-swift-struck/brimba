@@ -133,6 +133,11 @@ If a rule isn't machine-checked (e.g. a responsive-CSS convention), the doc says
     the base over MCP (get a token → `Bearer` on `/mcp`), the tool catalogue, and the
     cost model (reads/exports/imports are free endpoint hits; only the assistant tools
     draw the team's AI quota — scope the role to control it).
+21. **[PLATFORMS.md](PLATFORMS.md)** — where the base can run. **Cloudflare is
+    recommended** (and `new-app` stands it up turnkey); this maps the base's five seams
+    (per-team data · live layer · compute · storage · static web) onto the top-10 cloud
+    providers (AWS, GCP, Azure, Vercel, Supabase, Fly.io, Render, DigitalOcean, Netlify)
+    with an honest effort rating and the porting method (swap ~4 seam files, not the app).
 
 ## Develop
 

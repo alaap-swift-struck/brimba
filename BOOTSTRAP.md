@@ -10,7 +10,7 @@ end with a live base you can sign into and build on.
 > point of this file. When something here disagrees with reality, **ARCHITECTURE.md
 > is the master** and OPERATIONS.md holds the live deploy config.
 
-> **The mental model in one paragraph.** Brimba is **six Cloudflare Workers** behind
+> **The mental model in one paragraph.** Brimba is **seven Cloudflare Workers** behind
 > **one public door** (the gateway). Global identity/billing lives in **one core D1
 > database** (`brimba-core`), reached by the native `env.DB` binding. Every *team*
 > gets its **own D1 database**, created at runtime and reached over the **D1 REST
@@ -59,7 +59,8 @@ route to a non-gateway worker).
 | `tenancy` | no | teams, members, Member roles + permissions, invites, dropdown values |
 | `content` | no | Learning + Help |
 | `data-ops` | no | CSV import + the AI agent |
-| `gateway` | **YES** | the single front desk: serves the web app + routes `/api/*` + serves `/media/*` |
+| `mcp` | no | the external machine surface: personal access tokens → team-pinned sessions → the MCP tool catalog at `/mcp` (routed only via the gateway) |
+| `gateway` | **YES** | the single front desk: serves the web app + routes `/api/*` (incl. `/mcp` + `/api/mcp/*`) + serves `/media/*` |
 
 **Deploy order is `realtime → auth → tenancy → content → data-ops → mcp → gateway`** and it
 matters: realtime is FIRST because every other worker service-binds it (deploying a
@@ -238,7 +239,7 @@ prereqs → npm install → wrangler login → npm run check
   → d1 create (core, both envs) → migrations apply (core 0001–00NN)
   → r2 bucket create (media × 3 × 2 envs)
   → secret put (RESEND, CF_D1_TOKEN, ADMIN_KEY, INTERNAL_KEY, [ANTHROPIC]) + set vars (PUBLIC_APP_URL, AGENT_*)
-  → npm run deploy:staging  (realtime→auth→tenancy→content→data-ops→gateway) → smoke
+  → npm run deploy:staging  (realtime→auth→tenancy→content→data-ops→mcp→gateway) → smoke
   → seed-targets → sign in → first team (creates its DB) → migrate-teams as needed
   → verify → (repeat for production, owner-gated)
 ```

@@ -58,8 +58,11 @@ test suite) must be green before any commit; deploy order is realtime-first.
 - **Secrets are never printed, echoed, or committed.** They go in via
   `wrangler secret put` (or the platform equivalent) and live locally only in
   git-ignored `.dev.vars` files.
-- **One Cloudflare account per product**, and every worker, database, and bucket
-  carries the product's name prefix — the prefix is the project grouping.
+- **One cloud account per product**, and every worker, database, and bucket carries the
+  product's name prefix — the prefix is the project grouping. **Cloudflare is the
+  recommended stack** (the base is native to it and `new-app` stands it up turnkey); the
+  base can be ported to any top-10 provider by swapping ~4 seam files — see the app's
+  `PLATFORMS.md` for the per-provider map.
 
 ## Reset and confirm conventions
 Destructive operations always confirm scope first, and production is always named
