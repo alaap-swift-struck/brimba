@@ -147,12 +147,12 @@ describe("RULES — the laws of the base", () => {
     for (const dir of serverDirs) {
       for (const file of tsFiles(dir)) {
         const src = read(file)
-        const re = /(?<![.\w])fetch\(/g // bare fetch( = external; NOT X.fetch( (service binding)
+        // `await fetch(` = an awaited call to the GLOBAL fetch (an external socket).
+        // This excludes service bindings (`X.fetch`), the Worker `async fetch(` handler,
+        // and type annotations (`{ fetch(url…) }`) — all of which aren't external calls.
+        const re = /\bawait fetch\(/g
         let m: RegExpExecArray | null
         while ((m = re.exec(src))) {
-          // Skip the Worker/Durable-Object `async fetch(request)` HANDLER — it's a
-          // method definition, not a call to the global fetch.
-          if (src.slice(Math.max(0, m.index - 6), m.index).endsWith("async ")) continue
           const window = src.slice(m.index, m.index + 600)
           if (!/signal:\s*AbortSignal\.timeout/.test(window))
             offenders.push(`${file.slice(ROOT.length)} @${m.index}`)

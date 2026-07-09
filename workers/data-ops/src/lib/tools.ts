@@ -23,6 +23,7 @@
 //     instructions; the system prompt reinforces it.
 
 import { GuardError, requireRight, teamContext } from "../../../../shared/workers/gating"
+import { forwardToDoor } from "../../../../shared/workers/http"
 import { publishChange } from "../../../../shared/workers/realtime"
 import { confirmBatch, getBatchView, planModules } from "./import-batch"
 import type { Env } from "../env"
@@ -540,16 +541,13 @@ export async function executeTool(
   if (tool.run) return tool.run(env, request, input)
 
   const fetcher = tool.binding === "CONTENT" ? env.CONTENT : env.TENANCY
-  const query = tool.method === "GET" && tool.buildQuery ? tool.buildQuery(input) : ""
-  const init: RequestInit = {
+  const res = await forwardToDoor(fetcher, {
+    path: tool.path,
     method: tool.method,
-    headers: { Cookie: request.headers.get("Cookie") ?? "" },
-  }
-  if (tool.method === "POST") {
-    ;(init.headers as Record<string, string>)["Content-Type"] = "application/json"
-    init.body = JSON.stringify(tool.buildBody ? tool.buildBody(input) : {})
-  }
-  const res = await fetcher.fetch(`https://internal${tool.path}${query}`, init)
+    cookie: request.headers.get("Cookie") ?? "",
+    query: tool.method === "GET" && tool.buildQuery ? tool.buildQuery(input) : "",
+    body: tool.buildBody ? tool.buildBody(input) : {},
+  })
   const text = await res.text()
   let data: unknown = text
   try {

@@ -7,6 +7,7 @@
 // catalog-drift.test.ts machine-checks every forwarded path against the target
 // workers' OWN route tables, so this list can't quietly rot.
 
+import { forwardToDoor } from "../../../../shared/workers/http"
 import type { Env } from "../env"
 
 export type McpTool = {
@@ -405,14 +406,13 @@ export async function forwardTool(
   input: Record<string, unknown>,
   cookie: string
 ): Promise<{ ok: boolean; text: string }> {
-  const fetcher = env[tool.binding]
-  const query = tool.method === "GET" && tool.buildQuery ? tool.buildQuery(input) : ""
-  const init: RequestInit = { method: tool.method, headers: { Cookie: cookie } }
-  if (tool.method === "POST") {
-    ;(init.headers as Record<string, string>)["Content-Type"] = "application/json"
-    init.body = JSON.stringify(tool.buildBody ? tool.buildBody(input) : {})
-  }
-  const res = await fetcher.fetch(`https://internal${tool.path}${query}`, init)
+  const res = await forwardToDoor(env[tool.binding], {
+    path: tool.path,
+    method: tool.method,
+    cookie,
+    query: tool.method === "GET" && tool.buildQuery ? tool.buildQuery(input) : "",
+    body: tool.buildBody ? tool.buildBody(input) : {},
+  })
   const raw = await res.text()
   const text = raw.length > MAX_RESULT_CHARS ? `${raw.slice(0, MAX_RESULT_CHARS)}\n…(truncated)` : raw
   return { ok: res.ok, text }
