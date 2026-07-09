@@ -103,12 +103,12 @@
 /* DATA:START */
 window.LEAN_MEAN_DATA = {
   "project": "Brimba",
-  "scannedAt": "2026-07-08",
+  "scannedAt": "2026-07-09",
   "overall": {
-    "score": 93,
-    "grade": "A",
-    "verdict": "Lean additions this round: Law R10 (permission-gating seam) added via the base's own registry+check machinery, 18 deterministic MCP write tools (thin declarative forwards), and the deactivated-dropdown dead-end fixed to match roles/learning — all with tests. No new debt; largest file 545 LOC.",
-    "sub": "256 files · 26k lines · 274 tests · 7 workers + web"
+    "score": 88,
+    "grade": "B+",
+    "verdict": "Honest re-score. Elite on robustness (12 machine-checked Laws R1–R12) + documentation (airdrop-grade). The one real drag is Leanness (74): two hand-maintained tool catalogs describe the same endpoints, a copy-pasted internal-fetch, and 8 files >400 LOC. An earlier self-report said 93; an independent fresh-clone re-score said 84 — the truth is ~88. The leanness debt is tracked in BASE-IMPROVEMENTS (P1 #8/#9).",
+    "sub": "258 files · 26.7k lines · 278 tests · 7 workers + web"
   },
   "dimensions": [
     {
@@ -244,17 +244,17 @@ window.LEAN_MEAN_DATA = {
       "key": "leanness",
       "title": "Leanness & Optimization",
       "icon": "♻️",
-      "score": 88,
-      "status": "green",
-      "headline": "Reused, not rebuilt",
+      "score": 74,
+      "status": "orange",
+      "headline": "The one real drag",
       "metrics": [
         {
-          "label": "Duplication",
-          "value": "6.6%"
+          "label": "Files >400 LOC",
+          "value": "8"
         },
         {
-          "label": "UI",
-          "value": "one library"
+          "label": "Tool catalogs",
+          "value": "2 (dup)"
         },
         {
           "label": "TODOs",
@@ -262,12 +262,20 @@ window.LEAN_MEAN_DATA = {
         }
       ],
       "strengths": [
-        "The batch importer reuses the single-target primitives (writeRow, parseCsv); the sample file is generated from columns every target already declares (no per-target boilerplate)."
+        "1 TODO in 26.7k LOC; the rule/seam tests are pure data; deactivate-not-delete + the shared seams keep most modules thin."
       ],
       "improvements": [
         {
-          "what": "Route handlers still repeat the gate-then-work dance.",
-          "why": "~6.6% duplication; the wrapper stays deferred (heterogeneous gates)."
+          "what": "Two hand-maintained tool catalogs describe the same endpoints.",
+          "why": "data-ops/tools.ts (550) + mcp/tools.ts (404) — collapse into one shared descriptor so they can't drift (BASE-IMPROVEMENTS #8)."
+        },
+        {
+          "what": "The cookie-forward internal-fetch is copy-pasted 5+ times.",
+          "why": "one callInternal() fixes the DRY + the 403/409/500 status flattening in one place (BASE-IMPROVEMENTS #1)."
+        },
+        {
+          "what": "8 files >400 LOC.",
+          "why": "cohesive but the largest; the catalog-unify dissolves two. Deferred to a focused session — they're on the agent/MCP hot paths."
         }
       ]
     },
