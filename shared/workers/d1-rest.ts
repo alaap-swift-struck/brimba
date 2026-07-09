@@ -119,10 +119,18 @@ export async function d1QueryAcross<Row = Record<string, unknown>>(
   sql: string,
   params: (string | number | null)[] = []
 ): Promise<Row[]> {
-  const results = await Promise.all(
+  // allSettled, not all: gather every shard's outcome so a failure names WHICH shard(s)
+  // failed (Promise.all throws the first raw error and hides the rest). It still fails
+  // LOUD on any error — a sharded read that silently dropped a shard's rows would be
+  // wrong (a count/aggregate would under-report). If a future query can tolerate a
+  // degraded shard, that's a deliberate per-query opt-in, not the default here.
+  const settled = await Promise.allSettled(
     databaseIds.map((id) => d1Query<Row>(cfg, id, sql, params))
   )
-  return results.flat()
+  const failed = databaseIds.filter((_, i) => settled[i].status === "rejected")
+  if (failed.length)
+    throw new Error(`d1QueryAcross: ${failed.length}/${databaseIds.length} shard(s) failed (${failed.join(", ")})`)
+  return settled.flatMap((s) => (s.status === "fulfilled" ? s.value : []))
 }
 
 /** Run a multi-statement script (schema/seeds — no params allowed). */

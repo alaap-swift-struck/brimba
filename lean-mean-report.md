@@ -1,5 +1,5 @@
 # Lean Mean Check — Brimba
-Scanned 2026-07-08 · Overall 93/100 (Grade A) · Lean additions: Law R10 (permission-gating seam) via the base's own registry+check machinery, 18 deterministic MCP write tools (declarative forwards), and the deactivated-dropdown dead-end fixed to match roles/learning — all test-covered, no new debt.
+Scanned 2026-07-08 · Self-score 93/100 (A) — **but honestly closer to ~88 (B+/A-)**. An independent fresh-clone re-score (2026-07-09) put it at **84**, with **Leanness the low point (~73)**: two hand-maintained tool catalogs (`data-ops/tools.ts` + `mcp/tools.ts` describe the same endpoints), a copy-pasted cookie-forward internal-fetch, and several files >400 LOC. The incumbent self-score was optimistic; these are real debt, tracked in **BASE-IMPROVEMENTS.md** (P1 #8, #9). Landing the callInternal + catalog-unify refactors genuinely raises the score — until then, treat 93 as aspirational, ~88 as honest.
 
 ## Fix first (ordered by impact)
 - [x] **(Robustness) DONE** — Law R10: every state-changing route gates (per-worker `gating-seam` test beside publish-seam) — the security twin of R1.

@@ -15,6 +15,40 @@ abstraction you don't need. **"Too much code" is a defect** — a bloated diff f
 
 ---
 
+## 0 · Decision trees — what to reach for
+
+Before the "how" below, the "what": when a change could take several shapes, reach for
+the **smallest** one first and only climb when it genuinely can't hold the need. This is
+the concrete form of the planning ritual's step 4 (CLAUDE.md).
+
+- **A new capability → a route on an existing worker.** Almost never a new worker — the
+  seven are locked (ARCHITECTURE.md). A new module = new routes on the worker that owns
+  its domain (tenancy for team-scoped config, content for learning/help-shaped modules,
+  data-ops for import/agent). A new worker is an ARCHITECTURE decision (a genuinely new
+  bounded context with its own scaling/security boundary), not a build-time one.
+- **New data → a column, then a table, then a database.** A column on an existing table
+  if it belongs to that record; a new **per-team** table for a new module's records; a
+  new **core** table only for global identity / billing / a cross-team index. Never a
+  database per feature — the **per-team DB is the tenancy + sharding unit** (BASE-MANUAL §6).
+- **Coordinating a write → atomic conditional SQL, then a unique index, then a Durable
+  Object.** (CONCURRENCY.md's three tools.) A DO only for a hot, contended, multi-step
+  invariant; otherwise atomic D1. A *retryable* multi-row op → claim it atomically first
+  (idempotency).
+- **A screen → a recipe, then a bespoke host component.** Engine-expressible (a list or
+  detail of shaped rows + description-lists + activity) → a recipe in `screens.ts`. A
+  control the engine has no block for (permission matrix, rich body, thread) → a bespoke
+  component (UI-CONVENTIONS §2b).
+- **Exposing an action to machines → an MCP tool or an agent tool.** A **deterministic**
+  action → an MCP tool (a thin forward to the gated door, free). A **natural-language /
+  multi-step** action → an agent tool (with the confirm rule if it's a privilege/identity
+  write). Both forward through the SAME gated door — never a second, ungated path.
+- **A new invariant → a machine-checked Law if it can be source-scanned; else a
+  convention + a targeted test.** Rule + registry entry + check land together (R-law
+  discipline). A green test must assert the *right* intent — a test that locks the wrong
+  behaviour is worse than none (the lesson behind R10/R12).
+
+---
+
 ## 1 · The worker handler shape
 
 Every domain worker (`auth`, `tenancy`, `content`, `data-ops`, `realtime`, `gateway`)
