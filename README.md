@@ -43,7 +43,10 @@ and screens are written) → the reference docs below as you need them →
 **[BOOTSTRAP.md](BOOTSTRAP.md)** — the day-zero, command-by-command runbook that takes
 a fresh Cloudflare account to a live staging + production Brimba. It is the concrete
 answer to "with only these docs and the repo, could I recreate the base?" — yes: run
-that list.
+that list. For the **one-command** version, the base ships its own build skill in
+**[skills/new-app/](skills/new-app/SKILL.md)** — install it (`cp -R skills/new-app
+~/.claude/skills/new-app`) and tell Claude Code "new app" to stand up a fresh, branded,
+deployed fork automatically (see [skills/README.md](skills/README.md)).
 
 **The rulebook — what governs the base (read before you change it).** Every rule for
 modifying, recreating, or building on Brimba lives in one of these, and each is
