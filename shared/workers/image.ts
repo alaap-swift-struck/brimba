@@ -20,12 +20,20 @@ export function parseDataUrl(
   }
 }
 
-/** General data-URL parser for learning attachments: accepts ANY mime type
- * (image/*, video/*, audio/*, application/pdf, …), base64-decodes, and enforces
- * a caller-supplied byte cap. Returns null if the input isn't a well-formed
- * base64 data URL or the decoded payload is over `maxBytes`. Unlike parseDataUrl
- * (images only, fixed cap) the mime is whatever the client declared — the
- * gateway serves it back verbatim, so callers cap the size at the boundary. */
+// Uploaded media is served BACK by the gateway with the declared content type, on
+// the SAME origin as the app + /api. So the mime MUST be inline-safe: a script-capable
+// type (text/html, application/xhtml+xml, image/svg+xml) would be stored XSS — a member
+// could upload a page that runs JS in the app origin and rides any viewer's session.
+// This allowlist is the boundary that stops it. Raster images, short A/V clips, and PDFs
+// only — exactly what a learning attachment is.
+const INLINE_SAFE_UPLOAD =
+  /^(image\/(png|jpe?g|webp|gif|avif)|video\/(mp4|webm|ogg)|audio\/(mpeg|mp4|webm|ogg)|application\/pdf)$/
+
+/** General data-URL parser for learning attachments: base64-decodes, enforces a
+ * caller-supplied byte cap, and — critically — accepts ONLY an inline-safe media mime
+ * (`INLINE_SAFE_UPLOAD`; never text/html or svg). Returns null if the input isn't a
+ * well-formed base64 data URL, the mime isn't allow-listed, or the decoded payload is
+ * over `maxBytes`. (parseDataUrl above is the tighter images-only sibling.) */
 export function parseUploadDataUrl(
   dataUrl: unknown,
   maxBytes: number
@@ -33,6 +41,7 @@ export function parseUploadDataUrl(
   if (typeof dataUrl !== "string") return null
   const match = /^data:([\w.+-]+\/[\w.+-]+);base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl)
   if (!match) return null
+  if (!INLINE_SAFE_UPLOAD.test(match[1])) return null // reject script-capable types (XSS)
   try {
     const binary = atob(match[2])
     if (binary.length > maxBytes) return null

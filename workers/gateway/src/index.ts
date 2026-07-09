@@ -5,6 +5,20 @@
 
 import { fail } from "../../../shared/workers/http"
 
+// Headers for an R2 media object served on the app origin. These responses are
+// worker-built, so web/public/_headers does NOT apply to them — the security
+// headers must live here. `sandbox` + `default-src 'none'` neuters any script even
+// if a script-capable file slipped past the upload allowlist (defense-in-depth
+// behind parseUploadDataUrl's INLINE_SAFE_UPLOAD check); nosniff stops MIME sniffing.
+function mediaHeaders(object: R2ObjectBody): HeadersInit {
+  return {
+    "Content-Type": object.httpMetadata?.contentType ?? "application/octet-stream",
+    "Content-Security-Policy": "default-src 'none'; sandbox",
+    "X-Content-Type-Options": "nosniff",
+    "Cache-Control": "public, max-age=31536000, immutable",
+  }
+}
+
 type Env = {
   ASSETS: Fetcher
   AUTH: Fetcher
@@ -81,13 +95,7 @@ export default {
       const key = decodeURIComponent(pathname.slice("/media/learning/".length))
       const object = await env.LEARNING_MEDIA.get(key)
       if (!object) return new Response("Not found", { status: 404 })
-      return new Response(object.body, {
-        headers: {
-          "Content-Type":
-            object.httpMetadata?.contentType ?? "application/octet-stream",
-          "Cache-Control": "public, max-age=31536000, immutable",
-        },
-      })
+      return new Response(object.body, { headers: mediaHeaders(object) })
     }
 
     // Uploaded files (profile photos, team logos). URLs carry ?v= for cache
@@ -96,13 +104,7 @@ export default {
       const key = decodeURIComponent(pathname.slice("/media/".length))
       const object = await env.MEDIA.get(key)
       if (!object) return new Response("Not found", { status: 404 })
-      return new Response(object.body, {
-        headers: {
-          "Content-Type":
-            object.httpMetadata?.contentType ?? "application/octet-stream",
-          "Cache-Control": "public, max-age=31536000, immutable",
-        },
-      })
+      return new Response(object.body, { headers: mediaHeaders(object) })
     }
 
     // Deep-link tree: /t/<teamId>/<module>/<id>/… is ONE client-resolved screen.

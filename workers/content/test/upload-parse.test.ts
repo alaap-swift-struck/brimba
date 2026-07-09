@@ -1,6 +1,7 @@
 // parseUploadDataUrl is the upload boundary for learning files — it decides what
-// bytes reach R2. It must accept any real media type, decode correctly, and refuse
-// non-strings, malformed input, and anything over the size cap. These lock that.
+// bytes reach R2. It must accept inline-safe media, decode correctly, and refuse
+// non-strings, malformed input, over-cap payloads, AND script-capable types (the
+// stored-XSS boundary: the gateway serves these back on the app origin). These lock that.
 
 import { describe, expect, it } from "vitest"
 
@@ -21,6 +22,14 @@ describe("parseUploadDataUrl", () => {
     expect(parseUploadDataUrl(`data:application/pdf;base64,${b64("x")}`, 1000)?.contentType).toBe(
       "application/pdf"
     )
+  })
+
+  it("rejects script-capable types (the stored-XSS boundary): text/html, svg, xhtml", () => {
+    expect(parseUploadDataUrl(`data:text/html;base64,${b64("<script>alert(1)</script>")}`, 9999)).toBeNull()
+    expect(parseUploadDataUrl(`data:image/svg+xml;base64,${b64("<svg onload=alert(1)>")}`, 9999)).toBeNull()
+    expect(
+      parseUploadDataUrl(`data:application/xhtml+xml;base64,${b64("<html/>")}`, 9999)
+    ).toBeNull()
   })
 
   it("rejects a non-string", () => {
