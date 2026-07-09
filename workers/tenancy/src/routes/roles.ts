@@ -4,7 +4,7 @@
 
 import { fail, json } from "../../../../shared/workers/http"
 import { csvResponse, toCsv } from "../../../../shared/workers/csv"
-import { requireText, TEXT_LIMITS } from "../../../../shared/workers/validate"
+import { optionalText, requireText, TEXT_LIMITS } from "../../../../shared/workers/validate"
 import { publishChange } from "../../../../shared/workers/realtime"
 import { listRoles } from "../lib/members"
 import { TEAM_MODULE_CATALOG } from "../team-schema"
@@ -124,7 +124,7 @@ export async function postCreateRole(request: Request, env: Env): Promise<Respon
   // setting a matrix on the Roles screen goes through. A plain create is unchanged.
   const withMatrix = typeof body.permissions === "object" && body.permissions !== null
   if (withMatrix) await requireRight(cfg, guard, "member_roles", "edit")
-  const roleId = await createRole(cfg, guard, actor, title, body.description ?? "")
+  const roleId = await createRole(cfg, guard, actor, title, (optionalText(body.description, "Description", TEXT_LIMITS.long) ?? ""))
   if (withMatrix) await setRolePermissions(cfg, guard, actor, roleId, body.permissions as PermissionValue)
   // Row-level: carry the new role's id so open role lists patch just that row.
   await publishChange(env.REALTIME, guard.teamId, "member_roles", roleId, "add")
@@ -141,7 +141,7 @@ export async function postUpdateRole(request: Request, env: Env): Promise<Respon
   }
   if (!body.roleId) return fail(400, "invalid_input", "roleId and title are required.")
   const title = requireText(body.title, "Name", TEXT_LIMITS.short)
-  await updateRole(cfg, guard, actor, body.roleId, title, body.description ?? "")
+  await updateRole(cfg, guard, actor, body.roleId, title, (optionalText(body.description, "Description", TEXT_LIMITS.long) ?? ""))
   await publishChange(env.REALTIME, guard.teamId, "member_roles", body.roleId)
   return json({ roles: await listRoles(env, cfg, guard) })
 }

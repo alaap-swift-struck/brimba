@@ -79,14 +79,17 @@ quota tables. Create it for each environment and apply the core migrations in
 > `wrangler.jsonc` files ship with a real `database_id` (and `CF_ACCOUNT_ID`, §4)
 > pinned to the account this base was built on. On YOUR account those are wrong, and
 > wrangler binds D1 by `database_id` when present — so a stale id silently binds to
-> nothing and **every per-team DB write fails**. After creating each core DB below,
-> paste its returned `database_id` into the `d1_databases` block of **all five
-> core-bound workers — auth, tenancy, content, data-ops, realtime** (top-level =
-> production, `env.staging` = staging).
+> nothing and **every per-team DB write fails**. WORSE, if you fork onto an account
+> that ALREADY hosts the original base, the stale id binds to the ORIGINAL core DB —
+> a cross-tenant data leak. After creating each core DB below, paste its returned
+> `database_id` into the `d1_databases` block of **all SIX core-bound workers — auth,
+> tenancy, content, data-ops, realtime, AND mcp** (mcp binds the core DB for
+> `mcp_tokens`; it's the easy one to miss). Top-level = production, `env.staging` =
+> staging.
 
 ```bash
 # Create the core DB for each env, then paste each returned database_id into ALL
-# FIVE core-bound workers' wrangler.jsonc (auth, tenancy, content, data-ops, realtime).
+# SIX core-bound workers' wrangler.jsonc (auth, tenancy, content, data-ops, realtime, mcp).
 npx wrangler d1 create brimba-core-staging
 npx wrangler d1 create brimba-core
 

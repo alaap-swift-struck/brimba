@@ -83,10 +83,10 @@ export async function createNamedTeam(request: Request, env: Env): Promise<Respo
   if (!user.onboardingComplete)
     return fail(409, "onboarding_incomplete", "Finish onboarding first.")
 
-  const body = (await request.json().catch(() => ({}))) as { name?: string }
-  const name = (body.name ?? "").trim()
-  if (!name) return fail(400, "invalid_input", "A team name is required.")
-  if (name.length > 60) return fail(400, "name_too_long", "That team name is too long.")
+  const body = (await request.json().catch(() => ({}))) as { name?: unknown }
+  // Validate at the boundary: a non-string name would otherwise crash .trim() → 500.
+  // requireText type-checks + trims + caps, throwing the clean 400 the catch maps.
+  const name = requireText(body.name, "Team name", TEXT_LIMITS.short)
 
   await createTeam(env, toActor(user), name, null)
   return json(await getActiveContext(env, d1Config(env), user.id))

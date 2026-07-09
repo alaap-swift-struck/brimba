@@ -25,7 +25,7 @@ export async function postCreateInvite(request: Request, env: Env): Promise<Resp
   const { actor, cfg, guard, body } = await gatedBody<{ email?: string; roleId?: string }>(
     request, env, "team_members", "create"
   )
-  if (!body.email || !body.roleId)
+  if (typeof body.email !== "string" || typeof body.roleId !== "string")
     return fail(400, "invalid_input", "email and roleId are required.")
   const inviteId = await createInvite(
     env, cfg, guard, actor, body.email, body.roleId, request
@@ -39,7 +39,7 @@ export async function postRevokeInvite(request: Request, env: Env): Promise<Resp
   const { actor, cfg, guard, body } = await gatedBody<{ inviteId?: string }>(
     request, env, "team_members", "delete"
   )
-  if (!body.inviteId) return fail(400, "invalid_input", "inviteId is required.")
+  if (typeof body.inviteId !== "string") return fail(400, "invalid_input", "inviteId is required.")
   await revokeInvite(env, cfg, guard, actor, body.inviteId)
   // Revoke is an in-place edit (the row stays, status → 'revoked'), so re-pulling
   // this one id keeps the list live without a full refetch.
@@ -76,7 +76,7 @@ export async function postAcceptInvitation(request: Request, env: Env): Promise<
   if (!user.onboardingComplete)
     return fail(409, "onboarding_incomplete", "Finish onboarding first.")
   const body = (await request.json().catch(() => ({}))) as { inviteId?: string }
-  if (!body.inviteId) return fail(400, "invalid_input", "inviteId is required.")
+  if (typeof body.inviteId !== "string") return fail(400, "invalid_input", "inviteId is required.")
   const joinedTeamId = await acceptInvite(env, toActor(user), body.inviteId)
   if (!joinedTeamId)
     return fail(404, "invite_unavailable", "That invitation is no longer available.")

@@ -20,7 +20,7 @@ export async function postMemberRole(request: Request, env: Env): Promise<Respon
   const { actor, cfg, guard, body } = await gatedBody<{ userId?: string; roleId?: string }>(
     request, env, "team_members", "edit"
   )
-  if (!body.userId || !body.roleId)
+  if (typeof body.userId !== "string" || typeof body.roleId !== "string")
     return fail(400, "invalid_input", "userId and roleId are required.")
   await changeMemberRole(env, cfg, guard, actor, body.userId, body.roleId)
   // Carry the affected userId so other clients can refresh that member's
@@ -33,7 +33,7 @@ export async function postMemberRemove(request: Request, env: Env): Promise<Resp
   const { actor, cfg, guard, body } = await gatedBody<{ userId?: string }>(
     request, env, "team_members", "delete"
   )
-  if (!body.userId) return fail(400, "invalid_input", "userId is required.")
+  if (typeof body.userId !== "string") return fail(400, "invalid_input", "userId is required.")
   await removeMember(env, cfg, guard, actor, body.userId)
   // Team channel: drop them from everyone else's member list (row-level).
   await publishChange(env.REALTIME, guard.teamId, "members", body.userId, "remove")

@@ -131,13 +131,23 @@ export async function logUsage(
   }
 }
 
-/** The team's usage log, newest-first (the panel's "N left today" badge opens this). */
-export async function readUsageLog(env: Env, teamId: string, limit: number): Promise<UsageLogRow[]> {
+/** The team's usage log, newest-first (the panel's "N left today" badge opens this).
+ * PRIVACY: the `summary` is the actor's own (truncated) AI prompt, so it's shown ONLY on
+ * the viewer's OWN rows — a teammate sees who spent how many credits and when, but never
+ * another person's prompt text. (Everything else — actor, credits, source, time — is
+ * team-visible billing detail.) */
+export async function readUsageLog(
+  env: Env,
+  teamId: string,
+  viewerId: string,
+  limit: number
+): Promise<UsageLogRow[]> {
   const res = await env.DB.prepare(
-    `SELECT id, created_at AS createdAt, actor_name AS actorName, credits, source, summary
+    `SELECT id, created_at AS createdAt, actor_name AS actorName, credits, source,
+            CASE WHEN actor_id = ? THEN summary ELSE NULL END AS summary
      FROM agent_usage_log WHERE team_id = ? ORDER BY created_at DESC LIMIT ?`
   )
-    .bind(teamId, limit)
+    .bind(viewerId, teamId, limit)
     .all<UsageLogRow>()
   return res.results ?? []
 }

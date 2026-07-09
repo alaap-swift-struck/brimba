@@ -86,11 +86,12 @@ export async function getAgentUsage(request: Request, env: Env): Promise<Respons
 /** GET /api/data-ops/agent/usage-log?limit= — the team's AI usage trail, newest-first
  * (one row per turn). Gated + team-scoped exactly like GET /agent/usage. */
 export async function getAgentUsageLog(request: Request, env: Env): Promise<Response> {
-  const { cfg, guard } = await teamContext(request, env)
+  const { actor, cfg, guard } = await teamContext(request, env)
   await requireRight(cfg, guard, "agent", "read")
   const raw = Number(new URL(request.url).searchParams.get("limit"))
   const limit = Number.isFinite(raw) && raw > 0 ? Math.min(Math.trunc(raw), 200) : 50
-  return json({ rows: await readUsageLog(env, guard.teamId, limit) })
+  // Pass the viewer's id so the log redacts other members' prompt summaries (privacy).
+  return json({ rows: await readUsageLog(env, guard.teamId, actor.id, limit) })
 }
 
 /** POST /api/data-ops/admin/grant-credits — owner-only credit top-up (x-admin-key). */
