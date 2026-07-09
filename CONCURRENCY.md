@@ -48,6 +48,14 @@ instance is for the rare contended hot entity.
 - Single-statement invariant (count/floor) → **atomic conditional SQL** (1).
 - "No duplicates" → **unique / partial-unique index** (2).
 - Hot multi-step counter under heavy concurrent load → **Durable Object** (3).
+- **A retryable multi-row operation that must run at most once** (an import, a batch
+  job) → **claim it atomically first** (a variant of 1). Flip a status field with a
+  conditional UPDATE (`SET status='running' WHERE id=? AND status='planned' RETURNING
+  id`) *before* doing the work; only the request that wins the flip proceeds, so a retry
+  or a double-click can't run it twice and duplicate every row. A crash mid-run leaves it
+  `running` (safe — no duplicates); re-create to retry. Guarded for the CSV importer by
+  `workers/data-ops/test/import-idempotency.test.ts`. **The rule: a write a client can
+  retry must be idempotent.**
 
 ## While a write is in flight
 Serialized or not, the user should never see a dead UI — show feedback

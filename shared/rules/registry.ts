@@ -94,6 +94,13 @@ export const RULES_REGISTRY: Rule[] = [
     checkId: "fetch-timeout",
     status: "enforced",
   },
+  {
+    id: "R12",
+    dimension: "arch",
+    law: "Every cron / scheduled handler records its failures to the error store (recordWorkerError) — unattended work has no user watching, so a swallowed background failure would be invisible in the 90-day error_logs. (A user-facing catch that shows a friendly message should record too — a documented convention, e.g. the agent's model-call catch.)",
+    checkId: "cron-records",
+    status: "enforced",
+  },
 ]
 
 /** Worker test suites that enforce R1. A new mutating worker without a

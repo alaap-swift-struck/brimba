@@ -169,7 +169,10 @@ export default {
         `size check: ${result.checked} team DBs, ${result.alerted.length} alarm(s)`
       )
     } catch (e) {
+      // LAW R12: unattended work has no user watching, so a swallowed failure would be
+      // invisible — record it to the error store, not just the console.
       console.error("nightly size check failed:", e)
+      await recordWorkerError(env.DB, "tenancy", "cron/size-check", e)
     }
   },
 } satisfies ExportedHandler<Env>

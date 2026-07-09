@@ -19,6 +19,7 @@ import { executeTool, getTool, requiresConfirm, toolSpecs, type ToolResult } fro
 import { appendMessage, consumePendingProposal, createThread, getPendingProposal, listMessages } from "./threads"
 import { addBatchFile, createBatch, planBatch } from "./import-batch"
 import { GuardError } from "../../../../shared/workers/gating"
+import { recordWorkerError } from "../../../../shared/workers/error-log"
 
 const MAX_STEPS = 12
 // Only the last MAX_HISTORY messages are REPLAYED to the model (full history stays in
@@ -334,8 +335,11 @@ async function runPlanLoop(
       } else {
         reply = await model.complete(convo, tools)
       }
-    } catch {
+    } catch (e) {
       // A model/runtime hiccup becomes a friendly, saved turn — never an uncaught 500.
+      // But the USER only sees "try again"; the OWNER must be able to see WHY, so record
+      // the swallowed error to the store (best-effort; never blocks the friendly reply).
+      await recordWorkerError(env.DB, "data-ops", "agent/model-call", e)
       const msg = "The assistant had trouble just now and couldn't reply. Please try again in a moment."
       say(msg)
       await appendMessage(cfg, guard, actor, threadId, { role: "assistant", content: msg, source: opts.source })

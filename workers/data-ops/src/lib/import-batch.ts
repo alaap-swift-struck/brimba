@@ -189,6 +189,22 @@ export async function confirmBatch(
   if (b.overall_status === "complete") throw new GuardError(409, "already_run", "This import has already been run.")
   const plan = planOf(b)
   if (!plan) throw new GuardError(409, "no_plan", "Plan the import before running it.")
+
+  // IDEMPOTENCY (convention · CONCURRENCY.md): atomically CLAIM the batch before writing,
+  // so a retried or concurrent confirm can't run the import twice (duplicate rows). Only
+  // the request that flips planned→running proceeds; a second finds it already claimed and
+  // is refused. A crashed run stays 'running' (safe — no duplicates); re-create to retry.
+  const claimed = await d1Query(
+    cfg,
+    guard.databaseId,
+    `UPDATE data_import_batches SET overall_status = 'running', updated_at = ${sqlString(
+      new Date().toISOString()
+    )} WHERE id = ${sqlString(batchId)} AND overall_status = 'planned' RETURNING id;`,
+    []
+  )
+  if (!claimed.length)
+    throw new GuardError(409, "already_run", "This import is already running or has been run.")
+
   const files = new Map(filesOf(b).map((f) => [f.fileId, f]))
 
   // Which parents must be read back for id-resolution (any mode:"id" ref in the batch).

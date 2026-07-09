@@ -3,7 +3,7 @@
 // It reads source straight off disk (like the publish-seam tests) so the checks
 // can't be fooled by anything but the real code.
 
-import { readdirSync, readFileSync } from "node:fs"
+import { existsSync, readdirSync, readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
@@ -162,6 +162,25 @@ describe("RULES — the laws of the base", () => {
     expect(offenders, `external fetch without an AbortSignal timeout (R11): ${offenders.join(", ")}`).toEqual([])
   })
 
+  // R12 — every cron / scheduled handler records its failures to the error store.
+  // Unattended work has no user watching, so a swallowed background failure would be
+  // invisible in the 90-day error_logs. (The request dispatcher already records; this
+  // guards the background handlers.)
+  it("cron-records: every scheduled handler records failures via recordWorkerError", () => {
+    const offenders: string[] = []
+    for (const w of readdirSync(join(ROOT, "workers"))) {
+      const idx = join(ROOT, "workers", w, "src", "index.ts")
+      if (!existsSync(idx)) continue
+      const src = read(idx)
+      const m = /async scheduled\s*\(/.exec(src)
+      if (!m) continue // no cron in this worker
+      // The scheduled handler runs to the end of the file — it must record.
+      if (!/recordWorkerError/.test(src.slice(m.index)))
+        offenders.push(w)
+    }
+    expect(offenders, `cron handler that swallows failures without recording (R12): ${offenders.join(", ")}`).toEqual([])
+  })
+
   // Every enforced law in the registry maps to one of the checks above (or a
   // per-worker seam test) — a law can't exist without a check.
   it("every enforced law has a known check", () => {
@@ -169,6 +188,7 @@ describe("RULES — the laws of the base", () => {
       "publish-seam", // the 3 per-worker publish-seam.test.ts suites
       "gating-seam", // R10: the 3 per-worker gating-seam suites (beside publish-seam)
       "fetch-timeout", // R11: the source-scan below
+      "cron-records", // R12: the scheduled-handler scan below
       "record-detail-tabs",
       "no-handrolled-toggles",
       "forms-use-formshell",

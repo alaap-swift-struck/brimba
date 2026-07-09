@@ -27,6 +27,7 @@ every exception is a visible, conscious line — never a silent bypass.
 | R9 | arch | The agent knows what the app can do — its system prompt carries a capability brief GENERATED from the import/export catalog (+ the glossary), so the UI and the agent can never disagree about a capability. | `agent-app-parity` (workers/data-ops/test/agent-parity.test.ts) | enforced |
 | R10 | arch | Every state-changing route opens with a permission gate (requireRight / gated / requireAnyImportRight / adminGuard) — unless it's a reviewed identity-gated write (teamless onboarding, own-pointer, ownership) that gates on whoAmI. No ungated door ships. | `gating-seam` (per-worker tests: tenancy, content, data-ops — the security counterpart to `publish-seam`) | enforced |
 | R11 | arch | Every external `fetch()` (a bare global fetch to the internet — D1 REST door, email sender, AI model call) carries an `AbortSignal` timeout, so a hung socket can't stall a worker. Service-binding `X.fetch()` calls are Cloudflare-bounded and exempt. | `fetch-timeout` (source-scan in `web/test/rules.test.ts`) | enforced |
+| R12 | arch | Every cron / `scheduled` handler records its failures to the error store (`recordWorkerError`) — unattended work has no user watching, so a swallowed background failure would vanish from the 90-day error log. (A user-facing catch that shows a friendly message should record too — a convention; see the agent's model-call catch.) | `cron-records` (source-scan in `web/test/rules.test.ts`) | enforced |
 
 ## How to add a new law
 
