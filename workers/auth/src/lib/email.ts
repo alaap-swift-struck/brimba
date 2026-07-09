@@ -60,6 +60,7 @@ export async function sendEmail(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ from, to: [msg.to], subject: msg.subject, html: msg.html, text: msg.text }),
+    signal: AbortSignal.timeout(15_000), // LAW R11: a hung email send must not stall the worker
   })
   if (!res.ok) {
     throw new Error(`Resend refused the email (${res.status}): ${await res.text()}`)

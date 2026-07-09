@@ -1,0 +1,48 @@
+# BASE-IMPROVEMENTS.md — the honest backlog
+
+The living list of known base issues and their status, from an **objective third-party
+review** (2026-07-09): a fresh multi-agent `security_sentry` on this repo + an independent
+four-audit pass (`lean_mean_check` · `security_sentry` · `error_analyst` · `story_checks_out`)
+run against a *pristine* clone by the first real `new-app` fork (testco). Two reviewers with
+no prior context converging on the same findings is the signal to trust.
+
+Keep this current: when an item ships, move it to **Fixed** with the commit.
+
+---
+
+## Fixed (2026-07-09)
+
+| Sev | Issue | Fix |
+|---|---|---|
+| HIGH | Agent could make privilege/identity writes (rename team, change roles, set permissions, invite) with **no confirmation** — reproduced live (a read-only question silently renamed a team) | `confirm: true` on the 7 privilege/identity tools; `agent.test.ts` flipped to the safe contract (`workers/data-ops/src/lib/tools.ts`) |
+| HIGH | **Stored XSS**: `parseUploadDataUrl` accepted any MIME (`text/html`, `svg`); gateway served `/media/learning/*` back with it on the app origin (worker-built response, so `_headers` didn't apply) → attacker JS rides a viewer's session, cross-team | Allow-listed inline-safe MIME at the boundary + `mediaHeaders()` adds `CSP: default-src 'none'; sandbox` + `nosniff` on both gateway media branches (`shared/workers/image.ts`, `workers/gateway/src/index.ts`) |
+| MEDIUM | AI usage-log returned **every member's raw prompt** to any teammate who opened it | `readUsageLog` redacts the summary to the viewer's own rows (`workers/data-ops/src/lib/credits.ts`) |
+| MEDIUM | No anti-clickjacking / MIME / referrer headers served | `X-Frame-Options: DENY` + `nosniff` + `Referrer-Policy` in `web/public/_headers` |
+| LOW | Boundary validation gaps: role `description`, team `name`, member/invite ids not type-checked → a non-string body was a **500, not a 400** | `optionalText` / `requireText` / `typeof` guards (tenancy routes) |
+| CRIT (forks) | `mcp` binds the core DB but docs said "**five** core-bound workers" → a fork on a shared account silently binds mcp to the ORIGINAL core DB (cross-tenant) | "SIX core-bound workers" everywhere (BOOTSTRAP, OPERATIONS, new-app); OPERATIONS now lists migration 0013 + mcp in the `INTERNAL_KEY` set |
+| — | Fork sweep left `brimba.swift-struck.workers.dev` host URLs in the MCP docs | new-app sweep now treats host URLs as live references, not history |
+
+---
+
+## Open — ranked (the "three moves that each kill several findings" first)
+
+### P1 · resilience + leanness — high leverage, real refactors
+1. **One `callInternal(path, {cookie, timeout})` seam** (`shared/workers/`). Kills THREE findings at once: the cookie-forward internal-fetch dance is copy-pasted 5+ times (DRY), **no `fetch` has an `AbortSignal`** anywhere — the D1 REST door (`cf()`), cross-worker calls, and the agent's model calls all lack a timeout, so one hung socket stalls a whole worker (resilience) — and the forward executors flatten 403/409/500 into one generic string (status preservation; also the cause of the agent's "stuck pending step"). **Highest-leverage single change.**
+2. **Unify the two tool catalogs.** `workers/data-ops/src/lib/tools.ts` and `workers/mcp/src/lib/tools.ts` hand-describe the *same* gated endpoints — collapse into one shared descriptor table so they can't drift. (Biggest leanness hit + structurally prevents catalog drift.)
+3. **Idempotency + partial-failure cleanup on the fleet writes.** `import-confirm` has no idempotency (retry → duplicate rows); `migrateTeams` aborts the whole fleet on the first bad team and leaves schema drift; the module-mover can orphan a DB / double-count on interruption. Add an idempotency guard + per-item try/catch + cleanup.
+4. **Close the two error-log blind spots.** The nightly cron catch and the agent model-call catch swallow unexpected errors (console-only / nothing) — invisible in the 90-day `error_logs` table meant to catch exactly those. Add `recordWorkerError` in both.
+5. **`d1QueryAcross` uses `Promise.all`** → one slow/failed shard fails an entire split-module read. Use `allSettled` + record the degraded shard.
+
+### P2 · deploy + docs
+6. **realtime↔auth cold-start cut.** A genuinely fresh-account first deploy dies `code 10143` (realtime binds auth, auth binds realtime). Document the one-time binding cut as a first-class BOOTSTRAP step AND make `deploy:*` tolerate it — not the current footnote ("in practice auth already exists" — false for `new-app`).
+7. **`DEV_ECHO_CODES=1` on staging** echoes login codes in API responses even with Resend live. Fine for a test rig — add a one-line note that it's a staging-only convenience, never a real-user staging.
+
+### P3 · structure / honesty
+8. **Eight god-files >400 LOC** (`agent.ts` ~570, both `tools.ts`, `api.ts` ~535…) — split by seam. Largely dissolved by #1 + #2.
+9. **Reconcile the lean score.** A fresh honest `lean_mean_check` scores **~84–90 (B/A-)**, not the committed report's 93 — the leanness dimension (~73) is dragged by #1 + #2 + the god-files. Either land #1/#2 (which genuinely raises it) or regenerate the report honestly. Don't ship an over-stated score.
+
+---
+
+## The meta-lesson (worth its own guardrail)
+
+Two of the worst issues (the agent confirm gap, the fork-sweep leaving live URLs) **slipped past our own checks because a check encoded the wrong intent** — a test that asserted the vulnerable behaviour as correct, and a sweep rule that treated a live URL as "history." An incumbent review rationalises what's already there. **Schedule a periodic fresh, no-prior-context review** (a clean clone, independent agents) — it finds what the incumbent gate accepts. This is why the base now recommends running the audits against a *pristine* clone, not the working tree.

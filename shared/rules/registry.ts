@@ -87,6 +87,13 @@ export const RULES_REGISTRY: Rule[] = [
     checkId: "gating-seam",
     status: "enforced",
   },
+  {
+    id: "R11",
+    dimension: "arch",
+    law: "Every external fetch (a bare global fetch() to the internet — the D1 REST door, the email sender, the AI model call) carries an AbortSignal timeout, so a hung socket can never stall a worker. Service-binding calls (X.fetch()) are Cloudflare-bounded and exempt.",
+    checkId: "fetch-timeout",
+    status: "enforced",
+  },
 ]
 
 /** Worker test suites that enforce R1. A new mutating worker without a

@@ -23,6 +23,18 @@ The laws live in **[RULES.md](RULES.md)** (the human law-book) and are pinned to
 
 A law cannot be added without its check (`registry-integrity`). When you add a rule, add it to RULES.md **and** the registry **and** a check — or the build fails.
 
+## Before you build — the planning ritual
+
+Answer these seven, in order, *before* you write code. It's the thinking that keeps a change in-rule and lean — the antidote to the failure mode that bit us (a change that looked fine but broke an unstated invariant, or rebuilt a seam that already existed).
+
+1. **Say it in one glossary sentence.** What changes, in [the glossary's](shared/glossary.ts) words — never a synonym. No word for it yet? That's a glossary decision first (Law R6).
+2. **Which Laws bite?** Walk R1–R10: it mutates → gate (R10) + publish (R1); renders a form → FormShell (R4) + draft (R7); a collection → tabs/counts (R2/R3/R8); touches the agent → capability parity (R9) + the confirm rule. Name them now, not in review.
+3. **Which seams do I reuse — not rebuild?** The data door (`shared/workers/d1-rest`), gating (`requireRight`), validation (`shared/workers/validate`), `publishChange`, `FormShell`, the recipe engine, the tool catalog. If you're writing what a seam already does, stop.
+4. **What's the smallest shape?** A route on an existing worker (not a new worker); a column (not a table); a recipe (not a bespoke screen); a flag (not a code path). "Too much code is a defect."
+5. **What could break?** Name the failure path *before* the happy path: tenant isolation, ≥1 admin, a unique pending invite, a never-negative balance, a concurrent write, a partial failure, a hung fetch. Validate at the boundary; make retryable writes idempotent.
+6. **What test locks it?** The seam/rule test that catches the regression. A new invariant → write the test first (red), then make it green. A green test must never assert the *wrong* intent (that's how the agent-confirm gap hid).
+7. **Gate before ship.** `npm run check` + the quality trio (lean/story/security), and — for anything security-shaped — a **fresh, no-prior-context review** (a clean clone, independent eyes). An incumbent review rationalises what's already there.
+
 ## Build style — how code here is written
 
 - **Workers (7):** auth, tenancy, realtime, gateway (the only public door), content (learning + help), data-ops (import + AI agent), mcp (the external machine surface: personal access tokens → team-pinned sessions → MCP tools over the same gated doors; reached only through the gateway at `/mcp` + `/api/mcp/*`). Per-team D1 databases reached over the REST door (`CF_D1_TOKEN`); the global core DB via the native `env.DB` binding. Shared worker code lives in `shared/workers/` (gating, http, validate, …).

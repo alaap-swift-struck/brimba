@@ -123,12 +123,52 @@ describe("RULES — the laws of the base", () => {
     }
   })
 
+  // R11 — every EXTERNAL fetch (a bare global fetch() to the internet) carries an
+  // AbortSignal timeout, so a hung socket can't stall a worker. Service-binding calls
+  // (X.fetch()) are Cloudflare-bounded and exempt (the bare-fetch regex skips them).
+  it("fetch-timeout: every external fetch carries an AbortSignal timeout", () => {
+    const serverDirs = [
+      join(ROOT, "shared", "workers"),
+      ...readdirSync(join(ROOT, "workers")).map((w) => join(ROOT, "workers", w, "src")),
+    ]
+    const tsFiles = (dir: string): string[] => {
+      const out: string[] = []
+      const walk = (d: string) => {
+        for (const e of readdirSync(d, { withFileTypes: true })) {
+          const p = join(d, e.name)
+          if (e.isDirectory()) walk(p)
+          else if (e.name.endsWith(".ts") && !e.name.endsWith(".test.ts")) out.push(p)
+        }
+      }
+      walk(dir)
+      return out
+    }
+    const offenders: string[] = []
+    for (const dir of serverDirs) {
+      for (const file of tsFiles(dir)) {
+        const src = read(file)
+        const re = /(?<![.\w])fetch\(/g // bare fetch( = external; NOT X.fetch( (service binding)
+        let m: RegExpExecArray | null
+        while ((m = re.exec(src))) {
+          // Skip the Worker/Durable-Object `async fetch(request)` HANDLER — it's a
+          // method definition, not a call to the global fetch.
+          if (src.slice(Math.max(0, m.index - 6), m.index).endsWith("async ")) continue
+          const window = src.slice(m.index, m.index + 600)
+          if (!/signal:\s*AbortSignal\.timeout/.test(window))
+            offenders.push(`${file.slice(ROOT.length)} @${m.index}`)
+        }
+      }
+    }
+    expect(offenders, `external fetch without an AbortSignal timeout (R11): ${offenders.join(", ")}`).toEqual([])
+  })
+
   // Every enforced law in the registry maps to one of the checks above (or a
   // per-worker seam test) — a law can't exist without a check.
   it("every enforced law has a known check", () => {
     const known = new Set([
       "publish-seam", // the 3 per-worker publish-seam.test.ts suites
       "gating-seam", // R10: the 3 per-worker gating-seam suites (beside publish-seam)
+      "fetch-timeout", // R11: the source-scan below
       "record-detail-tabs",
       "no-handrolled-toggles",
       "forms-use-formshell",

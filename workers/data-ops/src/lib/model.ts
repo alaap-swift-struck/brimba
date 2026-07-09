@@ -144,6 +144,7 @@ class ClaudeModel implements Model {
       method: "POST",
       headers: this.headers(),
       body: JSON.stringify(this.buildBody(messages, tools, false)),
+      signal: AbortSignal.timeout(120_000), // LAW R11: ceiling a hung model call (generous — a turn finishes well under this)
     })
     if (!res.ok) {
       const detail = await res.text().catch(() => "")
@@ -176,6 +177,7 @@ class ClaudeModel implements Model {
       method: "POST",
       headers: this.headers(),
       body: JSON.stringify(this.buildBody(messages, tools, true)),
+      signal: AbortSignal.timeout(120_000), // LAW R11: ceiling a hung stream (generous — a turn finishes well under this)
     })
     if (!res.ok || !res.body) {
       const detail = res.body ? await res.text().catch(() => "") : ""

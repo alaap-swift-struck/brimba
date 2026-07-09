@@ -37,6 +37,9 @@ async function cf<T>(
           "Content-Type": "application/json",
         },
         body: body === undefined ? undefined : JSON.stringify(body),
+        // LAW R11: bound the socket. A hung D1 REST call would otherwise never return
+        // and stall the worker; a timeout throws → the retry loop above handles it.
+        signal: AbortSignal.timeout(15_000),
       })
     } catch (e) {
       // Network hiccup — worth retrying.
