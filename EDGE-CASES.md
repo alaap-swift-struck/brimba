@@ -71,6 +71,27 @@ it moved, offer a **gentle "reload" toast**, never a surprise reload mid-task.
 Don't mistake this for cache-busting: it heals an *already-stale* tab; it does
 not make cross-route navigation soft.
 
+**The AI co-pilot must survive this reload — it's mounted at the ROOT, and its
+open state persists.** The assistant panel is the one surface that spans *all*
+screens, so it lives in a single root-mounted host (`web/components/agent-host.tsx`,
+rendered once in `app/layout.tsx`), **not** inside any per-route `AppShell`. That
+survives *soft* navigation. But crossing into `/t` from a top-level route is a
+*hard reload* (above), which wipes all in-memory state — so the panel's open flag
+is **mirrored to `sessionStorage`** (`web/lib/agent-open.ts`): on the post-reload
+load the host reopens the panel and `useAgentChat` resumes the saved thread, so the
+conversation survives even though the live stream was cut. Two consequences to
+respect:
+- **The screen-trace NARRATES when off-host, never `router.push`es into `/t`.**
+  The engine (`web/lib/screen-trace.tsx`) only soft-drives the screen when the
+  deep-link host is *already* showing that team; from a top-level route it leaves
+  the page put (the step still shows in the panel). An off-host `router.push` into
+  a deep `/t` path is the very hard reload that would tear down the running agent —
+  that was a real bug, now locked out by `web/test/agent-host.test.ts`.
+- **The session cache is reactive.** `useActiveTeam` holds the session in a
+  pub-sub'd module cache, so a component mounted *before* login (the root host)
+  picks up the session the instant another instance logs in / creates a team —
+  without it, the launcher only appeared after a manual reload.
+
 ---
 
 ## 2 · The list cache doubles as the detail data source
@@ -307,6 +328,14 @@ while an async IIFE writes to the writable side (`streamRun`).
   the loop's failure path asks the MODEL for an unmetered wrap-up turn
   (`failureWrapUp`) instead of a canned note — the FAILED results are already in
   the convo, so the reply can say what was refused and why.
+
+- **Empty assistant turns are NOT painted (the "blank pills").** A multi-step
+  turn saves one assistant message per model call, and a call that only ran tools
+  carries no text. Those empty messages are kept server-side (the model replay
+  needs them) but **dropped on render** — `toChatItems` in
+  `web/lib/use-agent-chat.tsx` filters `role:"assistant"` with blank content, or
+  they'd paint as empty grey bubbles between the step rows when a saved thread is
+  reopened. The tool rows already show what happened.
 
 ---
 

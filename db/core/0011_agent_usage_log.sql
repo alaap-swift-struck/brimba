@@ -17,9 +17,9 @@ CREATE TABLE IF NOT EXISTS agent_usage_log (
   actor_id TEXT,
   actor_name TEXT,
   created_at TEXT NOT NULL,
-  credits INTEGER NOT NULL,             -- AI units this turn consumed
+  credits INTEGER NOT NULL,             -- AI units this command consumed
   source TEXT NOT NULL,                 -- 'free' | 'credit' | 'mixed'
-  summary TEXT NOT NULL                 -- the user's message, trimmed (~140 chars)
+  summary TEXT NOT NULL                 -- the ACTION(s) taken (falls back to the prompt)
 );
 
 -- Newest-first, team-scoped reads (the panel's usage view).

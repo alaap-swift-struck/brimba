@@ -10,6 +10,23 @@ Keep this current: when an item ships, move it to **Fixed** with the commit.
 
 ---
 
+## Fixed (2026-07-10) — the agent hardening round (team testing on staging)
+
+A sweep of real bugs surfaced by the team exercising the AI co-pilot on staging.
+
+| Sev | Issue | Fix |
+|---|---|---|
+| HIGH | **Agent panel died when the trace entered `/t`** — the off-host screen-trace `router.push`ed into a deep `/t` path, a hard reload (static export) that tore down the running agent + its live steps | Trace NARRATES off-host (never crosses the boundary); the co-pilot is mounted once at the ROOT (`agent-host.tsx`) and its open state is mirrored to `sessionStorage`, so it survives any reload and resumes the thread (EDGE-CASES §1; `agent-host.test.ts`) |
+| HIGH | **First-turn confirm buttons dead** — a brand-new chat's first dangerous action paused at a confirm whose Go-ahead/Not-now no-op'd (the event omitted `threadId`) | `threadId` added to the `confirm` stream event; client adopts it (EDGE-CASES §6; `stream.test.ts`) |
+| MED | **Credit history didn't reconcile** — a confirmed command split into a row + a cryptic "(continued)" row, so it didn't sum to the balance | The confirm turn FOLDS its units into the command's one row; rows are titled by the ACTION taken, not the prompt (DATA-MODEL; `credit-reconcile.test.ts`) |
+| MED | **Screen-trace opened a blank input form** and left it open after the record already existed | Trace lands on the RESULT (detail/list), never a dialog; `TraceTarget` has no query field by construction (`trace-parity.test.ts`) |
+| MED | **Agent over-confirmed** — it asked before ordinary building (create a role, invite) | Confirm relaxed to **destructive-only** (removals + deactivations + bulk); constructive writes run free (EDGE-CASES §5) |
+| MED | **Agent couldn't revoke an invite by email** — `revoke_invite` needs an id but there was no way to list pending invites | Added a `list_invites` read tool to the agent + MCP catalogs (`agent.test.ts`) |
+| LOW | **Launcher needed a reload on first login** — the root host mounts before login and its non-reactive session copy never updated | `useActiveTeam` session cache made reactive (pub-sub); the launcher appears the instant you sign in (`agent-host.test.ts`) |
+| LOW | **"Blank pills"** — empty tool-only assistant turns painted as empty bubbles on resume | `toChatItems` drops blank-content assistant turns (kept server-side for replay) |
+
+---
+
 ## Fixed (2026-07-09)
 
 | Sev | Issue | Fix |

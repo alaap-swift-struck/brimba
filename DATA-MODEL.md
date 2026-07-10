@@ -128,7 +128,11 @@ global core DB so the gate can spend a unit without opening a team database.
 Purpose: the usage TRAIL behind the panel's "where did my credits go" view.
 Real data: `id`, `team_id`, `actor_id`, `actor_name`, `created_at`, `credits`
 (units this command consumed), `source` (`free` / `credit` / `mixed`), `summary`
-(the user's ask, trimmed). **One row per user COMMAND**, written best-effort (a
+— titled by the **action(s) the assistant took** (e.g. `Create the role "Test" ·
+Invite alaap@… as Test`, with `(failed)` on a refused call), falling back to the
+user's prompt only for a plain question (so a reply like "anything" to a
+clarifying question never becomes the title). **One row per user COMMAND**,
+written best-effort (a
 log hiccup never fails the turn). A command that pauses for a yes/no confirm runs
 as two turns (propose + confirm); the confirm turn FOLDS its units into the
 propose row (`credits.ts` `foldUsageIntoLatest`) rather than adding a second
