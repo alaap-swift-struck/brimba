@@ -40,4 +40,21 @@ describe("the AI co-pilot survives navigation (mounted at the root, not per-rout
     expect(store).toContain("useSyncExternalStore")
     expect(store).toContain("export function setAgentOpen")
   })
+
+  it("the open state is mirrored to sessionStorage so it survives a full page RELOAD", () => {
+    // Crossing into the /t shell is a hard reload (static export). Without the mirror the
+    // panel vanished on that reload (the "panel reset" bug). It must persist + restore.
+    const store = read("lib/agent-open.ts")
+    expect(store, "must mirror open state to sessionStorage").toContain("sessionStorage")
+    expect(store, "must READ the persisted state at load").toMatch(/getItem\(/)
+  })
+
+  it("the screen-trace never hard-reloads across the /t boundary (no router.push)", () => {
+    // The off-host router.push into a deep /t path was a hard reload that killed the
+    // running assistant. Off-host now narrates; only the soft HOST_EVENT drives a move.
+    const engine = read("lib/screen-trace.tsx")
+    // No actual router.push CALL (comments may still name it as the old behavior).
+    expect(/router\.push\(/.test(engine), "the trace engine must not router.push (that reload killed the agent)").toBe(false)
+    expect(engine, "soft drive is via the host event only").toContain("HOST_EVENT")
+  })
 })

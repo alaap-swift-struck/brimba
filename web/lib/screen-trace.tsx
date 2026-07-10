@@ -1,17 +1,16 @@
 "use client"
 
 // The SCREEN-TRACE ENGINE — how the assistant drives real screens while it works.
-// The panel emits one trace per step; THIS engine (mounted once in AppShell, so it
+// The panel emits one trace per step; THIS engine (mounted once at the root, so it
 // exists on EVERY page) decides how to get the user's screen there:
 //
 //   • Already inside /t for that team → hand the target to the deep-link host
 //     (a second, host-scoped event): it moves with its own soft go() — the same
-//     History-API push a click makes, query-param dialogs and all.
-//   • Anywhere else (Home / Learning / Help / Settings, or another team's /t) →
-//     STASH the highlight and router.push the full URL. Next's client router
-//     transitions into /t without a reload (Home's own team links prove it);
-//     the deep-link host consumes the stash when it resolves the route and rings
-//     the traced control.
+//     History-API move a click makes, no reload.
+//   • Anywhere else (Home / Settings, or another team's /t) → do NOTHING to the
+//     screen (narrate the step in the panel only). Crossing into /t from a
+//     top-level route is a HARD RELOAD in this static export (EDGE-CASES §1),
+//     which would tear down the running assistant — so we never yank the page.
 //
 // Traces for a DIFFERENT team are dropped by the host's own team check — the
 // agent only ever acts in the current team (SYSTEM rule), so that's a safety
@@ -21,7 +20,7 @@
 // test in workers/data-ops imports it to prove every write tool has a screen).
 
 import * as React from "react"
-import { usePathname, useRouter } from "next/navigation"
+import { usePathname } from "next/navigation"
 
 import type { TraceTarget } from "@/lib/agent-trace"
 
@@ -45,32 +44,18 @@ export function onHostTrace(handler: (nav: TraceNav) => void): () => void {
   return () => window.removeEventListener(HOST_EVENT, listener)
 }
 
-/* ------------------------- cross-page highlight stash ------------------------- */
-
-// When the engine router.pushes into /t, the host mounts AFTER the navigation —
-// so the highlight rides this one-slot stash instead of the URL (a ?ring= param
-// would linger in history). Taken exactly once, and it expires fast: a stale
-// ring from an abandoned navigation must never fire minutes later.
-let stash: { nav: TraceNav; at: number } | null = null
-const STASH_TTL_MS = 15_000
-
-export function stashTrace(nav: TraceNav): void {
-  stash = { nav, at: Date.now() }
-}
-
-/** The pending trace for this team, if one was stashed moments ago. */
-export function takeTrace(teamId: string): TraceTarget | null {
-  if (!stash || stash.nav.teamId !== teamId || Date.now() - stash.at > STASH_TTL_MS) return null
-  const t = stash.nav.target
-  stash = null
-  return t
-}
-
 /* --------------------------------- the engine --------------------------------- */
 
-/** Mounted ONCE in AppShell. `activeTeamId` = the signed-in person's current team. */
+/** Mounted ONCE at the root (agent-host.tsx). `activeTeamId` = the current team.
+ *
+ * When the assistant is ALREADY inside the /t shell for this team, it drives the screen
+ * SOFTLY — a History-API move via the deep-link host (no reload). When the person is on
+ * a TOP-LEVEL route (Home / Settings), it deliberately does NOT yank them across the
+ * static-export boundary into /t: that crossing is a HARD RELOAD (EDGE-CASES §1) that
+ * would tear down the running assistant and its live step feed. So the step just narrates
+ * in the panel; the person opens the team screen themselves to see the result. (The old
+ * off-host `router.push` into /t was exactly that reload — it killed the agent mid-run.) */
 export function useScreenTraceEngine(activeTeamId: string | null | undefined): void {
-  const router = useRouter()
   const pathname = usePathname()
   const pathRef = React.useRef(pathname)
   pathRef.current = pathname
@@ -82,17 +67,12 @@ export function useScreenTraceEngine(activeTeamId: string | null | undefined): v
       // Only trace the team the person is actually working in.
       if (!activeTeamId || nav.teamId !== activeTeamId) return
       if (!nav.target.path.startsWith("/t/")) return
-      const onHost = (pathRef.current ?? "").startsWith(`/t/${nav.teamId}`)
-      if (onHost) {
-        // The host is mounted and showing this team — let it move softly.
+      // Soft-drive ONLY when the deep-link host is already showing this team; otherwise
+      // leave the screen put (narrate) — crossing into /t from here would hard-reload.
+      if ((pathRef.current ?? "").startsWith(`/t/${nav.teamId}`))
         window.dispatchEvent(new CustomEvent<TraceNav>(HOST_EVENT, { detail: nav }))
-      } else {
-        // Anywhere else: stash the ring, then client-navigate into /t.
-        stashTrace(nav)
-        router.push(nav.target.path)
-      }
     }
     window.addEventListener(TRACE_EVENT, listener)
     return () => window.removeEventListener(TRACE_EVENT, listener)
-  }, [activeTeamId, router])
+  }, [activeTeamId])
 }
