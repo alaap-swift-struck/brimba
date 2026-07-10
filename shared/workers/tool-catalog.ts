@@ -329,5 +329,30 @@ export const SHARED_TOOLS: SharedTool[] = [
   },
 ]
 
+/** The permission each SHARED WRITE needs (module:right). The door ENFORCES it; this is
+ * only the developer hint the MCP `tools/list` description shows external clients ("…
+ * Needs member_roles:create."). Keyed by canonical name (works for the mcpName ones too).
+ * Reads carry no hint (they just need the module's read right). */
+export const TOOL_GATES: Record<string, string> = {
+  create_role: "member_roles:create",
+  update_role: "member_roles:edit",
+  set_role_active: "member_roles:delete",
+  set_role_permissions: "member_roles:edit",
+  set_member_role: "team_members:edit",
+  remove_member: "team_members:delete",
+  invite_member: "team_members:create",
+  revoke_invite: "team_members:delete",
+  create_dropdown_value: "selectable_data:create",
+  update_dropdown_value: "selectable_data:edit",
+  set_dropdown_active: "selectable_data:delete",
+  create_learning: "learning:create",
+  update_learning: "learning:edit",
+  set_learning_active: "learning:delete",
+  raise_help_ticket: "help:create",
+  update_help_ticket: "help:edit",
+  set_help_status: "help:edit",
+  reply_help_ticket: "help:read",
+}
+
 /** Lookup by canonical name (the agent's name). */
 export const sharedByName = (name: string): SharedTool | undefined => SHARED_TOOLS.find((t) => t.name === name)

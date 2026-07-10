@@ -12,7 +12,7 @@
 // route tables, so this list can't quietly rot.
 
 import { forwardToDoor } from "../../../../shared/workers/http"
-import { obj, S, SHARED_TOOLS, type SharedTool } from "../../../../shared/workers/tool-catalog"
+import { obj, S, SHARED_TOOLS, TOOL_GATES, type SharedTool } from "../../../../shared/workers/tool-catalog"
 import type { Env } from "../env"
 
 export type McpTool = {
@@ -29,9 +29,12 @@ export type McpTool = {
 /** Project a shared endpoint into an McpTool: the neutral wiring + the shared
  * description, under the MCP's own name (`mcpName`) where it historically differs. */
 function toMcpTool(s: SharedTool): McpTool {
+  const gate = TOOL_GATES[s.name]
   return {
     name: s.mcpName ?? s.name,
-    description: s.summary,
+    // Restore the developer permission hint external MCP clients relied on ("… Needs
+    // member_roles:create."); the door still enforces it regardless.
+    description: gate ? `${s.summary} Needs ${gate}.` : s.summary,
     inputSchema: s.schema,
     binding: s.binding,
     method: s.method,
