@@ -14,7 +14,7 @@ import { Breadcrumbs } from "@swift-struck/ui/registry/primitives/breadcrumbs/br
 import { ModeToggle } from "@swift-struck/ui/registry/primitives/mode-toggle/mode-toggle"
 import { Skeleton } from "@swift-struck/ui/registry/primitives/skeleton/skeleton"
 import { toast } from "@swift-struck/ui/registry/primitives/sonner/sonner"
-import { Home, Settings, GraduationCap, LifeBuoy, PanelLeftClose, PanelLeftOpen, Sparkles } from "lucide-react"
+import { Home, Settings, GraduationCap, LifeBuoy, PanelLeftClose, PanelLeftOpen } from "lucide-react"
 
 import type { ActiveTeam } from "@/lib/use-active-team"
 import { auth, content, tenancy } from "@/lib/api"
@@ -23,8 +23,6 @@ import { invalidate, patchRow, reconcile } from "@/lib/store"
 import { NAV, TEAM_SECTIONS, bottomNavItems, isNavActive, type Crumb } from "@/lib/pages"
 import { usePermissions } from "@/lib/perms"
 import { useTeamPrewarm } from "@/lib/use-team-prewarm"
-import { AgentPanel } from "@/components/agent-panel"
-import { useScreenTraceEngine } from "@/lib/screen-trace"
 import { CreateTeamDialog } from "@/components/create-team-dialog"
 import { ProfileMenu } from "@/components/profile-menu"
 import { TeamSwitcher } from "@/components/team-switcher"
@@ -122,12 +120,10 @@ export function AppShell({
   const router = useRouter()
   const pathname = usePathname()
   const [creating, setCreating] = React.useState(false)
-  // The app-wide AI co-pilot sheet (a launcher opens it; gated by agent:create).
-  const [agentOpen, setAgentOpen] = React.useState(false)
+  // The AI co-pilot (launcher + panel + screen-trace engine) is mounted ONCE at the
+  // root layout (agent-host.tsx) so it survives navigation — it is deliberately NOT
+  // owned by this per-route shell anymore.
   const teamId = active.ctx?.team?.id ?? null
-  // The screen-trace engine: the assistant's steps drive the REAL screen from any
-  // page (soft go() inside /t via the host; a client router.push from elsewhere).
-  useScreenTraceEngine(teamId)
   const userId = active.user?.id ?? null
 
   // Warm the cheap always-needed team-wide caches on team entry so the first tap
@@ -374,23 +370,9 @@ export function AppShell({
         }}
       />
 
-      {/* The app-wide AI co-pilot. A floating launcher (gated by agent:create)
-       * opens the right-side sheet; the panel re-checks the right and the server
-       * enforces every action. Mounted here so it rides EVERY shell page (Home /
-       * Settings too, not just /t). AgentPanel degrades gracefully when teamless. */}
-      {can("agent", "create") && (
-        <>
-          <button
-            type="button"
-            onClick={() => setAgentOpen(true)}
-            aria-label="Open the assistant"
-            className="bg-primary text-primary-foreground hover:bg-primary/90 fixed right-4 bottom-20 z-30 flex size-12 items-center justify-center rounded-full shadow-lg transition-colors md:bottom-6"
-          >
-            <Sparkles className="size-5" />
-          </button>
-          <AgentPanel teamId={teamId} open={agentOpen} onOpenChange={setAgentOpen} />
-        </>
-      )}
+      {/* The AI co-pilot (launcher + panel) now lives at the root layout
+       * (agent-host.tsx) so it survives navigation — it is intentionally not
+       * rendered here. */}
     </div>
   )
 }

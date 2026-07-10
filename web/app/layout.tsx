@@ -5,6 +5,7 @@ import { AmbientBackground } from "@swift-struck/ui/registry/primitives/ambient-
 import { Toaster } from "@swift-struck/ui/registry/primitives/sonner/sonner"
 import { ThemeProvider } from "@swift-struck/ui/registry/tokens/theme-provider"
 import { brand } from "@shared/brand"
+import { AgentHost } from "@/components/agent-host"
 import { BrandTheme } from "@/components/brand-theme"
 import { ErrorReporter } from "@/components/error-reporter"
 import { InstallPrompt } from "@/components/install-prompt"
@@ -71,6 +72,11 @@ export default function RootLayout({
           <ErrorReporter />
           <VersionWatch />
           {children}
+          {/* The AI co-pilot rides ABOVE the routed screens (not inside any per-route
+           * AppShell), so navigation — including the assistant's own screen-trace —
+           * moves the page beneath it without ever closing the panel or dropping the
+           * live run. Renders nothing until you're signed in with a team. */}
+          <AgentHost />
           <InstallPrompt />
           <Toaster />
         </ThemeProvider>
