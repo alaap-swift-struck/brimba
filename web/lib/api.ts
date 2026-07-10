@@ -78,7 +78,7 @@ export type AgentStreamEvent =
   | { t: "text"; d: string }
   | { t: "step_start"; tool: string; summary: string; ids?: Record<string, string> }
   | { t: "step_end"; tool: string; ok: boolean; summary: string; error?: string }
-  | { t: "confirm"; calls: PendingCall[]; text?: string }
+  | { t: "confirm"; threadId: string; calls: PendingCall[]; text?: string }
   | { t: "final"; outcome: ChatOutcome }
   | { t: "error"; message: string }
 

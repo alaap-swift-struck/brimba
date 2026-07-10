@@ -27,7 +27,12 @@ export function sseFrame(ev: StreamEvent): string {
 export function terminalEvent(outcome: ChatOutcome): StreamEvent {
   return outcome.done
     ? { t: "final", outcome }
-    : { t: "confirm", calls: outcome.needsConfirm, text: outcome.assistantText || undefined }
+    : {
+        t: "confirm",
+        threadId: outcome.threadId,
+        calls: outcome.needsConfirm,
+        text: outcome.assistantText || undefined,
+      }
 }
 
 /** True if the client asked for the live stream (Accept: text/event-stream). The JSON

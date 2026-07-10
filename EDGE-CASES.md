@@ -265,6 +265,16 @@ while an async IIFE writes to the writable side (`streamRun`).
   terminal — see the `Emit` contract note in `agent.ts`. Two terminal
   events double-settle the client.
 
+- **The `confirm` terminal event MUST carry the `threadId`.** A paused turn never
+  reaches `final` (which is where the client otherwise learns the thread id), so
+  the confirm frame is the *only* place a **first-turn confirm** — a brand-new
+  conversation whose opening message proposes a dangerous act — hands the client
+  the thread it must POST back to `/confirm`. Drop it and `resolve()` bails on
+  `!threadId`: the Go-ahead / Not-now buttons silently no-op (the dead-button bug,
+  fixed 2026-07-10). The client adopts `ev.threadId` in the `confirm` case of
+  `use-agent-chat.tsx`. Locked by `workers/data-ops/test/stream.test.ts`
+  ("a pause-for-confirm outcome → confirm (carrying the thread id …)").
+
 - **Disable proxy buffering.** The response sets
   `Cache-Control: no-cache, no-transform` and **`X-Accel-Buffering: no`** (lines
   58–66). Without the latter, an intermediary buffers the whole body and the

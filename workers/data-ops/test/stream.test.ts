@@ -116,7 +116,7 @@ describe("sseFrame: each event serializes to one data: frame", () => {
         summary: 'Create the role "Sub admin"',
         error: 'You don\'t have permission to do that — your role is missing the "create" right on member roles.',
       },
-      { t: "confirm", calls: [{ name: "remove_member", input: { userId: "u1" }, summary: "Remove Jane Doe" }], text: "About to remove" },
+      { t: "confirm", threadId: "t1", calls: [{ name: "remove_member", input: { userId: "u1" }, summary: "Remove Jane Doe" }], text: "About to remove" },
       { t: "error", message: "safe message" },
     ]
     for (const ev of cases) {
@@ -139,7 +139,7 @@ describe("terminalEvent: a ChatOutcome becomes the single terminal event", () =>
     expect(terminalEvent(outcome)).toEqual({ t: "final", outcome })
   })
 
-  it("a pause-for-confirm outcome → confirm (carrying the pending calls + lead-in)", () => {
+  it("a pause-for-confirm outcome → confirm (carrying the thread id, pending calls + lead-in)", () => {
     const outcome: ChatOutcome = {
       done: false,
       threadId: "t1",
@@ -150,12 +150,17 @@ describe("terminalEvent: a ChatOutcome becomes the single terminal event", () =>
     const ev = terminalEvent(outcome)
     expect(ev).toEqual({
       t: "confirm",
+      threadId: "t1",
       calls: outcome.needsConfirm,
       text: "I'll remove them once you confirm.",
     })
+    // The regression lock: the confirm event MUST carry the thread id, or a first-turn
+    // confirm (a brand-new conversation) can never be resolved — the approve/decline
+    // buttons no-op because the client never learned the thread id (dead-button bug).
+    expect(ev.t === "confirm" && ev.threadId).toBe("t1")
   })
 
-  it("a confirm with empty lead-in text drops the text key", () => {
+  it("a confirm with empty lead-in text drops the text key (but keeps the thread id)", () => {
     const outcome: ChatOutcome = {
       done: false,
       threadId: "t1",
@@ -163,7 +168,7 @@ describe("terminalEvent: a ChatOutcome becomes the single terminal event", () =>
       needsConfirm: [{ name: "revoke_invite", input: { inviteId: "i1" }, summary: "Revoke the invite for a@b.com" }],
       quota: QUOTA,
     }
-    expect(terminalEvent(outcome)).toEqual({ t: "confirm", calls: outcome.needsConfirm })
+    expect(terminalEvent(outcome)).toEqual({ t: "confirm", threadId: "t1", calls: outcome.needsConfirm })
   })
 })
 

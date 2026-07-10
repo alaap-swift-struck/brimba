@@ -184,8 +184,14 @@ export function useAgentChat(teamId: string | null, open: boolean, canUse: boole
           break
         }
         case "confirm": {
-          // Terminal: a destructive act needs a yes/no. Drop the empty bubble (the
-          // confirm panel carries the lead-in) unless the model sent lead-in text.
+          // Terminal: a destructive act needs a yes/no. Adopt the thread id the event
+          // carries — on a FIRST-turn confirm this is the ONLY place the client learns
+          // it (a paused turn never reaches `final`), and resolve() needs it or the
+          // approve/decline buttons no-op. Remember it on this device too.
+          setThreadId(ev.threadId)
+          if (teamId) writeLastThread(teamId, ev.threadId)
+          // Drop the empty bubble (the confirm panel carries the lead-in) unless the
+          // model sent lead-in text.
           setItems((prev) =>
             ev.text
               ? prev.map((it) =>

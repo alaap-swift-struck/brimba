@@ -435,8 +435,12 @@ export type StreamEvent =
   /** that tool finished — ok true, or false on failure (`error` = the door's short,
    * human reason, e.g. which permission was missing — shown on the failed step row). */
   | { t: "step_end"; tool: string; ok: boolean; summary: string; error?: string }
-  /** TERMINAL: needs confirmation; the client shows the yes/no panel. */
-  | { t: "confirm"; calls: PendingCall[]; text?: string }
+  /** TERMINAL: needs confirmation; the client shows the yes/no panel. Carries the
+   * `threadId` so a FIRST-turn confirm (a brand-new conversation whose opening
+   * message proposes a dangerous action) can be resolved — the thread is already
+   * saved server-side, but the client only learns its id from `final`, which a
+   * paused turn never reaches. Without it, approve/decline no-op (dead buttons). */
+  | { t: "confirm"; threadId: string; calls: PendingCall[]; text?: string }
   /** TERMINAL: run complete; carries the full ChatOutcome (reply/quota/threadId). */
   | { t: "final"; outcome: ChatOutcome }
   /** TERMINAL: something went wrong; a safe message to show. */
