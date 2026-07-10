@@ -125,11 +125,16 @@ later against this same balance (the grant action is the seam). Lives in the
 global core DB so the gate can spend a unit without opening a team database.
 
 ### agent_usage_log — KEEP (BUILT 2026-07-01, GLOBAL — `db/core/0011`)
-Purpose: the per-turn usage TRAIL behind the panel's "where did my credits go"
-view. Real data: `id`, `team_id`, `actor_id`, `actor_name`, `created_at`,
-`credits` (units this turn consumed), `source` (`free` / `credit` / `mixed`),
-`summary` (the user's ask, trimmed). One row per agent turn, written best-effort
-(a log hiccup never fails the turn); read newest-first, team-scoped, via
+Purpose: the usage TRAIL behind the panel's "where did my credits go" view.
+Real data: `id`, `team_id`, `actor_id`, `actor_name`, `created_at`, `credits`
+(units this command consumed), `source` (`free` / `credit` / `mixed`), `summary`
+(the user's ask, trimmed). **One row per user COMMAND**, written best-effort (a
+log hiccup never fails the turn). A command that pauses for a yes/no confirm runs
+as two turns (propose + confirm); the confirm turn FOLDS its units into the
+propose row (`credits.ts` `foldUsageIntoLatest`) rather than adding a second
+row — so the history stays one entry per command and reconciles exactly with the
+balance drop (fixed 2026-07-10: a confirmed command used to split into a row +
+a cryptic "(continued)" row). Read newest-first, team-scoped, via
 `GET /api/data-ops/agent/usage-log`. Lives in the global core DB beside the
 quota tables it explains.
 

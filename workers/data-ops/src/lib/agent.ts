@@ -11,7 +11,7 @@
 import type { AgentQuota, ChatOutcome, PendingCall, StreamEvent } from "../../../../shared/types"
 import { capabilityBrief } from "./app-brief"
 import { GLOSSARY } from "../../../../shared/glossary"
-import { consumeAiUnit, getQuota, logUsage, type UsageSource } from "./credits"
+import { consumeAiUnit, foldUsageIntoLatest, getQuota, logUsage, type UsageSource } from "./credits"
 import type { Actor, MemberGuard } from "../../../../shared/workers/gating"
 import type { D1Rest } from "../../../../shared/workers/d1-rest"
 import type { Env } from "../env"
@@ -281,7 +281,7 @@ async function runPlanLoop(
   convo: ChatMessage[],
   quota: AgentQuota,
   opts: { source: string; summary: string; tally: UsageTally },
-  loopOpts: { prepaid?: boolean } = {},
+  loopOpts: { prepaid?: boolean; fold?: boolean } = {},
   emit?: Emit
 ): Promise<ChatOutcome> {
   const model = selectModel(env)
@@ -302,9 +302,14 @@ async function runPlanLoop(
     spoke = true
   }
 
-  // Write the ONE usage-log row for this turn (best-effort) at whichever terminal point
-  // the loop exits from — the tally has by then counted every unit this turn consumed.
-  const log = () => logUsage(env, guard.teamId, actor, opts.tally.credits, tallySource(opts.tally), opts.summary)
+  // Settle this turn's usage (best-effort) at whichever terminal point the loop exits
+  // from — the tally has by then counted every unit this turn consumed. A normal turn
+  // writes its own row; a confirm-continuation (`fold`) instead ADDS its units to the
+  // command's existing propose row, so one command stays one reconciling history entry.
+  const log = () =>
+    loopOpts.fold
+      ? foldUsageIntoLatest(env, guard.teamId, actor, opts.tally.credits, tallySource(opts.tally), opts.summary)
+      : logUsage(env, guard.teamId, actor, opts.tally.credits, tallySource(opts.tally), opts.summary)
 
   for (let step = 0; step < MAX_STEPS; step++) {
     if (!(loopOpts.prepaid && step === 0)) {
@@ -498,10 +503,11 @@ export async function confirmAndRun(
     return { done: true, threadId: opts.threadId, reply: msg, quota: c.quota, overQuota: true }
   }
   // Seed this turn's usage tally with the unit we just prepaid; runPlanLoop keeps adding
-  // to it as it resumes the plan, then writes the single usage-log row. This turn is the
-  // user approving the earlier proposal, so it logs under a "(continued)" summary.
+  // to it as it resumes the plan, then FOLDS the total into the command's propose row (so
+  // the confirm doesn't leave a separate "(continued)" entry the balance can't reconcile).
+  // `summary` is only the fallback if that propose row somehow isn't there to fold into.
   const tally: UsageTally = { credits: 1, sawFree: c.source === "free", sawCredit: c.source === "credit" }
-  const usageOpts = { source: opts.source, summary: "(continued)", tally }
+  const usageOpts = { source: opts.source, summary: "assistant action", tally }
 
   // Execute the SERVER-RECORDED proposal AS the caller (each call re-gated downstream).
   const calls: ToolCall[] = proposed.map((p, i) => ({ id: `call_${i}`, name: p.name, input: p.input }))
@@ -563,7 +569,8 @@ export async function confirmAndRun(
     const note = await failureWrapUp(selectModel(env), convo, toolSpecs())
     emit?.({ t: "text", d: note })
     await appendMessage(cfg, guard, actor, opts.threadId, { role: "assistant", content: note, source: opts.source })
-    await logUsage(env, guard.teamId, actor, tally.credits, tallySource(tally), usageOpts.summary)
+    // Fold into the propose row (not a separate row) — same as the success path below.
+    await foldUsageIntoLatest(env, guard.teamId, actor, tally.credits, tallySource(tally), usageOpts.summary)
     return { done: true, threadId: opts.threadId, reply: note, quota: c.quota }
   }
 
@@ -572,5 +579,6 @@ export async function confirmAndRun(
   // re-metering the first step (we metered it above).
   return runPlanLoop(env, request, cfg, guard, actor, opts.threadId, convo, c.quota, usageOpts, {
     prepaid: true,
+    fold: true,
   }, emit)
 }

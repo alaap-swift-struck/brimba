@@ -131,6 +131,44 @@ export async function logUsage(
   }
 }
 
+/** Fold a confirm-continuation's units INTO the command's existing log row — the propose
+ * turn's row, which is the latest for this team+actor (the UI blocks new agent input while
+ * a confirm is pending, so nothing else can slip in between). This keeps ONE user command
+ * as ONE history entry whose credit count reconciles with the balance, instead of a
+ * cryptic separate "(continued)" row (the reconciliation bug a teammate reported: balance
+ * dropped 3 but the history read as 1+1). The `source` becomes 'mixed' if the added units
+ * came from a different pool than the row already had. Best-effort like `logUsage`; if the
+ * propose row somehow isn't there (its best-effort write failed), it writes a fresh row so
+ * the units still surface rather than vanish. */
+export async function foldUsageIntoLatest(
+  env: Env,
+  teamId: string,
+  actor: Actor,
+  addCredits: number,
+  addSource: UsageSource,
+  fallbackSummary: string
+): Promise<void> {
+  if (addCredits <= 0) return
+  try {
+    const res = await env.DB.prepare(
+      `UPDATE agent_usage_log
+         SET credits = credits + ?,
+             source = CASE WHEN source = ? THEN source ELSE 'mixed' END
+       WHERE id = (
+         SELECT id FROM agent_usage_log
+         WHERE team_id = ? AND actor_id = ? ORDER BY created_at DESC LIMIT 1
+       )`
+    )
+      .bind(addCredits, addSource, teamId, actor.id)
+      .run()
+    // No prior row to fold into (propose log failed) → don't lose the units.
+    if ((res.meta.changes ?? 0) === 0)
+      await logUsage(env, teamId, actor, addCredits, addSource, fallbackSummary)
+  } catch {
+    /* best-effort — a fold failure must never break the turn */
+  }
+}
+
 /** The team's usage log, newest-first (the panel's "N left today" badge opens this).
  * PRIVACY: the `summary` is the actor's own (truncated) AI prompt, so it's shown ONLY on
  * the viewer's OWN rows — a teammate sees who spent how many credits and when, but never

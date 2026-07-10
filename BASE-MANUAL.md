@@ -67,7 +67,7 @@ everything that is about *identity and billing across teams*:
 | `importable_databases` | the owner-maintained import target catalogue | `db/core/0008` |
 | `agent_usage` | per-team free daily AI counter | `db/core/0009` |
 | `agent_credits` | per-team purchasable AI balance | `db/core/0010` |
-| `agent_usage_log` | per-turn usage trail (when · who · credits · why) | `db/core/0011` |
+| `agent_usage_log` | per-command usage trail (when · who · credits · why; confirm folds in) | `db/core/0011` |
 
 **One isolated D1 database per team, reached over the D1 REST door.** Each team
 gets its *own* database holding all of that team's content: `member_roles` +
@@ -220,8 +220,10 @@ Four more structural guards layer on top (all in `agent.ts` / `tools.ts`):
   `agent_usage` — default 25/day, per-env via the `AGENT_FREE_DAILY` var, staging
   runs 50 — + a purchasable balance in `agent_credits`) bound runaways and
   abuse. Every turn is saved to `agent_threads`/`agent_messages` — the audit
-  trail — and each turn writes one `agent_usage_log` row (when · who · credits ·
-  why) that powers the usage view behind the panel's quota badge.
+  trail — and each user COMMAND writes one `agent_usage_log` row (when · who ·
+  credits · why) that powers the usage view behind the panel's quota badge. A
+  command that pauses for a confirm folds the confirm turn's units back into that
+  one row (`foldUsageIntoLatest`), so the history reconciles with the balance.
 
 ---
 
