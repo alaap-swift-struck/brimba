@@ -146,24 +146,27 @@ export async function foldUsageIntoLatest(
   actor: Actor,
   addCredits: number,
   addSource: UsageSource,
-  fallbackSummary: string
+  title: string
 ): Promise<void> {
   if (addCredits <= 0) return
   try {
+    // Fold the units in AND re-title the row to what the confirm actually did — so a
+    // confirmed command reads "Remove Jane Doe", never the propose prompt or "(continued)".
     const res = await env.DB.prepare(
       `UPDATE agent_usage_log
          SET credits = credits + ?,
-             source = CASE WHEN source = ? THEN source ELSE 'mixed' END
+             source = CASE WHEN source = ? THEN source ELSE 'mixed' END,
+             summary = ?
        WHERE id = (
          SELECT id FROM agent_usage_log
          WHERE team_id = ? AND actor_id = ? ORDER BY created_at DESC LIMIT 1
        )`
     )
-      .bind(addCredits, addSource, teamId, actor.id)
+      .bind(addCredits, addSource, title, teamId, actor.id)
       .run()
     // No prior row to fold into (propose log failed) → don't lose the units.
     if ((res.meta.changes ?? 0) === 0)
-      await logUsage(env, teamId, actor, addCredits, addSource, fallbackSummary)
+      await logUsage(env, teamId, actor, addCredits, addSource, title)
   } catch {
     /* best-effort — a fold failure must never break the turn */
   }

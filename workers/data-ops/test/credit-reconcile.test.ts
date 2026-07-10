@@ -39,4 +39,16 @@ describe("credit history reconciles with the balance (one row per command)", () 
     // It must NOT write its own row via logUsage — that was the split "(continued)" row.
     expect(/\blogUsage\(/.test(confirmBody), "confirm path must fold, never logUsage a new row").toBe(false)
   })
+
+  // A row is TITLED by what the assistant DID (the actions run), not the user's prompt —
+  // which reads as "anything" when it's a reply to a clarifying question (the feedback).
+  it("the usage row is titled by the ACTION taken, and the fold re-titles the row", () => {
+    // agent.ts derives the title from the tally's actions, falling back to the prompt.
+    expect(/function usageTitle/.test(agent), "usageTitle must exist").toBe(true)
+    expect(/tally\.actions\.push/.test(agent), "each ran tool must be recorded as an action").toBe(true)
+    // foldUsageIntoLatest re-titles the propose row to the confirmed action (SET summary).
+    const start = credits.indexOf("export async function foldUsageIntoLatest")
+    const body = credits.slice(start, credits.indexOf("\nexport ", start + 1))
+    expect(/SET[\s\S]*summary = \?/.test(body), "fold must re-title the row (SET summary)").toBe(true)
+  })
 })

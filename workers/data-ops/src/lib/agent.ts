@@ -63,12 +63,23 @@ function usageSummary(message: string): string {
 
 /** A running tally of the AI units ONE turn consumed and where they came from, so the
  * loop can write a single usage-log row per turn (free / credit / mixed). Steps add to
- * it as they meter; confirmAndRun seeds it with the unit it prepaid up front. */
-type UsageTally = { credits: number; sawFree: boolean; sawCredit: boolean }
+ * it as they meter; confirmAndRun seeds it with the unit it prepaid up front. `actions`
+ * collects the human summary of each tool the turn actually ran (with a "(failed)" tag
+ * when a call was refused), so the usage log can TITLE the row by what the assistant DID
+ * — not just the user's prompt, which reads as "anything" when it's a reply to a
+ * clarifying question (the credit-log-clarity feedback). */
+type UsageTally = { credits: number; sawFree: boolean; sawCredit: boolean; actions: string[] }
 
 function tallySource(t: UsageTally): UsageSource {
   if (t.sawFree && t.sawCredit) return "mixed"
   return t.sawCredit ? "credit" : "free"
+}
+
+/** The usage-log row's title: what the assistant DID (the actions it ran, capped), or
+ * the user's prompt when the turn took no action (a plain question). */
+function usageTitle(tally: UsageTally, prompt: string): string {
+  if (tally.actions.length === 0) return prompt
+  return tally.actions.join(" · ").slice(0, 200)
 }
 
 /** Tool result → the fenced DATA string the model sees (capped so a big list can't
@@ -249,7 +260,7 @@ export async function runChat(
   // coalesces it with the message) — never persisted, rebuilt fresh per attach.
   if (planBlock) convo.push({ role: "user", content: planBlock })
   const quota = await getQuota(env, guard.teamId)
-  const tally: UsageTally = { credits: 0, sawFree: false, sawCredit: false }
+  const tally: UsageTally = { credits: 0, sawFree: false, sawCredit: false, actions: [] }
   return runPlanLoop(
     env,
     request,
@@ -303,13 +314,17 @@ async function runPlanLoop(
   }
 
   // Settle this turn's usage (best-effort) at whichever terminal point the loop exits
-  // from — the tally has by then counted every unit this turn consumed. A normal turn
-  // writes its own row; a confirm-continuation (`fold`) instead ADDS its units to the
-  // command's existing propose row, so one command stays one reconciling history entry.
-  const log = () =>
-    loopOpts.fold
-      ? foldUsageIntoLatest(env, guard.teamId, actor, opts.tally.credits, tallySource(opts.tally), opts.summary)
-      : logUsage(env, guard.teamId, actor, opts.tally.credits, tallySource(opts.tally), opts.summary)
+  // from — the tally has by then counted every unit + action this turn consumed. The row
+  // is TITLED by what the assistant DID (falling back to the prompt for a plain question).
+  // A normal turn writes its own row; a confirm-continuation (`fold`) instead ADDS its
+  // units to the command's existing propose row AND re-titles it to the actions run, so
+  // one command stays one reconciling history entry that says what it did.
+  const log = () => {
+    const title = usageTitle(opts.tally, opts.summary)
+    return loopOpts.fold
+      ? foldUsageIntoLatest(env, guard.teamId, actor, opts.tally.credits, tallySource(opts.tally), title)
+      : logUsage(env, guard.teamId, actor, opts.tally.credits, tallySource(opts.tally), title)
+  }
 
   for (let step = 0; step < MAX_STEPS; step++) {
     if (!(loopOpts.prepaid && step === 0)) {
@@ -430,6 +445,8 @@ async function runPlanLoop(
       // missing) — shown on the red step row, live AND when the chat is reopened.
       const failMsg = result.ok ? undefined : (result.error ?? "It failed.").slice(0, 140)
       emit?.({ t: "step_end", tool: tc.name, ok: result.ok, summary, ...(failMsg ? { error: failMsg } : {}) })
+      // Title the usage-log row by what ran (a failed call is still an action attempted).
+      opts.tally.actions.push(result.ok ? summary : `${summary} (failed)`)
       const content = fence(result)
       // Persist the step's OUTCOME on its tool row — the panel rehydrates a reopened
       // chat from these, so a failed step stays red, never a false green.
@@ -506,7 +523,7 @@ export async function confirmAndRun(
   // to it as it resumes the plan, then FOLDS the total into the command's propose row (so
   // the confirm doesn't leave a separate "(continued)" entry the balance can't reconcile).
   // `summary` is only the fallback if that propose row somehow isn't there to fold into.
-  const tally: UsageTally = { credits: 1, sawFree: c.source === "free", sawCredit: c.source === "credit" }
+  const tally: UsageTally = { credits: 1, sawFree: c.source === "free", sawCredit: c.source === "credit", actions: [] }
   const usageOpts = { source: opts.source, summary: "assistant action", tally }
 
   // Execute the SERVER-RECORDED proposal AS the caller (each call re-gated downstream).
@@ -525,6 +542,8 @@ export async function confirmAndRun(
       : { ok: false, status: 404, data: null, error: `Unknown tool "${tc.name}".` }
     const failMsg = result.ok ? undefined : (result.error ?? "It failed.").slice(0, 140)
     emit?.({ t: "step_end", tool: tc.name, ok: result.ok, summary, ...(failMsg ? { error: failMsg } : {}) })
+    // Title the folded usage row by the confirmed action(s), not the "(continued)" prompt.
+    tally.actions.push(result.ok ? summary : `${summary} (failed)`)
     const content = fence(result)
     // Same as the plan loop: persist the step's outcome so a reopened chat shows the
     // truth (a failed confirm step stays red, with its reason).
@@ -569,8 +588,8 @@ export async function confirmAndRun(
     const note = await failureWrapUp(selectModel(env), convo, toolSpecs())
     emit?.({ t: "text", d: note })
     await appendMessage(cfg, guard, actor, opts.threadId, { role: "assistant", content: note, source: opts.source })
-    // Fold into the propose row (not a separate row) — same as the success path below.
-    await foldUsageIntoLatest(env, guard.teamId, actor, tally.credits, tallySource(tally), usageOpts.summary)
+    // Fold into the propose row (not a separate row), titled by the action attempted.
+    await foldUsageIntoLatest(env, guard.teamId, actor, tally.credits, tallySource(tally), usageTitle(tally, usageOpts.summary))
     return { done: true, threadId: opts.threadId, reply: note, quota: c.quota }
   }
 

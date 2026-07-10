@@ -54,18 +54,26 @@ const clearLastThread = (teamId: string) => {
  * (markdown-rendered like a live reply), tool rows become the compact status line
  * with the outcome the server RECORDED (done/failed + the failed step's reason).
  * Rows saved before outcomes were recorded fall back to the fenced content's own
- * verdict ("FAILED: …" vs "OK. …") — never a false green. */
+ * verdict ("FAILED: …" vs "OK. …") — never a false green.
+ *
+ * EMPTY assistant turns are DROPPED. A multi-step turn saves one assistant message per
+ * model call, and a call that only ran tools carries no text — those would render as
+ * empty grey bubbles ("blank pills") between the step rows on resume. The tool rows
+ * already show what happened, so an empty assistant bubble is pure noise. (We keep them
+ * server-side — the model replay needs them — just don't paint them.) */
 const toChatItems = (messages: AgentMessage[]): AgentChatItem[] =>
-  messages.map((m): AgentChatItem =>
-    m.role === "tool"
-      ? {
-          id: m.id,
-          role: "tool",
-          actionLabel: m.toolCalls?.[0]?.summary ?? m.toolCalls?.[0]?.tool ?? "Action",
-          status: m.toolCalls?.[0]?.status ?? (m.content?.startsWith("FAILED") ? "failed" : "done"),
-        }
-      : { id: m.id, role: m.role, content: <AgentMarkdown text={m.content ?? ""} /> }
-  )
+  messages
+    .filter((m) => !(m.role === "assistant" && !(m.content ?? "").trim()))
+    .map((m): AgentChatItem =>
+      m.role === "tool"
+        ? {
+            id: m.id,
+            role: "tool",
+            actionLabel: m.toolCalls?.[0]?.summary ?? m.toolCalls?.[0]?.tool ?? "Action",
+            status: m.toolCalls?.[0]?.status ?? (m.content?.startsWith("FAILED") ? "failed" : "done"),
+          }
+        : { id: m.id, role: m.role, content: <AgentMarkdown text={m.content ?? ""} /> }
+    )
 
 export function useAgentChat(teamId: string | null, open: boolean, canUse: boolean) {
   const [items, setItems] = React.useState<AgentChatItem[]>([])
