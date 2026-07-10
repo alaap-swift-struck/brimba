@@ -211,10 +211,14 @@ reload re-runs the session check, refetches every screen, AND wipes the in-memor
 cache (rule 9) — defeating cache-first entirely and multiplying server calls (this
 enforces "no spinner on navigation" from Loading rule 2 above).
 
-The deep-link team area (`/t/<teamId>/…`) is ONE static shell. Move WITHIN it with
-the **History API** (`window.history.pushState` / `replaceState`) — Next observes
-it, the route segment never changes, nothing reloads, the cache stays warm — then
-re-render from URL state. NEVER use the framework router (`router.push`) for an
-in-shell hop: in a static export it has no data file for an arbitrary `/t/<…>`
-path and falls back to a full-page reload. The router is only for ENTERING /
-LEAVING the shell (Home, Settings). (Bug found + fixed 2026-06-21.)
+The **whole post-auth app** is ONE static shell (`deep-link-screen.tsx` resolves
+`/home`, `/settings`, `/invitations`, `/learning`, `/help`, and the `/t/**` tree
+from the URL). Move between any of them with the **History API**
+(`window.history.pushState` / `replaceState`) — Next observes it, the route
+segment never changes, nothing reloads, the cache stays warm — then re-render from
+URL state. Deep components use the `softNavigate` bus (`web/lib/nav.ts`), which
+routes to the shell's `go()`. NEVER use the framework router (`router.push`) for an
+in-app hop: in a static export it has no data file for an arbitrary deep path and
+falls back to a full-page reload. The router is only for the **pre-auth** routes
+(`/login`, `/onboarding`) — entering / leaving the app. (One-shell re-architecture
+2026-07-10; the original /t-only shell landed 2026-06-21.)
