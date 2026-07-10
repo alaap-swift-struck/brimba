@@ -197,16 +197,20 @@ call"), but the safety is structural, not a prompt promise.
 
 Four more structural guards layer on top (all in `agent.ts` / `tools.ts`):
 
-- **Confirm rule** — every **privilege / identity write** (roles, permissions,
-  membership, invites, team details), the two only-destructive acts (remove a
-  member, revoke an invite), and the high-blast **bulk / import** tools (whose
-  summary carries the row COUNT) are `confirm: true` and pause for a yes/no panel;
-  low-blast single content edits (one learning / help / dropdown write) run
-  straight away (the server still gates each call by the caller's rights). This is
-  defense-in-depth: even acting AS the user, an agent that mis-picks a tool or is
-  prompt-injected must not silently rename a team or re-grant a role. The proposal
-  is stored server-side, so `/confirm` runs exactly what the model proposed — a
-  client can't approve a call it was never shown.
+- **Confirm rule (destructive-only)** — a write pauses for a yes/no panel ONLY
+  when it's **destructive**: the two removals (remove a member, revoke an invite)
+  and the three **deactivations** (a role / article / dropdown value, *only* when
+  switching OFF — an input-aware predicate), plus the high-blast **bulk / import**
+  tools (whose summary carries the row COUNT). Every **constructive** write —
+  create, edit, invite, grant a role, set permissions, (re)activate, a single
+  status change — runs straight away (the server still gates each call by the
+  caller's rights, and every write is reversible + audited). `requiresConfirm`
+  (`tools.ts`) is the single place this is decided. The proposal is stored
+  server-side, so `/confirm` runs exactly what the model proposed — a client can't
+  approve a call it was never shown. (This deliberately relaxes the earlier
+  privilege-write confirm for a smoother agent; the fence + act-as-user gating
+  remain the primary defense against a prompt-injected write. Owner call,
+  2026-07-10.)
 - **Catastrophic blocks** — controlling device sessions and deleting the team are
   simply *not in the catalogue*; `identityBlocked` is the belt-and-braces backstop
   in `executeTool`.

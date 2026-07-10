@@ -40,8 +40,9 @@ the concrete form of the planning ritual's step 4 (CLAUDE.md).
   component (UI-CONVENTIONS §2b).
 - **Exposing an action to machines → an MCP tool or an agent tool.** A **deterministic**
   action → an MCP tool (a thin forward to the gated door, free). A **natural-language /
-  multi-step** action → an agent tool (with the confirm rule if it's a privilege/identity
-  write). Both forward through the SAME gated door — never a second, ungated path.
+  multi-step** action → an agent tool (with `confirm: true` — or an input-aware predicate
+  — only if it's DESTRUCTIVE or bulk; constructive writes run free, see the confirm rule
+  in EDGE-CASES §5). Both forward through the SAME gated door — never a second, ungated path.
 - **A new invariant → a machine-checked Law if it can be source-scanned; else a
   convention + a targeted test.** Rule + registry entry + check land together (R-law
   discipline). A green test must assert the *right* intent — a test that locks the wrong

@@ -8,14 +8,14 @@
 //     the agent has the user's EXACT rights and the real door re-checks each call.
 //     Managing existing members (set a role, remove someone) IS allowed — it's normal,
 //     re-gated CRUD.
-//   • Confirm rule — the agent pauses for a yes/no panel before any change to WHO-CAN-
-//     DO-WHAT or team identity (roles, permissions, membership, invites, team details),
-//     before the two only-destructive acts (remove a member, revoke an invite), and
-//     before any BULK / import write. Defense-in-depth: the server still gates every
-//     call by the caller's rights, but the confirm panel catches an agent that mis-picks
-//     a tool or is prompt-injected into an unintended privilege/identity write (a
-//     read-only question must never silently rename a team or re-grant a role). Low-blast
-//     single content edits (one learning / help / dropdown write) run straight away.
+//   • Confirm rule — the agent pauses for a yes/no panel ONLY before a DESTRUCTIVE act
+//     (removing a member, revoking an invite, or DEACTIVATING an existing role /
+//     article / dropdown value) or a BULK / import write (many rows, or a whole file).
+//     Every constructive write — create, edit, invite, grant a role, set permissions,
+//     activate, a single status change — runs straight away. The server still gates
+//     every call by the caller's rights, and every write is reversible + audited, so a
+//     confirm is reserved for the acts that remove or overwrite at scale, not for
+//     normal building. (See `requiresConfirm` — the one place this is decided.)
 //   • Catastrophic blocks — controlling your other DEVICE SESSIONS (sessions) and
 //     DELETING the team are not normal CRUD, so they're simply NOT in the catalog and
 //     the agent structurally cannot do them. The guard below is the belt-and-braces backstop.
@@ -37,10 +37,15 @@ export type AgentTool = {
   method: "GET" | "POST"
   path: string
   write: boolean
-  /** show the yes/no confirm panel before running — required for privilege/identity
-   * writes (roles, permissions, membership, invites, team details), the two
-   * only-destructive acts (remove a member, revoke an invite), and bulk/import writes. */
-  confirm: boolean
+  /** show the yes/no confirm panel before running. THE RULE: confirm only when the
+   * action is DESTRUCTIVE (removes/withdraws access, or deactivates an existing
+   * record) or BULK/high-blast (many rows at once, or a whole imported file).
+   * Constructive writes — create, edit, invite, grant a role, set permissions,
+   * activate, a single status change — run straight away (the server still gates
+   * every call by the caller's rights, and every write is reversible + audited).
+   * A boolean is a static rule; a predicate makes it input-dependent — the three
+   * (de)activate toggles confirm ONLY when they're turning something OFF. */
+  confirm: boolean | ((input: Record<string, unknown>) => boolean)
   /** never exposed actions guard (identity acts) — true = always refuse. */
   identityBlocked?: boolean
   buildQuery?: (input: Record<string, unknown>) => string
@@ -199,7 +204,7 @@ export const TOOL_CATALOG: AgentTool[] = [
     method: "POST",
     path: "/api/tenancy/roles",
     write: true,
-    confirm: true, // privilege: creates a role (its access rights)
+    confirm: false, // constructive: creating a role is reversible (deactivate later)
     buildBody: (i) => ({ title: str(i, "title"), description: str(i, "description") || "" }),
     summarize: (i) => `Create the role "${str(i, "title")}"`,
   },
@@ -211,7 +216,7 @@ export const TOOL_CATALOG: AgentTool[] = [
     method: "POST",
     path: "/api/tenancy/roles/update",
     write: true,
-    confirm: true, // privilege: edits a role
+    confirm: false, // constructive: editing a role's details is reversible
     buildBody: (i) => ({
       roleId: str(i, "roleId"),
       title: str(i, "title"),
@@ -228,7 +233,7 @@ export const TOOL_CATALOG: AgentTool[] = [
     method: "POST",
     path: "/api/tenancy/roles/active",
     write: true,
-    confirm: true, // privilege: switching a role off/on changes access
+    confirm: (i) => i.active !== true, // destructive only when DEACTIVATING a role
     buildBody: (i) => ({ roleId: str(i, "roleId"), active: i.active === true }),
     summarize: (i, names) =>
       `${i.active === true ? "Activate" : "Deactivate"} ${roleLabel(i, names)}`,
@@ -258,7 +263,7 @@ export const TOOL_CATALOG: AgentTool[] = [
     method: "POST",
     path: "/api/tenancy/roles/permissions",
     write: true,
-    confirm: true, // privilege: sets a role's access rights (who-can-do-what)
+    confirm: false, // constructive: setting access rights is reversible + audited
     buildBody: (i) => ({ roleId: str(i, "roleId"), value: i.value }),
     summarize: (i, names) => `Set access rights for ${roleLabel(i, names)}`,
   },
@@ -270,7 +275,7 @@ export const TOOL_CATALOG: AgentTool[] = [
     method: "POST",
     path: "/api/tenancy/invites",
     write: true,
-    confirm: true, // access grant: invites someone into the team
+    confirm: false, // constructive: an invite is reversible (revoke it)
     buildBody: (i) => ({ email: str(i, "email"), roleId: str(i, "roleId") }),
     summarize: (i, names) => {
       const id = str(i, "roleId")
@@ -298,7 +303,7 @@ export const TOOL_CATALOG: AgentTool[] = [
     method: "POST",
     path: "/api/tenancy/members/role",
     write: true,
-    confirm: true, // privilege: changes a member's role (their access level)
+    confirm: false, // constructive: a role change is reversible (change it back)
     buildBody: (i) => ({ userId: str(i, "userId"), roleId: str(i, "roleId") }),
     summarize: (i, names) => {
       const id = str(i, "roleId")
@@ -350,7 +355,7 @@ export const TOOL_CATALOG: AgentTool[] = [
     method: "POST",
     path: "/api/tenancy/selectable/active",
     write: true,
-    confirm: false,
+    confirm: (i) => i.active !== true, // destructive only when DEACTIVATING a value
     buildBody: (i) => ({ id: str(i, "id"), active: i.active === true }),
     summarize: (i) =>
       `${i.active === true ? "Activate" : "Deactivate"} dropdown value ${str(i, "id")}`,
@@ -363,7 +368,7 @@ export const TOOL_CATALOG: AgentTool[] = [
     method: "POST",
     path: "/api/tenancy/teams/update",
     write: true,
-    confirm: true, // identity: changes the team's own details (name, etc.)
+    confirm: false, // constructive: renaming the team is reversible
     buildBody: (i) => ({ name: str(i, "name") }),
     summarize: (i) => `Rename the team to "${str(i, "name")}"`,
   },
@@ -420,7 +425,7 @@ export const TOOL_CATALOG: AgentTool[] = [
     method: "POST",
     path: "/api/content/learning/active",
     write: true,
-    confirm: false,
+    confirm: (i) => i.active !== true, // destructive only when DEACTIVATING an article
     buildBody: (i) => ({ id: str(i, "id"), active: i.active === true }),
     summarize: (i) =>
       `${i.active === true ? "Activate" : "Deactivate"} learning article ${str(i, "id")}`,
@@ -519,11 +524,17 @@ export function toolSpecs(): ToolSpec[] {
   return TOOL_CATALOG.map((t) => ({ name: t.name, description: t.description, schema: t.schema }))
 }
 
-/** Confirm rule: only the two only-destructive writes pause for the yes/no panel
- * (remove a member, revoke an invite). Everything else runs straight away — the
- * server still gates every call by the caller's rights. */
-export function requiresConfirm(tool: AgentTool): boolean {
-  return tool.write && tool.confirm === true
+/** Confirm rule (the ONE place it's decided): a write pauses for the yes/no panel
+ * only when it's DESTRUCTIVE — removes/withdraws access (remove a member, revoke an
+ * invite) or DEACTIVATES an existing record (a role, an article, a dropdown value) —
+ * or BULK/high-blast (a bulk change, a whole imported file). Everything constructive
+ * (create, edit, invite, grant, set permissions, activate, a single status change)
+ * runs straight away — the server still gates every call by the caller's rights, and
+ * every write is reversible + audited. `input` lets the (de)activate toggles confirm
+ * only when turning something OFF. */
+export function requiresConfirm(tool: AgentTool, input: Record<string, unknown> = {}): boolean {
+  if (!tool.write) return false
+  return typeof tool.confirm === "function" ? tool.confirm(input) : tool.confirm === true
 }
 
 export type ToolResult = { ok: boolean; status: number; data: unknown; error?: string }

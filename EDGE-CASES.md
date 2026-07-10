@@ -202,29 +202,37 @@ nowhere.
 
 ---
 
-## 5 · The confirm model: only two acts pause; bulk confirms with a count
+## 5 · The confirm model: destructive-only (removals + deactivations) + bulk
 
-**The trap.** It's tempting to make the agent "ask before every write." That's
-the wrong model here and it double-checks the user. The confirm behaviour is
-narrow and specific.
+**The trap.** It's tempting to make the agent "ask before every write," or to
+confirm every privilege change. That's the wrong model here — it double-checks
+the user on ordinary, reversible building. The confirm behaviour is narrow and
+specific: **only destructive acts pause.**
 
-**Why.** Since every write is **already gated** as the user (§4), the confirm
-panel isn't a permission check — it's the app double-checking an
-*irreversible-feeling* act, the same way the manual UI does. Over-confirming
-turns a helpful agent into a nagging one.
+**Why.** Since every write is **already gated** as the user (§4) and every write
+is **reversible + audited**, the confirm panel isn't a permission check — it's
+the app double-checking an act that *removes or overwrites at scale*, the same
+way the manual UI reserves its red confirm for Remove / Revoke / Deactivate.
+Over-confirming turns a helpful agent into a nagging one, so constructive work —
+creating a role, inviting a member, setting permissions, renaming the team —
+runs straight away. (This intentionally trades the earlier privilege-write
+defense-in-depth for a smoother agent; the primary defense against a
+prompt-injected write remains — untrusted content is fenced as DATA, and every
+call is still gated AS the user + audited. Owner decision, 2026-07-10.)
 
-**The rules** (`requiresConfirm` in `workers/data-ops/src/lib/tools.ts`, lines
-432–437, plus the `confirm:true` flags in `TOOL_CATALOG`):
+**The rule** (`requiresConfirm` in `workers/data-ops/src/lib/tools.ts` — the one
+place it's decided; a tool's `confirm` is a boolean, or a predicate for the
+input-aware toggles):
 
 | Behaviour | Tools | Why |
 |---|---|---|
-| **Pause for a yes/no panel** | every **privilege/identity write** — `create_role`, `update_role`, `set_role_active`, `set_role_permissions`, `set_member_role`, `invite_member`, `update_team` — plus the only-destructive `remove_member`, `revoke_invite` | Any change to who-can-do-what or team identity is double-checked. Defense-in-depth: even acting AS the user, an agent that mis-picks a tool or is prompt-injected must not silently rename a team or re-grant a role. |
-| **Confirm-with-a-count** | `bulk_set_help_status`, `bulk_set_learning_active`, `run_import_batch` | High-blast: "Set 12 tickets to resolved" is confirmed by the count before it runs. |
-| **Run straight away** | low-blast single content edits (`create_learning`, `update_learning`, help/dropdown writes) | Ordinary re-gated + reversible CRUD; the server gates each call, so no panel. |
+| **Pause for a yes/no panel** | the destructive acts — `remove_member`, `revoke_invite` — plus `set_role_active` / `set_learning_active` / `set_dropdown_active` **only when deactivating** (`active !== true`) | It removes/withdraws access, or switches an existing record OFF. Reversible, but destructive-feeling — the app double-checks, exactly as the red UI action does. |
+| **Confirm-with-a-count** | `bulk_set_help_status`, `bulk_set_learning_active`, `run_import_batch` | High-blast: "Set 12 tickets to resolved" / a whole imported file is confirmed by the count before it runs. |
+| **Run straight away** | every constructive write — `create_role`, `update_role`, `set_role_permissions`, `invite_member`, `set_member_role`, `update_team`, the (re)activations, and all single content edits | Ordinary re-gated + reversible + audited CRUD; the server gates each call, so no panel. |
 
 The system prompt (`agent.ts`) tells the model **not** to also ask in
-chat for the two panel actions — the app shows one yes/no panel, and a
-chat-level "are you sure?" on top would double-check the user.
+chat for a confirmed action — the app shows one yes/no panel, and a chat-level
+"are you sure?" on top would double-check the user.
 
 **What runs on confirm comes from the server, not the client.** When a turn
 proposes a dangerous call, the **full proposal** (name + input) is stored
@@ -464,7 +472,7 @@ last) fails, and deploying a worker before its migration 500s at runtime.
 | Loop `await d1Query(...)` N times | Each is an HTTP round-trip | Multi-statement `d1ExecScript`, or `Promise.all` independent reads |
 | `Promise.all([requireRight, d1Query])` | Races the read against its own gate | Gate first, read second |
 | Build an email link from `new URL(request.url)` | Agent's request host is `https://internal` | `env.PUBLIC_APP_URL` first |
-| Make the agent confirm every write | Every write is already gated as the user | Only `remove_member` / `revoke_invite` pause; bulk confirms with a count |
+| Make the agent confirm every write (or every privilege write) | Every write is already gated as the user + reversible | Destructive-only: `remove_member` / `revoke_invite` + deactivations pause; bulk confirms with a count; constructive writes run free |
 | `await` the run before returning the stream | Kills streaming; isolate may drop | Return the readable, write async (`streamRun`) |
 | Guard an invariant with a pre-write `COUNT` only | TOCTOU race | Re-check in the `UPDATE … WHERE`; count is just the friendly error |
 | Assume hot reads route through sharding | They query `guard.databaseId` directly | Fine today; revisit any batched script if a module is split |

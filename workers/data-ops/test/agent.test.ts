@@ -1,7 +1,8 @@
 // Guards on the agent's safety surface (pure logic — no model/DB/network):
-//  • the confirm rule — every privilege/identity write (roles, permissions, membership,
-//    invites, team details), the two only-destructive acts, and bulk/import writes pause
-//    for the yes/no panel; low-blast single content edits run straight away,
+//  • the confirm rule (destructive-only) — removals (remove a member, revoke an invite),
+//    deactivations (a role/article/dropdown value, only when switching OFF), and
+//    bulk/import writes pause for the yes/no panel; every constructive write (create,
+//    edit, invite, grant a role, set permissions, reactivate) runs straight away,
 //  • the catalog is OPT-IN (only listed actions are tools), and
 //  • the agent acts AS the user with the user's EXACT rights (the server re-checks each
 //    call); it still cannot control device sessions or delete the team. Managing
@@ -39,27 +40,41 @@ describe("step/confirm summaries resolve ids to human names", () => {
   })
 })
 
-describe("agent tool catalog + confirm rule", () => {
-  it("confirms every privilege/identity write + destructive + bulk; content edits run freely", () => {
-    // Any change to who-can-do-what or team identity → confirm panel (defense-in-depth:
-    // an agent that mis-picks a tool or is prompt-injected can't silently re-grant a role
-    // or rename the team). Plus the two only-destructive acts.
+describe("agent tool catalog + confirm rule (destructive-only)", () => {
+  it("confirms ONLY destructive acts — removals + deactivations; constructive writes run freely", () => {
+    // THE RULE: confirm only when an action removes/withdraws access or deactivates an
+    // existing record. Removing a member and revoking an invite always confirm.
+    for (const name of ["remove_member", "revoke_invite"]) {
+      expect(requiresConfirm(getTool(name)!), `${name} must confirm (destructive)`).toBe(true)
+    }
+    // Constructive writes — create, edit, invite, grant a role, set permissions, change
+    // a member's role, rename the team — run straight away now (reversible + re-gated +
+    // audited). This is the change: privilege writes no longer pause.
     for (const name of [
       "create_role",
       "update_role",
-      "set_role_active",
       "set_role_permissions",
       "invite_member",
-      "revoke_invite",
       "set_member_role",
-      "remove_member",
       "update_team",
+      "create_learning",
+      "update_learning",
+      "raise_help_ticket",
+      "reply_help_ticket",
     ]) {
-      expect(requiresConfirm(getTool(name)!), `${name} must confirm (privilege/identity)`).toBe(true)
+      expect(requiresConfirm(getTool(name)!), `${name} runs freely (constructive)`).toBe(false)
     }
-    // Low-blast single content edits run straight away (still re-gated + reversible).
-    for (const name of ["create_learning", "update_learning", "raise_help_ticket", "reply_help_ticket"]) {
-      expect(requiresConfirm(getTool(name)!), `${name} runs freely`).toBe(false)
+  })
+
+  it("(de)activate toggles confirm ONLY when turning something OFF (input-aware)", () => {
+    // Deactivating an existing record is destructive → confirm; reactivating is not.
+    for (const name of ["set_role_active", "set_learning_active", "set_dropdown_active"]) {
+      const t = getTool(name)!
+      expect(requiresConfirm(t, { active: false }), `${name} deactivate must confirm`).toBe(true)
+      expect(requiresConfirm(t, { active: true }), `${name} activate runs freely`).toBe(false)
+      // A missing/omitted `active` deactivates (buildBody sends active:false), so it
+      // must confirm too — the predicate mirrors buildBody's `active === true`.
+      expect(requiresConfirm(t, {}), `${name} with no active deactivates → confirm`).toBe(true)
     }
   })
 
@@ -91,12 +106,12 @@ describe("agent tool catalog + confirm rule", () => {
 
   it("manages members AS the user — set_member_role + remove_member are present", () => {
     // The agent acts AS the user with their EXACT rights (the server re-checks each
-    // call), so member management is allowed. Both removing a member AND re-assigning a
-    // role confirm — they change someone's access, so the app double-checks first.
+    // call), so member management is allowed. Removing a member is destructive → it
+    // confirms; re-assigning a role is constructive + reversible → it runs freely.
     expect(getTool("remove_member")).toBeDefined()
     expect(getTool("set_member_role")).toBeDefined()
     expect(requiresConfirm(getTool("remove_member")!)).toBe(true)
-    expect(requiresConfirm(getTool("set_member_role")!)).toBe(true)
+    expect(requiresConfirm(getTool("set_member_role")!)).toBe(false)
   })
 
   it("exposes a spec for every catalogued tool, and nothing else is callable", () => {
