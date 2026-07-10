@@ -100,223 +100,41 @@
 </div>
 
 <script>
-/* DATA:START */
+/* DATA:START — the lean_mean_check skill replaces this whole block with the real report data */
 window.LEAN_MEAN_DATA = {
-  "project": "Brimba",
-  "scannedAt": "2026-07-09",
-  "overall": {
-    "score": 93,
-    "grade": "A",
-    "verdict": "A genuine A. Elite robustness (12 machine-checked Laws R1–R12) + docs (airdrop-grade), and the one real duplication — the cookie-forward internal-fetch — is now DRY via one forwardToDoor seam. The independent 84 was harsh: it counted cohesive declarative tool catalogs + two legitimately-different surfaces (agent LLM tools vs MCP JSON-RPC) as bloat. The honest ceiling without the (deferred, hot-path) catalog unification is 93.",
-    "sub": "258 files · 26.7k lines · 278 tests · 7 workers + web"
-  },
-  "dimensions": [
-    {
-      "key": "size",
-      "title": "Size & Scope",
-      "icon": "📦",
-      "score": 86,
-      "status": "green",
-      "headline": "Grown, still layered",
-      "metrics": [
-        {
-          "label": "Files",
-          "value": "256"
-        },
-        {
-          "label": "Lines",
-          "value": "26.4k"
-        },
-        {
-          "label": "Over 400 LOC",
-          "value": "6"
-        }
-      ],
-      "strengths": [
-        "The whole agentic-import engine landed as four small, single-purpose files (pure plan · agent · batch · catalog) rather than one blob.",
-        "The 18 new MCP write tools are pure declarative data (name/path/schema), not logic — the catalog grew, the code didn't."
-      ],
-      "improvements": [
-        {
-          "what": "The agent tool catalog + loop are the largest files.",
-          "why": "tools.ts (545) + agent.ts (531) are cohesive but the biggest; split if either passes ~800."
-        }
-      ]
-    },
-    {
-      "key": "robustness",
-      "title": "Robustness",
-      "icon": "🛡️",
-      "score": 95,
-      "status": "green",
-      "headline": "Risky logic locked",
-      "metrics": [
-        {
-          "label": "Tests",
-          "value": "274"
-        },
-        {
-          "label": "Test files",
-          "value": "38"
-        },
-        {
-          "label": "TODOs",
-          "value": "1"
-        }
-      ],
-      "strengths": [
-        "Ten machine-checked Laws now — R10 adds a permission-gating seam per worker (the security twin of the publish-seam), so no ungated route can ship.",
-        "The deactivated-dropdown dead-end is fixed AND guarded by a regression test; every deactivate/reactivate path across modules was hand-swept.",
-        "The MCP catalog is machine-checked against the real ROUTES — the 18 new write tools can't drift from their gated doors."
-      ],
-      "improvements": [
-        {
-          "what": "Confirm-resume + browser e2e still lean on manual verification.",
-          "why": "both are staging-verified but not unit/integration-locked."
-        }
-      ]
-    },
-    {
-      "key": "documentation",
-      "title": "Documentation",
-      "icon": "📖",
-      "score": 96,
-      "status": "green",
-      "headline": "Audited to rebuild",
-      "metrics": [
-        {
-          "label": "Doc files",
-          "value": "27"
-        },
-        {
-          "label": "Rulebook",
-          "value": "README"
-        },
-        {
-          "label": "Comments",
-          "value": "15%"
-        }
-      ],
-      "strengths": [
-        "Three independent audits confirmed the docs can rebuild the base from a fresh account and support a big new app; the two real blockers (hardcoded ids) are fixed.",
-        "A README 'rulebook' now names every rule to modify/recreate/build, marking which are machine-checked; AGENTIC-IMPORT documents the sample-file rule."
-      ],
-      "improvements": [
-        {
-          "what": "A one-line 'current status' header per reference doc would help.",
-          "why": "a reader still cross-checks whether a described piece is built vs planned."
-        }
-      ]
-    },
-    {
-      "key": "understandability",
-      "title": "Understandability",
-      "icon": "🧭",
-      "score": 91,
-      "status": "green",
-      "headline": "Layered + named",
-      "metrics": [
-        {
-          "label": "Worker shape",
-          "value": "1 pattern"
-        },
-        {
-          "label": "Import",
-          "value": "plan·agent·batch"
-        },
-        {
-          "label": "TODOs",
-          "value": "1"
-        }
-      ],
-      "strengths": [
-        "The import engine reads top-down: a pure planner, the agent proposal, then deterministic execution — the model can't do anything code doesn't re-derive.",
-        "One worker shape everywhere; the host split into named hooks."
-      ],
-      "improvements": [
-        {
-          "what": "The 721-line host still holds nav + trace + render inline.",
-          "why": "a further split is possible but higher-risk; not worth it mid-round."
-        }
-      ]
-    },
-    {
-      "key": "leanness",
-      "title": "Leanness & Optimization",
-      "icon": "♻️",
-      "score": 88,
-      "status": "green",
-      "headline": "Reused, not rebuilt",
-      "metrics": [
-        {
-          "label": "Duplication",
-          "value": "~6.6%"
-        },
-        {
-          "label": "Forward seam",
-          "value": "1 (DRY)"
-        },
-        {
-          "label": "TODOs",
-          "value": "1"
-        }
-      ],
-      "strengths": [
-        "1 TODO in 26.7k LOC; the cookie-forward is now ONE forwardToDoor seam (was copy-pasted in both executors); heavy shared-seam reuse — gating, validate, publish, the data door."
-      ],
-      "improvements": [
-        {
-          "what": "Two tool catalogs describe overlapping endpoints in two shapes.",
-          "why": "one shared descriptor is the last real win — deferred, it's on the agent/MCP hot paths + the data-ops catalog is coupled (BASE-IMPROVEMENTS #8)."
-        }
-      ]
-    },
-    {
-      "key": "scalability",
-      "title": "Scalability & Structure",
-      "icon": "📐",
-      "score": 92,
-      "status": "green",
-      "headline": "Declarative seams",
-      "metrics": [
-        {
-          "label": "Workers",
-          "value": "6"
-        },
-        {
-          "label": "Import",
-          "value": "declare a target"
-        },
-        {
-          "label": "Model",
-          "value": "swappable"
-        }
-      ],
-      "strengths": [
-        "Adding an import target (even a multi-table one) is one declarative TargetDef — the ERP inventory case is documented + the id-resolver unit-tested.",
-        "Every growth axis scales by an existing seam (per-team D1, the model seam, the catalog, the error store)."
-      ],
-      "improvements": [
-        {
-          "what": "The external mcp worker is still a plan.",
-          "why": "build it on the existing gating seam when the machine surface is needed."
-        }
-      ]
-    }
+  project: "Brimba", scannedAt: "2026-07-10",
+  overall: { score: 94, grade: "A", verdict: "Elite robustness + docs; two more bug classes now impossible by construction. The one lever left for 95+ is a deliberate judgment call, not bloat.",
+    sub: "Crossed 93→94 on real gains: a credit-correctness fix, 2 new test files, and two bug classes eliminated by construction. Duplication ticked down 6.6→6.4%." },
+  dimensions: [
+    { key:"size", title:"Size & Scope", icon:"📦", score:90, status:"green", headline:"Lean for the surface",
+      metrics:[{label:"Files",value:"259"},{label:"Lines",value:"26.9k"},{label:"Docs",value:"32"}],
+      strengths:["A full 7-worker multi-tenant base + web + shared in 26.9k LOC.","The 8 files >400 LOC are cohesive units, not sprawl."],
+      improvements:[{what:"Two files are getting big.",why:"tools.ts (559) + agent.ts (545) — split only when one takes on a second responsibility, not to game the count."}] },
+    { key:"robustness", title:"Robustness", icon:"🛡️", score:96, status:"green", headline:"Two more bugs made impossible",
+      metrics:[{label:"Machine-checked Laws",value:"R1–R12"},{label:"Test files",value:"47"},{label:"TODOs",value:"1"}],
+      strengths:["Two bug classes eliminated BY CONSTRUCTION: a trace can't open a form (no query field), a first-turn confirm can't be un-resolvable (threadId in the type).","New credit-reconcile test locks balance == history; input-aware confirm tests."],
+      improvements:[{what:"Nothing structural.",why:"Keep locking each new invariant with a test, the way today's three fixes did."}] },
+    { key:"documentation", title:"Documentation", icon:"📖", score:96, status:"green", headline:"Airtight, kept current",
+      metrics:[{label:"Docs",value:"32"},{label:"Doc LOC",value:"5.7k"},{label:"Story check",value:"clean"}],
+      strengths:["All three of today's changes documented consistently (story_checks_out clean).","README doc-map, planning ritual, decision trees, honest backlog."],
+      improvements:[] },
+    { key:"understandability", title:"Understandability", icon:"🧭", score:94, status:"green", headline:"One rule, one place",
+      metrics:[{label:"Confirm rule",value:"1 predicate"},{label:"Credit model",value:"1 row/command"}],
+      strengths:["The confirm decision is now ONE predicate in ONE place, replacing scattered flags + a stale comment.","Crisp trace philosophy: show the result, never the input form."],
+      improvements:[] },
+    { key:"leanness", title:"Leanness & Optimization", icon:"♻️", score:89, status:"green", headline:"DRY, trimmed further",
+      metrics:[{label:"Duplication",value:"6.4%"},{label:"Dead code",value:"removed"}],
+      strengths:["Duplication down 6.6→6.4%; removed a dead capability (TraceTarget.query + toUrl).","The credit fix reuses the log seam — no new table, no migration."],
+      improvements:[{what:"Two tool catalogs restate overlapping endpoint metadata.",why:"data-ops + mcp describe the same endpoints in two shapes — the last real DRY win (95+). But they're two genuinely different execution surfaces, so merging trades clarity for a count. Deferred on purpose (BASE-IMPROVEMENTS #8)."}] },
+    { key:"scalability", title:"Scalability & Structure", icon:"📐", score:94, status:"green", headline:"Sharded by design",
+      metrics:[{label:"Tenancy",value:"per-team D1"},{label:"Live layer",value:"hibernating DO"}],
+      strengths:["Per-team D1 + d1QueryAcross (allSettled + shard diagnostics); the credit quota; the §6.5 shard runbook.","Today's credit fold is O(1) and actor-scoped — no new scaling surface."],
+      improvements:[] }
   ],
-  "callouts": {
-    "strong": [
-      "Held 92/A through a major feature round — agentic import + error store, both test-locked.",
-      "The docs are audited (3 passes) to rebuild the base from zero and support a new app."
-    ],
-    "watch": [
-      "deep-link-screen.tsx (721) + agent-panel.tsx (639) — the two big files to watch.",
-      "Route boilerplate ~6.6% — the wrapper is deferred, not forgotten."
-    ],
-    "fix": [
-      "Build the external mcp worker on the existing seam when needed."
-    ]
-  }
+  callouts:{
+    strong:["Two more bug classes now impossible by construction (trace forms, un-resolvable confirms).","Credit history now reconciles exactly with the balance — locked by a test."],
+    watch:["The two tool catalogs are the one remaining DRY lever — deliberately deferred, not bloat."],
+    fix:["Nothing critical: for 95+, unify the shared endpoint metadata across the data-ops + mcp catalogs in a focused session."] }
 };
 /* DATA:END */
 </script>
