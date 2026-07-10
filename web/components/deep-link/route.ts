@@ -30,9 +30,15 @@ export type Route = {
   topLevel: boolean
 }
 
-/** Modules that have a clean top-level URL (/learning, /help) — their own pages,
- * not nested under /t/<teamId>. They resolve the active team from context. */
-export const TOP_LEVEL_MODULES = ["learning", "help"]
+/** Top-level app URLs that resolve INSIDE the one deep-link shell (not nested under
+ * /t/<teamId>) — the team sidebar pages (/learning, /help) AND the account screens
+ * (/home, /settings, /invitations). Everything here is in-app, so `go()` moves to it
+ * with the History API (no reload); only pre-auth routes (/login, /onboarding) are left
+ * out, so leaving the app is a real navigation. */
+export const TOP_LEVEL_MODULES = ["learning", "help", "home", "settings", "invitations"]
+
+/** The account-level screens the shell renders directly (not team-scoped module content). */
+export const ACCOUNT_MODULES = ["home", "settings", "invitations"]
 
 export function parseRoute(pathname: string, search: string): Route {
   const segs = pathname.split("/").filter(Boolean) // ["t", teamId, module?, id?] OR [module, id?]

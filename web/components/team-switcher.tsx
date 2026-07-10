@@ -4,8 +4,6 @@
 // sidebar and the mobile top bar. Extracted from the app shell so each stays
 // small. Menu opacity is handled by the library dropdown now (UI-GAPS row 5).
 
-import { useRouter } from "next/navigation"
-
 import {
   Avatar,
   AvatarFallback,
@@ -26,6 +24,7 @@ import { Check, ChevronsUpDown, Inbox, Plus } from "lucide-react"
 
 import { useReceivedInvites } from "@/components/invitations"
 import { letterMark } from "@/lib/identity"
+import { softNavigate } from "@/lib/nav"
 import type { ActiveTeam } from "@/lib/use-active-team"
 
 export function TeamSwitcher({
@@ -39,7 +38,6 @@ export function TeamSwitcher({
   collapsed?: boolean
 }) {
   const { ctx } = active
-  const router = useRouter()
   const pendingInvites = useReceivedInvites().data?.length ?? 0
   async function handleSwitch(teamId: string) {
     if (teamId === ctx?.team?.id) return
@@ -79,7 +77,7 @@ export function TeamSwitcher({
          * invite email is never a dead end. */}
         {pendingInvites > 0 && (
           <>
-            <DropdownMenuItem onSelect={() => router.push("/invitations")} className="gap-2">
+            <DropdownMenuItem onSelect={() => softNavigate("/invitations")} className="gap-2">
               <Inbox className="size-4" />
               <span className="min-w-0 flex-1">Invitations</span>
               <Badge variant="secondary" className="text-[10px]">

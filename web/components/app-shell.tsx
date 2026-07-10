@@ -8,7 +8,7 @@
 // primitives.
 
 import * as React from "react"
-import { useRouter, usePathname } from "next/navigation"
+import { usePathname } from "next/navigation"
 
 import { Breadcrumbs } from "@swift-struck/ui/registry/primitives/breadcrumbs/breadcrumbs"
 import { ModeToggle } from "@swift-struck/ui/registry/primitives/mode-toggle/mode-toggle"
@@ -18,6 +18,7 @@ import { Home, Settings, GraduationCap, LifeBuoy, PanelLeftClose, PanelLeftOpen 
 
 import type { ActiveTeam } from "@/lib/use-active-team"
 import { auth, content, tenancy } from "@/lib/api"
+import { softNavigate } from "@/lib/nav"
 import { useRealtime, useUserRealtime } from "@/lib/realtime"
 import { invalidate, patchRow, reconcile } from "@/lib/store"
 import { NAV, TEAM_SECTIONS, bottomNavItems, isNavActive, type Crumb } from "@/lib/pages"
@@ -117,7 +118,6 @@ export function AppShell({
    * path here; other pages rely on `usePathname`. */
   activePath?: string
 }) {
-  const router = useRouter()
   const pathname = usePathname()
   const [creating, setCreating] = React.useState(false)
   // The AI co-pilot (launcher + panel + screen-trace engine) is mounted ONCE at the
@@ -145,7 +145,7 @@ export function AppShell({
   }
 
   const { can } = usePermissions(teamId)
-  const navigate = onNavigate ?? ((href: string) => router.push(href))
+  const navigate = onNavigate ?? softNavigate
   const here = activePath ?? pathname
 
   // The rail: the universal anchors (Home / Settings) with the team's first-class
@@ -328,7 +328,7 @@ export function AppShell({
           <div className="px-4 pt-4">
             <Breadcrumbs
               items={breadcrumbs}
-              onNavigate={onNavigate ?? ((href) => router.push(href))}
+              onNavigate={onNavigate ?? softNavigate}
             />
           </div>
         )}

@@ -12,54 +12,44 @@ field guide to the sharp edges those decisions leave behind.
 
 ---
 
-## 1 · The static-export SPA and the cross-route hard reload
+## 1 · The static-export SPA: ONE shell, all navigation soft (no reload in-app)
 
 **The trap.** Brimba ships as a Next.js **static export** (`web/out`, served by
-the gateway) with **no service worker**. Inside the deep-link screen, moving
-between two `/t/<teamId>/…` URLs feels like a normal route change — but if you
-reach for the framework router (`router.push`) to do it, you get a **full-page
-reload**: the session check re-runs, every screen refetches, and the in-memory
-cache is wiped.
+the gateway) with **no service worker**. In a static export the framework router
+has no data file for an arbitrary deep path, so a `router.push` to one is a
+**full-page reload** (session re-check, every screen refetches, the in-memory
+cache is wiped). Reach for `router.push` to move between app screens and you tear
+the whole SPA — a running agent included — down.
 
-**Why.** In a static export the router has no data file for an arbitrary
-`/t/<…>` path, so it falls back to a hard navigation. The whole `/t/*` tree is
-**one static shell** — `deep-link-screen.tsx` mounts once and never unmounts —
-so a "navigation" within it must not touch the router at all.
+**Why it's a non-issue now.** The **entire post-auth app is ONE client-resolved
+shell** — `deep-link-screen.tsx` mounts once and never unmounts, and it resolves
+*every* app URL from `window.location`: the team tree `/t/**`, the sidebar pages
+`/learning` + `/help`, AND the account screens `/home` + `/settings` +
+`/invitations` (each renders `<DeepLinkScreen/>` and is dispatched to a screen
+component — `ACCOUNT_MODULES` in `deep-link/route.ts`). So there is no cross-route
+boundary left to cross *inside the app*. Only the **pre-auth** routes (`/login`,
+`/onboarding`) sit outside the shell — entering or leaving the app is the one real
+navigation, and a reload there is fine (one-time).
 
-**The rule.** Intra-shell navigation goes through the **History API**, not the
-router. `go()` in `web/components/deep-link-screen.tsx` decides
-per-path:
+**The rule.** In-app navigation goes through the **History API**, never the
+router. `go()` in `deep-link-screen.tsx` pushes state for any `isInAppPath` (the
+whole `/t/*` tree + every `TOP_LEVEL_MODULES` entry — now `learning · help · home
+· settings · invitations`) and swaps the screen from local `route` state; the
+segment never changes, so nothing reloads. Deep components that can't reach `go()`
+(the profile menu, team switcher, invite inbox) call **`softNavigate`** from
+`web/lib/nav.ts` — the shell registers its `go()` there on mount (`registerHostGo`),
+so those links are soft too. The shell subscribes to `popstate` so Back/Forward
+re-read the URL and re-render in place.
 
-```ts
-const isInAppPath = (p: string) =>
-  p.startsWith("/t") || TOP_LEVEL_MODULES.some((m) => p === `/${m}` || p.startsWith(`/${m}/`))
-
-const go = (path, q) => {
-  if (isInAppPath(path)) {
-    window.history.pushState(null, "", url)   // Next observes it; segment never changes; nothing reloads
-    setRoute(parseRoute(path, search))        // swap the screen from local `route` state
-  } else {
-    router.push(url)                          // leaving /t (Home/Settings) is a real route change
-  }
-}
-```
-
-The shell subscribes to `popstate` so Back/Forward re-read the URL
-and re-render in place. **`/learning` and `/help`** are in `TOP_LEVEL_MODULES`,
-so they're host-owned too.
-
-**The consequence you'll actually hit: team-switch reloads from Settings.**
-`switchTeam` in `web/lib/use-active-team.ts` just swaps the cached context and
-re-renders (no reload) — cheap when you're already inside the shell. But
-`/settings` is **not** an in-app path. Switch teams from Settings and the next
-navigation into `/t/<newTeam>/…` crosses a static-route boundary, which is a
-hard reload. This is expected; don't try to "fix" it by forcing the router
-through `/t` — that's the very thing that reloads.
-
-The same boundary is why agent **real-screen tracing** is dropped when it points
-at a team the shell isn't currently showing: crossing into `/t`
-from a static route would hard-reload, so the panel narrates the step instead of
-yanking the page.
+**Consequences of the one-shell model:**
+- **Team-switch from Settings no longer reloads.** `/settings` is in the shell now,
+  so `switchTeam` + a soft `go('/t/<newTeam>')` stays in place.
+- **Agent screen-tracing drives from ANYWHERE.** Because crossing into `/t` is now
+  soft, the trace engine (`screen-trace.tsx`) always hands its target to the shell,
+  which `go()`s there — the old "narrate off-host because a reload would kill the
+  agent" branch is gone.
+- **The one-shell is the machine-checked invariant.** No in-app link may use
+  `router.push` (that was the reload); the account modules must each render a screen.
 
 **version-watch heals the stale tab, it doesn't prevent reloads.** Because there
 is no service worker, a long-lived tab holds the **old shell + its hashed
@@ -81,12 +71,17 @@ is **mirrored to `sessionStorage`** (`web/lib/agent-open.ts`): on the post-reloa
 load the host reopens the panel and `useAgentChat` resumes the saved thread, so the
 conversation survives even though the live stream was cut. Two consequences to
 respect:
-- **The screen-trace NARRATES when off-host, never `router.push`es into `/t`.**
-  The engine (`web/lib/screen-trace.tsx`) only soft-drives the screen when the
-  deep-link host is *already* showing that team; from a top-level route it leaves
-  the page put (the step still shows in the panel). An off-host `router.push` into
-  a deep `/t` path is the very hard reload that would tear down the running agent —
-  that was a real bug, now locked out by `web/test/agent-host.test.ts`.
+- **The screen-trace always soft-drives (one shell), never `router.push`es.** The
+  engine (`web/lib/screen-trace.tsx`) hands its target to the shell, which `go()`s
+  there via the History API from any screen — no reload. (Before the one-shell
+  re-architecture, crossing into `/t` from a top-level route was a hard reload, so
+  the trace had to narrate off-host instead; that's gone.) No in-app `router.push`
+  is locked out by `web/test/agent-host.test.ts`.
+- **The open state still mirrors to `sessionStorage`.** In-app nav no longer
+  reloads, so the panel survives it just by being root-mounted. The
+  `sessionStorage` mirror (`web/lib/agent-open.ts`) now only matters for a genuine
+  page refresh (F5) or a `version-watch` chunk reload — it reopens the panel and
+  `useAgentChat` resumes the saved thread.
 - **The session cache is reactive.** `useActiveTeam` holds the session in a
   pub-sub'd module cache, so a component mounted *before* login (the root host)
   picks up the session the instant another instance logs in / creates a team —

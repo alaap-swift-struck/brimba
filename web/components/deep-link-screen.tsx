@@ -41,12 +41,17 @@ import { TeamEditDialog } from "@/components/team-edit-dialog"
 import { ConfirmAction } from "@/components/deep-link/confirm-action"
 import { renderModuleContent } from "@/components/deep-link/module-content"
 import {
+  ACCOUNT_MODULES,
   parseRoute,
   sectionTitle,
   TOP_LEVEL_MODULES,
   type Route,
   type SectionKey,
 } from "@/components/deep-link/route"
+import { HomeScreen } from "@/components/screens/home-screen"
+import { SettingsScreen } from "@/components/screens/settings-screen"
+import { InvitationsScreen } from "@/components/screens/invitations-screen"
+import { registerHostGo } from "@/lib/nav"
 // Aliased: the local `content()` dispatcher (below) shadows the api namespace.
 import { ApiFailure, content as contentApi, tenancy } from "@/lib/api"
 import { usePermissions } from "@/lib/perms"
@@ -228,11 +233,15 @@ export function DeepLinkScreen() {
     else replace(currentPath)
   }
 
-  // Real-screen tracing: the agent panel emits a trace target per write step. We
-  // only honour it when we're already the /t host showing THAT team (isInAppPath +
-  // team match) — crossing from a static route into /t hard-reloads in this static
-  // export, so a trace for a team we aren't showing is dropped (the panel narrates
-  // it instead). Move softly via go(), then ring the traced control for a beat.
+  // Register THIS host's soft go() so deep components (the profile menu, team switcher,
+  // invite inbox) navigate through the History API instead of router.push — no reload.
+  React.useEffect(() => registerHostGo(go), [go])
+
+  // Real-screen tracing: the agent panel emits a trace target per write step. The whole
+  // app is one shell now, so we honour it from ANY screen (Home included) — `onTeam`
+  // falls back to the active team, and go() into /t is a soft History-API move (no
+  // reload). We only skip a trace for a DIFFERENT team than the one shown (a safety net;
+  // the agent only acts in the current team). Move softly via go(), then ring the control.
   React.useEffect(() => {
     return onHostTrace(({ teamId: traceTeam, target }: { teamId: string; target: TraceTarget }) => {
       if (!teamId || traceTeam !== teamId || !onTeam) return
@@ -297,6 +306,26 @@ export function DeepLinkScreen() {
   /* --------------------------------- render -------------------------------- */
 
   if (active.loading || !active.ctx || !route) return <ShellLoading />
+
+  // Account screens (/home, /settings, /invitations) render DIRECTLY in the shell — they
+  // aren't team-scoped module content, so they skip the team tabs / queries / membership
+  // gate below. Because they live inside this one never-unmounting shell, moving in and
+  // out of them (and into /t) is soft History-API nav — no reload anywhere.
+  if (ACCOUNT_MODULES.includes(module ?? "")) {
+    const accountCrumbs: Crumb[] =
+      module === "settings"
+        ? [{ label: "Settings" }]
+        : module === "invitations"
+          ? [{ label: "Invitations" }]
+          : []
+    return (
+      <AppShell active={active} breadcrumbs={accountCrumbs} onNavigate={go} activePath={currentPath}>
+        {module === "home" && <HomeScreen active={active} />}
+        {module === "settings" && <SettingsScreen active={active} />}
+        {module === "invitations" && <InvitationsScreen active={active} />}
+      </AppShell>
+    )
+  }
 
   // About to be redirected: the membership effect sends us to /home when the URL
   // points at a team we're no longer in (we still have others). Show the loading

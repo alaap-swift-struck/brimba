@@ -171,15 +171,18 @@ a **Viewer** (read-only) role.
 
 ### The AI agent acts AS the signed-in user
 
-**The co-pilot rides above every screen.** The assistant panel is mounted ONCE at the root layout (`web/components/agent-host.tsx`), not inside any per-route shell, so navigating — including the agent's own screen-trace — moves the page *underneath* it and never closes it. Its open flag is mirrored to `sessionStorage`, so it even survives the static-export hard reload when you cross into `/t` (it reopens and resumes the saved thread — EDGE-CASES §1). The launcher is gated by `agent:create`, on a reactive session cache so it appears the instant you sign in (no reload).
+**One shell, and the co-pilot rides above it.** The whole post-auth app is ONE client-resolved shell (`web/components/deep-link-screen.tsx` — it resolves `/home`, `/settings`, `/invitations`, `/learning`, `/help`, and the `/t/**` tree from the URL), so all in-app navigation is soft History-API (`softNavigate` / `go()`) — no reload anywhere (EDGE-CASES §1). The assistant panel is mounted ONCE at the root layout (`web/components/agent-host.tsx`) above that shell, so navigating — including the agent's own screen-trace — moves the page *underneath* it and never closes it. The launcher is gated by `agent:create`, on a reactive session cache so it appears the instant you sign in.
 
-**Screen tracing.** While the agent works, its steps DRIVE the real screen to where the change is now VISIBLE — the affected record's detail, or the collection list where row-level live-sync makes the new/changed row appear — then rings it. The engine soft-drives the screen when you're **already inside** that team's screens; from a top-level route it **narrates the step in the panel instead of yanking the page** (crossing into `/t` from there is a hard reload that would tear down the running agent — EDGE-CASES §1). A trace **never opens an input form** (`?panel=add|edit`): the agent writes directly through the gated API, so re-opening the manual form would just leave a blank, stale dialog sitting open after the record already exists (the "created the role but left an empty new-role form open" bug). `TraceTarget` has no query field at all, so that class of bug can't be expressed. The tool→screen map is pure (`web/lib/agent-trace.ts`) and machine-checked: `trace-parity.test.ts` fails the build if a write tool ships without a result screen, or if a trace tries to carry a dialog query.
+**Screen tracing.** While the agent works, its steps DRIVE the real screen to where the change is now VISIBLE — the affected record's detail, or the collection list where row-level live-sync makes the new/changed row appear — then rings it. Because the app is one shell, the engine soft-drives the screen from **anywhere** (Home included) with the History API — no reload. A trace **never opens an input form** (`?panel=add|edit`): the agent writes directly through the gated API, so re-opening the manual form would just leave a blank, stale dialog sitting open after the record already exists (the "created the role but left an empty new-role form open" bug). `TraceTarget` has no query field at all, so that class of bug can't be expressed. The tool→screen map is pure (`web/lib/agent-trace.ts`) and machine-checked: `trace-parity.test.ts` fails the build if a write tool ships without a result screen, or if a trace tries to carry a dialog query.
 
 This is the payoff of the spine, and the reason there is **no separate agent
 role**. The agent (`workers/data-ops/src/lib/`) does not have its own powers. Its
 tool catalogue (`tools.ts`) is an **opt-in** list where every tool maps to a
-gated endpoint the UI already uses, and the executor runs each tool AS the caller
-by **forwarding their session cookie**:
+gated endpoint the UI already uses. The ~two dozen CRUD tools it shares with the
+external MCP surface are **declared once** in `shared/workers/tool-catalog.ts`
+(`SHARED_TOOLS`) and projected into each catalogue (`toAgentTool` / `toMcpTool`),
+so the two can't drift; each surface adds only its own tools on top. The executor
+runs each tool AS the caller by **forwarding their session cookie**:
 
 ```ts
 // workers/data-ops/src/lib/tools.ts — executeTool

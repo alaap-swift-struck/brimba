@@ -8,7 +8,6 @@
 // switcher badge all stay in sync.
 
 import * as React from "react"
-import { useRouter } from "next/navigation"
 
 import {
   Avatar,
@@ -24,6 +23,7 @@ import { toast } from "@swift-struck/ui/registry/primitives/sonner/sonner"
 import type { ReceivedInvite } from "@shared/types"
 import { ApiFailure, tenancy } from "@/lib/api"
 import { letterMark } from "@/lib/identity"
+import { softNavigate } from "@/lib/nav"
 import { primeCache, useCached } from "@/lib/store"
 import type { ActiveTeam } from "@/lib/use-active-team"
 
@@ -36,7 +36,6 @@ export function useReceivedInvites() {
 }
 
 export function InvitationsPanel({ active }: { active: ActiveTeam }) {
-  const router = useRouter()
   const invitesQ = useReceivedInvites()
   const invites = invitesQ.data
   const [accepting, setAccepting] = React.useState<string | null>(null)
@@ -50,7 +49,7 @@ export function InvitationsPanel({ active }: { active: ActiveTeam }) {
       // one just joined.
       await active.refresh()
       toast.success(`Joined ${inv.teamName}`)
-      if (res.invitations.length === 0) router.push("/home")
+      if (res.invitations.length === 0) softNavigate("/home")
     } catch (err) {
       toast.error(
         err instanceof ApiFailure ? err.message : "Couldn't accept the invitation."

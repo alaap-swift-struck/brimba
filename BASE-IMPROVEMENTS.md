@@ -10,6 +10,15 @@ Keep this current: when an item ships, move it to **Fixed** with the commit.
 
 ---
 
+## Fixed (2026-07-10) — the unification + one-shell round
+
+The two big structural moves the owner asked for after the hardening round.
+
+| Sev | Issue | Fix |
+|---|---|---|
+| P1 #2 | **Two tool catalogs drift.** The agent (data-ops) + MCP each hand-declared the same ~two dozen tenancy/content endpoints, so a capability had to be added twice and they could diverge (the drift the owner hit adding list_invites). | Collapsed the 24 overlapping endpoints into ONE `shared/workers/tool-catalog.ts` (SHARED_TOOLS); each surface PROJECTS them (`toAgentTool` / `toMcpTool`) + adds its surface-only tools. `mcpName` preserves the 3 external MCP names. Bonus: the agent gained `list_dropdown_values` (a parity gap). Adding a CRUD tool is now one edit. |
+| P1 (new) | **Navigating into a team screen HARD-RELOADED** (static-export boundary), tearing down the SPA + a running agent; the agent's screen-trace couldn't drive across it. | The **whole post-auth app is now ONE shell** — `/home`, `/settings`, `/invitations` render `<DeepLinkScreen/>` like `/t`, `/learning`, `/help`; all in-app nav is soft History-API (`softNavigate` / `go()`), no reload anywhere. Only pre-auth (`/login`, `/onboarding`) is a real navigation. The trace now soft-drives from any screen (EDGE-CASES §1). |
+
 ## Fixed (2026-07-10) — the agent hardening round (team testing on staging)
 
 A sweep of real bugs surfaced by the team exercising the AI co-pilot on staging.
@@ -45,7 +54,7 @@ A sweep of real bugs surfaced by the team exercising the AI co-pilot on staging.
 
 ### P1 · resilience + leanness — high leverage, real refactors
 1. **One `callInternal(path, {cookie, timeout})` seam** (`shared/workers/`). Kills THREE findings at once: the cookie-forward internal-fetch dance is copy-pasted 5+ times (DRY), **no `fetch` has an `AbortSignal`** anywhere — the D1 REST door (`cf()`), cross-worker calls, and the agent's model calls all lack a timeout, so one hung socket stalls a whole worker (resilience) — and the forward executors flatten 403/409/500 into one generic string (status preservation; also the cause of the agent's "stuck pending step"). **Highest-leverage single change.**
-2. **Unify the two tool catalogs.** `workers/data-ops/src/lib/tools.ts` and `workers/mcp/src/lib/tools.ts` hand-describe the *same* gated endpoints — collapse into one shared descriptor table so they can't drift. (Biggest leanness hit + structurally prevents catalog drift.)
+2. ~~**Unify the two tool catalogs.**~~ **DONE 2026-07-10** — one `shared/workers/tool-catalog.ts` both surfaces project from (see Fixed above).
 3. **Idempotency + partial-failure cleanup on the fleet writes.** `import-confirm` has no idempotency (retry → duplicate rows); `migrateTeams` aborts the whole fleet on the first bad team and leaves schema drift; the module-mover can orphan a DB / double-count on interruption. Add an idempotency guard + per-item try/catch + cleanup.
 4. **Close the two error-log blind spots.** The nightly cron catch and the agent model-call catch swallow unexpected errors (console-only / nothing) — invisible in the 90-day `error_logs` table meant to catch exactly those. Add `recordWorkerError` in both.
 5. **`d1QueryAcross` uses `Promise.all`** → one slow/failed shard fails an entire split-module read. Use `allSettled` + record the degraded shard.

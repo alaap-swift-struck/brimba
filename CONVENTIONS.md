@@ -38,11 +38,15 @@ the concrete form of the planning ritual's step 4 (CLAUDE.md).
   detail of shaped rows + description-lists + activity) → a recipe in `screens.ts`. A
   control the engine has no block for (permission matrix, rich body, thread) → a bespoke
   component (UI-CONVENTIONS §2b).
-- **Exposing an action to machines → an MCP tool or an agent tool.** A **deterministic**
-  action → an MCP tool (a thin forward to the gated door, free). A **natural-language /
-  multi-step** action → an agent tool (with `confirm: true` — or an input-aware predicate
-  — only if it's DESTRUCTIVE or bulk; constructive writes run free, see the confirm rule
-  in EDGE-CASES §5). Both forward through the SAME gated door — never a second, ungated path.
+- **Exposing an action to machines → declare it ONCE in the shared tool catalog.** If
+  BOTH the in-app agent and the MCP should expose an endpoint (most CRUD), add one entry
+  to `shared/workers/tool-catalog.ts` (`SHARED_TOOLS`: path · method · binding · schema ·
+  buildBody · summary, plus the agent's `write`/`confirm`/`summarize`) — the agent
+  (`toAgentTool`) and MCP (`toMcpTool`) both pick it up, so they can't drift. A tool for
+  only ONE surface stays in that surface's file (the agent's bulk/SELF tools; the MCP's
+  exports/import/agent-bridge). The agent's confirm is `true` — or an input-aware
+  predicate — only if the act is DESTRUCTIVE or bulk (constructive runs free, EDGE-CASES
+  §5). Both forward through the SAME gated door — never a second, ungated path.
 - **A new invariant → a machine-checked Law if it can be source-scanned; else a
   convention + a targeted test.** Rule + registry entry + check land together (R-law
   discipline). A green test must assert the *right* intent — a test that locks the wrong
