@@ -104,6 +104,18 @@ describe("agent tool catalog + confirm rule (destructive-only)", () => {
     }
   })
 
+  it("can LIST invites — so it can find a pending invite's id to revoke it", () => {
+    // The gap that broke 'revoke sabiha's invite': revoke_invite needs an inviteId, but
+    // there was no tool to list pending invites (list_members only shows joined members).
+    const t = getTool("list_invites")
+    expect(t, "list_invites must exist").toBeDefined()
+    expect(t!.write).toBe(false)
+    expect(t!.binding).toBe("TENANCY")
+    expect(t!.path).toBe("/api/tenancy/invites")
+    // revoke_invite (the tool it feeds) is still there.
+    expect(getTool("revoke_invite")).toBeDefined()
+  })
+
   it("manages members AS the user — set_member_role + remove_member are present", () => {
     // The agent acts AS the user with their EXACT rights (the server re-checks each
     // call), so member management is allowed. Removing a member is destructive → it

@@ -132,6 +132,18 @@ export const TOOL_CATALOG: AgentTool[] = [
     summarize: () => "List members",
   },
   {
+    name: "list_invites",
+    description:
+      "List the team's invites — each one's email, role, status (pending / accepted / revoked) and its invite id. Use this to find a PENDING invite's id before revoking it with revoke_invite (list_members only shows people who've already joined, so an unaccepted invite won't be there).",
+    schema: obj({}),
+    binding: "TENANCY",
+    method: "GET",
+    path: "/api/tenancy/invites",
+    write: false,
+    confirm: false,
+    summarize: () => "List invites",
+  },
+  {
     name: "create_learning",
     description: "Create a new learning / how-to article.",
     schema: obj(

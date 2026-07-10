@@ -49,6 +49,15 @@ describe("the AI co-pilot survives navigation (mounted at the root, not per-rout
     expect(store, "must READ the persisted state at load").toMatch(/getItem\(/)
   })
 
+  it("the session cache is reactive, so the root-mounted launcher appears without a reload", () => {
+    // AgentHost mounts BEFORE login; its useActiveTeam instance must pick up the session
+    // the moment another instance logs in / creates a team — else the launcher only shows
+    // after a manual reload. A pub-sub over the shared cache is what makes that reactive.
+    const hook = read("lib/use-active-team.ts")
+    expect(hook, "cache writes must notify subscribers").toContain("setSessionCache")
+    expect(hook, "instances must subscribe to cache changes").toMatch(/sessionSubs\.(add|delete)/)
+  })
+
   it("the screen-trace never hard-reloads across the /t boundary (no router.push)", () => {
     // The off-host router.push into a deep /t path was a hard reload that killed the
     // running assistant. Off-host now narrates; only the soft HOST_EVENT drives a move.

@@ -189,6 +189,15 @@ export const MCP_TOOLS: McpTool[] = [
 
   // invites (team_members)
   {
+    name: "list_invites",
+    description:
+      "The team's invites — each one's email, role, status (pending / accepted / revoked) and its invite id. Use this to find a pending invite's id before revoking it (list_members only shows people who've already joined). Needs team_members:read.",
+    inputSchema: obj({}),
+    binding: "TENANCY",
+    method: "GET",
+    path: "/api/tenancy/invites",
+  },
+  {
     name: "create_invite",
     description: "Invite someone by email to a role (sends the branded email). Needs team_members:create.",
     inputSchema: obj({ email: S, roleId: S }, ["email", "roleId"]),

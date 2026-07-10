@@ -23,8 +23,17 @@ export type ActiveTeam = {
 }
 
 type Session = { user: SessionUser; ctx: ActiveContext }
-// Survives navigations (cleared on sign-out / auth failure).
+// Survives navigations (cleared on sign-out / auth failure). REACTIVE: every write goes
+// through setSessionCache, which notifies all mounted useActiveTeam instances. This is
+// what lets a component mounted BEFORE login (the root AgentHost) pick up the session the
+// moment another instance logs in / creates a team — without it, its icon only appeared
+// after a manual reload (the launcher-needs-reload bug).
 let sessionCache: Session | null = null
+const sessionSubs = new Set<() => void>()
+function setSessionCache(next: Session | null): void {
+  sessionCache = next
+  for (const fn of sessionSubs) fn()
+}
 
 export function useActiveTeam(): ActiveTeam {
   const router = useRouter()
@@ -32,13 +41,28 @@ export function useActiveTeam(): ActiveTeam {
   const [ctx, setCtx] = React.useState<ActiveContext | null>(sessionCache?.ctx ?? null)
   const [loading, setLoading] = React.useState(!sessionCache)
 
+  // Re-sync from the shared cache whenever ANY instance changes it (login, create/switch
+  // team, refresh, sign-out) — so this instance updates even if the change happened
+  // elsewhere. State setters no-op when unchanged, so this can't loop.
+  React.useEffect(() => {
+    const onChange = () => {
+      setUser(sessionCache?.user ?? null)
+      setCtx(sessionCache?.ctx ?? null)
+      if (sessionCache) setLoading(false)
+    }
+    sessionSubs.add(onChange)
+    return () => {
+      sessionSubs.delete(onChange)
+    }
+  }, [])
+
   // A teamless context (e.g. just removed from your last team) means there's no
   // app screen to show — bounce to onboarding and DON'T cache the empty ctx, so
   // returning here re-checks once a team exists. Shared by load() + refresh().
   const sendToOnboardingIfTeamless = React.useCallback(
     (ctx: ActiveContext): boolean => {
       if (ctx.teams.length === 0) {
-        sessionCache = null
+        setSessionCache(null)
         router.replace("/onboarding")
         return true
       }
@@ -59,13 +83,13 @@ export function useActiveTeam(): ActiveTeam {
         const ctx = await tenancy.active()
         if (sendToOnboardingIfTeamless(ctx)) return
         const next: Session = { user: me.user, ctx }
-        sessionCache = next
+        setSessionCache(next)
         if (!alive) return
         setUser(next.user)
         setCtx(next.ctx)
         setLoading(false)
       } catch {
-        sessionCache = null
+        setSessionCache(null)
         router.replace("/login")
       }
     }
@@ -83,13 +107,13 @@ export function useActiveTeam(): ActiveTeam {
 
   const switchTeam = React.useCallback(async (teamId: string) => {
     const nextCtx = await tenancy.switchTeam(teamId)
-    if (sessionCache) sessionCache = { ...sessionCache, ctx: nextCtx }
+    if (sessionCache) setSessionCache({ ...sessionCache, ctx: nextCtx })
     setCtx(nextCtx)
   }, [])
 
   const createTeam = React.useCallback(async (name: string) => {
     const nextCtx = await tenancy.createTeam(name)
-    if (sessionCache) sessionCache = { ...sessionCache, ctx: nextCtx }
+    if (sessionCache) setSessionCache({ ...sessionCache, ctx: nextCtx })
     setCtx(nextCtx)
   }, [])
 
@@ -97,7 +121,7 @@ export function useActiveTeam(): ActiveTeam {
     // reload both identity (profile edits) and context (member counts, etc.)
     const [me, nextCtx] = await Promise.all([auth.me(), tenancy.active()])
     if (sendToOnboardingIfTeamless(nextCtx)) return
-    sessionCache = { user: me.user, ctx: nextCtx }
+    setSessionCache({ user: me.user, ctx: nextCtx })
     setUser(me.user)
     setCtx(nextCtx)
   }, [sendToOnboardingIfTeamless])
