@@ -68,11 +68,6 @@ export function takeTrace(teamId: string): TraceTarget | null {
 
 /* --------------------------------- the engine --------------------------------- */
 
-const toUrl = (t: TraceTarget) => {
-  const q = t.query ? `?${new URLSearchParams(t.query).toString()}` : ""
-  return `${t.path}${q}`
-}
-
 /** Mounted ONCE in AppShell. `activeTeamId` = the signed-in person's current team. */
 export function useScreenTraceEngine(activeTeamId: string | null | undefined): void {
   const router = useRouter()
@@ -94,7 +89,7 @@ export function useScreenTraceEngine(activeTeamId: string | null | undefined): v
       } else {
         // Anywhere else: stash the ring, then client-navigate into /t.
         stashTrace(nav)
-        router.push(toUrl(nav.target))
+        router.push(nav.target.path)
       }
     }
     window.addEventListener(TRACE_EVENT, listener)

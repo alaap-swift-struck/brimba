@@ -1,19 +1,23 @@
 // The agent's REAL-SCREEN TRACE map. When the co-pilot runs a WRITE tool, the panel
-// can gently drive the same screen — and the same ?panel / ?confirm dialog — the
-// manual path opens, so the user watches their change happen where they'd have made
-// it themselves. `traceFor` turns one tool call into a URL target (path + the query
-// the deep-link host honours) plus a highlight selector for a transient ring.
+// gently drives the user's screen to where that change is now VISIBLE — the affected
+// record's detail, or the collection list where row-level live-sync makes the new /
+// changed row appear (CACHING.md) — and rings it briefly. `traceFor` turns one tool
+// call into a URL target (path) plus a highlight selector for a transient ring.
 //
-// The target mirrors deep-link-screen.tsx exactly: the /t/<team>/<module> spine, the
-// ?panel=add|edit(&module&id) / ?confirm=<action>&id dialogs (InviteDialog,
-// RolePickerDialog, RoleFormDialog, ConfirmAction), and the section a plain write
-// lands on. READS (list_*/get_*) return null — there's nothing to open, so the panel
-// just narrates them in the step log. Kept as a pure function (no React) so it's
-// unit-testable and shared by the panel + its test.
+// A trace NEVER opens an input dialog (?panel=add|edit). The agent writes DIRECTLY
+// through the gated API — it doesn't type into the manual form — so opening that form
+// would just leave a blank, stale dialog sitting open after the record already exists
+// (the "created the role but left an empty new-role form open" bug). Traces show the
+// RESULT, not the input. The target mirrors the /t/<team>/<module>[/<id>] spine of
+// deep-link-screen.tsx. READS (list_*/get_*) return null — nothing to show, so the
+// panel just narrates them in the step log. Kept as a pure function (no React) so
+// it's unit-testable and shared by the panel + its test.
 
-/** Where a traced tool should take the user: a host path, the query that opens the
- * matching dialog, and a CSS selector to ring briefly once the screen is there. */
-export type TraceTarget = { path: string; query?: Record<string, string>; highlight?: string }
+/** Where a traced tool should take the user: a host path (the record's detail or the
+ * list where the change shows) and a CSS selector to ring briefly once it's there.
+ * Deliberately has NO query field — a trace shows a RESULT, it never opens an input
+ * dialog (?panel=…), so the form-left-open bug class can't be expressed here at all. */
+export type TraceTarget = { path: string; highlight?: string }
 
 // The nav bus + engine live in web/lib/screen-trace.tsx (DOM/React); THIS file
 // stays pure and DOM-free so the trace-parity test in workers/data-ops can import
@@ -35,33 +39,32 @@ export function traceFor(
 ): TraceTarget | null {
   switch (tool) {
     /* ------------------------------- invites ------------------------------- */
-    // Invite → the invites list with the InviteDialog open (?panel=add&module=invites),
-    // exactly as the "Invite" button opens it.
+    // Invite → the invites list, where the new pending invite appears live. (Not the
+    // InviteDialog — the agent already sent the invite; an empty add form would just
+    // sit open.)
     case "invite_member":
-      return { path: seg(teamId, "invites"), query: { panel: "add", module: "invites" }, highlight: "form" }
+      return { path: seg(teamId, "invites"), highlight: "main" }
     // Revoke → the invite's detail (the confirm is destructive; the manual path
     // opens ?confirm=invites.revoke there). Land on the row so the change is visible.
     case "revoke_invite":
       return { path: `${seg(teamId, "invites")}/${str(input, "inviteId")}`, highlight: "main" }
 
     /* ------------------------------- members ------------------------------- */
-    // Change a role → the member's detail with the role picker open, like the
-    // "Change role" action (?panel=edit&module=members&id).
+    // Change a role → the member's detail, where their new role now shows. (Not the
+    // role-picker dialog — the change is already applied.)
     case "set_member_role":
-      return {
-        path: `${seg(teamId, "members")}/${str(input, "userId")}`,
-        query: { panel: "edit", module: "members", id: str(input, "userId") },
-        highlight: "form",
-      }
+      return { path: `${seg(teamId, "members")}/${str(input, "userId")}`, highlight: "main" }
     // Remove a member → their detail row (destructive; server-gated). Show where it
     // happened rather than auto-firing the ?confirm, so nothing surprises the user.
     case "remove_member":
       return { path: `${seg(teamId, "members")}/${str(input, "userId")}`, highlight: "main" }
 
     /* -------------------------------- roles -------------------------------- */
-    // Create a role → the roles list with the RoleFormDialog open (?panel=add&module=roles).
+    // Create a role → the roles list, where the new role appears live. (Not the
+    // RoleFormDialog — the agent already created it; a blank new-role form left open
+    // was the reported bug.)
     case "create_role":
-      return { path: seg(teamId, "roles"), query: { panel: "add", module: "roles" }, highlight: "form" }
+      return { path: seg(teamId, "roles"), highlight: "main" }
     // Edit / (de)activate / set-permissions / read-permissions → that role's detail
     // (the permission grid is host-composed at the role detail). Land on the row.
     case "update_role":
@@ -111,10 +114,10 @@ export function traceFor(
       return { path: seg(teamId, "learning"), highlight: "main" }
 
     /* --------------------------------- team -------------------------------- */
-    // Rename the team → the team Overview (the bare /t/<team> path, as the host
-    // builds it) with the edit dialog open, like the "Edit" action.
+    // Rename the team → the team Overview (the bare /t/<team> path), where the new
+    // name now shows. (Not the edit dialog — the rename is already saved.)
     case "update_team":
-      return { path: `/t/${teamId}`, query: { panel: "edit", module: "team" }, highlight: "form" }
+      return { path: `/t/${teamId}`, highlight: "main" }
 
     // Reads (list_*, and anything else) — nothing to open on screen.
     default:

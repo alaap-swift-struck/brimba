@@ -4,40 +4,35 @@ import { traceFor } from "@/lib/agent-trace"
 
 const TEAM = "team_abc"
 
-describe("traceFor — write tools map to the real screen + dialog", () => {
-  it("invite_member → invites list with the invite dialog open", () => {
+describe("traceFor — write tools land on the RESULT screen, never an input form", () => {
+  it("invite_member → the invites list, where the new pending invite appears live", () => {
     expect(traceFor("invite_member", { email: "sam@acme.com", roleId: "r1" }, TEAM)).toEqual({
       path: `/t/${TEAM}/invites`,
-      query: { panel: "add", module: "invites" },
-      highlight: "form",
+      highlight: "main",
     })
   })
 
   it("revoke_invite → that invite's detail row", () => {
     const t = traceFor("revoke_invite", { inviteId: "inv1" }, TEAM)
     expect(t?.path).toBe(`/t/${TEAM}/invites/inv1`)
-    expect(t?.query).toBeUndefined()
   })
 
-  it("set_member_role → the member's detail with the role picker open", () => {
+  it("set_member_role → the member's detail, where their new role now shows", () => {
     expect(traceFor("set_member_role", { userId: "u1", roleId: "r2" }, TEAM)).toEqual({
       path: `/t/${TEAM}/members/u1`,
-      query: { panel: "edit", module: "members", id: "u1" },
-      highlight: "form",
+      highlight: "main",
     })
   })
 
   it("remove_member → the member's detail row (no dialog auto-opened)", () => {
     const t = traceFor("remove_member", { userId: "u9" }, TEAM)
     expect(t?.path).toBe(`/t/${TEAM}/members/u9`)
-    expect(t?.query).toBeUndefined()
   })
 
-  it("create_role → roles list with the role form open", () => {
+  it("create_role → the roles list, where the new role appears live (NOT a blank form)", () => {
     expect(traceFor("create_role", { title: "Editor" }, TEAM)).toEqual({
       path: `/t/${TEAM}/roles`,
-      query: { panel: "add", module: "roles" },
-      highlight: "form",
+      highlight: "main",
     })
   })
 
@@ -81,11 +76,10 @@ describe("traceFor — write tools map to the real screen + dialog", () => {
     })
   })
 
-  it("update_team → the team overview (bare /t/<team>) with the edit dialog open", () => {
+  it("update_team → the team overview (bare /t/<team>), where the new name now shows", () => {
     expect(traceFor("update_team", { name: "Acme" }, TEAM)).toEqual({
       path: `/t/${TEAM}`,
-      query: { panel: "edit", module: "team" },
-      highlight: "form",
+      highlight: "main",
     })
   })
 })

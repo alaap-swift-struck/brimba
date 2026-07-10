@@ -243,7 +243,9 @@ export function DeepLinkScreen() {
     return onHostTrace(({ teamId: traceTeam, target }: { teamId: string; target: TraceTarget }) => {
       if (!teamId || traceTeam !== teamId || !onTeam) return
       if (!isInAppPath(target.path)) return
-      go(target.path, target.query)
+      // Traces move the screen to the RESULT (no query → no dialog opens); the ring
+      // draws attention to the changed row/record once it lands.
+      go(target.path)
       setTraceHighlight(target.highlight ?? null)
     })
     // go/isInAppPath are stable-enough; re-subscribe when the shown team/host changes.
