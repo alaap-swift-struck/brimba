@@ -10,6 +10,18 @@ Keep this current: when an item ships, move it to **Fixed** with the commit.
 
 ---
 
+## Fixed (2026-07-13) — the invite + credit-fairness round (team testing on staging)
+
+Three real bugs a teammate (chilavert) hit exercising the AI co-pilot's invite flow.
+(A fourth report — "chat creates a role but also opens an empty form" — was already fixed
+by the one-shell round; re-verified live, no change needed.)
+
+| Sev | Issue | Fix |
+|---|---|---|
+| MED | **Agent accepted a self / existing-member invite** — asked "which role?" and only failed at the door, wasting a turn (and credits). No explicit self-invite guard existed (blocked only transitively via already-member). | Added a `self_invite` guard in `createInvite` (clear "you can't invite yourself" message) + system-prompt guidance so the agent checks membership and refuses UPFRONT. Verified live: it now says "that's your own email — you're already on the team." (`workers/tenancy/src/lib/invites.ts`, `agent.ts` SYSTEM; `integration.test.ts`) |
+| MED | **Dishonest email narration** — the invite email was fire-and-forget, and the agent's "no email was sent" line was free model text, not bound to the real outcome; a *successful* invite mis-narrated as a duplicate would send an email while the bot claimed it hadn't. | `createInvite` now AWAITS the send and returns `emailSent`; the route returns it (first); the agent is told to report it honestly and never claim an email was sent when it wasn't. The invite still succeeds if mail fails (the invite_index row routes acceptance; accept in-app). (`invites.ts`, `routes/invites.ts`, `tool-catalog.ts`, `agent.ts`; `integration.test.ts`) |
+| MED | **Charged for refused actions + mislabeled** — a turn that only asked a clarifying question or hit a refused action still cost credits and was titled by the read it ran ("List roles"), not what the user did. | A turn that changed NOTHING (a refused action or a model hiccup) now REFUNDS its metered units (`refundAiUnits` reverses both pools) — a blocked action costs 0. Usage rows title by WRITES only, so a read-only clarify turn reads as the question. Verified live in the credit log (a failed invite → **0 credits**). (`credits.ts`, `agent.ts`; `credit-reconcile.test.ts`) |
+
 ## Fixed (2026-07-10) — the unification + one-shell round
 
 The two big structural moves the owner asked for after the hardening round.
