@@ -106,9 +106,12 @@ export async function getInviteAudit(
   }
 }
 
-/** Create a pending invite + send the branded email. Guards: valid email, role
- * exists, not already a member, no existing pending invite. Returns the new
- * invite id so the caller can publish a row-level live update for just that row. */
+/** Create a pending invite + send the branded email. Guards: valid email, NOT
+ * yourself, role exists, not already a member, no existing pending invite. Returns
+ * the new invite id (so the caller can publish a row-level live update for just that
+ * row) AND whether the branded email actually went out — the email is best-effort
+ * (the invite_index row is the routing truth: a missed email is still acceptable
+ * in-app), so callers report `emailSent` HONESTLY rather than assuming it sent. */
 export async function createInvite(
   env: Env,
   cfg: D1Rest,
@@ -117,10 +120,15 @@ export async function createInvite(
   email: string,
   roleId: string,
   request: Request
-): Promise<string> {
+): Promise<{ inviteId: string; emailSent: boolean }> {
   const to = email.trim().toLowerCase()
   if (!EMAIL_RE.test(to))
     throw new GuardError(400, "invalid_email", "That doesn't look like an email address.")
+
+  // You can't invite yourself — you're already on the team. (Blocked transitively by the
+  // already-member check below too, but caught here first for a clear, self-specific message.)
+  if (to === actor.email.trim().toLowerCase())
+    throw new GuardError(409, "self_invite", "You can't invite yourself — you're already on the team.")
 
   const roles = await d1Query<{ id: string; title: string }>(
     cfg,
@@ -213,21 +221,33 @@ export async function createInvite(
     ctaUrl: `${base}/invitations`,
     footnote: "This invite expires in 7 days. If you weren't expecting it, you can ignore this email.",
   })
-  await env.AUTH.fetch("https://auth/internal/send-email", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-internal-key": env.INTERNAL_KEY ?? "",
-    },
-    body: JSON.stringify({
-      to,
-      subject: `You're invited to ${teamName} on ${brand.name}`,
-      html,
-      text,
-    }),
-  }).catch((e) => console.error("invite email failed:", e))
+  // Send the branded email and CAPTURE whether it actually went out. Best-effort: a
+  // mail failure must NOT fail the invite (the invite_index row already routes the
+  // acceptance, and the invitee can accept from their in-app Invitations inbox), but we
+  // report the real outcome so the caller (and the agent) never claim an email was sent
+  // when it wasn't.
+  let emailSent = false
+  try {
+    const res = await env.AUTH.fetch("https://auth/internal/send-email", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-internal-key": env.INTERNAL_KEY ?? "",
+      },
+      body: JSON.stringify({
+        to,
+        subject: `You're invited to ${teamName} on ${brand.name}`,
+        html,
+        text,
+      }),
+    })
+    emailSent = res.ok
+    if (!res.ok) console.error("invite email failed:", res.status)
+  } catch (e) {
+    console.error("invite email failed:", e)
+  }
 
-  return inviteId
+  return { inviteId, emailSent }
 }
 
 /** Revoke ("redact") a pending invite, and log it (if one was actually revoked). */

@@ -27,12 +27,14 @@ export async function postCreateInvite(request: Request, env: Env): Promise<Resp
   )
   if (typeof body.email !== "string" || typeof body.roleId !== "string")
     return fail(400, "invalid_input", "email and roleId are required.")
-  const inviteId = await createInvite(
+  const { inviteId, emailSent } = await createInvite(
     env, cfg, guard, actor, body.email, body.roleId, request
   )
   // Row-level: carry the new invite's id so open invite lists patch just that row.
   await publishChange(env.REALTIME, guard.teamId, "invites", inviteId, "add")
-  return json({ invites: await listInvites(env, cfg, guard) })
+  // `emailSent` first + honest: the invite always succeeds (the row routes acceptance),
+  // but the branded email is best-effort — the client + the agent report the real outcome.
+  return json({ emailSent, invites: await listInvites(env, cfg, guard) })
 }
 
 export async function postRevokeInvite(request: Request, env: Env): Promise<Response> {

@@ -89,6 +89,36 @@ export async function consumeAiUnit(env: Env, teamId: string): Promise<ConsumeRe
   return { ok: true, source: "credit", warn: quota.creditBalance <= 3, quota }
 }
 
+/** Give back AI units a turn metered but that accomplished NOTHING the user wanted — a
+ * refused/failed action (e.g. inviting someone already on the team) or a model error. A
+ * blocked action must never cost the user. Mirrors consumeAiUnit in reverse: return paid
+ * CREDITS to the balance, then un-count FREE units for today (bounded at zero). Best-effort
+ * — a refund hiccup must never break the turn. */
+export async function refundAiUnits(
+  env: Env,
+  teamId: string,
+  freeUnits: number,
+  creditUnits: number
+): Promise<void> {
+  const now = new Date().toISOString()
+  try {
+    if (creditUnits > 0)
+      await env.DB.prepare(
+        "UPDATE agent_credits SET balance = balance + ?, updated_at = ? WHERE team_id = ?"
+      )
+        .bind(creditUnits, now, teamId)
+        .run()
+    if (freeUnits > 0)
+      await env.DB.prepare(
+        "UPDATE agent_usage SET used = MAX(0, used - ?), updated_at = ? WHERE team_id = ? AND period = ?"
+      )
+        .bind(freeUnits, now, teamId, today())
+        .run()
+  } catch {
+    /* refund is best-effort — a hiccup must never break the turn the user cares about */
+  }
+}
+
 /** Owner/admin top-up: add credits to a team's balance (idempotent insert/accumulate).
  * Returns the new balance. Real payment integration will call this same path later. */
 export async function grantCredits(env: Env, teamId: string, amount: number): Promise<number> {

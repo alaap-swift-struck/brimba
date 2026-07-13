@@ -129,7 +129,11 @@ describe("RULES — the laws of the base", () => {
   it("fetch-timeout: every external fetch carries an AbortSignal timeout", () => {
     const serverDirs = [
       join(ROOT, "shared", "workers"),
-      ...readdirSync(join(ROOT, "workers")).map((w) => join(ROOT, "workers", w, "src")),
+      // Directories only — skip stray files (e.g. a macOS .DS_Store) so the scan can't
+      // try to walk `<file>/src` and die with ENOTDIR.
+      ...readdirSync(join(ROOT, "workers"), { withFileTypes: true })
+        .filter((e) => e.isDirectory())
+        .map((e) => join(ROOT, "workers", e.name, "src")),
     ]
     const tsFiles = (dir: string): string[] => {
       const out: string[] = []

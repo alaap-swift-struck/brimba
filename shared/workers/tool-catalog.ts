@@ -205,7 +205,8 @@ export const SHARED_TOOLS: SharedTool[] = [
   {
     name: "invite_member",
     mcpName: "create_invite",
-    summary: "Invite someone to the team by email, assigning them a role (by role id). Sends the branded email.",
+    summary:
+      "Invite someone to the team by email, assigning them a role (by role id). Sends the branded invite email. Refuses if the email is the caller's own address or someone already on the team, and returns `emailSent` so you know whether the email actually went out.",
     binding: "TENANCY", method: "POST", path: "/api/tenancy/invites",
     schema: obj({ email: S, roleId: S }, ["email", "roleId"]),
     buildBody: (i) => ({ email: str(i, "email"), roleId: str(i, "roleId") }),

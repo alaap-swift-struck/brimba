@@ -155,6 +155,36 @@ describe("createInvite against a real SQLite database (end-to-end write path)", 
     })
     expect(pending()).toBe(1) // still just one — no duplicate
   })
+
+  it("refuses inviting yourself, and reports whether the branded email actually sent", async () => {
+    const db = new DatabaseSync(":memory:")
+    db.exec(`
+      CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT);
+      CREATE TABLE team_members (id TEXT PRIMARY KEY, team_id TEXT, user_id TEXT, role_id TEXT, deactivated_at TEXT);
+      CREATE TABLE teams (id TEXT PRIMARY KEY, name TEXT);
+      CREATE TABLE invite_index (id TEXT PRIMARY KEY, email TEXT NOT NULL, team_id TEXT NOT NULL, invite_row_id TEXT NOT NULL, role_id TEXT NOT NULL, expires_at TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL);
+      INSERT INTO teams (id, name) VALUES ('T', 'Acme');`)
+    const req = new Request("https://app/")
+    const count = () => (db.prepare("SELECT COUNT(*) AS n FROM invite_index WHERE status='pending'").get() as { n: number }).n
+
+    // Inviting your OWN address is refused up front (case-insensitive) — no row, no email.
+    const env = { DB: makeD1(db), AUTH: { fetch: async () => ({ ok: true }) }, INTERNAL_KEY: "" } as never
+    await expect(createInvite(env, cfg, guard, actor, actor.email.toUpperCase(), "R", req)).rejects.toMatchObject({
+      code: "self_invite",
+    })
+    expect(count()).toBe(0)
+
+    // A real invite reports emailSent HONESTLY: true when the auth send succeeded…
+    expect((await createInvite(env, cfg, guard, actor, "new@x.com", "R", req)).emailSent).toBe(true)
+
+    // …and false when the branded email couldn't be sent — WITHOUT failing the invite
+    // (the invite_index row still routes the acceptance; the invitee can accept in-app).
+    const envMailDown = { DB: makeD1(db), AUTH: { fetch: async () => ({ ok: false, status: 500 }) }, INTERNAL_KEY: "" } as never
+    const res = await createInvite(envMailDown, cfg, guard, actor, "another@x.com", "R", req)
+    expect(res.emailSent).toBe(false)
+    expect(res.inviteId).toBeTruthy()
+    expect(count()).toBe(2) // both invites created despite the mail outcome
+  })
 })
 
 describe("acceptInvite / listReceivedInvites against a real SQLite database", () => {
