@@ -109,7 +109,11 @@ Purpose: the per-team **free** half of the AI agent quota. Real data: `team_id`,
 daily), `used` (AI units consumed this window), `updated_at`. One unit = one
 model call, metered before EACH call inside a turn (a multi-step turn costs one
 unit per step, capped by `MAX_STEPS`; declining a confirm costs nothing; running
-dry mid-plan stops the turn with a saved, plain reply). Once a team is over its
+dry mid-plan stops the turn with a saved, plain reply). A turn that changes
+NOTHING the user wanted — a refused/failed action (e.g. inviting someone already
+on the team) or a model hiccup — is **refunded** (`refundAiUnits` reverses both
+pools), so a blocked action costs zero; a turn with any successful write keeps its
+charge. Once a team is over its
 free daily allowance (default **25/day**, per-env via the `AGENT_FREE_DAILY` var
 — staging runs 50), the gate spends from the credit balance instead. Lives in
 the global core DB so the gate can check it without opening a team database.
@@ -128,10 +132,14 @@ global core DB so the gate can spend a unit without opening a team database.
 Purpose: the usage TRAIL behind the panel's "where did my credits go" view.
 Real data: `id`, `team_id`, `actor_id`, `actor_name`, `created_at`, `credits`
 (units this command consumed), `source` (`free` / `credit` / `mixed`), `summary`
-— titled by the **action(s) the assistant took** (e.g. `Create the role "Test" ·
-Invite alaap@… as Test`, with `(failed)` on a refused call), falling back to the
-user's prompt only for a plain question (so a reply like "anything" to a
-clarifying question never becomes the title). **One row per user COMMAND**,
+— titled by the **WRITE action(s) the assistant took** (e.g. `Create the role
+"Test" · Invite alaap@… as Test`, with `(failed)` on a refused call), falling
+back to the user's prompt for a plain question OR a read-only turn. A READ isn't
+an action the user "did", so it never titles the row — a clarifying reply reads as
+the question, not "List roles" (the credit-log-clarity feedback). A role-choice
+reply like "anything" still leads to a write (the invite), so that write titles
+the row; only a turn that makes no change is titled by the prompt. **One row per
+user COMMAND**,
 written best-effort (a
 log hiccup never fails the turn). A command that pauses for a yes/no confirm runs
 as two turns (propose + confirm); the confirm turn FOLDS its units into the
