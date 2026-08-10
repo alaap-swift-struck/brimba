@@ -701,12 +701,14 @@ which performs a real document navigation, because the whole shell — session, 
 team, live channel, every cache — must re-initialise for the new identity. A client-side
 `router.replace()` there carries the previous identity's state across.
 
-There is a second reason, found in a browser during the Next 16 upgrade: the framework's
-client router fetches an RSC payload for the target route, and a static export serves
-those payloads as `text/plain`. A soft transition that can't consume one can end up
-landing the user on the payload URL itself (`/home.txt`) instead of the page. A hard
-navigation asks the asset layer for the HTML and cannot land there. `npm run check` and
-the smoke both passed while this was happening — only opening the app caught it.
+A hard navigation is also structurally immune to a failure mode a soft one has: the
+client router fetches an RSC payload for the target route, and if that fetch fails it
+falls back to a browser navigation — which, in a static export, can land on the payload
+URL itself (`/home.txt`). We saw exactly that once, and traced it to a browser tab left
+open across three deploys whose chunk filenames no longer existed (the case
+`version-watch.tsx` exists to self-heal). A fresh load showed no such errors. So this is
+not a reason to distrust soft navigation generally — it is one more reason the identity
+transition in particular should not depend on it.
 
 ## Where a type comes from (shared/ is not inside a worker)
 

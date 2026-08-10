@@ -571,16 +571,27 @@ that still slips through as a readable card, never a blank page. (The scanner
 walks past the parameter list to find the real function body, and catches
 `React.`-namespaced hooks too — both learned from its own sabotage test.)
 
-## The static-export payload URL (found in a browser, 2026-08-06)
+## A stale tab can look exactly like a broken deploy (2026-08-06)
 
-A static export emits, beside every `page.html`, an RSC payload the client router uses
-for soft navigation — served by the asset layer as `text/plain`. If a soft transition
-can't consume that payload, the browser can end up **on the payload URL** (`/home.txt`),
-showing raw text where the app should be. It survived `npm run check` and an 18/18 smoke;
-only opening the app in a browser after the Next 16 upgrade surfaced it.
+Worth writing down because it cost an hour and nearly caused a revert. After the Next 16
+upgrade, a browser tab that had been open across three deploys started showing
+`ChunkLoadError`, `Refused to execute script … MIME type ('text/html')`, a doubled
+`/_next/_next/…` path, and finally landed on `/home.txt` — the RSC payload — instead of
+the page. Every symptom pointed at the framework upgrade.
 
-The rule that removes the class: **transitions that change who is signed in are hard
-navigations** (`softNavigate` in `web/lib/nav.ts`) — sign-in, sign-out, and onboarding
-creating the first team. They must re-initialise the shell for the new identity anyway,
-and a document navigation asks for HTML, so it cannot land on a payload. Ordinary in-app
-navigation stays soft. See CONVENTIONS "Navigating after the identity changes".
+It was none of it. The tab was running HTML from an earlier build whose chunk filenames
+had since been replaced; its runtime then computed a broken path while trying to recover.
+The deployed HTML was clean, every chunk it referenced returned 200, and a FRESH tab had
+zero console errors and navigated normally. This is precisely what `version-watch.tsx`
+self-heals for real users.
+
+**The diagnostic, next time:** don't read the console of a long-open tab. `curl` the
+deployed HTML and check the asset URLs it actually references, then open a new tab. If
+the fresh tab is clean, you are looking at version skew, not a regression.
+
+One real rule did come out of it, on its own merits: **transitions that change who is
+signed in are hard navigations** (`softNavigate` in `web/lib/nav.ts`) — sign-in, sign-out,
+and onboarding creating the first team. The whole shell (session, active team, live
+channel, caches) must re-initialise for the new identity, which a soft `router.replace`
+does not do. Ordinary in-app navigation stays soft. See CONVENTIONS "Navigating after the
+identity changes".
