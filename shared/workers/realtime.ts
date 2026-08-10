@@ -15,7 +15,6 @@
 // The payload NEVER carries row data (`{resource,id}` only) — the client pulls
 // that one row through the permission-checked endpoint, so nothing can leak.
 
-import type { Fetcher } from "@cloudflare/workers-types"
 
 /** One change ping. `op` is advisory; the client re-pulls the row and decides
  * whether it still belongs in the collection (keep-or-drop), so "edit" vs

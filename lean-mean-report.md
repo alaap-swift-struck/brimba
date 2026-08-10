@@ -1,5 +1,5 @@
 # Lean Mean Check — brimba
-Scanned 2026-08-04 · Overall **95/100 (Grade A)** · security posture **98/100** at 100% sweep coverage · Lean, and self-checking down to the checks themselves — four scanners that could not fail now can, every numeric config value parses in one place, and a growing collection pages instead of refusing.
+Scanned 2026-08-04 · Overall **95/100 (Grade A)** · security posture **100/100** at 100% sweep coverage · **0 dependency advisories** · Lean, and self-checking down to the checks themselves — four scanners that could not fail now can, every numeric config value parses in one place, and a growing collection pages instead of refusing.
 
 ## Fix first (ordered by impact)
 - [ ] **(Robustness)** Convert `idempotent-transitions` from a source-scan to a behaviour test — _why:_ both read source strings, so a rename can blind them. `workers/tenancy/test/activity-scope.test.ts` shows the stronger shape: mock the data door, run the function, assert the SQL that actually comes out. That test exists because a source-scan stayed green through a real leak. — _where:_ `web/test/rules.test.ts`

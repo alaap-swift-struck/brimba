@@ -106,7 +106,7 @@ window.LEAN_MEAN_DATA = {
   "scannedAt": "2026-08-04",
   "overall": 95,
   "grade": "A",
-  "verdict": "Lean, self-checking down to the checks themselves, and now measured: a full security sweep scored 98/100 at 100% coverage with one open low-severity item.",
+  "verdict": "Lean, self-checking down to the checks themselves, and clean end to end: security 100/100 at full sweep coverage, zero dependency advisories at any severity.",
   "stats": {
     "codeFiles": 297,
     "codeLoc": 30353,
@@ -145,12 +145,13 @@ window.LEAN_MEAN_DATA = {
       "strengths": [
         "390 tests, 64 files, 21.5% test-to-code. A measured security sweep put every control at full coverage except dependency health.",
         "All source-scanning checks were swept for THREE flaw classes; each fix was sabotage-proven, and two NEW locks landed this run (live pings carry no row content; no request field reaches SQL without the validation seam).",
-        "Every security invariant identified in the sweep — 18 of them — now has an automated test."
+        "Every security invariant identified in the sweep — 18 of them — now has an automated test.",
+        "Zero npm advisories at every severity after moving to next@16 + wrangler@4.120 — verified by rebuilding the static export and diffing it against the Next-15 baseline."
       ],
       "improvements": [
         {
-          "what": "Three build-toolchain advisories need a Next.js major.",
-          "why": "next/postcss/sharp carry HIGH advisories fixable only by next@16. None execute in the deployed artifact (static export, zero imports in worker source), so the runtime surface is unaffected — but the toolchain should be upgraded on a branch where a broken export is cheap to find."
+          "what": "Two source-scan checks still assert on text rather than behaviour.",
+          "why": "bounded-lists and idempotent-transitions read source strings. Comment-stripped and boundary-matched now, but activity-scope.test.ts shows the stronger shape — mock the door, run the function, assert the SQL that comes out."
         }
       ]
     },
@@ -229,12 +230,11 @@ window.LEAN_MEAN_DATA = {
   ],
   "callouts": {
     "strong": [
-      "Security posture 98/100 at 100% sweep coverage — every control measured, not judged.",
+      "Security posture 100/100 at 100% sweep coverage — every control measured, not judged.",
       "Two new invariant locks, both sabotage-proven.",
       "The one real finding this run (a stored filename skipping the validation seam) was found, fixed and locked in the same pass."
     ],
     "watch": [
-      "3 build-toolchain advisories pending a Next.js major.",
       "Duplication 6.6%, mostly deliberate per-worker seam tests."
     ],
     "fix": []

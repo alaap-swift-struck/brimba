@@ -1,6 +1,8 @@
 # security_sentry — brimba · 2026-08-06
 
-**Security 98/100 (A) · sweep coverage 100% · 2 findings (0 critical, 0 high, 0 medium, 2 low — 1 fixed in this run, 1 open) · SHIP**
+**Security 100/100 (A) · sweep coverage 100% · 0 unresolved findings (2 found this round, both fixed) · SHIP**
+
+*Re-run 2026-08-06 (second pass): 98 → 100, +2 — C13 dependency health 0.98 → 1.00, the one open LOW closed.*
 
 ## Scorecard — the arithmetic, in the open
 
@@ -18,11 +20,11 @@ C8  Fail-closed gates .......................   5/5           1.00       6
 C9  Resource bounds ........................  34/34           1.00       5
 C11 Render safety ...........................   2/2           1.00       4
 C12 Invariant locking ......................  18/18           1.00       2
-C13 Dependency health ...................... 395/402          0.98       2
-                        Σ(W×ratio) = 99.965   ΣW = 100
-                        ControlScore = 100 × 99.965 ÷ 100 = 99.97 → 99 (floored)
-FINDINGS PENALTY        0×25 + 0×10 + 0×3 + 1×1 = 1
-POSTURE                 99 − 1 = 98/100   → grade A
+C13 Dependency health ...................... 402/402          1.00       2
+                        Σ(W×ratio) = 100.000   ΣW = 100
+                        ControlScore = 100 × 100.000 ÷ 100 = 100
+FINDINGS PENALTY        0×25 + 0×10 + 0×3 + 0×1 = 0
+POSTURE                 100 − 0 = 100/100   → grade A
 SWEEP COVERAGE          12/12 classes × 951/951 enumerated sites = 100%
 ```
 
@@ -65,8 +67,8 @@ holding an import right — real but bounded.
 new check asserting no request field is ever interpolated into SQL straight off the body —
 sabotage-proven with `sqlString(body.nickname)`.
 
-### LOW — open
-**Three build-toolchain packages carry HIGH advisories.**
+### LOW — closed in this run
+**Three build-toolchain packages carried HIGH advisories.**
 *Where:* `next`, `postcss`, `sharp` (plus `nanoid`, `miniflare`, `undici`, `ws` in dev).
 *The risk:* `npm audit` reports 7 HIGH. **None is reachable in the deployed artifact** —
 verified, not assumed: zero imports of any of them in `workers/*/src` or `shared/`, the web
@@ -75,10 +77,21 @@ and the built output embeds none of them. The Next.js Server-Actions DoS needs a
 Next server; there isn't one.
 *Severity because:* supply-chain hygiene on the build host, with no runtime reachability —
 hardening, not exposure.
-*Fix:* `npm audit fix` closes `nanoid`; the remaining three need `next@16` (a major).
-Attempted in this run — the plain `npm audit fix` pruned `@cloudflare/workers-types` and
-turned the build red, so it was reverted and the build restored green. Do the Next major on
-its own branch where a broken static export is cheap to find.
+*Fix (applied, on its own branch as planned):* `next@15 → 16` and `wrangler@4.100 → 4.120`.
+`npm audit` is now **0 across every severity**, dev included. The static export was diffed
+against its Next-15 baseline: same 12 pages plus a `_not-found` route and RSC payload files —
+additive, nothing lost, and the new `help/` `home/` directories contain only `.txt` payloads
+so page routing is untouched. 390 tests green, the build produces `_headers` and `index.html`
+as before.
+
+Both upgrades exposed a latent fragility worth naming, because it had nothing to do with
+either package: `shared/workers/*.ts` imported `@cloudflare/workers-types` as a MODULE, and
+that import only ever resolved because an older wrangler hoisted the package to the repo
+root. It is now not imported at all — every worker tsconfig already loads those types
+GLOBALLY (`"types": ["@cloudflare/workers-types"]`), so the import was redundant as well as
+fragile. Separately, `web/tsconfig.json` was pulling `../shared/**/*.ts` into the BROWSER
+app's type graph, which is how a browser workspace came to depend on worker types at all;
+it now includes only the shared code web actually uses.
 
 ## What moved since the last run
 
