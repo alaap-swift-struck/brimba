@@ -570,3 +570,17 @@ return — and the mounted root `ErrorBoundary` (`web/app/layout.tsx`) contains 
 that still slips through as a readable card, never a blank page. (The scanner
 walks past the parameter list to find the real function body, and catches
 `React.`-namespaced hooks too — both learned from its own sabotage test.)
+
+## The static-export payload URL (found in a browser, 2026-08-06)
+
+A static export emits, beside every `page.html`, an RSC payload the client router uses
+for soft navigation — served by the asset layer as `text/plain`. If a soft transition
+can't consume that payload, the browser can end up **on the payload URL** (`/home.txt`),
+showing raw text where the app should be. It survived `npm run check` and an 18/18 smoke;
+only opening the app in a browser after the Next 16 upgrade surfaced it.
+
+The rule that removes the class: **transitions that change who is signed in are hard
+navigations** (`softNavigate` in `web/lib/nav.ts`) — sign-in, sign-out, and onboarding
+creating the first team. They must re-initialise the shell for the new identity anyway,
+and a document navigation asks for HTML, so it cannot land on a payload. Ordinary in-app
+navigation stays soft. See CONVENTIONS "Navigating after the identity changes".

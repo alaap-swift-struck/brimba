@@ -691,6 +691,23 @@ of deleting → `logActivity` → `publishChange` → `json`. Throw `GuardError`
 rule failure and let the one central catch format it. Comment the *why*. Add the least
 code that does the job, and keep `npm run check` green.
 
+## Navigating after the identity changes
+
+Ordinary in-app navigation is a SOFT transition — the one-shell engine swaps the screen
+and the URL without a reload (CACHING.md "Navigation never reloads"). But a transition
+that changes **who is signed in** is different: sign-in, sign-out, and the moment
+onboarding creates the first team. Those use `softNavigate()` from `web/lib/nav.ts`,
+which performs a real document navigation, because the whole shell — session, active
+team, live channel, every cache — must re-initialise for the new identity. A client-side
+`router.replace()` there carries the previous identity's state across.
+
+There is a second reason, found in a browser during the Next 16 upgrade: the framework's
+client router fetches an RSC payload for the target route, and a static export serves
+those payloads as `text/plain`. A soft transition that can't consume one can end up
+landing the user on the payload URL itself (`/home.txt`) instead of the page. A hard
+navigation asks the asset layer for the HTML and cannot land there. `npm run check` and
+the smoke both passed while this was happening — only opening the app caught it.
+
 ## Where a type comes from (shared/ is not inside a worker)
 
 `shared/workers/*.ts` is compiled by SEVEN different tsconfigs and lives outside all of

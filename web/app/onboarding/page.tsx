@@ -5,7 +5,7 @@
 // with its own database. Everything here is library components.
 
 import * as React from "react"
-import { useRouter } from "next/navigation"
+import { softNavigate } from "@/lib/nav"
 
 import {
   Avatar,
@@ -30,7 +30,6 @@ const firstNameField = { ...defaultFieldConfig, label: "First name", required: t
 const lastNameField = { ...defaultFieldConfig, label: "Last name", required: true }
 
 export default function OnboardingPage() {
-  const router = useRouter()
   const [checking, setChecking] = React.useState(true)
   const [firstName, setFirstName] = React.useState("")
   const [lastName, setLastName] = React.useState("")
@@ -47,7 +46,7 @@ export default function OnboardingPage() {
         if (user.onboardingComplete) {
           const ctx = await tenancy.active()
           if (ctx.teams.length > 0) {
-            router.replace("/home")
+            softNavigate("/home")
             return
           }
         }
@@ -57,14 +56,14 @@ export default function OnboardingPage() {
         setPhoto(user.imageUrl ?? undefined)
         setChecking(false)
       } catch {
-        router.replace("/login")
+        softNavigate("/login")
       }
     }
     void check()
     return () => {
       alive = false
     }
-  }, [router])
+  }, [])
 
   async function handlePhoto(files: File[]) {
     if (!files[0]) return
@@ -81,7 +80,9 @@ export default function OnboardingPage() {
     try {
       await auth.updateProfile({ firstName, lastName, imageDataUrl: photo })
       await tenancy.bootstrap()
-      router.replace("/home")
+      // Bootstrap just created their team — the shell must re-read the whole
+      // identity (session, active team, live channel), so this is a HARD nav.
+      softNavigate("/home")
     } catch (err) {
       toast.error(
         err instanceof ApiFailure ? err.message : "Something went wrong. Try again."
