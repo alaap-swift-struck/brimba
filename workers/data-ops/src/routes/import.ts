@@ -6,6 +6,7 @@
 // The session-shaping rules live in lib/import; the catalog code side in lib/targets.
 
 import { fail, json } from "../../../../shared/workers/http"
+import { optionalText, TEXT_LIMITS } from "../../../../shared/workers/validate"
 import { publishChange } from "../../../../shared/workers/realtime"
 import { GuardError, hasRight, requireRight, teamContext } from "../../../../shared/workers/gating"
 import {
@@ -84,7 +85,11 @@ export async function postImportFile(request: Request, env: Env): Promise<Respon
     return fail(413, "file_too_large", "That file is too large to import. Export a smaller CSV (up to about 5 MB).")
   const { target } = await targetForSession(env, cfg, guard, body.sessionId)
   await requireRight(cfg, guard, target.module, "create")
-  const out = await applyFile(env, cfg, guard, body.sessionId, body.fileName ?? "", body.csv)
+  // The filename is stored, so it goes through the boundary seam like every
+  // other stored string: sqlString escapes quotes but does NOT strip NUL bytes
+  // (SQLite rejects them → a 500) and does NOT cap length.
+  const fileName = optionalText(body.fileName, "File name", TEXT_LIMITS.short) ?? ""
+  const out = await applyFile(env, cfg, guard, body.sessionId, fileName, body.csv)
   return json({ session: out.summary, preview: out.preview })
 }
 
@@ -151,7 +156,8 @@ export async function postBatchFile(request: Request, env: Env): Promise<Respons
   const body = (await request.json().catch(() => ({}))) as { batchId?: string; name?: string; csv?: string }
   if (!body.batchId || typeof body.csv !== "string")
     return fail(400, "invalid_input", "batchId and csv are required.")
-  return json({ batch: await addBatchFile(cfg, guard, body.batchId, body.name ?? "file", body.csv) })
+  const name = optionalText(body.name, "File name", TEXT_LIMITS.short) ?? "file"
+  return json({ batch: await addBatchFile(cfg, guard, body.batchId, name, body.csv) })
 }
 
 /** POST /api/data-ops/import/batch/plan — the AGENT builds the plan. Metered on the

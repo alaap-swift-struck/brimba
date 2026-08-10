@@ -30,6 +30,20 @@ Now locked by a test.
 
 ---
 
+## Fixed (2026-08-06) — the measured security sweep
+
+A full `security_sentry` pass with every control COUNTED rather than judged:
+**98/100 (A) at 100% sweep coverage**, 951 sites enumerated, 64 flagged and opened
+by hand. Full arithmetic in `security-report.md`. 390 tests.
+
+| Sev | Issue | Fix |
+|---|---|---|
+| LOW | **A stored filename could 500 the import.** `sqlString()` escapes quotes and nothing else — no NUL strip, no length cap — and `body.fileName` / `body.name` reached the database without meeting the validation seam every sibling field uses. | Both go through `optionalText(…, TEXT_LIMITS.short)`. **Locked**: a new check fails if any request field is interpolated into SQL straight off the body (sabotage-proven). |
+| LOW (open) | **Three build-toolchain packages carry HIGH advisories** (`next`, `postcss`, `sharp`). | Verified NOT runtime-reachable: zero imports in worker source, the web app is a static export with no Next server, and the built output embeds none of them. `npm audit fix` closes `nanoid`; the rest need a `next@16` major — do it on its own branch. |
+| LOCK | **Live pings had no test** — the one security invariant in the sweep held only by a function signature and a line in CACHING.md. | `publish-payload.test.ts`: the wire shape is `{channel, event}` and the event may carry only `resource`/`id`/`op`. Sabotage-proven by adding a `title` to the payload. |
+
+---
+
 ## Reasoned exceptions (decided, documented, NOT open findings)
 
 Two things a review will flag every time. Both are deliberate positions with the

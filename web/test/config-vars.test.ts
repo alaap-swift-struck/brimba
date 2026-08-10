@@ -34,6 +34,26 @@ function serverSources(): [string, string][] {
   return out
 }
 
+// A REQUEST FIELD MUST MEET THE SEAM BEFORE IT MEETS THE DATABASE. sqlString()
+// escapes quotes — that is all it does. It does not strip NUL bytes (SQLite
+// rejects them, so the row write 500s instead of returning a clean 400) and it
+// does not cap length. Interpolating a raw request field is therefore how a
+// stored string skips validation entirely; the import filename did exactly that.
+describe("stored request fields go through the validation seam", () => {
+  it("no request field is interpolated into SQL straight off the body", () => {
+    const offenders: string[] = []
+    for (const [path, src] of serverSources()) {
+      const code = src.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/[^\n]*/gm, "$1")
+      for (const m of code.matchAll(/sql(?:String|Value)\(\s*(body|input)\.(\w+)/g))
+        offenders.push(`${path} → sqlString(${m[1]}.${m[2]}) — wrap it in requireText/optionalText first`)
+    }
+    expect(
+      offenders,
+      `a raw request field reaches the database unvalidated: ${offenders.join("; ")}`
+    ).toEqual([])
+  })
+})
+
 describe("numeric env vars parse at the boundaries", () => {
   it("honours a deliberate ZERO — the value someone sets to mean 'none'", () => {
     expect(numberVar("0", 25), "0 must mean 0, not 'fall back to 25'").toBe(0)

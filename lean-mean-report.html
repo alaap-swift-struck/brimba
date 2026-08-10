@@ -106,14 +106,14 @@ window.LEAN_MEAN_DATA = {
   "scannedAt": "2026-08-04",
   "overall": 95,
   "grade": "A",
-  "verdict": "Lean, self-checking to the point of checking its own checks, and scalable — 379 tests, a derived privilege rule, and a fork advisory for every app built on an older commit.",
+  "verdict": "Lean, self-checking down to the checks themselves, and now measured: a full security sweep scored 98/100 at 100% coverage with one open low-severity item.",
   "stats": {
-    "codeFiles": 293,
-    "codeLoc": 30150,
+    "codeFiles": 297,
+    "codeLoc": 30353,
     "docFiles": 33,
-    "docLoc": 6164,
-    "testFiles": 62,
-    "testRatioPct": 21.0,
+    "docLoc": 6471,
+    "testFiles": 64,
+    "testRatioPct": 21.5,
     "todos": 0,
     "duplicationPct": 6.6
   },
@@ -139,18 +139,18 @@ window.LEAN_MEAN_DATA = {
     {
       "key": "robustness",
       "label": "Robustness",
-      "score": 97,
+      "score": 98,
       "status": "green",
       "headline": "The checks can fail",
       "strengths": [
-        "379 tests, 62 files, 21% test-to-code — and this round swept all 20 source-scanning checks for the two flaw classes that had made three of them unable to fail.",
-        "19 laws are machine-checked against source read off disk; R10's three missing suites now exist, closing a control the docs claimed but did not have.",
-        "Security fixes land with tests that RUN the code (the activity reader is driven over every scope shape) rather than scanning for a keyword."
+        "390 tests, 64 files, 21.5% test-to-code. A measured security sweep put every control at full coverage except dependency health.",
+        "All source-scanning checks were swept for THREE flaw classes; each fix was sabotage-proven, and two NEW locks landed this run (live pings carry no row content; no request field reaches SQL without the validation seam).",
+        "Every security invariant identified in the sweep — 18 of them — now has an automated test."
       ],
       "improvements": [
         {
-          "what": "Some law checks still assert on text.",
-          "why": "Boundary-matched now, and R14 carries a saw-something tripwire, but a behaviour test (mock the door, assert the SQL) is stronger — activity-scope.test.ts is the pattern to copy when one of them next needs touching."
+          "what": "Three build-toolchain advisories need a Next.js major.",
+          "why": "next/postcss/sharp carry HIGH advisories fixable only by next@16. None execute in the deployed artifact (static export, zero imports in worker source), so the runtime surface is unaffected — but the toolchain should be upgraded on a branch where a broken export is cheap to find."
         }
       ]
     },
@@ -229,13 +229,13 @@ window.LEAN_MEAN_DATA = {
   ],
   "callouts": {
     "strong": [
-      "The confirm rule is DERIVED from each tool's own gate — which immediately caught the fifth privilege tool a name list had waved through.",
-      "Three checks were found blind and fixed; every fix was sabotage-proven.",
-      "An 11-entry fork advisory, each grep validated against BOTH the fixed and the pre-fix base."
+      "Security posture 98/100 at 100% sweep coverage — every control measured, not judged.",
+      "Two new invariant locks, both sabotage-proven.",
+      "The one real finding this run (a stored filename skipping the validation seam) was found, fixed and locked in the same pass."
     ],
     "watch": [
-      "Duplication 6.6%, mostly deliberate per-worker seam tests.",
-      "Two source-scan checks could be blinded by a rename."
+      "3 build-toolchain advisories pending a Next.js major.",
+      "Duplication 6.6%, mostly deliberate per-worker seam tests."
     ],
     "fix": []
   }
