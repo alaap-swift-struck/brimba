@@ -691,6 +691,18 @@ of deleting → `logActivity` → `publishChange` → `json`. Throw `GuardError`
 rule failure and let the one central catch format it. Comment the *why*. Add the least
 code that does the job, and keep `npm run check` green.
 
+## Where a type comes from (shared/ is not inside a worker)
+
+`shared/workers/*.ts` is compiled by SEVEN different tsconfigs and lives outside all of
+them. So it may use Cloudflare's runtime types (`Fetcher`, `D1Database`, …) but must never
+`import` them: every worker tsconfig already loads them GLOBALLY via
+`"types": ["@cloudflare/workers-types"]`, whereas a module import from `shared/` resolves
+up to the repo root — which only worked while an older wrangler happened to hoist the
+package there. When that hoist stopped, six of seven workers failed to typecheck at once.
+The same rule in the other direction: `web/tsconfig.json` includes the shared code the
+BROWSER app uses (`../shared/*.ts`, `../shared/rules/**`) and deliberately not
+`../shared/workers/**` — server code has no business in a browser workspace's type graph.
+
 ## Reading config, and writing a check that can fail
 
 Two conventions that look like trivia and are not — each one shipped as a real

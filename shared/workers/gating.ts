@@ -4,7 +4,11 @@
 // EVERY server request validates membership + rights — security is never just
 // hiding UI. Lifted here so every worker gates IDENTICALLY with zero duplication.
 
-import type { Fetcher, D1Database } from "@cloudflare/workers-types"
+// Fetcher / D1Database come from @cloudflare/workers-types, loaded GLOBALLY by
+// every worker tsconfig ("types": ["@cloudflare/workers-types"]). They are NOT
+// imported here: this file lives in shared/, outside any worker directory, so a
+// module import would have to resolve from the repo root — which only worked
+// while an older wrangler happened to hoist the package there.
 
 import type { SessionUser } from "../types"
 import { d1Query, type D1Rest } from "./d1-rest"

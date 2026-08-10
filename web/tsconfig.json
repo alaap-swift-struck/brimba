@@ -1,7 +1,11 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["dom", "dom.iterable", "esnext"],
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ],
     "allowJs": true,
     "skipLibCheck": true,
     "strict": true,
@@ -11,20 +15,40 @@
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "jsx": "preserve",
+    "jsx": "react-jsx",
     "incremental": true,
-    "plugins": [{ "name": "next" }],
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
     "paths": {
-      "@/*": ["./*"],
-      "@shared/*": ["../shared/*"]
+      "@/*": [
+        "./*"
+      ],
+      "@shared/*": [
+        "../shared/*"
+      ]
     }
   },
   "include": [
     "next-env.d.ts",
     "**/*.ts",
     "**/*.tsx",
-    "../shared/**/*.ts",
-    ".next/types/**/*.ts"
+    // The browser app typechecks the shared code it USES — types, the glossary,
+    // the rules registry. NOT shared/workers/**: that is server code (it imports
+    // @cloudflare/workers-types, which a browser workspace has no business
+    // declaring), and every worker already typechecks it. Anything web genuinely
+    // imports from there — e.g. numberVar from workers/limits — is still checked,
+    // because an imported file joins the type graph whether or not it is a root.
+    "../shared/*.ts",
+    "../shared/rules/**/*.ts",
+    ".next/types/**/*.ts",
+    ".next/dev/types/**/*.ts"
   ],
-  "exclude": ["node_modules", "e2e/**", "playwright.config.ts"]
+  "exclude": [
+    "node_modules",
+    "e2e/**",
+    "playwright.config.ts"
+  ]
 }

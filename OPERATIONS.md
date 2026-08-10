@@ -79,6 +79,14 @@ Create with `npx wrangler r2 bucket create <name>` (run once per bucket per acco
 ### Public surface (LOCKED): only the gateway is public
 
 auth, tenancy, realtime, content, data-ops and mcp all set `"workers_dev": false` **and `"preview_urls": false`** (BOTH, top-level AND env.staging — a per-version preview URL would be a second public door) (top-level AND env.staging — envs don't inherit), so they have NO public `*.workers.dev` URL and are reachable ONLY via service bindings. The **gateway** (`brimba` / `brimba-staging`) is the single public address. This is what makes `/internal/send-email` (and the agent/import act-as-user surface) safe (no public route can reach it). Never add a public route/`workers_dev` to a non-gateway worker.
+- **Toolchain (2026-08-06): Next 16 + wrangler 4.120, and `npm audit` is clean at
+  every severity.** Two things to know if you touch either. (1) `shared/workers/*.ts`
+  must NOT `import` from `@cloudflare/workers-types` — every worker tsconfig already
+  loads those types globally, and a module import from `shared/` can only resolve via a
+  root hoist that no longer happens. (2) `web/tsconfig.json` deliberately does NOT
+  include `../shared/workers/**`: the browser app typechecks only the shared code it
+  uses, and each worker typechecks its own. Re-adding either is how the build breaks
+  the next time a dependency stops hoisting.
 - **Both environments are on the same commit as of 2026-08-06** — production was
   brought up from the pre-hardening build in one rollout: core migration `0014`
   applied to `brimba-core` first, then all seven workers realtime-first. Verified

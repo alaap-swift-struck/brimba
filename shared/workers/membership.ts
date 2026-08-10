@@ -3,7 +3,6 @@
 // stays happy). Used by the realtime worker to gate WebSocket connections with
 // the SAME rule the API uses: security is never just hiding UI.
 
-import type { D1Database } from "@cloudflare/workers-types"
 
 export async function isActiveMember(
   db: D1Database,
