@@ -41,7 +41,9 @@ export async function listInvites(
   const roles = await d1Query<{ id: string; title: string }>(
     cfg,
     guard.databaseId,
-    "SELECT id, title FROM member_roles"
+    // R14 hard cap — the same one listRoles reads under, so the title map can
+    // never cover fewer roles than the roles screen itself shows.
+    `SELECT id, title FROM member_roles LIMIT ${LIST_HARD_CAP}`
   )
   const titleById = new Map(roles.map((r) => [r.id, r.title]))
   const now = new Date().toISOString()

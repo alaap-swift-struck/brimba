@@ -111,7 +111,7 @@ export const RULES_REGISTRY: Rule[] = [
   {
     id: "R14",
     dimension: "arch",
-    law: "No unbounded list endpoint, and no capped GROWING one: every exported list*/search* function backing a collection route applies a HARD CAP (LIMIT n, said in a comment) — but a collection that GROWS with ordinary use (GROWING_COLLECTIONS) must PAGE instead, by KEY not offset: an opaque cursor, an exact total, and hasMore, with a client that can actually reach page two. A cap is an honest refusal to answer; paging is an answer. Earned by: one unbounded read stalling a worker under a 24,000-row catalogue — then the same catalogue proving a 1,000-row ceiling is just a slower refusal.",
+    law: "No unbounded list endpoint, and no capped GROWING one: every SELECT inside an exported list*/search* function backing a collection route carries its OWN hard cap (LIMIT n, in that statement, said in a comment) — the bound lives in the SQL, not merely somewhere in the function; only an aggregate or a primary-key equality is bounded without one — but a collection that GROWS with ordinary use (GROWING_COLLECTIONS) must PAGE instead, by KEY not offset: an opaque cursor, an exact total, and hasMore, with a client that can actually reach page two. A cap is an honest refusal to answer; paging is an answer. Earned by: one unbounded read stalling a worker under a 24,000-row catalogue — then the same catalogue proving a 1,000-row ceiling is just a slower refusal — then a scan that a CONSTANT NAMED `…_LIMIT` satisfied, passing an unbounded read because the law was checked against the body instead of the statement.",
     checkId: "bounded-lists",
     status: "enforced",
   },
