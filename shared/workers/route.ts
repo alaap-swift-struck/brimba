@@ -11,7 +11,7 @@
 // The `as B` body cast stays a SHAPE HINT, not a promise the fields are valid —
 // each handler still validates at the boundary (requireText / optionalText).
 
-import { requireRight, teamContext, type GatingEnv, type Right, type TeamCtx } from "./gating"
+import { moduleDatabase, requireRight, teamContext, type GatingEnv, type Right, type TeamCtx } from "./gating"
 
 /** The uniform gated opening for reads (and body-less routes):
  * teamContext → requireRight. */
@@ -22,8 +22,13 @@ export async function gated(
   right: Right
 ): Promise<TeamCtx> {
   const ctx = await teamContext(request, env)
+  // The permission read MUST use the team's own database — role_permissions
+  // never moves. Only after it passes does the guard point at wherever this
+  // module's tables actually live, so every module lib keeps asking
+  // `guard.databaseId` and gets the right answer without knowing any of this.
   await requireRight(ctx.cfg, ctx.guard, module, right)
-  return ctx
+  const databaseId = await moduleDatabase(env, ctx.guard, module)
+  return databaseId === ctx.guard.databaseId ? ctx : { ...ctx, guard: { ...ctx.guard, databaseId } }
 }
 
 /** The uniform gated mutation opening: teamContext → requireRight → defensive

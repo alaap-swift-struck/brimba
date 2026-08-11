@@ -19,7 +19,7 @@ import { getScreenOverrides, setScreenOverride } from "../src/lib/screens-config
 import { GuardError } from "../src/lib/permissions"
 
 const cfg = { accountId: "a", apiToken: "t" } as never
-const guard = { userId: "ME", teamId: "TEAM", roleId: "ADMIN", databaseId: "db" }
+const guard = { userId: "ME", teamId: "TEAM", roleId: "ADMIN", databaseId: "db" , movedModules: 0}
 const actor = { id: "ME", email: "me@x.com", name: "Me" }
 
 beforeEach(() => {

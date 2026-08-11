@@ -33,6 +33,9 @@ export type MemberGuard = {
   roleId: string
   /** the team's main database id (modules also consult routing overrides) */
   databaseId: string
+  /** how many of this team's modules the mover has relocated (0 = none, the
+   * normal case; a non-zero value is what makes moduleDatabase() do any work). */
+  movedModules: number
 }
 export type TeamCtx = { user: SessionUser; actor: Actor; cfg: D1Rest; guard: MemberGuard }
 
@@ -83,15 +86,47 @@ export async function requireMember(
   teamId: string
 ): Promise<MemberGuard> {
   const row = await env.DB.prepare(
-    `SELECT tm.role_id, t.database_id
+    `SELECT tm.role_id, t.database_id, t.moved_modules
      FROM team_members tm
      JOIN teams t ON t.id = tm.team_id AND t.deactivated_at IS NULL AND t.db_status = 'ready'
      WHERE tm.team_id = ? AND tm.user_id = ? AND tm.deactivated_at IS NULL`
   )
     .bind(teamId, userId)
-    .first<{ role_id: string; database_id: string }>()
+    .first<{ role_id: string; database_id: string; moved_modules: number | null }>()
   if (!row) throw new GuardError(403, "not_member", "You're not a member of this team.")
-  return { userId, teamId, roleId: row.role_id, databaseId: row.database_id }
+  return {
+    userId,
+    teamId,
+    roleId: row.role_id,
+    databaseId: row.database_id,
+    movedModules: row.moved_modules ?? 0,
+  }
+}
+
+/** WHERE DOES THIS MODULE'S DATA ACTUALLY LIVE?
+ *
+ * Normally: the team's own database, and this returns immediately having read
+ * nothing. Once the module MOVER has relocated a module out of a full team
+ * database, that module's tables live somewhere else — and every module lib
+ * still asks `guard.databaseId`. That gap made the mover destructive: it copied
+ * the rows, recorded the new home, deleted the originals, and nothing ever read
+ * the new home, so the module went blank. (Scaling review, 2026-08-11.)
+ *
+ * The lookup is skipped entirely unless the team has actually had something
+ * moved — `teams.moved_modules` is a counter the mover maintains — so the
+ * ordinary request pays nothing at all for machinery it isn't using. */
+export async function moduleDatabase(
+  env: GatingEnv,
+  guard: MemberGuard,
+  module: string
+): Promise<string> {
+  if (!guard.movedModules) return guard.databaseId
+  const row = await env.DB.prepare(
+    "SELECT database_id FROM team_module_databases WHERE team_id = ? AND module = ?"
+  )
+    .bind(guard.teamId, module)
+    .first<{ database_id: string }>()
+  return row?.database_id ?? guard.databaseId
 }
 
 /** The standard opening every team-scoped handler shares: who are you, the

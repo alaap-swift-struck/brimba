@@ -24,7 +24,7 @@ import { acceptInvite, listReceivedInvites } from "../src/lib/teams"
 
 const cfg = { accountId: "a", apiToken: "t" } as never
 const actor = { id: "ME", email: "me@x.com", name: "Me" }
-const guard = { userId: "ME", teamId: "T", roleId: "EDITOR", databaseId: "db" }
+const guard = { userId: "ME", teamId: "T", roleId: "EDITOR", databaseId: "db" , movedModules: 0}
 
 /** A D1Database-shaped adapter backed by a real node:sqlite database. */
 function makeD1(db: DatabaseSync) {

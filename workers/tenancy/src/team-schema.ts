@@ -264,6 +264,53 @@ CREATE TABLE data_import_batches (
 CREATE INDEX idx_import_batches_creator ON data_import_batches (creator_id, created_at DESC);
 `,
   },
+  {
+    // SCALE: the indexes that match the sorts the app actually issues.
+    //
+    // Every one of these tables was indexed for its WHERE and not for its ORDER
+    // BY, so a paged read used its keyset cursor to avoid the OFFSET scan and
+    // then sorted the whole table anyway. At a few thousand rows nobody notices;
+    // at ten million it is the difference between a page and a timeout. Found by
+    // the scaling review, 2026-08-11 — see SCALING.md.
+    //
+    // The DESC in a key column is deliberate: SQLite can walk an index backwards,
+    // but only a matching DESC index lets a `DESC, id DESC` keyset page read
+    // straight off the b-tree with no sort step at all.
+    version: "0007_scale_indexes",
+    sql: `
+-- THE TEAM ACTIVITY FEED — the biggest table in any team database (one row per
+-- mutation, for ever). Ordered by created_at DESC, id DESC and paged by key.
+CREATE INDEX IF NOT EXISTS idx_activity_recent ON activity (created_at DESC, id DESC);
+-- The RECORD feed filters then sorts; one composite serves both, which makes
+-- the old filter-only index redundant.
+CREATE INDEX IF NOT EXISTS idx_activity_record_recent
+  ON activity (related_table, related_row_id, created_at DESC, id DESC);
+DROP INDEX IF EXISTS idx_activity_related;
+
+-- HELP — a GROWING collection (R14) whose paged sort is an EXPRESSION,
+-- COALESCE(updated_at, created_at). A plain column index cannot serve it.
+CREATE INDEX IF NOT EXISTS idx_help_recent
+  ON help (COALESCE(updated_at, created_at) DESC, id DESC);
+-- …and the My-tickets scope filters by creator first, then sorts the same way.
+CREATE INDEX IF NOT EXISTS idx_help_mine_recent
+  ON help (creator_id, COALESCE(updated_at, created_at) DESC, id DESC);
+
+-- A ticket's conversation: filter by ticket, sort oldest-first. The composite
+-- serves both, replacing the filter-only index.
+CREATE INDEX IF NOT EXISTS idx_help_threads_recent ON help_threads (help_id, created_at);
+DROP INDEX IF EXISTS idx_help_threads_help;
+
+-- The assistant's threads + messages, same shape.
+CREATE INDEX IF NOT EXISTS idx_agent_messages_recent ON agent_messages (thread_id, created_at);
+DROP INDEX IF EXISTS idx_agent_messages_thread;
+CREATE INDEX IF NOT EXISTS idx_agent_threads_recent
+  ON agent_threads (COALESCE(last_message_at, created_at) DESC);
+
+-- Bounded collections, but the sort is free to serve and the write cost is trivial.
+CREATE INDEX IF NOT EXISTS idx_learning_order ON learning (sequence, created_at);
+CREATE INDEX IF NOT EXISTS idx_selectable_order ON selectable_data (type, value);
+`,
+  },
 ]
 
 export type Actor = { id: string; email: string; name: string }

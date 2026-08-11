@@ -38,6 +38,8 @@ rules) → [BASE-MANUAL.md](BASE-MANUAL.md) (how the base works and *why* — in
 and screens are written) → the reference docs below as you need them →
 [EDGE-CASES.md](EDGE-CASES.md) before touching anything subtle →
 [OPERATIONS.md](OPERATIONS.md) to ship.
+- **[SCALING.md](SCALING.md)** — the two axes (how much data, how many requests), the live platform ceilings, what breaks first, and the plans for the two that need a human decision.
+- **[SECRETS.md](SECRETS.md)** — the encrypted vault: how the one thing GitHub cannot hold in plain text is held anyway, and the runbook for a total loss.
 
 **Rebuilding the whole base from nothing?** Follow
 **[BOOTSTRAP.md](BOOTSTRAP.md)** — the day-zero, command-by-command runbook that takes

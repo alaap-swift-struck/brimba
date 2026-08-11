@@ -16,7 +16,32 @@ function mediaHeaders(object: R2ObjectBody): HeadersInit {
     "Content-Security-Policy": "default-src 'none'; sandbox",
     "X-Content-Type-Options": "nosniff",
     "Cache-Control": "public, max-age=31536000, immutable",
+    // Say that ranges work. Without it a browser will not seek in a video and
+    // will not resume a broken download — it starts the whole object again.
+    "Accept-Ranges": "bytes",
   }
+}
+
+/** Serve one R2 object, honouring a Range request.
+ *
+ * A learning attachment can be 25 MB. Without ranges, every seek in a video and
+ * every resumed download refetches the whole object from the start — the client
+ * waits, and the bytes are paid for again. R2 does the ranged read itself, so
+ * this costs nothing extra and simply stops the worker pretending the capability
+ * isn't there. (Scaling review, 2026-08-11.) */
+async function serveObject(bucket: R2Bucket, key: string, request: Request): Promise<Response> {
+  const range = request.headers.get("Range")
+  const object = await bucket.get(key, range ? { range: request.headers } : undefined)
+  if (!object) return new Response("Not found", { status: 404 })
+  const headers = new Headers(mediaHeaders(object))
+  if (object.range && "offset" in object.range && range) {
+    const offset = object.range.offset ?? 0
+    const length = object.range.length ?? object.size - offset
+    headers.set("Content-Range", `bytes ${offset}-${offset + length - 1}/${object.size}`)
+    headers.set("Content-Length", String(length))
+    return new Response(object.body, { status: 206, headers })
+  }
+  return new Response(object.body, { headers })
 }
 
 /** The team sections that have a clean TOP-LEVEL url of their own (R20). One
@@ -105,19 +130,13 @@ export default {
     // live in their own per-team bucket. Same serving shape as /media/* below;
     // just a different bucket, matched first since it's a more specific prefix.
     if (pathname.startsWith("/media/learning/") && request.method === "GET") {
-      const key = decodeURIComponent(pathname.slice("/media/learning/".length))
-      const object = await env.LEARNING_MEDIA.get(key)
-      if (!object) return new Response("Not found", { status: 404 })
-      return new Response(object.body, { headers: mediaHeaders(object) })
+      return serveObject(env.LEARNING_MEDIA, decodeURIComponent(pathname.slice("/media/learning/".length)), request)
     }
 
     // Uploaded files (profile photos, team logos). URLs carry ?v= for cache
     // busting, so the file itself can be cached hard.
     if (pathname.startsWith("/media/") && request.method === "GET") {
-      const key = decodeURIComponent(pathname.slice("/media/".length))
-      const object = await env.MEDIA.get(key)
-      if (!object) return new Response("Not found", { status: 404 })
-      return new Response(object.body, { headers: mediaHeaders(object) })
+      return serveObject(env.MEDIA, decodeURIComponent(pathname.slice("/media/".length)), request)
     }
 
     // Deep-link tree: /t/<teamId>/<module>/<id>/… is ONE client-resolved screen.

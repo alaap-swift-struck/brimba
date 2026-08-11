@@ -15,7 +15,7 @@ vi.mock("../../../shared/workers/activity", () => ({
 import { changeMemberRole, removeMember } from "../src/lib/members"
 
 const cfg = { accountId: "a", apiToken: "t" } as never
-const guard = { userId: "ME", teamId: "TEAM", roleId: "ADMIN", databaseId: "db" }
+const guard = { userId: "ME", teamId: "TEAM", roleId: "ADMIN", databaseId: "db" , movedModules: 0}
 const actor = { id: "ME", email: "me@x.com", name: "Me" }
 
 /** Minimal global-DB stub: answers the COUNT and membership lookups. `changes`

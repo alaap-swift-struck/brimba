@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 
 import {
   MAX_ENTRIES,
+  MAX_ROWS_PER_ENTRY,
   invalidate,
   patchRow,
   primeCache,
@@ -226,6 +227,27 @@ describe("the cache is bounded (LRU)", () => {
     // `hot` was re-written after `cold`, so of the two it is the survivor for
     // longer; with a full flood both eventually go, which is the point of a cap.
     expect(peek(hot) ?? peek(cold)).toBeUndefined()
+  })
+
+  it("bounds the ROWS inside one entry — a paged list appends into the same key", () => {
+    // The entry count alone does not bound memory. A growing collection pages
+    // into ONE key (CACHING §12), so an afternoon of Load more grows a single
+    // entry without ever adding a second.
+    const key = freshKey()
+    const rows = Array.from({ length: MAX_ROWS_PER_ENTRY + 500 }, (_, i) => ({ id: String(i) }))
+    primeCache(key, rows)
+
+    const held = peek<{ id: string }[]>(key)!
+    expect(held.length, "trimmed to the ceiling").toBe(MAX_ROWS_PER_ENTRY)
+    expect(held[0].id, "the NEWEST rows are kept — paged lists are newest-first").toBe("0")
+    expect(held[held.length - 1].id).toBe(String(MAX_ROWS_PER_ENTRY - 1))
+  })
+
+  it("leaves a normal-sized collection completely alone", () => {
+    const key = freshKey()
+    const rows = Array.from({ length: 50 }, (_, i) => ({ id: String(i) }))
+    primeCache(key, rows)
+    expect(peek<{ id: string }[]>(key)).toHaveLength(50)
   })
 
   it("NEVER evicts an entry a mounted screen is showing", async () => {

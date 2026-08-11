@@ -19,22 +19,51 @@ import {
   type D1Rest,
 } from "../../../../shared/workers/d1-rest"
 import { ulid } from "../../../../shared/workers/id"
+import { numberVar } from "../../../../shared/workers/limits"
+import {
+  CORE_RETENTION,
+  EXPIRED_SESSIONS_SQL,
+  TEAM_RETENTION,
+  cutoffFor,
+  type RetentionRule,
+} from "../../../../shared/workers/retention"
 import type { Env } from "../env"
 
-/** 80% of D1's 10GB per-database cap. */
-export const ALERT_THRESHOLD_BYTES = 8 * 1024 * 1024 * 1024
+/** 65% of D1's 10 GB per-database cap.
+ *
+ * It was 80%, which sounds cautious and is not: relieving a full database means
+ * creating a database, copying millions of rows through the REST door, verifying
+ * counts and flipping routing. 2 GB of headroom is days at the growth rate a
+ * large tenant actually has, and you cannot start that work the week you find
+ * out. 65% leaves 3.5 GB — long enough to notice, decide and act without it
+ * being an incident. (Scaling review, 2026-08-11.) */
+export const ALERT_THRESHOLD_BYTES = Math.floor(6.5 * 1024 * 1024 * 1024)
+
+/** The SHARED database (`<project>-core`, `<project>-core-staging`). It carries
+ * every tenant at once, so it is watched on the same schedule and the same
+ * threshold — but nothing can move a module out of it. Its alarm means
+ * "partition or prune", not "run the mover". */
+const CORE_DB_NAMES = /-core(-staging)?$/
 const COPY_BATCH = 250
 
-/** Nightly: size every team database, alarm on anything ≥ the threshold. */
+/** Nightly: size every database this project owns, alarm on anything ≥ the
+ * threshold.
+ *
+ * INCLUDING THE CORE DATABASE. It used to check only `team-*`, which left the
+ * one database that carries EVERY tenant — users, memberships, sessions,
+ * invites, the error log, account activity, agent usage — as the only one
+ * nobody was watching. Per-team sharding does nothing for it: it holds the SUM
+ * of all tenants, so it is the first shared thing to reach D1's 10 GB cap and it
+ * has no mover to relieve it. (Scaling review, 2026-08-11.) */
 export async function checkDatabaseSizes(
   env: Env,
   cfg: D1Rest
 ): Promise<{ checked: number; alerted: string[] }> {
   const all = await d1ListDatabases(cfg)
-  const teamDbs = all.filter((db) => db.name.startsWith("team-"))
+  const watched = all.filter((db) => db.name.startsWith("team-") || CORE_DB_NAMES.test(db.name))
   const alerted: string[] = []
 
-  for (const db of teamDbs) {
+  for (const db of watched) {
     if ((db.file_size ?? 0) < ALERT_THRESHOLD_BYTES) continue
 
     const open = await env.DB.prepare(
@@ -62,7 +91,7 @@ export async function checkDatabaseSizes(
     )
     alerted.push(db.name)
   }
-  return { checked: teamDbs.length, alerted }
+  return { checked: watched.length, alerted }
 }
 
 /**
@@ -195,6 +224,16 @@ export async function moveModuleToOwnDatabase(
   )
     .bind(ulid(), teamId, module, newDbId, new Date().toISOString())
     .run()
+  // Flip the counter the REQUEST PATH reads. Until this row lands, every module
+  // lib is still asking for the team's main database — which is why the delete
+  // below has to come after it, and never before. (Before the scaling review of
+  // 2026-08-11 nothing read the routing at all, so this step copied the data,
+  // deleted the originals, and left the module blank.)
+  await env.DB.prepare(
+    "UPDATE teams SET moved_modules = moved_modules + 1 WHERE id = ?"
+  )
+    .bind(teamId)
+    .run()
   for (const table of tables) {
     await d1ExecScript(cfg, team.database_id, `DELETE FROM ${table};`)
   }
@@ -206,4 +245,68 @@ export async function moveModuleToOwnDatabase(
     .run()
 
   return { databaseId: newDbId, movedRows }
+}
+
+/* ------------------------------- retention -------------------------------- */
+
+/** Delete what a rule says may be forgotten, in BOUNDED batches.
+ *
+ * The batch matters. A first sweep of a table nobody has ever pruned could match
+ * millions of rows, and one unbounded DELETE would sit inside D1's 30-second
+ * statement limit and lose the lot. So each pass removes at most
+ * `SWEEP_BATCH` rows and the next night takes the next slice: the table drains
+ * over a few nights instead of the sweep failing every night for ever. */
+const SWEEP_BATCH = 5000
+
+async function sweep(
+  run: (sql: string, params: unknown[]) => Promise<unknown>,
+  rules: RetentionRule[],
+  env: Record<string, string | undefined>
+): Promise<{ table: string; days: number }[]> {
+  const swept: { table: string; days: number }[] = []
+  for (const rule of rules) {
+    const days = numberVar(env[rule.envVar], rule.days)
+    const cutoff = cutoffFor(rule, days)
+    if (!cutoff) continue // KEEP_FOREVER — the audit tables, until an owner says otherwise
+    await run(
+      `DELETE FROM ${rule.table} WHERE rowid IN (
+         SELECT rowid FROM ${rule.table} WHERE ${rule.column} < ? LIMIT ${SWEEP_BATCH}
+       )`,
+      [cutoff]
+    )
+    swept.push({ table: rule.table, days })
+  }
+  return swept
+}
+
+/** Nightly: forget what may be forgotten. Logs only — never a record. See
+ * shared/workers/retention.ts for what that distinction means and why the audit
+ * tables are off by default. */
+export async function runRetention(
+  env: Env,
+  cfg: D1Rest
+): Promise<{ core: number; teams: number }> {
+  const vars = env as unknown as Record<string, string | undefined>
+
+  // An expired session cannot be used by anyone, so there is no window to pick.
+  await env.DB.prepare(EXPIRED_SESSIONS_SQL).bind(new Date().toISOString()).run()
+
+  const core = await sweep(
+    async (sql, params) => env.DB.prepare(sql).bind(...(params as string[])).run(),
+    CORE_RETENTION,
+    vars
+  )
+
+  let teams = 0
+  if (TEAM_RETENTION.some((r) => numberVar(vars[r.envVar], r.days) > 0)) {
+    // Only walk the team databases when a team rule is actually switched ON —
+    // otherwise this is a nightly listing of every database in the account for
+    // no reason at all.
+    const all = await d1ListDatabases(cfg)
+    for (const db of all.filter((d) => d.name.startsWith("team-"))) {
+      await sweep(async (sql, params) => d1Query(cfg, db.uuid, sql, params as string[]), TEAM_RETENTION, vars)
+      teams++
+    }
+  }
+  return { core: core.length, teams }
 }

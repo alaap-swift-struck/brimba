@@ -136,6 +136,32 @@ both owner-only:
    `workers/auth/wrangler.jsonc` to e.g. `Brimba <login@mail.swiftstruck.com>`
    and redeploy.
 
+## Migrations this release needs
+
+- **core `0015_scale_indexes`** — the sorts and retention sweeps the core database
+  needs, plus `teams.moved_modules` (the counter the request path reads to find a
+  relocated module). Apply with the usual core-migration step in BOOTSTRAP.md.
+- **team `0007_scale_indexes`** — the indexes that match the sorts each team
+  database actually issues. Rolled to existing teams by
+  `POST /api/tenancy/admin/migrate-teams` (x-admin-key), same as any team migration.
+
+Neither adds, removes or rewrites a row. They create indexes and one defaulted
+column, so they are safe to apply while the app is serving.
+
+## Secrets
+
+`npm run vault:check` — is the encrypted vault present and committed? See
+[SECRETS.md](SECRETS.md). Cloudflare secrets are write-only; the vault is the only
+copy that survives a lost laptop.
+
+## Retention
+
+The nightly tenancy cron now sweeps the LOG tables after sizing the databases
+(see [SCALING.md](SCALING.md) §4). Audit tables (`activity`, `account_activity`)
+are KEEP_FOREVER until an owner sets `RETAIN_TEAM_ACTIVITY_DAYS` /
+`RETAIN_ACCOUNT_ACTIVITY_DAYS`. Every window is an environment variable — no
+deploy needed to change one.
+
 ## Verify before shipping
 
 - CI runs the same on every push (.github/workflows/ci.yml)

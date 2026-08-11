@@ -23,6 +23,19 @@ import * as React from "react"
 // `evictable`), so eviction can never blank a mounted screen.
 export const MAX_ENTRIES = 500
 
+// AND A CEILING ON THE ROWS INSIDE ONE ENTRY. The entry count alone does not
+// bound memory: a paged collection APPENDS every page into the SAME key
+// (CACHING §12), so one power user pressing Load more all afternoon grows a
+// single entry without ever adding a second one. 500 entries is a real bound;
+// 500 entries where one holds 200,000 tickets is not.
+//
+// In plain terms: "about forty pages deep". Past that, the OLDEST rows are
+// dropped from the front — you keep everything you have scrolled back to
+// recently, and the rows you passed hours ago are re-fetched if you go looking.
+// Newest-first lists (the ones that page) are exactly the case where the far end
+// is the least likely to be wanted again.
+export const MAX_ROWS_PER_ENTRY = 2000
+
 // "Used" means WRITTEN — fetched, primed or patched — not read. Every read in
 // this app comes from a MOUNTED component, and a mounted component's key is
 // already unevictable, so ordering by reads would buy nothing and would mean
@@ -49,7 +62,14 @@ function evictable(key: string): boolean {
  * ceiling that is always right beats a hard one that is sometimes wrong. */
 function cacheSet(key: string, value: unknown): void {
   cache.delete(key) // re-insert at the young end (this is the "touch")
-  cache.set(key, value)
+  // Trim a runaway collection from its OLD end. Paged lists are newest-first and
+  // append downwards, so the rows past the ceiling are the ones scrolled furthest
+  // back — the cheapest to lose and the least likely to be asked for again. The
+  // cursor sidecar is untouched, so Load more still continues from where it was.
+  cache.set(
+    key,
+    Array.isArray(value) && value.length > MAX_ROWS_PER_ENTRY ? value.slice(0, MAX_ROWS_PER_ENTRY) : value
+  )
   if (cache.size <= MAX_ENTRIES) return
   for (const k of cache.keys()) {
     if (cache.size <= MAX_ENTRIES) break

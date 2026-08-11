@@ -40,7 +40,7 @@ import { brand } from "../../../shared/brand"
 import { fail, json } from "../../../shared/workers/http"
 import { recordWorkerError } from "../../../shared/workers/error-log"
 import { GuardError } from "./lib/permissions"
-import { checkDatabaseSizes } from "./lib/sharding"
+import { checkDatabaseSizes, runRetention } from "./lib/sharding"
 import { d1Config } from "./lib/teams"
 import type { Env } from "./env"
 import {
@@ -166,8 +166,12 @@ export default {
     try {
       const result = await checkDatabaseSizes(env, d1Config(env))
       console.log(
-        `size check: ${result.checked} team DBs, ${result.alerted.length} alarm(s)`
+        `size check: ${result.checked} database(s) watched, ${result.alerted.length} alarm(s)`
       )
+      // Then forget what may be forgotten — logs only, never a record. Runs
+      // AFTER the sizing so tonight's alarm reflects tonight's real size.
+      const swept = await runRetention(env, d1Config(env))
+      console.log(`retention: ${swept.core} core table(s), ${swept.teams} team database(s)`)
     } catch (e) {
       // LAW R12: unattended work has no user watching, so a swallowed failure would be
       // invisible — record it to the error store, not just the console.

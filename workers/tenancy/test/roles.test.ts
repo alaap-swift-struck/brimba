@@ -28,7 +28,7 @@ import { GuardError } from "../src/lib/permissions"
 import { TEAM_MODULE_CATALOG } from "../src/team-schema"
 
 const cfg = { accountId: "a", apiToken: "t" } as never
-const guard = { userId: "ME", teamId: "TEAM", roleId: "ADMIN", databaseId: "db" }
+const guard = { userId: "ME", teamId: "TEAM", roleId: "ADMIN", databaseId: "db" , movedModules: 0}
 const actor = { id: "ME", email: "me@x.com", name: "Me" }
 
 /** Make d1Query answer the role lookup with the given row (or none = missing). */
