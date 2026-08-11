@@ -26,7 +26,17 @@ export type AnalyzeFile = PlanFile & { sampleRows: string[][] }
 function catalogPrompt(): string {
   return Object.values(TARGETS)
     .map((t) => {
-      const cols = t.columns.map((c) => `${c.key}${c.required ? "*" : ""} (${c.label})`).join(", ")
+      // A VOCABULARY column carries its legal values into the prompt — that is
+      // what lets the model map the word a human writes ("Received") onto the
+      // word the door accepts ("receipt"). Without it the model can only fix
+      // CASING, which is the failure this was built for.
+      const cols = t.columns
+        .map(
+          (c) =>
+            `${c.key}${c.required ? "*" : ""} (${c.label})` +
+            (c.values?.length ? ` [one of: ${c.values.join(" | ")}]` : "")
+        )
+        .join(", ")
       const refs = (t.references ?? []).map((r) => `${r.column}→${r.target}`).join(", ")
       return `- ${t.tableKey}: columns ${cols}${refs ? `; references: ${refs}` : ""}`
     })
@@ -37,7 +47,8 @@ const SYSTEM = [
   "You map messy spreadsheet exports onto a fixed set of database tables for a data-import tool.",
   "For EACH file, decide which target table it feeds, map each of the target's columns to the best-matching file header (or null if none fits), and pick ONE normalizer per mapped column from this fixed list: trim, titlecase, lowercase, uppercase, iso_date, boolean.",
   "A `*` marks a required column. Only choose a target the file plausibly matches. Never invent headers or columns.",
-  'Reply with ONLY compact JSON, no prose: {"steps":[{"fileId":"...","target":"table_key","mapping":{"ourColumnKey":"their header or null"},"transforms":{"ourColumnKey":"trim"},"notes":"one short sentence"}]}',
+  "A column shown as [one of: a | b | c] has a CLOSED vocabulary: only those words are legal. When the file uses a different word for one of them, map it in `valueMaps` — the file's word as the key, the legal word as the value (e.g. \"Received\" -> \"receipt\"). Map only what you are confident means the same thing; leave a genuinely unknown word out and it will be reported as a skip. NEVER invent a legal value that isn't in the list.",
+  'Reply with ONLY compact JSON, no prose: {"steps":[{"fileId":"...","target":"table_key","mapping":{"ourColumnKey":"their header or null"},"transforms":{"ourColumnKey":"trim"},"valueMaps":{"ourColumnKey":{"their word":"our legal value"}},"notes":"one short sentence"}]}',
 ].join(" ")
 
 function filesPrompt(files: AnalyzeFile[]): string {
@@ -57,6 +68,7 @@ type RawStep = {
   target?: string
   mapping?: Record<string, unknown>
   transforms?: Record<string, unknown>
+  valueMaps?: Record<string, unknown>
   notes?: string
 }
 
@@ -94,7 +106,22 @@ function adaptPlan(files: AnalyzeFile[], raw: RawStep[]): ImportPlan {
     for (const [k, v] of Object.entries(s.mapping ?? {})) if (typeof v === "string") mapping[k] = v
     const transforms: Record<string, TransformKey> = {}
     for (const [k, v] of Object.entries(s.transforms ?? {})) if (isTransformKey(v)) transforms[k] = v
-    steps.push({ ...planStep(file, def, mapping, transforms), notes: typeof s.notes === "string" ? s.notes : undefined })
+    // Untrusted, like everything else the model returns: strings only here, and
+    // planStep drops maps for columns with no vocabulary. resolveValue then
+    // refuses any target word that isn't actually legal — the model can propose a
+    // mapping, it can never widen the vocabulary.
+    const valueMaps: Record<string, Record<string, string>> = {}
+    for (const [col, m] of Object.entries(s.valueMaps ?? {})) {
+      if (!m || typeof m !== "object") continue
+      const pairs: Record<string, string> = {}
+      for (const [from, to] of Object.entries(m as Record<string, unknown>))
+        if (typeof to === "string") pairs[from] = to
+      if (Object.keys(pairs).length) valueMaps[col] = pairs
+    }
+    steps.push({
+      ...planStep(file, def, mapping, transforms, valueMaps),
+      notes: typeof s.notes === "string" ? s.notes : undefined,
+    })
   }
   // A file the model didn't place → fall back to detecting it deterministically.
   const placed = new Set(steps.map((s) => s.fileId))

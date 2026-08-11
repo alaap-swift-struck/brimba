@@ -224,7 +224,7 @@ export async function confirmBatch(
 
     // The SAME scan the plan predicted with (missing required / duplicate rows) —
     // so the review screen and the run can never disagree.
-    const scans = scanRows(def, step.mapping, step.transforms, file.headers, file.rows)
+    const scans = scanRows(def, step.mapping, step.transforms, file.headers, file.rows, step.valueMaps ?? {})
     // Rows that survived validation + reference resolution, each keeping its file
     // row number so a failure can still name where it came from.
     const ready: { row: number; body: Record<string, unknown> }[] = []

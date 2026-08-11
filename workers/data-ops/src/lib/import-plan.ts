@@ -4,7 +4,7 @@
 // The agent (import-agent.ts) PROPOSES a plan; this file both backs the fallback and
 // provides the deterministic pieces execution (import-batch.ts) trusts.
 
-import type { ImportPlan, ImportPlanStep, ImportRejection, TransformKey } from "../../../../shared/types"
+import type { ImportColumn, ImportPlan, ImportPlanStep, ImportRejection, TransformKey } from "../../../../shared/types"
 import { BULK_MAX_ROWS } from "../../../../shared/workers/limits"
 import { autoMap, norm, TARGETS, type ReferenceDef, type TargetDef } from "./targets"
 
@@ -50,6 +50,65 @@ export function isTransformKey(k: unknown): k is TransformKey {
 export function applyTransform(value: string, key: TransformKey | undefined): string {
   const fn = key && TRANSFORMS[key] ? TRANSFORMS[key] : TRANSFORMS.trim
   return fn(value)
+}
+
+/* -------------------------------- vocabulary --------------------------------- */
+
+// WHERE SYNONYM MAPPING BELONGS (the argument, so nobody re-litigates it):
+//
+// A column with a closed set of legal values gets its word resolved in THREE
+// passes, cheapest and most certain first. The order is the whole design.
+//
+//   1. EXACT, normalised — "Receipt", "receipt", "RECEIPT" are one word. Free,
+//      deterministic, no maintenance.
+//   2. DECLARED ALIASES — the synonyms this domain knows for sure. Free,
+//      deterministic, reviewable, and — the reason they exist at all — they work
+//      with NO MODEL KEY, so the fallback planner is not a lesser importer
+//      (AGENTIC-IMPORT §8: degrade gracefully is a locked property of this base).
+//   3. THE AGENT — everything left. This is the long tail no list anticipates,
+//      which is the entire point of an agentic import: a human writes the word
+//      they say out loud. It costs nothing extra: the plan is ALREADY one model
+//      call per batch, so the vocabulary rides in that same prompt.
+//
+// Not "agent OR aliases" — both, in that order. Aliases alone go stale the first
+// time somebody types a word nobody listed. The agent alone is non-deterministic
+// (the same file could map differently twice) and useless without a key. Putting
+// determinism first means a repeat import behaves the same way, and the model is
+// only asked about what actually needs judgement.
+//
+// And whatever resolves it, it happens HERE — inside the one scan that backs both
+// the plan and the run — so the plan can never promise "423 will import" and then
+// import 14. That is the failure this exists to prevent.
+
+/** Resolve one cell against its column's vocabulary. Returns the legal value, or
+ * the reason it can't be resolved. A column with no `values` is unconstrained. */
+export function resolveValue(
+  raw: string,
+  col: ImportColumn,
+  agentMap?: Record<string, string>
+): { value: string; reject?: undefined } | { value?: undefined; reject: string } {
+  if (!col.values?.length) return { value: raw }
+  if (raw === "") return { value: raw } // empty is the required-column check's business, not ours
+  const legalByNorm = new Map(col.values.map((v) => [norm(v), v]))
+
+  const exact = legalByNorm.get(norm(raw)) // 1 · exact, normalised
+  if (exact) return { value: exact }
+
+  for (const [from, to] of Object.entries(col.aliases ?? {})) // 2 · declared aliases
+    if (norm(from) === norm(raw)) {
+      const legal = legalByNorm.get(norm(to))
+      if (legal) return { value: legal }
+    }
+
+  const mapped = agentMap?.[raw] ?? agentMap?.[raw.trim()] // 3 · the agent's map
+  if (mapped) {
+    const legal = legalByNorm.get(norm(mapped))
+    if (legal) return { value: legal }
+  }
+
+  return {
+    reject: `"${raw}" isn't a valid ${col.label.toLowerCase()} — it must be one of: ${col.values.join(", ")}.`,
+  }
 }
 
 /* ------------------------------ target detection ----------------------------- */
@@ -175,7 +234,8 @@ export function scanRows(
   mapping: Record<string, string | null>,
   transforms: Record<string, TransformKey>,
   headers: string[],
-  rows: string[][]
+  rows: string[][],
+  valueMaps: Record<string, Record<string, string>> = {}
 ): RowScan[] {
   const idx: Record<string, number> = {}
   headers.forEach((h, i) => {
@@ -187,11 +247,19 @@ export function scanRows(
   const seen = new Map<string, number>()
   return rows.map((raw, i) => {
     const mapped: Record<string, string> = {}
+    let vocabReject: string | undefined
     for (const col of def.columns) {
       const src = mapping[col.key]
       const value = src != null && idx[src] != null ? (raw[idx[src]] ?? "") : ""
-      mapped[col.key] = applyTransform(value, transforms[col.key])
+      const normalized = applyTransform(value, transforms[col.key])
+      // Casing is a transform's job; VOCABULARY is this one's. Resolving it here
+      // — in the scan the plan and the run BOTH use — is what stops a plan
+      // promising rows the door will refuse.
+      const out = resolveValue(normalized, col, valueMaps[col.key])
+      mapped[col.key] = out.value ?? normalized
+      if (out.reject && !vocabReject) vocabReject = out.reject
     }
+    if (vocabReject) return { mapped, reject: vocabReject }
     const missing = required.find((c) => !mapped[c.key])
     if (missing) return { mapped, reject: `Missing required "${missing.label}".` }
     if (required.length) {
@@ -215,7 +283,8 @@ export function planStep(
   file: PlanFile,
   def: TargetDef,
   rawMapping: Record<string, string>,
-  transforms: Record<string, TransformKey>
+  transforms: Record<string, TransformKey>,
+  rawValueMaps: Record<string, Record<string, string>> = {}
 ): ImportPlanStep {
   const mapping: Record<string, string | null> = {}
   for (const col of def.columns) {
@@ -227,13 +296,24 @@ export function planStep(
     const t = transforms[col.key]
     if (isTransformKey(t)) cleanTransforms[col.key] = t
   }
+  // Only keep value maps for columns that actually HAVE a vocabulary — the model
+  // proposing a map for a free-text column is noise, not an instruction.
+  const cleanValueMaps: Record<string, Record<string, string>> = {}
+  for (const col of def.columns) {
+    const m = rawValueMaps[col.key]
+    if (!col.values?.length || !m || typeof m !== "object") continue
+    const pairs: Record<string, string> = {}
+    for (const [from, to] of Object.entries(m)) if (typeof from === "string" && typeof to === "string") pairs[from] = to
+    if (Object.keys(pairs).length) cleanValueMaps[col.key] = pairs
+  }
+
   // A required column with no mapped header → every row rejects; flag it.
   const requiredUnmapped = def.columns.filter((c) => c.required && !mapping[c.key])
   let predictedRejects = requiredUnmapped.length ? file.rowCount : 0
   let predictedRejections: ImportRejection[] | undefined
   if (!requiredUnmapped.length && file.rows?.length) {
     const rejects: ImportRejection[] = []
-    scanRows(def, mapping, cleanTransforms, file.headers, file.rows).forEach((s, i) => {
+    scanRows(def, mapping, cleanTransforms, file.headers, file.rows, cleanValueMaps).forEach((s, i) => {
       if (s.reject) rejects.push({ file: file.name, row: i + 1, reason: s.reject })
     })
     predictedRejects = rejects.length
@@ -246,6 +326,7 @@ export function planStep(
     targetName: def.displayName,
     mapping,
     transforms: cleanTransforms,
+    valueMaps: Object.keys(cleanValueMaps).length ? cleanValueMaps : undefined,
     references: (def.references ?? []).map((r) => ({ column: r.column, target: r.target, mode: r.mode })),
     rowCount: file.rowCount,
     predictedRejects,
