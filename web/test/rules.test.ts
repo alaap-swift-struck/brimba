@@ -52,6 +52,55 @@ function stripComments(src: string): string {
   return src.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/[^\n]*/gm, "$1")
 }
 
+/** The source of ONE top-level declaration, starting at `from`. A top-level
+ * declaration always begins at column 0, so the next one ends this one — slicing
+ * to the next `export` instead swallows every private helper in between and
+ * blames their SQL on the exported function above them. */
+function declarationBody(src: string, from: number): string {
+  const re = /\n(?:export |async function |function |const |class |type |interface )/g
+  re.lastIndex = from + 1
+  const next = re.exec(src)
+  return src.slice(from, next ? next.index : undefined)
+}
+
+/** Every string literal in a chunk of TypeScript — template, double- and
+ * single-quoted. A template literal is returned WHOLE, interpolations and nested
+ * templates included, because a SQL statement is often assembled that way
+ * (`` `SELECT … ${cond ? `WHERE …` : ""} … LIMIT ${n}` ``) and its LIMIT belongs
+ * to the same statement as its SELECT. Naive backtick-splitting stops at the
+ * first nested backtick and cuts that statement in half. */
+function stringLiterals(src: string): string[] {
+  const out: string[] = []
+  let i = 0
+  while (i < src.length) {
+    const ch = src[i]
+    if (ch === "`") {
+      let j = i + 1
+      let depth = 0 // how many `${` we are inside — a backtick in there is nested
+      while (j < src.length) {
+        const c = src[j]
+        if (c === "\\") { j += 2; continue }
+        if (c === "$" && src[j + 1] === "{") { depth++; j += 2; continue }
+        if (c === "}" && depth > 0) { depth--; j++; continue }
+        if (c === "`" && depth === 0) break
+        j++
+      }
+      out.push(src.slice(i + 1, j))
+      i = j + 1
+      continue
+    }
+    if (ch === '"' || ch === "'") {
+      let j = i + 1
+      while (j < src.length && src[j] !== ch) j += src[j] === "\\" ? 2 : 1
+      out.push(src.slice(i + 1, j))
+      i = j + 1
+      continue
+    }
+    i++
+  }
+  return out
+}
+
 /** Every *.tsx under web/components (recursively). */
 function componentFiles(): string[] {
   const out: string[] = []
@@ -218,9 +267,29 @@ describe("RULES — the laws of the base", () => {
   // R14 — no unbounded list endpoint: every exported list*/search* function in a
   // worker lib either pages or carries a hard-cap LIMIT (one unbounded read
   // stalls a worker at 100k rows — the 24k-catalogue failure).
-  it("bounded-lists: every exported list*/search* function carries a LIMIT", () => {
+  //
+  // THE BOUND MUST BE IN THE SQL, NOT IN THE FUNCTION. This check used to ask
+  // "does the token LIMIT appear anywhere in this body?", which a NON-SQL
+  // occurrence answered for free: a constant named `BULK_IDS_LIMIT`, a parameter
+  // called `limit`, a type. The law is about a clause in a statement, so the scan
+  // now reads STATEMENTS: every SQL string literal in the body that SELECTs must
+  // carry its own LIMIT. A variable name is code, not SQL, and no longer counts.
+  //
+  // It does NOT flag legitimate delegation, and that is the reason for the shape:
+  // a function that hands its bound to a helper (or to the paging seam) has no
+  // SELECT literal of its own, so there is nothing to examine — a stricter scan
+  // over the whole BODY is what would have flagged those.
+  it("bounded-lists: every SELECT inside an exported list*/search* carries its own LIMIT", () => {
+    // The two shapes that return a bounded number of rows BY CONSTRUCTION, so a
+    // LIMIT would say nothing: an aggregate (one row, or one per group) and a
+    // primary-key equality (`id = ?` — `team_id = ?` does not match: `_` is a
+    // word character, so there is no boundary before that `id`).
+    const AGGREGATE = /\b(?:COUNT|SUM|AVG|MIN|MAX|TOTAL|GROUP_CONCAT)\s*\(/i
+    const KEY_LOOKUP = /\bWHERE\b[\s\S]*?(?:^|[\s.(])id\s*=\s*[?$]/i
+
     const offenders: string[] = []
     let seen = 0
+    let statements = 0
     for (const [path, src] of workerSources()) {
       if (!path.includes("/src/lib/")) continue
       // BOTH export shapes. A scan that only knows `export function listX` goes
@@ -230,14 +299,23 @@ describe("RULES — the laws of the base", () => {
       let m: RegExpExecArray | null
       while ((m = re.exec(src))) {
         seen++
-        const next = src.indexOf("\nexport ", m.index + 1)
-        const body = stripComments(src.slice(m.index, next === -1 ? undefined : next))
-        if (/SELECT/.test(body) && !/LIMIT\s/.test(body)) offenders.push(`${path} → ${m[1] ?? m[2]}`)
+        const body = stripComments(declarationBody(src, m.index))
+        for (const sql of stringLiterals(body)) {
+          if (!/\bSELECT\b/i.test(sql)) continue
+          statements++
+          if (AGGREGATE.test(sql) || KEY_LOOKUP.test(sql) || /\bLIMIT\b/i.test(sql)) continue
+          offenders.push(`${path} → ${m[1] ?? m[2]}: ${sql.replace(/\s+/g, " ").trim().slice(0, 80)}`)
+        }
       }
     }
-    // The tripwire: a scan that suddenly finds nothing has gone blind, and a
-    // blind check reports "all clear" exactly like a passing one.
+    // TWO tripwires, because this check has two ways to go blind and both report
+    // "all clear" exactly like a passing run: finding no list functions, and
+    // finding functions but extracting no SQL out of them.
     expect(seen, "the bounded-lists scan found no list functions at all — it has gone blind").toBeGreaterThan(15)
+    expect(
+      statements,
+      "the bounded-lists scan read no SQL statements at all — the literal extractor has gone blind"
+    ).toBeGreaterThan(15)
     expect(
       offenders,
       `unbounded list read (R14) — add a hard-cap LIMIT (with its comment) or real paging: ${offenders.join(", ")}`
