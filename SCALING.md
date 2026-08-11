@@ -210,6 +210,18 @@ counter every request.
 safety feature that takes the app down when its own dependency wobbles has
 inverted its purpose.
 
+**The count is PER COLOCATION, and that changes what the number means.**
+Verified on staging 2026-08-11: with the ceiling temporarily set to 5 per 10 s,
+sequential requests were refused from the 6th on — but 800 requests fired 40-way
+parallel against the 600/60 s ceiling produced **no refusals at all**, because an
+anycast burst spreads across edge machines and no single counter ever saw 600.
+
+So "600 per minute" is a ceiling per caller **per colo**, not globally. It does
+what it exists to do — stop one runaway client or retry loop from spending a
+tenant's capacity — and it is NOT an anti-abuse control against a distributed
+attacker. Read it as a governor, not a gate. Anything stronger belongs in
+Cloudflare's WAF, in front of the worker.
+
 ## 4.7 · Uploads, and what an isolate can hold
 
 An attachment used to arrive as a base64 data URL inside a JSON body, so the
