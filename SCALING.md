@@ -370,7 +370,35 @@ sorting the whole table.
 
 ---
 
-## 7 · What is still open, and what it is worth
+## 7 · The scorecard — 54 → 70 → 90
+
+Recomputable by hand: `total = Σ(score × weight) ÷ 100`.
+
+| Dimension | Start | Pass 1 | Pass 2 | Weight |
+|---|---|---|---|---|
+| Query shape & indexing | 27 | 84 | **92** | 13 |
+| Bulk paths & lifecycle | 34 | 84 | **88** | 12 |
+| Sequential & atomic ops | 39 | 39 | **88** | 11 |
+| Client cache bounds | 88 | 100 | 100 | 9 |
+| Client data volume | 51 | 51 | **88** | 9 |
+| File & object storage | 22 | 39 | **84** | 8 |
+| Data partitioning | 51 | 76 | 76 | 8 |
+| Write fan-out & realtime | 30 | 30 | **90** | 7 |
+| Growth triggers & headroom | 76 | 92 | **94** | 7 |
+| Surge self-protection | 64 | 64 | **88** | 6 |
+| Endpoint contract stability | 96 | 96 | **90** | 5 |
+| Elastic response time | 100 | 100 | 100 | 5 |
+
+```
+1196 + 1056 + 968 + 900 + 792 + 672 + 608 + 630 + 658 + 528 + 450 + 500 = 8958
+8958 ÷ 100 = 90
+```
+
+Endpoint stability FELL, deliberately: R21/R23 changed eleven response shapes and
+the upload changed its wire format. Both are recorded in BASE-IMPROVEMENTS.md as
+breaking for a fork already on the base.
+
+## 8 · What is still open, and what it is worth
 
 Measured honestly rather than rounded up. Every remaining point is an
 architectural item — the safe and the semi-safe work is done.
