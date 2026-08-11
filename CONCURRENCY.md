@@ -57,6 +57,39 @@ instance is for the rare contended hot entity.
   `workers/data-ops/test/import-idempotency.test.ts`. **The rule: a write a client can
   retry must be idempotent.**
 
+## The two races the rules above do NOT cover (added 2026-08-11)
+
+Everything above protects an **invariant** — a rule the app knows it has. Two
+races remain, and neither breaks an invariant, which is exactly why nothing ever
+reported them.
+
+### A retried request must not do the work twice
+A request can arrive twice: a double-tapped button, a client retrying after a
+timeout on a response the server actually sent, a mobile connection resending.
+
+A client may send `Idempotency-Key: <random>`. The first request claims the key
+with a primary-key INSERT into `idempotency_keys` — SQLite serialises writers, so
+of two simultaneous retries exactly one wins and the other raises. The winner
+does the work and stores its outcome; the loser replays it. A FAILED attempt
+releases its claim, so a retry is a real retry rather than a permanent refusal.
+
+Wired at the three ROUTES dispatchers (`shared/workers/concurrency.ts`), so every
+team-data mutation is covered. **No key means no query** — the ordinary path is
+untouched. On the client, `FormShell` keeps the key across a failed submit and
+drops it after a successful one: reusing it after success would replay the last
+save and silently discard the new edit.
+
+### A save must not overwrite one it never saw
+Two people open a record, both edit, both save; the second overwrites the first
+with fields read before it existed. `versionPredicate` adds
+` AND updated_at = '<what the editor was shown>'` to the UPDATE, with `RETURNING`
+so a write that lands on nothing is a **409**, not a success. The predicate is
+EMPTY when the caller states no expectation, so an existing caller is unchanged.
+
+Same principle as everything above — the condition rides the write — extended
+from "an invariant the app declared" to "the state the caller believed it was
+acting on".
+
 ## While a write is in flight
 Serialized or not, the user should never see a dead UI — show feedback
 (button spinner + disabled, optimistic update, toast). See the **Loading &

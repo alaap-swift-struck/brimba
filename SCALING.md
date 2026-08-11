@@ -34,12 +34,15 @@ number at all.
 
 ## 2 · What breaks first
 
-**Inside one tenant — the live channel.** One `TeamChannel` Durable Object holds
-a team's sockets and `broadcast()` loops every one of them, single-threaded. At
-25,000 concurrent sessions every write in that tenant fans 25,000 sends through
-one object, against a soft limit of ~1,000 requests per second. **This is the
-first hard ceiling and it has no relief valve today** — see the plan in §5.1.
-Before it: the team database passes 10 GB, which does have a valve (§3).
+**Inside one tenant — the shared core database.** See below; it is now the first
+ceiling on both axes, because the one that used to be has been relieved.
+
+**The live channel — RELIEVED (2026-08-11).** One `TeamChannel` Durable Object
+held a team's sockets and `broadcast()` looped every one of them,
+single-threaded. At 25,000 concurrent sessions every write in that tenant fanned
+25,000 sends through one object, against a soft limit of ~1,000 requests per
+second. It was the first hard ceiling in the system and the only one with no
+valve at all. A team channel is now addressable as **N objects** — §3, valve 4.
 
 **Across tenants — the shared core database.** `users`, `team_members`,
 `sessions`, `invite_index`, `error_logs`, `account_activity`, `agent_usage_log`
@@ -65,6 +68,32 @@ In `workers/tenancy/src/lib/sharding.ts`, in order of reach:
 3. **SPLIT** — `resolveModuleDatabases` + `d1QueryAcross` can read a (team,
    module) across several databases. Built, and still not wired to a module read
    path — see §5.3.
+4. **CHANNEL SHARDS** — the only valve that acts on REQUESTS rather than stored
+   bytes. `teams.shard_count` splits one team's live channel across N Durable
+   Objects; the nightly cron raises it as the team grows. See below.
+
+### The channel shard, and why the count only ever goes up
+
+A subscriber's shard is picked server-side from their **user id**, so every one
+of a person's devices lands on the same object and a reconnect returns to it.
+A publisher fans to all N. None of this is visible to a caller: `publishChange`
+still names `team:<id>` and the realtime worker is the one place that expands
+it, so no module changed and no client changed.
+
+Shard 0 keeps the BARE channel name, so a team that has never been split
+addresses exactly the object it always did — no cutover, no reconnect.
+
+The count is **monotonic**, and that is a safety property rather than tidiness.
+A socket that connected when the count was N' sits on a shard index below N';
+every later count is ≥ N'; a publisher fanning to the current N therefore always
+covers it. **No connected listener can be stranded.** Lowering the count would
+strand every socket above the new value until it reconnected, so lowering is a
+deliberate manual act and never something the cron does.
+
+The ceiling is 32 shards — about 32,000 concurrently-served sockets in a single
+tenant, comfortably past the 25,000 the yardstick asks for. Past that the
+fan-out itself (N calls per publish) becomes the thing worth optimising, which
+is a fan-out tree, not a bigger number.
 
 ### The mover used to destroy what it moved
 
@@ -125,6 +154,94 @@ enforces that too, because the job that exists to stop a table growing must not
 be the thing that reads all of it.
 
 ---
+
+## 4.5 · The two races nothing was watching
+
+CONCURRENCY.md makes INVARIANTS race-safe — keep ≥1 admin, never-negative
+balance, one pending invite — by riding the check inside the write's `WHERE`.
+That covers rules the app knows it has. Two races were left, and both are
+silent, which is why nothing had ever reported them.
+
+**The double write.** A request can arrive twice: a double-tapped button, a
+client retrying after a timeout on a response the server actually sent, a mobile
+connection resending. Nothing noticed — the second request was simply a second
+create.
+
+A client may now send `Idempotency-Key`. The first request claims it with a
+primary-key INSERT (SQLite serialises writers, so of two simultaneous retries
+exactly one wins — no lock, no coordination object) and stores its outcome; a
+retry replays that outcome. It is wired at the three ROUTES dispatchers, so it
+covers every team-data mutation rather than each door remembering.
+
+**No key means no query.** The ordinary path is untouched and unmeasured.
+Taxing every mutation in the app to protect the few that get retried is how a
+safety feature ends up reverted.
+
+`FormShell` owns the key on the client, for the same reason it owns R22: a
+FAILED submit keeps its key, because retrying is the point, and a SUCCESSFUL one
+drops it, because reusing it would replay the last save and silently discard the
+new edit.
+
+**The lost update.** Two people open one record, both edit, both save. The
+second overwrites the first with fields read before it existed, and neither is
+told. Four record updates now carry ` AND updated_at = ?` with `RETURNING`, so a
+write that lands on nothing is a 409 rather than a success. The predicate is
+empty when the caller states no expectation, so nothing existing changed.
+
+## 4.6 · The ceiling on RATE
+
+Everything here was bounded in SIZE — a list has a hard cap (R14), an import has
+a row ceiling, an upload has a byte cap, the agent has a credit quota. Nothing
+bounded RATE, and the agent quota is not a general answer: a role WITHOUT the
+agent right met nothing at all.
+
+| Ceiling | Where | Why there |
+|---|---|---|
+| per caller | the gateway, ABOVE the routing table | so a new route cannot be added outside it |
+| per team | `teamContext` | the first point the team is KNOWN — a team-scoped call carries no team in its URL |
+
+The caller key is the session, or `CF-Connecting-IP` before sign-in (the
+sign-in door has no session yet and is exactly what gets guessed at). Never
+`X-Forwarded-For`: a client-settable header would let anyone reset their own
+counter every request.
+
+**Both fail OPEN.** An absent binding, a fork that has not enabled it,
+`wrangler dev`, a test, or a limiter hiccup all let the request through. A
+safety feature that takes the app down when its own dependency wobbles has
+inverted its purpose.
+
+## 4.7 · Uploads, and what an isolate can hold
+
+An attachment used to arrive as a base64 data URL inside a JSON body, so the
+worker held the file **three times** — the JSON string, the base64 substring,
+and the decoded bytes — with base64 a third larger than what it encodes. A 25 MB
+video was most of a 128 MB isolate, and running out of an isolate does not
+produce an error anyone can act on.
+
+The file is now the request body and goes straight to R2 through a counting
+transform: memory is one chunk whatever the size. The size cap is enforced by
+COUNTING, not by trusting `Content-Length`, which a client is free to lie about.
+The mime allowlist is unchanged — these files are served back inline on the app
+origin, so a `text/html` or `image/svg+xml` upload would be stored XSS.
+
+Profile photos and team logos still use the buffered path. That is deliberate:
+their cap is 2.5 MB after a client-side downsize, which never threatens the
+isolate, and they arrive inside a larger form body.
+
+## 4.8 · An export that leaves data behind says so
+
+Every export read carries a hard cap (R14), which is right — an unbounded one
+builds the whole table as a string inside a 128 MB isolate. But the cap was
+SILENT. A team with 250,000 rows asked for their data, received a well-formed
+CSV containing the first 10,000, and had nothing telling them the rest was
+missing. That is worse than an error: an error gets noticed, this gets migrated.
+
+The read asks for **one row more** than the cap, which answers "was there more?"
+for free — so an ordinary export never pays for a `COUNT(*)` over the table. The
+shortfall goes in the FILENAME (`learning-first-10000-of-250000.csv`) because an
+export is a browser download: a response header reaches no human, and a warning
+row inside the CSV would corrupt the round-trip back through the importer that
+the format promises.
 
 ## 5 · The plans that are NOT built
 
@@ -204,6 +321,8 @@ wrong deletes a customer's data. It wants its own design pass.
 
 ## 6 · What the review changed
 
+**First pass (54 → 70)**
+
 | Fix | Dimension |
 |---|---|
 | Indexes matching the real sorts — `help`'s `COALESCE(updated_at, created_at)` expression index, `activity (created_at DESC, id DESC)`, composites for the thread reads | queries |
@@ -212,6 +331,18 @@ wrong deletes a customer's data. It wants its own design pass.
 | Retention on the exhaust tables, audit tables off by default | lifecycle |
 | A row ceiling inside a cache entry, not just an entry count | client cache |
 | `Range` requests on `/media/*` — seek and resume instead of restart | storage |
+
+**Second pass (70 → 90)**
+
+| Fix | Dimension | §  |
+|---|---|---|
+| The live channel splits across N objects, monotonically, with no client change | fan-out | 3 |
+| `Idempotency-Key` — a retried mutation replays instead of writing twice | atomic | 4.5 |
+| A version predicate on record updates — a stale save is a 409, not a silent overwrite | atomic | 4.5 |
+| Per-caller and per-tenant rate ceilings, both fail-open | surge | 4.6 |
+| Uploads stream to R2 instead of arriving base64 through a 128 MB isolate | storage | 4.7 |
+| A truncated export says so, in its filename | client volume | 4.8 |
+| R23 — a mutation returns the affected ROW, not the collection | queries + client volume | RULES.md |
 
 **Proof for the index work** (`EXPLAIN QUERY PLAN`, real SQLite):
 
@@ -224,3 +355,19 @@ before   SCAN activity                         AFTER   SCAN activity USING COVER
 
 The sort step is gone. A page reads 51 rows off a b-tree instead of scanning and
 sorting the whole table.
+
+---
+
+## 7 · What is still open, and what it is worth
+
+Measured honestly rather than rounded up. Every remaining point is an
+architectural item — the safe and the semi-safe work is done.
+
+| Dimension | Score | Weight | What would move it |
+|---|---|---|---|
+| Data partitioning | 76 | 8 | §5.2 step 2 — move `error_logs` + `agent_usage_log` to their own operations database |
+| File & object storage | 84 | 8 | presigned direct-to-bucket uploads (the worker still relays, though it no longer buffers) + an orphan lifecycle rule |
+| Client data volume | 88 | 9 | list virtualisation — the collection components live in the UI library, so this is surfaced there, never forked here |
+| Query shape | 92 | 13 | the exact `COUNT(*)` R16 requires on every list read is O(n); a maintained counter would fix it and would put R16's exactness at risk |
+| Sequential & atomic | 88 | 11 | the version guard on every update rather than the four record ones |
+| Endpoint stability | 90 | 5 | nothing — this fell deliberately (R21/R23 and the upload wire format changed), and is documented in BASE-IMPROVEMENTS.md |
