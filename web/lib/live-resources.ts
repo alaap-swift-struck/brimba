@@ -35,6 +35,35 @@ export function cursorKey(listKey: string): string {
  * unloaded list is correctly a no-op.
  *
  * `append` puts it at the END instead of the head — for an oldest-first thread. */
+/**
+ * LAW R23's client half: fold the ONE row a mutation handed back into the list
+ * already on screen.
+ *
+ * This is the same move a live ping makes (CACHING rule 3 — patch the changed
+ * row, never refetch the collection). The mutation's own response used to
+ * contradict that rule: it shipped the whole list back, so the acting client
+ * replaced everything it was showing while every OTHER client patched one row.
+ * Two different update paths for the same event, and the expensive one belonged
+ * to the person who was actually waiting.
+ *
+ * A NULL row is meaningful, not missing: it means the record no longer belongs
+ * in this list — removed from the team, deactivated out of the active view — so
+ * the row is DROPPED. That is why the id is passed separately; without it there
+ * would be nothing left to identify what to remove.
+ */
+export async function applyUpdated<T extends Record<string, unknown>>(opts: {
+  listKey: string
+  id: string
+  row: T | null | undefined
+  total?: number
+  totalCacheKey?: string
+  idField?: string
+}): Promise<void> {
+  const { listKey, id, row, total, totalCacheKey, idField = "id" } = opts
+  await patchRow(listKey, idField, id, async () => row ?? null)
+  if (totalCacheKey && typeof total === "number") primeCache(totalCacheKey, total)
+}
+
 export async function applyCreated<T extends Record<string, unknown>>(opts: {
   listKey: string
   created: T | null | undefined

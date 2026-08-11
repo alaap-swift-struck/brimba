@@ -145,6 +145,19 @@ export async function listRoles(
 /** ONE role by id, or null — what a create hands back (R21). Picks from the
  * bounded list read rather than repeating its projection + member-count rollup,
  * so a single row can never differ in shape from a listed one. */
+/** ONE member by user id, or null — what a member mutation hands back (R23).
+ * Picks from the bounded list read so a single row matches a listed one
+ * exactly; null when they are no longer a member, which is precisely what the
+ * client needs to DROP them from the list it is showing. */
+export async function oneMember(
+  env: Env,
+  cfg: D1Rest,
+  guard: MemberGuard,
+  userId: string
+): Promise<TeamMember | null> {
+  return (await listMembers(env, cfg, guard)).find((m) => m.userId === userId) ?? null
+}
+
 export async function oneRole(
   env: Env,
   cfg: D1Rest,

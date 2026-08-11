@@ -18,7 +18,7 @@ import * as React from "react"
 import { toast } from "@swift-struck/ui/registry/primitives/sonner/sonner"
 
 import { content as contentApi, tenancy } from "@/lib/api"
-import { applyCreated, helpKey, totalKey } from "@/lib/live-resources"
+import { applyCreated, applyUpdated, helpKey, totalKey } from "@/lib/live-resources"
 import { invalidate, primeCache } from "@/lib/store"
 import type { LearningFormValues } from "@/components/learning-form-dialog"
 
@@ -29,16 +29,18 @@ export function useScreenActions(teamId: string | null) {
       if (!teamId) return
       switch (actionId) {
         case "members.changeRole": {
-          const { members } = await tenancy.setMemberRole(payload.userId, payload.roleId)
-          primeCache(`members:${teamId}`, members)
+          const { updated } = await tenancy.setMemberRole(payload.userId, payload.roleId)
+          await applyUpdated({ listKey: `members:${teamId}`, id: payload.userId, row: updated, idField: "userId" })
           invalidate(`member_roles:${teamId}`) // member counts per role changed
           invalidate(`activity:user:${payload.userId}`) // their activity feed gained a row
           toast.success("Role updated.")
           break
         }
         case "members.remove": {
-          const { members } = await tenancy.removeMember(payload.userId)
-          primeCache(`members:${teamId}`, members)
+          // A null row is the ANSWER here, not a miss: they are no longer a
+          // member, so patchRow drops them from the list on screen.
+          const { updated } = await tenancy.removeMember(payload.userId)
+          await applyUpdated({ listKey: `members:${teamId}`, id: payload.userId, row: updated, idField: "userId" })
           invalidate(`member_roles:${teamId}`)
           invalidate(`activity:user:${payload.userId}`)
           toast.success("Member removed.")
@@ -57,8 +59,8 @@ export function useScreenActions(teamId: string | null) {
           return created?.id // R22: FormShell opens the new invite
         }
         case "invites.revoke": {
-          const { invites } = await tenancy.revokeInvite(payload.inviteId)
-          primeCache(`invites:${teamId}`, invites)
+          const { updated, total } = await tenancy.revokeInvite(payload.inviteId)
+          await applyUpdated({ listKey: `invites:${teamId}`, id: payload.inviteId, row: updated, total, totalCacheKey: totalKey("invites", teamId) })
           toast.success("Invite revoked.")
           break
         }

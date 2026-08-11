@@ -308,7 +308,7 @@ export const tenancy = {
 
   /** Rename / re-describe a role (not the locked Admin); returns the list. */
   updateRole: (roleId: string, title: string, description: string, expectedVersion?: string | null) =>
-    api<{ roles: TeamRole[] }>("/api/tenancy/roles/update", {
+    api<{ updated: TeamRole | null; total: number }>("/api/tenancy/roles/update", {
       method: "POST",
       body: JSON.stringify({ roleId, title, description, expectedVersion }),
     }),
@@ -316,7 +316,7 @@ export const tenancy = {
   /** Deactivate / reactivate a role (never deleted; holders keep access). Needs
    * member_roles:delete. Returns the refreshed role list. */
   setRoleActive: (roleId: string, active: boolean) =>
-    api<{ roles: TeamRole[] }>("/api/tenancy/roles/active", {
+    api<{ updated: TeamRole | null; total: number }>("/api/tenancy/roles/active", {
       method: "POST",
       body: JSON.stringify({ roleId, active }),
     }),
@@ -339,7 +339,7 @@ export const tenancy = {
 
   /** Rename a dropdown value (its type stays). Needs selectable_data:edit. */
   updateSelectable: (id: string, value: string, expectedVersion?: string | null) =>
-    api<{ values: SelectableValue[] }>("/api/tenancy/selectable/update", {
+    api<{ updated: SelectableValue | null; total: number }>("/api/tenancy/selectable/update", {
       method: "POST",
       body: JSON.stringify({ id, value, expectedVersion }),
     }),
@@ -347,21 +347,21 @@ export const tenancy = {
   /** Deactivate / reactivate a dropdown value (deactivate-only). Needs
    * selectable_data:delete. Returns the refreshed value list. */
   setSelectableActive: (id: string, active: boolean) =>
-    api<{ values: SelectableValue[] }>("/api/tenancy/selectable/active", {
+    api<{ updated: SelectableValue | null; total: number }>("/api/tenancy/selectable/active", {
       method: "POST",
       body: JSON.stringify({ id, active }),
     }),
 
   /** Change a member's role; returns the refreshed member list. */
   setMemberRole: (userId: string, roleId: string) =>
-    api<{ members: TeamMember[] }>("/api/tenancy/members/role", {
+    api<{ updated: TeamMember | null }>("/api/tenancy/members/role", {
       method: "POST",
       body: JSON.stringify({ userId, roleId }),
     }),
 
   /** Remove (deactivate) a member; returns the refreshed member list. */
   removeMember: (userId: string) =>
-    api<{ members: TeamMember[] }>("/api/tenancy/members/remove", {
+    api<{ updated: TeamMember | null }>("/api/tenancy/members/remove", {
       method: "POST",
       body: JSON.stringify({ userId }),
     }),
@@ -378,7 +378,7 @@ export const tenancy = {
 
   /** Revoke ("redact") a pending invite; returns the refreshed invite list. */
   revokeInvite: (inviteId: string) =>
-    api<{ invites: Invite[] }>("/api/tenancy/invites/revoke", {
+    api<{ updated: Invite | null; total: number }>("/api/tenancy/invites/revoke", {
       method: "POST",
       body: JSON.stringify({ inviteId }),
     }),
@@ -443,9 +443,9 @@ export const content = {
   /** `expectedVersion` is the `updated_at` the editor was shown: the write is
    * refused rather than landing on top of a change they never saw. */
   updateLearning: (input: Partial<Learning> & { id: string; expectedVersion?: string | null }) =>
-    api<{ learning: Learning[] }>("/api/content/learning/update", post(input)),
+    api<{ updated: Learning | null; total: number }>("/api/content/learning/update", post(input)),
   setLearningActive: (id: string, active: boolean) =>
-    api<{ learning: Learning[] }>("/api/content/learning/active", post({ id, active })),
+    api<{ updated: Learning | null; total: number }>("/api/content/learning/active", post({ id, active })),
   /** Upload a file for an article (gated by learning:create); get back the served
    * /media URL + its content type.
    *
@@ -477,9 +477,9 @@ export const content = {
   createHelp: (input: { description: string; helpType?: string; sourceScreen?: string }) =>
     api<{ created: HelpTicket | null; total: number; mineTotal: number }>("/api/content/help", post(input)),
   updateHelp: (input: { id: string; description: string; helpType?: string; expectedVersion?: string | null }) =>
-    api<{ tickets: HelpTicket[] }>("/api/content/help/update", post(input)),
+    api<{ updated: HelpTicket | null }>("/api/content/help/update", post(input)),
   setHelpStatus: (id: string, status: HelpTicket["status"]) =>
-    api<{ tickets: HelpTicket[] }>("/api/content/help/status", post({ id, status })),
+    api<{ updated: HelpTicket | null }>("/api/content/help/status", post({ id, status })),
   replyHelp: (helpId: string, body: string, taggedUserIds?: string[]) =>
     api<{ created: HelpMessage | null; total: number }>("/api/content/help/reply", post({ helpId, body, taggedUserIds })),
   helpStakeholders: (id: string) =>

@@ -42,6 +42,7 @@ import { auditItems } from "@/lib/audit-overview"
 import { formatActivityWhen, formatRelative } from "@/lib/format"
 import { personName } from "@/lib/identity"
 import { usePermissions } from "@/lib/perms"
+import { applyUpdated, totalKey } from "@/lib/live-resources"
 import { invalidate, primeCache, useCached, useCachedValue } from "@/lib/store"
 import { formatCount } from "@/lib/format-count"
 import { HelpFormDialog } from "@/components/help-form-dialog"
@@ -118,8 +119,8 @@ export function HelpDetailScreen({
   async function changeStatus(next: HelpStatusValue) {
     setStatusBusy(true)
     try {
-      const { tickets } = await content.setHelpStatus(helpId, next)
-      primeCache(`help:${teamId}`, tickets)
+      const { updated } = await content.setHelpStatus(helpId, next)
+      await applyUpdated({ listKey: `help:${teamId}`, id: helpId, row: updated })
       invalidate(`activity:record:help:${helpId}`)
       toast.success("Status updated.")
     } catch (err) {
@@ -130,13 +131,14 @@ export function HelpDetailScreen({
   }
 
   async function editTicket(input: { description: string; helpType?: string }) {
-    const { tickets } = await content.updateHelp({
+    const { updated } = await content.updateHelp({
       id: helpId,
       description: input.description,
       helpType: input.helpType,
       expectedVersion: ticket?.updatedAt ?? null,
     })
-    primeCache(`help:${teamId}`, tickets)
+    // R23: one row back, patched in (CACHING rule 3) — not the whole page.
+    await applyUpdated({ listKey: `help:${teamId}`, id: helpId, row: updated })
     invalidate(`activity:record:help:${helpId}`)
     toast.success("Ticket updated.")
   }

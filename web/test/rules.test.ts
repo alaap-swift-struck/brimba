@@ -15,6 +15,7 @@ import {
   CREATE_OPENS_RECORD,
   CREATE_OPENS_RECORD_EXEMPT,
   CREATE_RETURNS_EXEMPT,
+  MUTATION_RETURNS_EXEMPT,
   DEAF_EXEMPT,
   FORM_DIALOGS,
   GROWING_COLLECTIONS,
@@ -416,6 +417,61 @@ describe("RULES — the laws of the base", () => {
     expect(offenders, `a create door returned a collection (R21): ${offenders.join("; ")}`).toEqual([])
   })
 
+  // R23 — a MUTATION door returns the affected row, never the collection.
+  //
+  // R21 established this for creates and stopped there. Every edit, status and
+  // deactivate door still handed back the whole capped list: a full list read
+  // plus a COUNT on the server, and the entire collection over the wire, to
+  // change one row. Worse, it contradicted the rule this base enforces
+  // everywhere else — a live ping makes every OTHER client patch the single
+  // changed row (CACHING rule 3), while the client that did the work replaced
+  // everything it was showing. Two update paths for one event, and the
+  // expensive one belonged to the person actually waiting for it.
+  //
+  // What is banned is the COLLECTION, not "anything that isn't a row": a bulk
+  // door honestly returns `{ updated, skipped }` and a toggle may return
+  // `{ ok: true }`. Both are fine — neither ships a list.
+  //
+  // DERIVED FROM THE GATE, like R21: a mutation door is a route opening on the
+  // `edit` or `delete` right, so a new module is covered the moment it is gated.
+  it("mutation-returns-row: an edit/deactivate door returns the affected row, never the collection", () => {
+    const offenders: string[] = []
+    const seen = new Set<string>()
+    const namedMutators: string[] = []
+    for (const [path, src] of workerSources()) {
+      if (!path.includes("/src/routes/")) continue
+      for (const n of src.matchAll(/export async function (postUpdate\w+|postSet\w+Active)/g))
+        namedMutators.push(n[1])
+      const re = /export async function (\w+)\s*\(/g
+      let m: RegExpExecArray | null
+      while ((m = re.exec(src))) {
+        const name = m[1]
+        const body = stripComments(declarationBody(src, m.index))
+        // Same shape as R21's gate scan — `gatedBody` carries a type argument at
+        // most call sites, and a scan blind to that skips nearly every door.
+        if (!/(?:gatedBody|gated|requireRight)(?:<[^(<>]*>)?\([^)]*"(?:edit|delete)"\s*\)/.test(body))
+          continue
+        if (MUTATION_RETURNS_EXEMPT[name]) continue
+        seen.add(name)
+        if (/:\s*await\s+(?:list|search)\w*\(/.test(body) || /return\s+\w*Page\(/.test(body))
+          offenders.push(`${path} → ${name} hands back a COLLECTION (return the affected row + its exact total)`)
+      }
+    }
+    // The same two-signal tripwire R21 uses. A handler named postUpdate* or
+    // postSet*Active is a mutation door by construction; the scan finds doors by
+    // their GATE. If the gate regex quietly stops matching, the name-derived
+    // list catches it instead of the check reporting all clear.
+    expect(
+      namedMutators.length,
+      "no postUpdate*/postSet*Active handlers found at all — the scan has gone blind"
+    ).toBeGreaterThan(3)
+    expect(
+      namedMutators.filter((n) => !seen.has(n) && !MUTATION_RETURNS_EXEMPT[n]),
+      "these handlers are named like mutation doors but the gate-derived scan never saw them — the scan is blind to some of the doors it is meant to cover"
+    ).toEqual([])
+    expect(offenders, `a mutation door returned a collection (R23): ${offenders.join("; ")}`).toEqual([])
+  })
+
   // R20 — every navigable destination resolves in a FRESH TAB. This app is a
   // static export: `/<segment>` only exists if a page source emits it, and a
   // sub-path like `/<segment>/<id>` only resolves if the gateway serves that
@@ -728,6 +784,7 @@ describe("RULES — the laws of the base", () => {
       "static-destinations", // R20: the page + gateway-shell scan above
       "create-returns-row", // R21: the create-door response scan above
       "create-opens-record", // R22: the form-seam scan above
+      "mutation-returns-row", // R23: the mutation-door response scan above
     ])
     for (const r of RULES_REGISTRY) {
       if (r.status === "enforced")

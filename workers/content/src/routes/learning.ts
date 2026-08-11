@@ -83,7 +83,8 @@ export async function postUpdateLearning(request: Request, env: Env): Promise<Re
   requireText(body.title, "Title", TEXT_LIMITS.short)
   await updateLearning(cfg, guard, actor, body.id, body, body.expectedVersion)
   await publishChange(env.REALTIME, guard.teamId, "learning", body.id)
-  return json({ learning: await listLearning(cfg, guard), total: await countLearning(cfg, guard) })
+  // R23: the AFFECTED ROW, never the collection — see RULES.md.
+  return json({ updated: await oneLearning(cfg, guard, body.id), total: await countLearning(cfg, guard) })
 }
 
 /** Deactivate / reactivate a learning item — never deleted (progress survives).
@@ -95,7 +96,8 @@ export async function postSetLearningActive(request: Request, env: Env): Promise
   // R17: no-op repeat → no ping, no duplicate history (see setLearningActive).
   const changed = await setLearningActive(cfg, guard, actor, body.id, body.active)
   if (changed) await publishChange(env.REALTIME, guard.teamId, "learning", body.id)
-  return json({ learning: await listLearning(cfg, guard), total: await countLearning(cfg, guard) })
+  // R23: the AFFECTED ROW, never the collection — see RULES.md.
+  return json({ updated: await oneLearning(cfg, guard, body.id), total: await countLearning(cfg, guard) })
 }
 
 /** Deactivate / reactivate MANY learning items in one call (the bulk sibling of

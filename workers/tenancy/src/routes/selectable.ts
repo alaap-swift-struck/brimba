@@ -58,7 +58,8 @@ export async function postUpdateSelectable(request: Request, env: Env): Promise<
   const value = requireText(body.value, "Option", TEXT_LIMITS.short)
   await updateSelectable(cfg, guard, actor, body.id, value, body.expectedVersion)
   await publishChange(env.REALTIME, guard.teamId, "selectable_data", body.id)
-  return json({ values: await listSelectable(cfg, guard), total: await countSelectable(cfg, guard) })
+  // R23: the AFFECTED ROW, never the collection — see RULES.md.
+  return json({ updated: await oneSelectable(cfg, guard, body.id), total: await countSelectable(cfg, guard) })
 }
 
 export async function postSetSelectableActive(request: Request, env: Env): Promise<Response> {
@@ -68,5 +69,6 @@ export async function postSetSelectableActive(request: Request, env: Env): Promi
   // R17: no-op repeat → no ping, no duplicate history (see setSelectableActive).
   const changed = await setSelectableActive(cfg, guard, actor, body.id, body.active)
   if (changed) await publishChange(env.REALTIME, guard.teamId, "selectable_data", body.id)
-  return json({ values: await listSelectable(cfg, guard), total: await countSelectable(cfg, guard) })
+  // R23: the AFFECTED ROW, never the collection — see RULES.md.
+  return json({ updated: await oneSelectable(cfg, guard, body.id), total: await countSelectable(cfg, guard) })
 }
