@@ -10,6 +10,42 @@ Keep this current: when an item ships, move it to **Fixed** with the commit.
 
 ---
 
+## Fixed (2026-08-11) — SEVEN findings ported back from the Inventory build (Acrymold ERP)
+
+A fork building its Inventory module hit seven faults. Every one was **base** code,
+so every future app inherited them. Each landed as its own commit so a fork can
+cherry-pick. Three became new laws. 411 tests.
+
+| # | Issue | Fix |
+|---|---|---|
+| 1 | **The client cache had no ceiling.** `new Map()` with no cap and no eviction — entries left only on `invalidate`, so memory grew with everything a session had ever opened. | A bounded LRU (`MAX_ENTRIES = 500`). "Used" = WRITTEN, not read. An entry with a live subscriber is NEVER evicted, nor is a paged list's `cursor:` sidecar while its list is mounted. Soft ceiling: blanking a mounted screen is worse than exceeding a budget. Fixed the second unbounded map too (an empty subscriber `Set` per key, for ever). |
+| 2 | **The importer ignored a target door's own row cap.** Parcels were packed to the global ceiling; a door that caps lower refuses an oversized parcel WHOLE, so a 400-row import failed 400 rows and read like 400 bad rows. | `TargetDef.bulk = { path, maxRows? }`; `parcelSize()` takes the MINIMUM of the two. A refused parcel is ONE rejection carrying `scope: "parcel"` + `rows: n` — the report separates "400 rows not imported" from "1 problem". |
+| 3 | **Columns declared no VOCABULARY.** The agent normalised casing but not words: "Received" → "received" when the legal word was "receipt" — and the plan couldn't predict the rejection, so it promised 423 and delivered 14. | `ImportColumn.values` + `.aliases`, resolved in three passes (exact → declared alias → the agent), cheapest and most certain first. The model proposes; it can never widen the vocabulary. Resolution lives in `scanRows`, the one scan backing both plan and run, so the plan cannot over-promise. |
+| 4 | **Nothing checked that a sidebar section had a page.** A static export 404s a section with no page — invisible from inside the app, because the client router never leaves the page. Three modules in one fork shipped this. | **LAW R20**, derived from the nav registries. It also caught the two OTHER hand-lists the same section needs: the gateway's `MODULE_SHELLS` and `TOP_LEVEL_MODULES` (without which soft nav is a full RELOAD). Three lists, three workspaces, one check. |
+| 5 | **A create returned a list.** Every create door answered with its whole (capped) collection — up to a thousand rows to create one, and still no way to learn the new id. | **LAW R21**, derived from the `create` gate: `{ created, total }`, patched in client-side through the one `applyCreated` seam. All six doors fixed (including the help REPLY). `POST /teams` is genuinely different and stays as it is — it returns your new active context, because creating a team switches you into it. |
+| 6 | **Owner's decision, 2026-08-11: a create should OPEN the new record.** | **LAW R22**, in the shared form seam (`FormShell`'s `opensRecord`), so a module declares one prop instead of every screen remembering. Exceptions named per table. |
+| 7 | **A law satisfied by a variable NAME.** R14's scan asked "does the token LIMIT appear in this body?" — which a constant called `BULK_IDS_LIMIT` answered for free, waving through an unbounded read. | The bound must be in the **statement**: every SQL literal that SELECTs carries its own LIMIT. Delegation isn't flagged (it has no SELECT literal). Found and capped two genuinely unbounded reads the old scan had been passing. |
+
+**BREAKING for anything already on the base** — the two to read before you pull:
+
+1. **The five create doors changed shape.** `POST` to roles / invites / dropdown
+   values / learning / help now answers `{ created, total }` (+ `emailSent`,
+   `mineTotal`) instead of `{ roles: [...] }` etc. A fork's client doing
+   `const { roles } = await createRole(...)` gets `undefined`. Replace the prime
+   with `applyCreated({ listKey, created, total, totalCacheKey })` — see
+   CACHING.md §7. The help REPLY door changed the same way (`{ created, total }`).
+2. **A create through a form now navigates.** Every `FORM_DIALOGS` entry must
+   appear in `CREATE_OPENS_RECORD` or `CREATE_OPENS_RECORD_EXEMPT`, and a create
+   dialog must `return createdId` and guard its own close with
+   `if (!createdId) onOpenChange(false)` — the host's close is `router.back()`,
+   which is asynchronous and will otherwise pop straight back off the new record.
+
+A smaller one: a newly created row now appears at the **head** of its list for the
+creator rather than in sort position — which is what the live "add" ping already
+did for every other viewer. Everyone now sees the same thing.
+
+---
+
 ## Fixed (2026-08-04, final) — four findings ported back FROM the downstream product
 
 The fork shipped its side and sent four findings back. Three were live here too;

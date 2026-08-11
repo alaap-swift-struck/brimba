@@ -561,6 +561,7 @@ LAYER 3 — worker handler  (workers/content/src/{lib,routes}/<module>.ts + inde
 [ ] Deactivate/reactivate handler (stamp/clear deactivator_*), fetch-or-404 first
 [ ] logActivity(...) with relatedTable/relatedRowId on state changes
 [ ] Route handlers: teamContext → requireRight(module, right) → validate → lib → publishChange → json
+[ ] CREATE door returns the CREATED ROW, never the list: json({ created: await one<Module>(...), total }) — R21
 [ ] publishChange(env.REALTIME, teamId, "<module>", id, op) after EVERY mutation (R1); one ping per row for bulk
 [ ] Add each route to ROUTES with kind read | mutation | housekeeping
 
@@ -571,7 +572,11 @@ LAYER 4 — web client + screen
 [ ] web/components/deep-link/shape.ts: add shape<Module>List (name/detail + facet columns)
 [ ] deep-link-screen.tsx: useCached read (key "<module>:${teamId}") + list branch + detail branch
 [ ] deep-link-screen.tsx: add the cache key to loadedByCacheKey (R8 badge); create handler primes the cache
-[ ] (top-level URL?) add to TOP_LEVEL_MODULES + the gateway shell loop
+[ ] (a SIDEBAR section? R20 — THREE lists, all three or it 404s/reloads:)
+      [ ] web/app/<segment>/[[...rest]]/page.tsx        — or /<segment> 404s in a fresh tab
+      [ ] MODULE_SHELLS in workers/gateway/src/index.ts — or /<segment>/<id> 404s in a fresh tab
+      [ ] TOP_LEVEL_MODULES in web/components/deep-link/route.ts — or soft nav RELOADS the page
+[ ] After a create, patch the row in via applyCreated(...) — never re-pull the list (R21)
 
 LAYER 5 — record detail  (web/components/<module>-detail.tsx)
 [ ] Bespoke detail renders TabsView + Overview (DescriptionList via auditItems) + Activity (ActivityFeed) — R2
@@ -581,6 +586,8 @@ LAYER 5 — record detail  (web/components/<module>-detail.tsx)
 LAYER 6 — tests + ship
 [ ] Register "<module>-detail" in RECORD_DETAIL_COMPONENTS (shared/rules/registry.ts) — R2 check
 [ ] (form dialog?) register in FORM_DIALOGS; build on FormShell + useFormDraft — R4/R7
+[ ] (form dialog?) decide R22: CREATE_OPENS_RECORD (pass opensRecord + `return createdId`,
+      and guard the close with `if (!createdId)`) OR a reasoned CREATE_OPENS_RECORD_EXEMPT line
 [ ] Add a unit test for the lib's business rules
 [ ] npm run check is GREEN
 
@@ -598,6 +605,10 @@ AFTER SHIP
 - **`body.field.trim()` without `requireText`/`optionalText`.** A non-string 500s;
   bad input must be a 400 (locked by validate.test.ts).
 - **A detail without Overview + Activity tabs.** Fails `record-detail-tabs` (R2).
+- **A create door returning `list<Module>()`.** Fails `create-returns-row` (R21) —
+  return the created row and its exact total; the client patches that one row in.
+- **A sidebar entry with no page behind it.** Fails `static-destinations` (R20).
+  It will look perfect until somebody opens the url in a new tab.
 - **A per-module activity query.** Read history only via the generic `record` path (R5).
 - **A collection tab with a hand-listed count.** Declare a `countCacheKey` (R8).
 - **Refetching the whole list on a change.** Row-level live-sync only. (CACHING.md.)
@@ -605,7 +616,7 @@ AFTER SHIP
   existing worker; the library is lego you assemble, not fork. (CLAUDE.md.)
 ```
 
-## The hardening checklist (R13–R19 — a new module must satisfy these)
+## The hardening checklist (R13–R22 — a new module must satisfy these)
 Beyond the golden path, a module that ships without these turns the build red:
 
 - **Import story (R13):** declare a `TargetDef` in `workers/data-ops/src/lib/targets.ts`
@@ -631,3 +642,18 @@ Beyond the golden path, a module that ships without these turns the build red:
   `ACTIVITY_GATE_MAP` (or a pinned `ACTIVITY_TABLE_EXEMPT` reason).
 - **Filter parity (R19):** any GET agent/MCP tool exposes + forwards every param
   its door parses.
+- **Reachable in a fresh tab (R20):** a SIDEBAR section needs all THREE — its
+  `web/app/<segment>/[[...rest]]/page.tsx`, an entry in the gateway's
+  `MODULE_SHELLS`, and one in `TOP_LEVEL_MODULES`. Each lives in a different
+  workspace and each failure is invisible from inside the app: clicking the nav
+  always works, because the client router never leaves the page. You find out
+  when somebody pastes the url — or, for the third one, when the whole shell
+  reloads mid-session. The check derives all three from the nav registries.
+- **A create returns the created ROW (R21):** `{ created, total }`, not the
+  collection — and the client patches it in with `applyCreated`. Derived from the
+  `create` gate, so your door is covered the moment it is gated.
+- **A create through a form OPENS the record (R22):** pass `opensRecord` to
+  `FormShell`, `return createdId` from the dialog's submit, and guard its close
+  with `if (!createdId)` — the navigation IS the close. If the table genuinely
+  shouldn't open (an accessory row with no detail screen), say so in
+  `CREATE_OPENS_RECORD_EXEMPT` with the reason.

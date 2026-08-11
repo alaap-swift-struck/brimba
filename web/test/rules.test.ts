@@ -456,15 +456,34 @@ describe("RULES — the laws of the base", () => {
         `/${s.segment} needs the catch-all shell (web/app/${s.segment}/[[...rest]]/page.tsx) — a record url like /${s.segment}/<id> has nothing to resolve it`
       ).toBe(true)
 
-    // (c) …and the gateway must serve that shell for those sub-paths.
-    const gateway = read(join(ROOT, "workers", "gateway", "src", "index.ts"))
-    const declared = /const MODULE_SHELLS = \[([^\]]*)\]/.exec(gateway)
+    // (c) …and the client's route parser must know the path is IN-APP. A path
+    // missing from TOP_LEVEL_MODULES makes `isInAppPath` false, so softNavigate
+    // hands it to the framework router — which, in a static export, is a full
+    // page RELOAD: the shell tears down, the cache empties, a running agent dies.
+    // Same failure family as (a) and (b): invisible from a click, three separate
+    // lists in three workspaces, and nothing tied them together until now.
+    const inApp = read(join(WEB, "components", "deep-link", "route.ts"))
+    const declared = /TOP_LEVEL_MODULES = \[([^\]]*)\]/.exec(inApp)
     expect(
       declared,
+      "TOP_LEVEL_MODULES could not be found — it was renamed and this third of the check went blind"
+    ).not.toBeNull()
+    const inAppPaths = [...declared![1].matchAll(/"([^"]+)"/g)].map((m) => m[1])
+    for (const seg of [...NAV.map((n) => n.slug), ...sidebar.map((s) => s.segment)])
+      expect(
+        inAppPaths,
+        `"${seg}" is a rail destination but isn't in TOP_LEVEL_MODULES — navigating to it would RELOAD the page instead of swapping the screen`
+      ).toContain(seg)
+
+    // (d) …and the gateway must serve that shell for those sub-paths.
+    const gateway = read(join(ROOT, "workers", "gateway", "src", "index.ts"))
+    const shells = /const MODULE_SHELLS = \[([^\]]*)\]/.exec(gateway)
+    expect(
+      shells,
       "the gateway's MODULE_SHELLS list could not be found — it was renamed and this half of the check went blind"
     ).not.toBeNull()
     expect(
-      [...declared![1].matchAll(/"([^"]+)"/g)].map((m) => m[1]).sort(),
+      [...shells![1].matchAll(/"([^"]+)"/g)].map((m) => m[1]).sort(),
       "the gateway serves a different set of module shells than the sidebar declares — a /<segment>/<id> url will 404 in a fresh tab"
     ).toEqual(sidebar.map((s) => s.segment).sort())
   })
