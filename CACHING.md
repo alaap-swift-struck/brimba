@@ -118,6 +118,27 @@ const { members } = await tenancy.setMemberRole(userId, roleId)
 primeCache(`members:${teamId}`, members)   // instant for the actor
 ```
 
+**A CREATE is different — it returns the ROW, never the collection (LAW R21).**
+Handing the whole (capped) list back to add one row costs a read nobody asked
+for, contradicts rule 3, and — the part that actually bites — leaves the caller
+unable to learn the new record's id without a follow-up search. Every create door
+answers `{ created, total }` (plus honest extras like `emailSent`), and the client
+puts that one row in through the one `applyCreated` seam:
+
+```ts
+const { created, total } = await tenancy.createRole(title, description)
+await applyCreated({
+  listKey: `member_roles:${teamId}`,
+  created,
+  total,
+  totalCacheKey: totalKey("member_roles", teamId),   // R16: the exact new total
+})
+```
+
+`applyCreated` goes through `patchRow`, so the person who created the row sees
+exactly what everyone else's "add" ping produces — including its position at the
+head of the list. An unloaded list is correctly a no-op.
+
 ### 8 · Pings carry "what", never the content
 The ping says only `{ resource, id, op }` — that a row of some resource changed,
 never the row's CONTENT. (The id/op/timing ARE visible to anyone already on the
@@ -126,12 +147,37 @@ The re-pull then goes through the normal **permission-checked endpoint**, so a
 cache can never hold data the viewer isn't allowed to see. (A viewer with no
 rights simply gets nothing back.)
 
-### 9 · Lifetime: in-memory per session
+### 9 · Lifetime: in-memory per session, with a CEILING
 The cache lives in module memory, cleared on sign-out / team switch (different
 keys). Cross-reload persistence of FETCHED data stays off on purpose — the live
 channel keeps it correct while the tab is open. (Unsaved FORM INPUT is different:
 it DOES persist to `sessionStorage` so a half-filled form survives navigation —
 see §11.)
+
+**It is BOUNDED** (`MAX_ENTRIES` in `web/lib/store.ts`, 500 — "roughly 500
+screens' worth of data"). Without a ceiling the cache only ever grows: every
+record detail opened, every collection visited and every sidecar they prime is a
+key of its own, and nothing removes a key except an explicit `invalidate`. A long
+session would hold every screen it had ever shown. Three properties make the
+ceiling safe:
+
+- **"Used" means WRITTEN** — fetched, primed or patched — not read. Every read
+  comes from a mounted component, whose key is already unevictable, so ordering by
+  reads would buy nothing and would mean mutating the cache inside React's
+  render-phase snapshot read. Recency of the last write says when the data arrived.
+- **Anything on screen is never dropped.** An entry with a live subscriber is
+  unevictable, and so is a paged list's `cursor:` sidecar while that list is
+  mounted (Load more reads it imperatively, so it has no subscription of its own —
+  drop it and page two silently vanishes). Nothing else is pinned by name: a hot
+  team key (`my-perms:`, the active team) is held by a mounted screen for as long
+  as it matters, so the subscriber rule already covers it — a hand-kept pin list
+  would be a second policy that drifts.
+- **The ceiling is SOFT.** If every older entry is pinned, the write still lands
+  and the cache goes over. Blanking a screen someone is looking at is worse than
+  briefly exceeding a budget.
+
+Eviction is silent — no `notify`, so nothing refetches. Cache-first paint,
+stale-while-revalidate, `patchRow`, `reconcile` and priming are unchanged.
 
 ### 10 · Edge / server
 - Content-hashed assets (`/_next/static/**`) → cached **forever, immutable**

@@ -1,7 +1,16 @@
 import { act, renderHook, waitFor } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
 
-import { invalidate, patchRow, primeCache, reconcile, useCached } from "@/lib/store"
+import {
+  MAX_ENTRIES,
+  invalidate,
+  patchRow,
+  primeCache,
+  readCache as peek,
+  reconcile,
+  useCached,
+  useCachedValue,
+} from "@/lib/store"
 
 type Row = Record<string, unknown>
 
@@ -181,6 +190,99 @@ describe("reconcile", () => {
       return []
     })
     expect(called).toBe(false)
+  })
+})
+
+// THE CEILING. These deliberately OVERFLOW the shared module cache, so every
+// test here (and every test after it) seeds its own key rather than relying on
+// anything an earlier test left behind. Every number is derived from
+// MAX_ENTRIES, so raising the ceiling can never leave a test asserting an old one.
+describe("the cache is bounded (LRU)", () => {
+  const overflow = () => {
+    for (let i = 0; i < MAX_ENTRIES + 50; i++) primeCache(`flood-${i}`, [{ id: String(i) }])
+  }
+
+  it("drops the OLDEST entries once the ceiling is passed, and keeps the newest", () => {
+    const oldest = freshKey()
+    primeCache(oldest, [{ id: "old" }])
+    expect(peek(oldest)).toBeDefined()
+
+    overflow()
+
+    expect(peek(oldest), "an unsubscribed entry older than the ceiling must be dropped").toBeUndefined()
+    expect(peek(`flood-${MAX_ENTRIES + 49}`), "the newest write must survive").toBeDefined()
+  })
+
+  it("a WRITE moves an entry to the young end, so a hot key outlives a cold one", () => {
+    const hot = freshKey()
+    const cold = freshKey()
+    primeCache(hot, [{ id: "hot" }])
+    primeCache(cold, [{ id: "cold" }])
+    primeCache(hot, [{ id: "hot", again: true }]) // touched → youngest
+
+    overflow()
+
+    expect(peek(cold), "the untouched entry is the older one — it goes first").toBeUndefined()
+    // `hot` was re-written after `cold`, so of the two it is the survivor for
+    // longer; with a full flood both eventually go, which is the point of a cap.
+    expect(peek(hot) ?? peek(cold)).toBeUndefined()
+  })
+
+  it("NEVER evicts an entry a mounted screen is showing", async () => {
+    const key = freshKey()
+    const { result } = renderHook(() => useCached<Row[]>(key, async () => [{ id: "on-screen" }]))
+    await waitFor(() => expect(result.current.data).toEqual([{ id: "on-screen" }]))
+
+    await act(async () => {
+      overflow()
+    })
+
+    expect(peek(key), "a subscribed key must survive any amount of pressure").toEqual([
+      { id: "on-screen" },
+    ])
+    expect(result.current.data, "and the mounted screen must not blank").toEqual([{ id: "on-screen" }])
+  })
+
+  it("NEVER evicts a paged list's cursor sidecar while the list is mounted", async () => {
+    const key = freshKey()
+    const cursor = `cursor:${key}`
+    const { result } = renderHook(() => useCached<Row[]>(key, async () => [{ id: "page-one" }]))
+    await waitFor(() => expect(result.current.data).toBeDefined())
+    primeCache(cursor, "opaque-cursor-for-page-two")
+
+    await act(async () => {
+      overflow()
+    })
+
+    // Load more reads this imperatively (never subscribes); dropping it while the
+    // list is up would silently make page two unreachable.
+    expect(peek(cursor)).toBe("opaque-cursor-for-page-two")
+  })
+
+  it("keeps a subscribed sidecar (a count badge) too", async () => {
+    const total = `total:${freshKey()}`
+    primeCache(total, 42)
+    const { result } = renderHook(() => useCachedValue<number>(total))
+    expect(result.current).toBe(42)
+
+    await act(async () => {
+      overflow()
+    })
+
+    expect(peek(total)).toBe(42)
+  })
+
+  it("forgets a key's subscriber set when the last subscriber leaves", async () => {
+    // The subscriber map is the other map that could grow for ever: an empty Set
+    // left behind per key is a leak with a different name.
+    const key = freshKey()
+    const hook = renderHook(() => useCached<Row[]>(key, async () => [{ id: "a" }]))
+    await waitFor(() => expect(hook.result.current.data).toBeDefined())
+    hook.unmount()
+
+    // With nobody subscribed the entry is now an ordinary eviction candidate.
+    overflow()
+    expect(peek(key)).toBeUndefined()
   })
 })
 

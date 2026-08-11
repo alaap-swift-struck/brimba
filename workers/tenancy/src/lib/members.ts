@@ -67,7 +67,9 @@ export async function listMembers(
   const roles = await d1Query<RoleRow>(
     cfg,
     guard.databaseId,
-    "SELECT id, title, is_default FROM member_roles"
+    // R14 hard cap — the same one listRoles reads under, so the title map can
+    // never cover fewer roles than the roles screen itself shows.
+    `SELECT id, title, is_default FROM member_roles LIMIT ${LIST_HARD_CAP}`
   )
   const roleById = new Map(roles.map((r) => [r.id, r]))
 
@@ -138,6 +140,18 @@ export async function listRoles(
     updatedAt: r.updated_at,
     editedByName: r.editor_name,
   }))
+}
+
+/** ONE role by id, or null — what a create hands back (R21). Picks from the
+ * bounded list read rather than repeating its projection + member-count rollup,
+ * so a single row can never differ in shape from a listed one. */
+export async function oneRole(
+  env: Env,
+  cfg: D1Rest,
+  guard: MemberGuard,
+  id: string
+): Promise<TeamRole | null> {
+  return (await listRoles(env, cfg, guard)).find((r) => r.id === id) ?? null
 }
 
 /** The membership row for a target user (active only), with their identity

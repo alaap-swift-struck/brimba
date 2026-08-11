@@ -213,6 +213,8 @@ code. The UI laws:
 | **R6** | Product terms live in **ONE glossary** — the app speaks one dictionary. | `glossary-wellformed` |
 | **R7** | Every form dialog persists its draft per session (**`useFormDraft`**). | `forms-persist-drafts` |
 | **R8** | Every team collection tab derives its **count from its loaded rows** (declares a `countCacheKey`). | `tab-counts-derived` |
+| **R20** | Every navigable destination **resolves in a fresh tab** — a page source AND the gateway's module shell, both derived from the nav registries. | `static-destinations` |
+| **R22** | **Creating a master record through a form opens that record** — in the shared form seam, not per screen. | `create-opens-record` |
 
 (`R1` and `R5` are the arch/data laws — mutations publish a live change; activity is
 read through one generic path — covered in CACHING.md / DATA-MODEL.md. `R5`'s web half
@@ -281,6 +283,48 @@ Inside a `FormShell`, each field is a library `<Field>` with `className={fieldSp
 (a touch more label→input air than the library default). Pass the title as a
 `<DialogTitle>` and the subtitle as a `<DialogDescription>` so Radix Dialog
 accessibility stays intact.
+
+### R22 — a create OPENS the new record
+
+**Owner's decision, 2026-08-11.** When someone creates a **master record** through a
+form, the app opens that record's **detail screen** as soon as the row is submitted.
+You made a thing; you should be looking at the thing. Every module, by default.
+
+It lives in the **shared form seam**, so a module gets it by declaring one prop rather
+than each screen remembering to navigate — which is exactly how one module ends up
+behaving differently from the rest:
+
+```tsx
+<FormShell
+  onSubmit={submit}                                     // resolves with the new id…
+  opensRecord={isEdit ? null : { segment: "learning", teamId }}   // …FormShell opens it
+  …
+/>
+```
+
+Three pieces make it work, and the check asserts all three:
+
+1. **The door hands back the id** — that is LAW R21 (`{ created, total }`). You cannot
+   open a record you can't name, which is why R22 depends on R21.
+2. **The dialog resolves with it** — `return createdId` from its `submit`. An EDIT
+   resolves with nothing, and a failed submit throws, so neither navigates: the dialog
+   stays open showing why.
+3. **`FormShell` navigates** — `openRecord(segment, teamId, id)` → `softNavigate`, so it
+   is a History-API move inside the one shell, never a reload (CACHING.md).
+
+**Scope.** It applies to master records created deliberately through a form container —
+**not** to accessory or child rows created as a side effect (a reply, a stakeholder, a
+dropdown value the form auto-creates behind a picker).
+
+**Exceptions are named per table, never assumed.** Every entry in `FORM_DIALOGS` must
+appear in exactly one of `CREATE_OPENS_RECORD` or `CREATE_OPENS_RECORD_EXEMPT`
+(`shared/rules/registry.ts`), and an exemption must say *why*. "Nobody decided" and
+"we decided not to" must not look the same. Today's exceptions:
+
+| Table | Why it doesn't open |
+|---|---|
+| `selectable_data` (dropdown values) | An accessory row, managed inline in its own list — there is no detail screen to open. |
+| `teams` (the team edit form) | An EDIT form, not a create. (Creating a team switches you into it — you land on the team's own screen by a different mechanism.) |
 
 ### R6 — the glossary is the single source of terms
 

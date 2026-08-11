@@ -290,9 +290,9 @@ export const tenancy = {
       body: JSON.stringify({ roleId, value }),
     }),
 
-  /** Create a new role (starts with no rights); returns the refreshed list. */
+  /** Create a new role (starts with no rights); returns the CREATED ROW (R21). */
   createRole: (title: string, description: string) =>
-    api<{ roles: TeamRole[] }>("/api/tenancy/roles", {
+    api<{ created: TeamRole | null; total: number }>("/api/tenancy/roles", {
       method: "POST",
       body: JSON.stringify({ title, description }),
     }),
@@ -321,9 +321,9 @@ export const tenancy = {
     ),
 
   /** Add a dropdown value to a type group (pick-or-create the type). Needs
-   * selectable_data:create. Returns the refreshed value list. */
+   * selectable_data:create. Returns the CREATED ROW (R21). */
   createSelectable: (type: string, value: string) =>
-    api<{ values: SelectableValue[] }>("/api/tenancy/selectable", {
+    api<{ created: SelectableValue | null; total: number }>("/api/tenancy/selectable", {
       method: "POST",
       body: JSON.stringify({ type, value }),
     }),
@@ -360,9 +360,9 @@ export const tenancy = {
   /** Every invite for the active team (pending / accepted / revoked / expired). */
   invites: () => api<{ invites: Invite[]; total: number }>("/api/tenancy/invites"),
 
-  /** Invite someone by email to a role; returns the refreshed invite list. */
+  /** Invite someone by email to a role; returns the CREATED ROW (R21). */
   createInvite: (email: string, roleId: string) =>
-    api<{ invites: Invite[] }>("/api/tenancy/invites", {
+    api<{ emailSent: boolean; created: Invite | null; total: number }>("/api/tenancy/invites", {
       method: "POST",
       body: JSON.stringify({ email, roleId }),
     }),
@@ -430,7 +430,7 @@ export const content = {
   learningOne: (id: string) =>
     api<{ learning: Learning[] }>(`/api/content/learning?id=${enc(id)}`).then((r) => r.learning[0] ?? null),
   createLearning: (input: Partial<Learning>) =>
-    api<{ learning: Learning[] }>("/api/content/learning", post(input)),
+    api<{ created: Learning | null; total: number }>("/api/content/learning", post(input)),
   updateLearning: (input: Partial<Learning> & { id: string }) =>
     api<{ learning: Learning[] }>("/api/content/learning/update", post(input)),
   setLearningActive: (id: string, active: boolean) =>
@@ -458,13 +458,13 @@ export const content = {
   helpThread: (id: string) =>
     api<{ replies: HelpMessage[]; total: number }>(`/api/content/help/thread?id=${enc(id)}`),
   createHelp: (input: { description: string; helpType?: string; sourceScreen?: string }) =>
-    api<{ tickets: HelpTicket[] }>("/api/content/help", post(input)),
+    api<{ created: HelpTicket | null; total: number; mineTotal: number }>("/api/content/help", post(input)),
   updateHelp: (input: { id: string; description: string; helpType?: string }) =>
     api<{ tickets: HelpTicket[] }>("/api/content/help/update", post(input)),
   setHelpStatus: (id: string, status: HelpTicket["status"]) =>
     api<{ tickets: HelpTicket[] }>("/api/content/help/status", post({ id, status })),
   replyHelp: (helpId: string, body: string, taggedUserIds?: string[]) =>
-    api<{ replies: HelpMessage[]; total: number }>("/api/content/help/reply", post({ helpId, body, taggedUserIds })),
+    api<{ created: HelpMessage | null; total: number }>("/api/content/help/reply", post({ helpId, body, taggedUserIds })),
   helpStakeholders: (id: string) =>
     api<{ stakeholders: HelpStakeholder[] }>(`/api/content/help/stakeholders?id=${enc(id)}`),
   addStakeholder: (id: string, userId: string) =>

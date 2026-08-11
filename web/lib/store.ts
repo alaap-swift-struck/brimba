@@ -11,11 +11,67 @@
 
 import * as React from "react"
 
+// THE CEILING. Without one, the cache only ever grows: every record detail you
+// open, every collection you visit and every sidecar they prime is a key of its
+// own, and nothing removes a key except an explicit invalidate. A long session
+// therefore holds every screen it has ever shown.
+//
+// In plain terms: this is "roughly 500 screens' worth of data". You would have to
+// open around five hundred different records or lists in one sitting before the
+// oldest one is dropped — and dropping it costs a refetch the next time you open
+// it, nothing more. Anything currently ON SCREEN is never dropped (see
+// `evictable`), so eviction can never blank a mounted screen.
+export const MAX_ENTRIES = 500
+
+// "Used" means WRITTEN — fetched, primed or patched — not read. Every read in
+// this app comes from a MOUNTED component, and a mounted component's key is
+// already unevictable, so ordering by reads would buy nothing and would mean
+// mutating the Map inside React's render-phase snapshot reads. Recency of the
+// last WRITE is the honest signal for an unmounted key: it says when that data
+// last arrived. (JS Maps keep insertion order, so the Map IS the LRU queue:
+// delete+set moves a key to the young end, and eviction takes from the old end.)
 const cache = new Map<string, unknown>()
 const subscribers = new Map<string, Set<() => void>>()
 
+/** May this entry be dropped? Only when nothing on screen depends on it. */
+function evictable(key: string): boolean {
+  if (subscribers.get(key)?.size) return false // a mounted screen is showing it
+  // A paged list's cursor sidecar (`cursor:<listKey>`) is read imperatively by
+  // Load more (readCache), never subscribed — so it rides on its LIST's
+  // subscription. Drop it while the list is up and page two silently vanishes.
+  if (key.startsWith("cursor:") && subscribers.get(key.slice("cursor:".length))?.size) return false
+  return true
+}
+
+/** Write an entry and keep the cache under its ceiling. The write itself always
+ * succeeds: if every older entry is pinned (an unusually busy screen), we go
+ * OVER the ceiling rather than blank something a user is looking at — a soft
+ * ceiling that is always right beats a hard one that is sometimes wrong. */
+function cacheSet(key: string, value: unknown): void {
+  cache.delete(key) // re-insert at the young end (this is the "touch")
+  cache.set(key, value)
+  if (cache.size <= MAX_ENTRIES) return
+  for (const k of cache.keys()) {
+    if (cache.size <= MAX_ENTRIES) break
+    if (evictable(k)) cache.delete(k) // silent: no notify, so nothing refetches
+  }
+}
+
 function notify(key: string) {
   subscribers.get(key)?.forEach((fn) => fn())
+}
+
+/** Subscribe to a key's changes; returns the unsubscribe. The ONE place
+ * subscriptions are registered, so "is anything showing this?" — the question
+ * eviction turns on — has a single answer. */
+function subscribeKey(key: string, fn: () => void): () => void {
+  let subs = subscribers.get(key)
+  if (!subs) subscribers.set(key, (subs = new Set()))
+  subs.add(fn)
+  return () => {
+    subs.delete(fn)
+    if (!subs.size) subscribers.delete(key) // else THIS map grows without bound
+  }
 }
 
 /** Drop a cached entry and tell anyone showing it to refetch (live refresh). */
@@ -27,7 +83,7 @@ export function invalidate(key: string): void {
 /** Seed/replace a cached entry — e.g. after a mutation returns fresh data, so
  * the screen updates instantly without a round-trip. */
 export function primeCache(key: string, value: unknown): void {
-  cache.set(key, value)
+  cacheSet(key, value)
   notify(key)
 }
 
@@ -43,13 +99,7 @@ export function readCache<T>(key: string): T | undefined {
  * prime/invalidate of the key. Never fetches — the data has one owner. */
 export function useCachedValue<T>(key: string | null): T | undefined {
   const subscribe = React.useCallback(
-    (fn: () => void) => {
-      if (!key) return () => {}
-      let subs = subscribers.get(key)
-      if (!subs) subscribers.set(key, (subs = new Set()))
-      subs.add(fn)
-      return () => subs.delete(fn)
-    },
+    (fn: () => void) => (key ? subscribeKey(key, fn) : () => {}),
     [key]
   )
   return React.useSyncExternalStore(
@@ -104,7 +154,7 @@ export async function patchRow(
       const idx = latest.findIndex((r) => r[idField] === id)
       next = idx >= 0 ? latest.map((r, i) => (i === idx ? row : r)) : [row, ...latest]
     }
-    cache.set(key, next)
+    cacheSet(key, next)
     notify(key)
   } catch (e) {
     console.error("patchRow failed; invalidating", key, e)
@@ -141,7 +191,7 @@ export async function reconcile(
       const old = prevById.get(row[idField])
       return old && shallowEqualRow(old, row) ? old : row // reuse identity if unchanged
     })
-    cache.set(key, next)
+    cacheSet(key, next)
     notify(key)
   } catch (e) {
     console.error("reconcile failed; invalidating", key, e)
@@ -167,7 +217,7 @@ export function useCached<T>(
     if (!key) return
     try {
       const value = await fetcherRef.current()
-      cache.set(key, value)
+      cacheSet(key, value)
       if (!aliveRef.current) return
       setData(value)
       setError(null)
@@ -210,12 +260,10 @@ export function useCached<T>(
     }
     void load() // revalidate-on-mount (first load / navigation / team switch)
 
-    const subs = subscribers.get(key) ?? new Set<() => void>()
-    subs.add(sync)
-    subscribers.set(key, subs)
+    const unsubscribe = subscribeKey(key, sync)
     return () => {
       aliveRef.current = false
-      subs.delete(sync)
+      unsubscribe()
     }
   }, [key, load, sync])
 

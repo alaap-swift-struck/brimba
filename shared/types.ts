@@ -319,7 +319,28 @@ export type UsageLogRow = {
 }
 
 /** One column an import maps a file onto (matches a catalog target's columns). */
-export type ImportColumn = { key: string; label: string; required: boolean }
+/** One column an import target accepts.
+ *
+ * `values` is the column's VOCABULARY — the closed set of legal values, for a
+ * column that has one (a movement kind, a status, a type). Declaring it is what
+ * lets the importer normalise the WORD as well as the casing: a human writes the
+ * word they say out loud ("Received"), and the legal one is "receipt". Without it
+ * the pipeline lowercases and ships, and the row is rejected by the door with the
+ * plan having promised it would import.
+ *
+ * `aliases` are the synonyms this domain KNOWS, source → legal value (matched
+ * case/punctuation-insensitively). They are the cheap, deterministic half: free,
+ * repeatable, and they work with no model key at all. The agent handles the long
+ * tail no list could anticipate. See AGENTIC-IMPORT §3.1. */
+export type ImportColumn = {
+  key: string
+  label: string
+  required: boolean
+  /** the closed set of legal values, when this column has one */
+  values?: string[]
+  /** known synonyms → the legal value they mean */
+  aliases?: Record<string, string>
+}
 
 /** The preview an import session produces — a capped sample of mapped rows + issues. */
 export type ImportPreview = {
@@ -344,6 +365,12 @@ export type ImportPlanStep = {
   targetName: string
   mapping: Record<string, string | null> // our column key → their header (null = unmapped)
   transforms: Record<string, TransformKey> // our column key → normalizer
+  /** Per VOCABULARY column, the synonyms the AGENT resolved for this file:
+   * our column key → { the file's word → the legal value }. The deterministic
+   * halves (an exact match, a declared alias) need no entry — this carries only
+   * the long tail a list couldn't anticipate, and it is stored in the plan so the
+   * run applies exactly what the review screen showed. */
+  valueMaps?: Record<string, Record<string, string>>
   references: { column: string; target: string; mode: "id" | "value" }[]
   rowCount: number
   predictedRejects: number
@@ -363,7 +390,22 @@ export type ImportPlan = {
   bySource: "agent" | "fallback" // did the model plan it, or the deterministic fallback?
 }
 
-export type ImportRejection = { file: string; row: number; reason: string }
+/** One reason a row (or a whole PARCEL of rows) didn't import.
+ *
+ * `rows` is what makes a parcel failure legible. A bulk door refuses an oversized
+ * parcel WHOLE, so 400 rows can fail for ONE reason that has nothing to do with
+ * any of them — and reporting that per row reads as "400 bad rows" when the truth
+ * is "one bad parcel". So a parcel-scoped rejection is a SINGLE entry that says
+ * how many rows it covers; a row-scoped one leaves `rows` undefined (= 1). */
+export type ImportRejection = {
+  file: string
+  /** the row it starts at (1-based, within the file) */
+  row: number
+  reason: string
+  /** present only on a PARCEL-scoped rejection: how many rows this one covers */
+  rows?: number
+  scope?: "row" | "parcel"
+}
 
 /** The per-target tally + every rejected row's reason, produced by execution. */
 export type ImportBatchReport = {

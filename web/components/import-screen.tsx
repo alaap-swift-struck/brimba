@@ -20,12 +20,25 @@ import { Badge } from "@swift-struck/ui/registry/primitives/badge/badge"
 import { Skeleton } from "@swift-struck/ui/registry/primitives/skeleton/skeleton"
 import { toast } from "@swift-struck/ui/registry/primitives/sonner/sonner"
 
-import type { ImportableTarget, ImportBatchReport, ImportBatchSummary, ImportBatchView } from "@shared/types"
+import type {
+  ImportableTarget,
+  ImportBatchReport,
+  ImportBatchSummary,
+  ImportBatchView,
+  ImportRejection,
+} from "@shared/types"
 import { ApiFailure, dataOps } from "@/lib/api"
 import { fileToCsv, UserFileError } from "@/lib/file-to-csv"
 import { formatActivityWhen } from "@/lib/format"
 import { usePermissions } from "@/lib/perms"
 import { useCached } from "@/lib/store"
+
+/** How many ROWS a rejection list actually covers. A parcel-scoped entry is ONE
+ * problem covering many rows, so the list length counts problems and this counts
+ * rows — both numbers are true, and they are not the same number. */
+function rejectionRowCount(rejections: ImportRejection[]): number {
+  return rejections.reduce((n, r) => n + (r.rows ?? 1), 0)
+}
 
 type Phase = "upload" | "review" | "done"
 
@@ -116,15 +129,17 @@ export function ImportScreen({ teamId, initialTarget }: { teamId: string; initia
     setPhase("upload")
   }
 
-  function downloadRejections(rows: { file: string; row: number; reason: string }[], filename: string) {
+  function downloadRejections(rows: ImportRejection[], filename: string) {
     if (!rows.length) return
     // Neutralize formula-injection (a file named "=cmd()") like the server exporter.
     const esc = (raw: string) => {
       const s = /^[=+\-@\t\r]/.test(raw) ? `'${raw}` : raw
       return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
     }
+    // `rows` says how many a PARCEL-scoped problem covers — 1 for an ordinary row.
     const csv =
-      "file,row,reason\r\n" + rows.map((r) => [esc(r.file), r.row, esc(r.reason)].join(",")).join("\r\n")
+      "file,row,rows,reason\r\n" +
+      rows.map((r) => [esc(r.file), r.row, r.rows ?? 1, esc(r.reason)].join(",")).join("\r\n")
     const a = document.createElement("a")
     a.href = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv" }))
     a.download = filename
@@ -362,7 +377,14 @@ export function ImportScreen({ teamId, initialTarget }: { teamId: string; initia
           {report.rejections.length > 0 && (
             <div className="flex flex-col gap-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-sm font-medium">Rejected rows ({report.rejections.length})</p>
+                {/* A PARCEL problem is ONE problem covering many rows — count the
+                    ROWS affected, but list the PROBLEMS. Reporting a refused batch
+                    once per row reads as "400 bad rows" when the truth is one bad
+                    batch, and sends someone hunting through 400 good rows. */}
+                <p className="text-sm font-medium">
+                  {rejectionRowCount(report.rejections)} row(s) not imported ·{" "}
+                  {report.rejections.length} problem(s)
+                </p>
                 <Button
                   variant="outline"
                   size="sm"
@@ -377,8 +399,16 @@ export function ImportScreen({ teamId, initialTarget }: { teamId: string; initia
                   <div key={i} className="flex gap-2 border-b p-2 text-xs last:border-0">
                     <span className="text-muted-foreground w-24 shrink-0 truncate">
                       {r.file}:{r.row}
+                      {r.rows && r.rows > 1 ? `–${r.row + r.rows - 1}` : ""}
                     </span>
-                    <span>{r.reason}</span>
+                    <span>
+                      {r.scope === "parcel" && r.rows && r.rows > 1 ? (
+                        <span className="text-muted-foreground">
+                          One batch of {r.rows} rows was refused together:{" "}
+                        </span>
+                      ) : null}
+                      {r.reason}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -444,7 +474,7 @@ function PlanSummary({
   onDownload,
 }: {
   plan: NonNullable<ImportBatchView["plan"]>
-  onDownload: (rows: { file: string; row: number; reason: string }[], filename: string) => void
+  onDownload: (rows: ImportRejection[], filename: string) => void
 }) {
   const totalRows = plan.steps.reduce((n, s) => n + s.rowCount, 0)
   const skipped = plan.steps.reduce((n, s) => n + s.predictedRejects, 0)

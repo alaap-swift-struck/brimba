@@ -33,12 +33,16 @@ export function RoleFormDialog({
   initial,
   onSubmit,
   draftKey,
+  teamId,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   /** present = edit mode (prefilled); absent = create mode */
   initial?: { title: string; description: string } | null
-  onSubmit: (title: string, description: string) => Promise<void>
+  /** the active team — R22 builds the new record's url from it */
+  teamId?: string | null
+  /** Resolves with the CREATED record's id (R22 opens it); nothing on an edit. */
+  onSubmit: (title: string, description: string) => Promise<string | void>
   /** stable id for per-session draft persistence (CACHING.md §11); omit to disable */
   draftKey?: string
 }) {
@@ -55,9 +59,10 @@ export function RoleFormDialog({
     e.preventDefault()
     setBusy(true)
     try {
-      await onSubmit(values.title.trim(), values.description.trim())
+      const createdId = await onSubmit(values.title.trim(), values.description.trim())
       clearDraft()
       onOpenChange(false)
+      return createdId ?? undefined // R22: FormShell opens the new role
     } catch (err) {
       toast.error(
         err instanceof ApiFailure ? err.message : "Couldn't save the role."
@@ -79,6 +84,7 @@ export function RoleFormDialog({
       <DialogContent>
         <FormShell
           onSubmit={submit}
+          opensRecord={isEdit ? null : { segment: "roles", teamId: teamId ?? null }}
           title={<DialogTitle>{isEdit ? "Edit this role" : "Create a role"}</DialogTitle>}
           subtitle={
             <DialogDescription>

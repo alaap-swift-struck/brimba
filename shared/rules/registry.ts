@@ -111,7 +111,7 @@ export const RULES_REGISTRY: Rule[] = [
   {
     id: "R14",
     dimension: "arch",
-    law: "No unbounded list endpoint, and no capped GROWING one: every exported list*/search* function backing a collection route applies a HARD CAP (LIMIT n, said in a comment) — but a collection that GROWS with ordinary use (GROWING_COLLECTIONS) must PAGE instead, by KEY not offset: an opaque cursor, an exact total, and hasMore, with a client that can actually reach page two. A cap is an honest refusal to answer; paging is an answer. Earned by: one unbounded read stalling a worker under a 24,000-row catalogue — then the same catalogue proving a 1,000-row ceiling is just a slower refusal.",
+    law: "No unbounded list endpoint, and no capped GROWING one: every SELECT inside an exported list*/search* function backing a collection route carries its OWN hard cap (LIMIT n, in that statement, said in a comment) — the bound lives in the SQL, not merely somewhere in the function; only an aggregate or a primary-key equality is bounded without one — but a collection that GROWS with ordinary use (GROWING_COLLECTIONS) must PAGE instead, by KEY not offset: an opaque cursor, an exact total, and hasMore, with a client that can actually reach page two. A cap is an honest refusal to answer; paging is an answer. Earned by: one unbounded read stalling a worker under a 24,000-row catalogue — then the same catalogue proving a 1,000-row ceiling is just a slower refusal — then a scan that a CONSTANT NAMED `…_LIMIT` satisfied, passing an unbounded read because the law was checked against the body instead of the statement.",
     checkId: "bounded-lists",
     status: "enforced",
   },
@@ -148,6 +148,27 @@ export const RULES_REGISTRY: Rule[] = [
     dimension: "ai",
     law: "Agent/MCP filter parity: any tool sitting on a screen's list/search door EXPOSES and FORWARDS every filter that door parses — the required set is DERIVED from the door's own parameter parsing, never hand-listed. Earned by: the assistant falling back to free text and answering a DIFFERENT question — 3,465 descriptions that mentioned the words instead of the 134 records actually carrying the value.",
     checkId: "agent-filter-parity",
+    status: "enforced",
+  },
+  {
+    id: "R22",
+    dimension: "ui",
+    law: "Creating a MASTER record through a form OPENS that record (owner's decision, 2026-08-11). It is implemented once, in the shared form seam (FormShell's `opensRecord`), so a module gets it by declaring one thing rather than every screen remembering to navigate — a create resolves with the new record's id (which R21 makes available) and the shell opens its detail. It applies to master records created deliberately through a form container, NOT to accessory or child rows created as a side effect; exceptions are NAMED PER TABLE with their reason (CREATE_OPENS_RECORD_EXEMPT), never assumed from a missing prop.",
+    checkId: "create-opens-record",
+    status: "enforced",
+  },
+  {
+    id: "R21",
+    dimension: "arch",
+    law: "A create door returns the CREATED RECORD, never the collection. Shipping a whole (capped) list back to add one row costs the caller a read it did not ask for, contradicts row-level live-sync (CACHING rule 3) and the paging rule — a screen reads one bounded page, never the table — and leaves the caller unable to learn the new record's id without a follow-up search. The response is `{ created, total }` (+ any honest extras like `emailSent`); the client patches that one row in through the `applyCreated` seam, exactly as an \"add\" ping would. DERIVED FROM THE GATE: a create door is any route that opens on the `create` right, so a new module is covered the moment it is gated. Earned by: POST /products returning listProducts() — a thousand rows to create one, and still no id.",
+    checkId: "create-returns-row",
+    status: "enforced",
+  },
+  {
+    id: "R20",
+    dimension: "ui",
+    law: "Every navigable destination resolves in a FRESH TAB. The app is a static export, so a top-level `/<segment>` exists only if a page source emits it, and `/<segment>/<id>` resolves only if the gateway serves that module's shell for it — two requirements, in two workspaces, both INVISIBLE from inside the app (the client router never leaves the page, so the nav always works and the missing page shows up only when someone pastes the url). Both are DERIVED from the nav registries (NAV + TEAM_SECTIONS placement:\"sidebar\"), never hand-listed. Earned by: three modules in one fork shipping a sidebar entry with no page behind it, three separate times, with nothing red.",
+    checkId: "static-destinations",
     status: "enforced",
   },
 ]
@@ -254,3 +275,33 @@ export const FORM_DIALOGS = [
   "team-edit-dialog",
   "selectable-form-dialog",
 ] as const
+
+/** R21 — create doors that legitimately return something OTHER than the created
+ * row. Keyed by handler name, with the reason, so every exception is a visible
+ * reviewed line rather than a silent hole in the scan. */
+export const CREATE_RETURNS_EXEMPT: Record<string, string> = {}
+
+/** R22 — which form dialog CREATES which table, and the URL segment that table's
+ * detail screen sits under. Every FORM_DIALOGS entry must appear here or in
+ * CREATE_OPENS_RECORD_EXEMPT, so adding a module's form forces the decision
+ * instead of quietly defaulting to "no". */
+export const CREATE_OPENS_RECORD: Record<string, { table: string; segment: string }> = {
+  "learning-form-dialog": { table: "learning", segment: "learning" },
+  "help-form-dialog": { table: "help", segment: "help" },
+  "role-form-dialog": { table: "member_roles", segment: "roles" },
+  "invite-dialog": { table: "invites", segment: "invites" },
+}
+
+/** R22 — the forms that deliberately do NOT open a record, one line each, with
+ * the reason. Named per TABLE (what it writes), not inferred from the absence of
+ * a prop: "nobody added it" and "we decided not to" must not look the same. */
+export const CREATE_OPENS_RECORD_EXEMPT: Record<string, { table: string; why: string }> = {
+  "selectable-form-dialog": {
+    table: "selectable_data",
+    why: "A dropdown value is an accessory row, managed inline in its own list — there is no detail screen to open.",
+  },
+  "team-edit-dialog": {
+    table: "teams",
+    why: "An EDIT form, not a create. (Creating a team switches you into it, which lands you on the team's own screen by a different mechanism.)",
+  },
+}

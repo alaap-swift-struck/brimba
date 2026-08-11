@@ -105,8 +105,9 @@ type TargetDef = {
   module: string                               // create-right gated on
   displayName: string
   description: string
-  columns: ImportColumn[]                       // our fields (key, label, required)
+  columns: ImportColumn[]                       // our fields (key, label, required, values?, aliases?)
   endpoint: { binding: "CONTENT" | "TENANCY"; path: string }   // the gated create door
+  bulk?: { path: string; maxRows?: number }     // NEW — a gated BULK door + ITS OWN row ceiling (§6.1)
   buildBody: (row, refs) => Record<string, unknown>            // shape one row (refs = resolved ids)
   references?: ReferenceDef[]                    // NEW — cross-target foreign keys
   naturalKey?: string                           // NEW — the column that identifies a row for FK resolution
@@ -123,6 +124,58 @@ type ReferenceDef = {
   onMissing: "reject" | "blank" | "create"      // required-unresolved → reject; optional → blank; auto-create
 }
 ```
+
+### 3.1 · A column with a closed vocabulary says so
+
+A column whose values come from a fixed set — a movement kind, a status, a type —
+declares that set, and the synonyms the domain already knows:
+
+```ts
+{ key: "kind", label: "Movement kind", required: true,
+  values: ["receipt", "issue", "adjustment"],
+  aliases: { "goods in": "receipt", "goods out": "issue" } }
+```
+
+**Why it matters.** Without `values` the pipeline can normalise CASING but not
+VOCABULARY: it lowercases "Received" to "received" and ships it, and the door
+refuses a word that was never legal. A human writes the word they say out loud —
+that is the entire point of an agentic import — so the importer has to know which
+words mean the same thing. And because the plan couldn't predict the rejection, it
+promised *"423 will import"* and 14 did. **A plan that over-promises is worse than
+no plan**: somebody approved the run on the strength of it.
+
+**Where the mapping happens — three passes, cheapest and most certain first.**
+
+| # | Pass | Cost | Deterministic? | Handles |
+|---|---|---|---|---|
+| 1 | **Exact, normalised** | free | yes | `Receipt` / `RECEIPT` → `receipt` |
+| 2 | **Declared `aliases`** | free | yes | the synonyms the domain knows for sure |
+| 3 | **The agent** | already paid | no | the long tail no list anticipates |
+
+Not "agent *or* aliases" — **both, in that order**, and the order is the design:
+
+- Aliases alone go stale the first time somebody types a word nobody listed, and
+  maintaining a synonym list by hand is the thing agentic import exists to avoid.
+- The agent alone is non-deterministic (the same file could map differently on two
+  runs) and does nothing without a model key — and *degrading gracefully with no
+  key* is a locked property of this base (§8).
+- Determinism first means a repeat import behaves the same way, and the model is
+  asked only about what genuinely needs judgement. It costs nothing extra: the
+  plan is already **one model call per batch**, so the vocabulary rides in that
+  same prompt and the mapping comes back in the same reply.
+
+**The model proposes; it can never widen the vocabulary.** Its `valueMaps` are
+validated against the declared `values` — a target word that isn't legal is
+refused exactly like an unmappable one. The accepted map is stored **in the plan**,
+so the run applies precisely what the review screen showed.
+
+**And the prediction is honest by construction**, because resolution lives inside
+`scanRows` — the ONE scan that backs both the plan and the run (§2.5). An
+unmappable value is predicted as a **skip with its reason** (*"…isn't a valid
+movement kind — it must be one of: receipt, issue, adjustment."*), on the review
+screen, before anyone approves anything.
+
+Locked by `workers/data-ops/test/import-vocabulary.test.ts`.
 
 **The base ships one worked dependency: Dropdown values → Learning.** A learning
 article's `category` references a **Selectable data** value of type
@@ -223,6 +276,36 @@ or skip validation — same safety model as the chat agent.
   rejected with a clear message. **Files per batch** capped too.
 - **No model call touches user data at write time** — execution is deterministic,
   so a huge file doesn't multiply model spend.
+
+### 6.1 · Bulk doors: the door's own ceiling wins
+
+Most targets are written one row at a time. A target that also has a **gated bulk
+create door** declares it, and the importer writes in parcels:
+
+```ts
+bulk: { path: "/api/<worker>/<module>/bulk", maxRows: 200 }
+```
+
+`maxRows` is **that door's own ceiling**. The pipeline has a global one too
+(`BULK_MAX_ROWS`, `shared/workers/limits.ts`), and `parcelSize()` takes the
+**minimum of the two** — the door only accepts what it says it accepts, and the
+global cap is about what a single request should carry, so neither number may be
+ignored. Declaring one *larger* than the global cap does not raise it.
+
+**Why it matters more than it looks.** A bulk door refuses an oversized parcel
+**whole**. Pack 400 rows for a door that caps at 200 and all 400 fail — for a
+reason that has nothing to do with any of them. That is how a real import "failed
+400 rows" when one parcel was simply too big.
+
+So the failure is reported at the altitude it happened. A refused parcel is **one**
+rejection carrying `scope: "parcel"` and `rows: <n>`, and the report separates the
+two numbers — *"400 row(s) not imported · 1 problem(s)"* — instead of listing 400
+identical problems and sending someone hunting through 400 good rows. Omitting
+`maxRows` says "this door accepts the global ceiling", which is a claim about the
+door: make it deliberately.
+
+Locked by `workers/data-ops/test/bulk-parcels.test.ts` (the arithmetic, and that a
+refused parcel is never reported per row).
 
 ---
 

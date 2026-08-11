@@ -53,6 +53,16 @@ export async function listSelectableForExport(cfg: D1Rest, guard: MemberGuard): 
   )
 }
 
+/** ONE dropdown value by id, or null — what a create hands back (R21). Picks
+ * from the bounded list read so a single row matches a listed one exactly. */
+export async function oneSelectable(
+  cfg: D1Rest,
+  guard: MemberGuard,
+  id: string
+): Promise<SelectableValue | null> {
+  return (await listSelectable(cfg, guard)).find((v) => v.id === id) ?? null
+}
+
 /** R16: exact server COUNT(*) for the badge — never rows.length. */
 export async function countSelectable(cfg: D1Rest, guard: MemberGuard): Promise<number> {
   const rows = await d1Query<{ n: number }>(cfg, guard.databaseId, "SELECT COUNT(*) AS n FROM selectable_data")

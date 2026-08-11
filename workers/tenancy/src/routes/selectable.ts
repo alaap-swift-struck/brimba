@@ -11,6 +11,7 @@ import { gated, gatedBody } from "../../../../shared/workers/route"
 import {
   createSelectable,
   listSelectable,
+  oneSelectable,
   setSelectableActive,
   updateSelectable,
   listSelectableForExport,
@@ -45,7 +46,8 @@ export async function postCreateSelectable(request: Request, env: Env): Promise<
   const id = await createSelectable(cfg, guard, actor, type, value)
   // Row-level: carry the new value's id so open lists can patch just that row.
   await publishChange(env.REALTIME, guard.teamId, "selectable_data", id, "add")
-  return json({ values: await listSelectable(cfg, guard), total: await countSelectable(cfg, guard) })
+  // R21: the CREATED ROW, not the collection.
+  return json({ created: await oneSelectable(cfg, guard, id), total: await countSelectable(cfg, guard) })
 }
 
 export async function postUpdateSelectable(request: Request, env: Env): Promise<Response> {

@@ -12,6 +12,9 @@ import { GLOSSARY } from "@shared/glossary"
 import {
   ACTIVITY_GATE_MAP,
   ACTIVITY_TABLE_EXEMPT,
+  CREATE_OPENS_RECORD,
+  CREATE_OPENS_RECORD_EXEMPT,
+  CREATE_RETURNS_EXEMPT,
   DEAF_EXEMPT,
   FORM_DIALOGS,
   GROWING_COLLECTIONS,
@@ -20,7 +23,7 @@ import {
   TAB_COUNT_EXCEPTIONS,
 } from "@shared/rules/registry"
 import { SIMPLE_INVALIDATIONS, TEAM_RESOURCES } from "../lib/live-resources"
-import { TEAM_SECTIONS } from "../lib/pages"
+import { NAV, TEAM_SECTIONS } from "../lib/pages"
 import { BASE_RECIPES } from "../lib/screens"
 
 /** Every worker's src .ts file (recursively), as [repo-relative path, source]. */
@@ -50,6 +53,55 @@ const read = (p: string) => readFileSync(p, "utf8")
  * R14 reads LIMIT out of them). */
 function stripComments(src: string): string {
   return src.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/[^\n]*/gm, "$1")
+}
+
+/** The source of ONE top-level declaration, starting at `from`. A top-level
+ * declaration always begins at column 0, so the next one ends this one — slicing
+ * to the next `export` instead swallows every private helper in between and
+ * blames their SQL on the exported function above them. */
+function declarationBody(src: string, from: number): string {
+  const re = /\n(?:export |async function |function |const |class |type |interface )/g
+  re.lastIndex = from + 1
+  const next = re.exec(src)
+  return src.slice(from, next ? next.index : undefined)
+}
+
+/** Every string literal in a chunk of TypeScript — template, double- and
+ * single-quoted. A template literal is returned WHOLE, interpolations and nested
+ * templates included, because a SQL statement is often assembled that way
+ * (`` `SELECT … ${cond ? `WHERE …` : ""} … LIMIT ${n}` ``) and its LIMIT belongs
+ * to the same statement as its SELECT. Naive backtick-splitting stops at the
+ * first nested backtick and cuts that statement in half. */
+function stringLiterals(src: string): string[] {
+  const out: string[] = []
+  let i = 0
+  while (i < src.length) {
+    const ch = src[i]
+    if (ch === "`") {
+      let j = i + 1
+      let depth = 0 // how many `${` we are inside — a backtick in there is nested
+      while (j < src.length) {
+        const c = src[j]
+        if (c === "\\") { j += 2; continue }
+        if (c === "$" && src[j + 1] === "{") { depth++; j += 2; continue }
+        if (c === "}" && depth > 0) { depth--; j++; continue }
+        if (c === "`" && depth === 0) break
+        j++
+      }
+      out.push(src.slice(i + 1, j))
+      i = j + 1
+      continue
+    }
+    if (ch === '"' || ch === "'") {
+      let j = i + 1
+      while (j < src.length && src[j] !== ch) j += src[j] === "\\" ? 2 : 1
+      out.push(src.slice(i + 1, j))
+      i = j + 1
+      continue
+    }
+    i++
+  }
+  return out
 }
 
 /** Every *.tsx under web/components (recursively). */
@@ -218,9 +270,29 @@ describe("RULES — the laws of the base", () => {
   // R14 — no unbounded list endpoint: every exported list*/search* function in a
   // worker lib either pages or carries a hard-cap LIMIT (one unbounded read
   // stalls a worker at 100k rows — the 24k-catalogue failure).
-  it("bounded-lists: every exported list*/search* function carries a LIMIT", () => {
+  //
+  // THE BOUND MUST BE IN THE SQL, NOT IN THE FUNCTION. This check used to ask
+  // "does the token LIMIT appear anywhere in this body?", which a NON-SQL
+  // occurrence answered for free: a constant named `BULK_IDS_LIMIT`, a parameter
+  // called `limit`, a type. The law is about a clause in a statement, so the scan
+  // now reads STATEMENTS: every SQL string literal in the body that SELECTs must
+  // carry its own LIMIT. A variable name is code, not SQL, and no longer counts.
+  //
+  // It does NOT flag legitimate delegation, and that is the reason for the shape:
+  // a function that hands its bound to a helper (or to the paging seam) has no
+  // SELECT literal of its own, so there is nothing to examine — a stricter scan
+  // over the whole BODY is what would have flagged those.
+  it("bounded-lists: every SELECT inside an exported list*/search* carries its own LIMIT", () => {
+    // The two shapes that return a bounded number of rows BY CONSTRUCTION, so a
+    // LIMIT would say nothing: an aggregate (one row, or one per group) and a
+    // primary-key equality (`id = ?` — `team_id = ?` does not match: `_` is a
+    // word character, so there is no boundary before that `id`).
+    const AGGREGATE = /\b(?:COUNT|SUM|AVG|MIN|MAX|TOTAL|GROUP_CONCAT)\s*\(/i
+    const KEY_LOOKUP = /\bWHERE\b[\s\S]*?(?:^|[\s.(])id\s*=\s*[?$]/i
+
     const offenders: string[] = []
     let seen = 0
+    let statements = 0
     for (const [path, src] of workerSources()) {
       if (!path.includes("/src/lib/")) continue
       // BOTH export shapes. A scan that only knows `export function listX` goes
@@ -230,18 +302,162 @@ describe("RULES — the laws of the base", () => {
       let m: RegExpExecArray | null
       while ((m = re.exec(src))) {
         seen++
-        const next = src.indexOf("\nexport ", m.index + 1)
-        const body = stripComments(src.slice(m.index, next === -1 ? undefined : next))
-        if (/SELECT/.test(body) && !/LIMIT\s/.test(body)) offenders.push(`${path} → ${m[1] ?? m[2]}`)
+        const body = stripComments(declarationBody(src, m.index))
+        for (const sql of stringLiterals(body)) {
+          if (!/\bSELECT\b/i.test(sql)) continue
+          statements++
+          if (AGGREGATE.test(sql) || KEY_LOOKUP.test(sql) || /\bLIMIT\b/i.test(sql)) continue
+          offenders.push(`${path} → ${m[1] ?? m[2]}: ${sql.replace(/\s+/g, " ").trim().slice(0, 80)}`)
+        }
       }
     }
-    // The tripwire: a scan that suddenly finds nothing has gone blind, and a
-    // blind check reports "all clear" exactly like a passing one.
+    // TWO tripwires, because this check has two ways to go blind and both report
+    // "all clear" exactly like a passing run: finding no list functions, and
+    // finding functions but extracting no SQL out of them.
     expect(seen, "the bounded-lists scan found no list functions at all — it has gone blind").toBeGreaterThan(15)
+    expect(
+      statements,
+      "the bounded-lists scan read no SQL statements at all — the literal extractor has gone blind"
+    ).toBeGreaterThan(15)
     expect(
       offenders,
       `unbounded list read (R14) — add a hard-cap LIMIT (with its comment) or real paging: ${offenders.join(", ")}`
     ).toEqual([])
+  })
+
+  // R22 — creating a MASTER record through a form OPENS that record (owner's
+  // decision, 2026-08-11). Implemented ONCE, in the shared form seam, so a module
+  // declares `opensRecord` and gets the behaviour — rather than every screen
+  // remembering to navigate, which is how one module ends up behaving
+  // differently from the rest.
+  it("create-opens-record: every create form opens its record, or is a NAMED exception", () => {
+    // Derived from FORM_DIALOGS: a new form must land in exactly one of the two
+    // maps, so adding one forces the decision instead of defaulting to silence.
+    for (const dialog of FORM_DIALOGS) {
+      const opens = CREATE_OPENS_RECORD[dialog]
+      const exempt = CREATE_OPENS_RECORD_EXEMPT[dialog]
+      expect(
+        Boolean(opens) !== Boolean(exempt),
+        `${dialog} must be in exactly ONE of CREATE_OPENS_RECORD / CREATE_OPENS_RECORD_EXEMPT — "nobody decided" and "we decided not to" must not look the same`
+      ).toBe(true)
+      if (exempt)
+        expect(exempt.why.length, `${dialog} is exempt from R22 — say WHY, per table`).toBeGreaterThan(20)
+      if (!opens) continue
+      const src = read(join(WEB, "components", `${dialog}.tsx`))
+      expect(src, `${dialog} must declare opensRecord on its FormShell (R22)`).toContain("opensRecord=")
+      expect(
+        src,
+        `${dialog} must open the "${opens.segment}" segment its detail screen lives under`
+      ).toContain(`segment: "${opens.segment}"`)
+      // …and the create path must actually RESOLVE with an id, or opensRecord is
+      // a declaration that never fires.
+      expect(
+        /return createdId/.test(src),
+        `${dialog} declares opensRecord but never resolves with the created id — the record would never open`
+      ).toBe(true)
+    }
+    // The seam itself: the navigation lives in FormShell, not in the screens.
+    const shell = read(join(WEB, "components", "form-shell.tsx"))
+    expect(shell, "FormShell owns R22 — it opens the record the create resolved with").toContain("openRecord(")
+  })
+
+  // R21 — a create door returns the CREATED RECORD, never the collection. Handing
+  // the whole list back to add one row costs the caller a capped list it did not
+  // ask for, contradicts row-level live-sync (CACHING rule 3) and the paging rule
+  // (a screen reads one bounded page, never the table), and — the part that
+  // actually bites — leaves the caller unable to learn the new record's id
+  // without a follow-up search.
+  //
+  // DERIVED FROM THE GATE, not a hand-list of handler names: a create door is a
+  // route that opens on the `create` right. A new module's create door is covered
+  // the moment it is gated, which is the moment it exists.
+  it("create-returns-row: a create door returns the created record, never the collection", () => {
+    const offenders: string[] = []
+    const seen = new Set<string>()
+    const namedCreators: string[] = []
+    for (const [path, src] of workerSources()) {
+      if (!path.includes("/src/routes/")) continue
+      for (const n of src.matchAll(/export async function (postCreate\w+)/g)) namedCreators.push(n[1])
+      const re = /export async function (\w+)\s*\(/g
+      let m: RegExpExecArray | null
+      while ((m = re.exec(src))) {
+        const name = m[1]
+        const body = stripComments(declarationBody(src, m.index))
+        // `(?:<[^(<>]*>)?` — gatedBody carries a type argument at most call sites;
+        // a scan that doesn't allow for it silently skips every one of them.
+        if (!/(?:gatedBody|gated|requireRight)(?:<[^(<>]*>)?\([^)]*"create"\s*\)/.test(body)) continue
+        if (CREATE_RETURNS_EXEMPT[name]) continue
+        seen.add(name)
+        if (/:\s*await\s+(?:list|search)\w*\(/.test(body) || /return\s+\w*Page\(/.test(body))
+          offenders.push(`${path} → ${name} hands back a COLLECTION (return the created row + its exact total)`)
+        if (/await\s+create\w*\(/.test(body) && !/\bcreated:/.test(body))
+          offenders.push(`${path} → ${name} creates a record but never returns it as \`created\``)
+      }
+    }
+    // THE TRIPWIRE, cross-checked rather than a magic number. A handler NAMED
+    // postCreate* is a create door by construction; the scan finds doors by their
+    // GATE. Two independent signals, so a gate regex that quietly stops matching
+    // (e.g. forgetting that `gatedBody` carries a type argument) is caught by the
+    // other one instead of reporting all clear.
+    expect(namedCreators.length, "no postCreate* handlers found at all — the scan has gone blind").toBeGreaterThan(3)
+    expect(
+      namedCreators.filter((n) => !seen.has(n) && !CREATE_RETURNS_EXEMPT[n]),
+      "these handlers are named like create doors but the gate-derived scan never saw them — the scan is blind to some of the doors it is meant to cover"
+    ).toEqual([])
+    expect(offenders, `a create door returned a collection (R21): ${offenders.join("; ")}`).toEqual([])
+  })
+
+  // R20 — every navigable destination resolves in a FRESH TAB. This app is a
+  // static export: `/<segment>` only exists if a page source emits it, and a
+  // sub-path like `/<segment>/<id>` only resolves if the gateway serves that
+  // module's shell for it. Neither is visible from inside the app — the client
+  // router never leaves the page, so clicking the nav always works and the
+  // missing page shows up only when someone pastes the url somewhere. A fork hit
+  // this three times on three different modules before anything said a word.
+  //
+  // DERIVED from the registries, never hand-listed, so a new section is covered
+  // the moment it is declared rather than the moment someone remembers.
+  it("static-destinations: every rail destination has a page, and every module shell is served", () => {
+    const sidebar = TEAM_SECTIONS.filter((s) => s.placement === "sidebar")
+    // Tripwires. Renaming `placement: "sidebar"` (or emptying NAV) would leave
+    // the loops below iterating nothing and reporting all clear — the exact
+    // silent-disable this law exists to prevent.
+    expect(
+      sidebar.length,
+      'no TEAM_SECTIONS section has placement "sidebar" — the value was renamed and this check went blind'
+    ).toBeGreaterThan(0)
+    expect(NAV.length, "NAV is empty — this check went blind").toBeGreaterThan(1)
+
+    // (a) A page source for every top-level rail destination.
+    const pageFor = (segment: string) =>
+      [join(WEB, "app", segment, "page.tsx"), join(WEB, "app", segment, "[[...rest]]", "page.tsx")].find(
+        existsSync
+      )
+    for (const path of [...NAV.map((n) => n.path), ...sidebar.map((s) => `/${s.segment}`)])
+      expect(
+        pageFor(path.slice(1)),
+        `${path} is in the nav but has no page source — it works when clicked and 404s in a fresh tab. Add web/app${path}/[[...rest]]/page.tsx`
+      ).toBeDefined()
+
+    // (b) A sidebar section has RECORD sub-paths (/learning/<id>), so its page
+    // must be the catch-all shell, not a plain page.
+    for (const s of sidebar)
+      expect(
+        existsSync(join(WEB, "app", s.segment, "[[...rest]]", "page.tsx")),
+        `/${s.segment} needs the catch-all shell (web/app/${s.segment}/[[...rest]]/page.tsx) — a record url like /${s.segment}/<id> has nothing to resolve it`
+      ).toBe(true)
+
+    // (c) …and the gateway must serve that shell for those sub-paths.
+    const gateway = read(join(ROOT, "workers", "gateway", "src", "index.ts"))
+    const declared = /const MODULE_SHELLS = \[([^\]]*)\]/.exec(gateway)
+    expect(
+      declared,
+      "the gateway's MODULE_SHELLS list could not be found — it was renamed and this half of the check went blind"
+    ).not.toBeNull()
+    expect(
+      [...declared![1].matchAll(/"([^"]+)"/g)].map((m) => m[1]).sort(),
+      "the gateway serves a different set of module shells than the sidebar declares — a /<segment>/<id> url will 404 in a fresh tab"
+    ).toEqual(sidebar.map((s) => s.segment).sort())
   })
 
   // R14, the other half — a cap is an honest REFUSAL to answer, so a collection
@@ -481,6 +697,9 @@ describe("RULES — the laws of the base", () => {
       "counted-collections", // R16: the seam/place/arbitration scan above + format-count.test.ts
       "catalog-coverage", // R13: workers/data-ops/test/catalog-coverage.test.ts
       "agent-filter-parity", // R19: workers/mcp/test/filter-parity.test.ts
+      "static-destinations", // R20: the page + gateway-shell scan above
+      "create-returns-row", // R21: the create-door response scan above
+      "create-opens-record", // R22: the form-seam scan above
     ])
     for (const r of RULES_REGISTRY) {
       if (r.status === "enforced")

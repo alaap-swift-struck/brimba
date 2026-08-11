@@ -41,7 +41,9 @@ export async function listInvites(
   const roles = await d1Query<{ id: string; title: string }>(
     cfg,
     guard.databaseId,
-    "SELECT id, title FROM member_roles"
+    // R14 hard cap — the same one listRoles reads under, so the title map can
+    // never cover fewer roles than the roles screen itself shows.
+    `SELECT id, title FROM member_roles LIMIT ${LIST_HARD_CAP}`
   )
   const titleById = new Map(roles.map((r) => [r.id, r.title]))
   const now = new Date().toISOString()
@@ -105,6 +107,17 @@ export async function getInviteAudit(
     acceptedAt: r.invite_acceptance_timestamp,
     shelfLifeHours: r.shelf_life_in_hours,
   }
+}
+
+/** ONE invite by id, or null — what a create hands back (R21). Picks from the
+ * bounded list read so a single row matches a listed one exactly. */
+export async function oneInvite(
+  env: Env,
+  cfg: D1Rest,
+  guard: MemberGuard,
+  id: string
+): Promise<Invite | null> {
+  return (await listInvites(env, cfg, guard)).find((i) => i.id === id) ?? null
 }
 
 /** R16: exact server COUNT(*) for the badge — never rows.length. */
