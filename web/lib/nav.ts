@@ -26,3 +26,16 @@ export function softNavigate(path: string): void {
   if (hostGo) hostGo(path)
   else if (typeof window !== "undefined") window.location.assign(path)
 }
+
+/** The detail url of one record — the ONE place the deep-link grammar is built
+ * (`/t/<teamId>/<segment>/<id>`), so a module never spells it by hand. */
+export function recordPath(segment: string, teamId: string | null, id: string): string {
+  return teamId ? `/t/${teamId}/${segment}/${id}` : `/${segment}/${id}`
+}
+
+/** LAW R22 — open a just-created MASTER record (owner's decision, 2026-08-11).
+ * Called by FormShell, so a module gets it by declaring `opensRecord`, not by
+ * every screen remembering to navigate. */
+export function openRecord(segment: string, teamId: string | null, id: string): void {
+  softNavigate(recordPath(segment, teamId, id))
+}

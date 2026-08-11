@@ -51,7 +51,8 @@ export function HelpFormDialog({
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  onSubmit: (input: { description: string; helpType?: string }) => Promise<void>
+  /** Resolves with the CREATED record's id (R22 opens it); nothing on an edit. */
+  onSubmit: (input: { description: string; helpType?: string }) => Promise<string | void>
   /** The team's active "Help type" dropdown values. */
   helpTypeOptions: string[]
   /** Present = EDIT mode (prefilled). */
@@ -74,12 +75,13 @@ export function HelpFormDialog({
     e.preventDefault()
     setBusy(true)
     try {
-      await onSubmit({
+      const createdId = await onSubmit({
         description: values.description.trim(),
         helpType: values.helpType === NONE ? undefined : values.helpType,
       })
       clearDraft()
       onOpenChange(false)
+      return createdId ?? undefined // R22: FormShell opens the new ticket
     } catch (err) {
       toast.error(
         err instanceof ApiFailure
@@ -105,6 +107,7 @@ export function HelpFormDialog({
       <DialogContent>
         <FormShell
           onSubmit={submit}
+          opensRecord={isEdit ? null : { segment: "help", teamId: teamId ?? null }}
           title={<DialogTitle>{isEdit ? "Edit this ticket" : "Raise a ticket"}</DialogTitle>}
           subtitle={
             <DialogDescription>

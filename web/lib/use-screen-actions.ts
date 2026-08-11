@@ -25,7 +25,7 @@ import type { LearningFormValues } from "@/components/learning-form-dialog"
 export function useScreenActions(teamId: string | null) {
   // The named-action dispatcher — the flat `{key: string}` payloads the engine emits.
   const runAction = React.useCallback(
-    async (actionId: string, payload: Record<string, string>) => {
+    async (actionId: string, payload: Record<string, string>): Promise<string | void> => {
       if (!teamId) return
       switch (actionId) {
         case "members.changeRole": {
@@ -54,7 +54,7 @@ export function useScreenActions(teamId: string | null) {
             totalCacheKey: totalKey("invites", teamId),
           })
           toast.success(`Invited ${payload.email}.`)
-          break
+          return created?.id // R22: FormShell opens the new invite
         }
         case "invites.revoke": {
           const { invites } = await tenancy.revokeInvite(payload.inviteId)
@@ -71,7 +71,7 @@ export function useScreenActions(teamId: string | null) {
             totalCacheKey: totalKey("member_roles", teamId),
           })
           toast.success(`Created ${payload.title}.`)
-          break
+          return created?.id // R22: FormShell opens the new role
         }
       }
     },
@@ -98,6 +98,7 @@ export function useScreenActions(teamId: string | null) {
         totalCacheKey: totalKey("learning", teamId),
       })
       toast.success(`Created "${values.title}".`)
+      return created?.id // R22: FormShell opens the new article
     },
     [teamId]
   )
@@ -117,6 +118,7 @@ export function useScreenActions(teamId: string | null) {
         totalCacheKey: totalKey("help-mine", teamId),
       })
       toast.success("Ticket raised.")
+      return created?.id // R22: FormShell opens the new ticket
     },
     [teamId]
   )

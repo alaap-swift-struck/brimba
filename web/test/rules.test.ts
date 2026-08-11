@@ -12,6 +12,8 @@ import { GLOSSARY } from "@shared/glossary"
 import {
   ACTIVITY_GATE_MAP,
   ACTIVITY_TABLE_EXEMPT,
+  CREATE_OPENS_RECORD,
+  CREATE_OPENS_RECORD_EXEMPT,
   CREATE_RETURNS_EXEMPT,
   DEAF_EXEMPT,
   FORM_DIALOGS,
@@ -321,6 +323,42 @@ describe("RULES — the laws of the base", () => {
       offenders,
       `unbounded list read (R14) — add a hard-cap LIMIT (with its comment) or real paging: ${offenders.join(", ")}`
     ).toEqual([])
+  })
+
+  // R22 — creating a MASTER record through a form OPENS that record (owner's
+  // decision, 2026-08-11). Implemented ONCE, in the shared form seam, so a module
+  // declares `opensRecord` and gets the behaviour — rather than every screen
+  // remembering to navigate, which is how one module ends up behaving
+  // differently from the rest.
+  it("create-opens-record: every create form opens its record, or is a NAMED exception", () => {
+    // Derived from FORM_DIALOGS: a new form must land in exactly one of the two
+    // maps, so adding one forces the decision instead of defaulting to silence.
+    for (const dialog of FORM_DIALOGS) {
+      const opens = CREATE_OPENS_RECORD[dialog]
+      const exempt = CREATE_OPENS_RECORD_EXEMPT[dialog]
+      expect(
+        Boolean(opens) !== Boolean(exempt),
+        `${dialog} must be in exactly ONE of CREATE_OPENS_RECORD / CREATE_OPENS_RECORD_EXEMPT — "nobody decided" and "we decided not to" must not look the same`
+      ).toBe(true)
+      if (exempt)
+        expect(exempt.why.length, `${dialog} is exempt from R22 — say WHY, per table`).toBeGreaterThan(20)
+      if (!opens) continue
+      const src = read(join(WEB, "components", `${dialog}.tsx`))
+      expect(src, `${dialog} must declare opensRecord on its FormShell (R22)`).toContain("opensRecord=")
+      expect(
+        src,
+        `${dialog} must open the "${opens.segment}" segment its detail screen lives under`
+      ).toContain(`segment: "${opens.segment}"`)
+      // …and the create path must actually RESOLVE with an id, or opensRecord is
+      // a declaration that never fires.
+      expect(
+        /return createdId/.test(src),
+        `${dialog} declares opensRecord but never resolves with the created id — the record would never open`
+      ).toBe(true)
+    }
+    // The seam itself: the navigation lives in FormShell, not in the screens.
+    const shell = read(join(WEB, "components", "form-shell.tsx"))
+    expect(shell, "FormShell owns R22 — it opens the record the create resolved with").toContain("openRecord(")
   })
 
   // R21 — a create door returns the CREATED RECORD, never the collection. Handing
@@ -661,6 +699,7 @@ describe("RULES — the laws of the base", () => {
       "agent-filter-parity", // R19: workers/mcp/test/filter-parity.test.ts
       "static-destinations", // R20: the page + gateway-shell scan above
       "create-returns-row", // R21: the create-door response scan above
+      "create-opens-record", // R22: the form-seam scan above
     ])
     for (const r of RULES_REGISTRY) {
       if (r.status === "enforced")

@@ -95,7 +95,8 @@ export function LearningFormDialog({
   onOpenChange: (open: boolean) => void
   /** present = edit mode (prefilled); absent = create mode */
   initial?: LearningFormValues | null
-  onSubmit: (values: LearningFormValues) => Promise<void>
+  /** Resolves with the CREATED record's id (R22 opens it); nothing on an edit. */
+  onSubmit: (values: LearningFormValues) => Promise<string | void>
   /** stable id for per-session draft persistence (CACHING.md §11); omit to disable */
   draftKey?: string
   /** the active team — drives the gated "Manage dropdowns" link */
@@ -155,7 +156,7 @@ export function LearningFormDialog({
     e.preventDefault()
     setBusy(true)
     try {
-      await onSubmit({
+      const createdId = await onSubmit({
         title: values.title.trim(),
         category: values.category === NONE ? "" : values.category,
         contentType: values.contentType === NONE ? "" : values.contentType,
@@ -164,6 +165,7 @@ export function LearningFormDialog({
       })
       clearDraft()
       onOpenChange(false)
+      return createdId ?? undefined // R22: FormShell opens the new article
     } catch (err) {
       toast.error(err instanceof ApiFailure ? err.message : "Couldn't save the article.")
     } finally {
@@ -183,6 +185,7 @@ export function LearningFormDialog({
       <DialogContent>
         <FormShell
           onSubmit={submit}
+          opensRecord={isEdit ? null : { segment: "learning", teamId: teamId ?? null }}
           title={<DialogTitle>{isEdit ? "Edit this article" : "Write a how-to"}</DialogTitle>}
           subtitle={
             <DialogDescription>

@@ -468,7 +468,9 @@ export function DeepLinkScreen() {
         roles={activeRoles}
         currentRoleId={changeTarget?.roleId ?? null}
         subjectName={changeTarget ? personName(changeTarget) : null}
-        onPick={(roleId) => runAction("members.changeRole", { userId: query.id ?? "", roleId })}
+        onPick={async (roleId) => {
+          await runAction("members.changeRole", { userId: query.id ?? "", roleId })
+        }}
       />
 
       {/* Invite someone (?panel=add&module=invites) — gated by create. */}
@@ -476,6 +478,7 @@ export function DeepLinkScreen() {
         open={query.panel === "add" && query.module === "invites" && can("team_members", "create")}
         onOpenChange={(o) => !o && closePanel()}
         draftKey={teamId ? `invite:new:${teamId}` : undefined}
+        teamId={teamId}
         roles={activeRoles}
         onSubmit={(email, roleId) => runAction("invites.create", { email, roleId })}
       />
@@ -485,6 +488,7 @@ export function DeepLinkScreen() {
         open={query.panel === "add" && query.module === "roles" && can("member_roles", "create")}
         onOpenChange={(o) => !o && closePanel()}
         draftKey={teamId ? `role:new:${teamId}` : undefined}
+        teamId={teamId}
         onSubmit={(title, description) => runAction("roles.create", { title, description })}
       />
 

@@ -43,12 +43,16 @@ export function InviteDialog({
   roles,
   onSubmit,
   draftKey,
+  teamId,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   /** Active roles only — the caller pre-filters (the server rejects inactive). */
   roles: TeamRole[]
-  onSubmit: (email: string, roleId: string) => Promise<void>
+  /** the active team — R22 builds the new record's url from it */
+  teamId?: string | null
+  /** Resolves with the CREATED invite's id — R22 opens it. */
+  onSubmit: (email: string, roleId: string) => Promise<string | void>
   /** stable id for per-session draft persistence (CACHING.md §11); omit to disable */
   draftKey?: string
 }) {
@@ -66,9 +70,10 @@ export function InviteDialog({
     if (!values.email.trim() || !values.roleId) return
     setBusy(true)
     try {
-      await onSubmit(values.email.trim(), values.roleId)
+      const createdId = await onSubmit(values.email.trim(), values.roleId)
       clearDraft()
       onOpenChange(false)
+      return createdId ?? undefined // R22: FormShell opens the new invite
     } catch (err) {
       // ApiFailure carries the server's specific reason (e.g. "They're already on
       // this team."). Anything else is a network/runtime fault — log it so a
@@ -94,6 +99,7 @@ export function InviteDialog({
       <DialogContent>
         <FormShell
           onSubmit={submit}
+          opensRecord={{ segment: "invites", teamId: teamId ?? null }}
           title={<DialogTitle>Invite someone to the team</DialogTitle>}
           subtitle={
             <DialogDescription>
