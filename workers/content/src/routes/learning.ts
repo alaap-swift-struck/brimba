@@ -11,7 +11,7 @@ import { boundExport, csvResponse, toCsv } from "../../../../shared/workers/csv"
 import { EXPORT_HARD_CAP } from "../../../../shared/workers/limits"
 import { requireText, TEXT_LIMITS } from "../../../../shared/workers/validate"
 import { publishChange } from "../../../../shared/workers/realtime"
-import { cappedStream, isInlineSafeUpload } from "../../../../shared/workers/image"
+import { isInlineSafeUpload, uploadLengthProblem } from "../../../../shared/workers/image"
 import { ulid } from "../../../../shared/workers/id"
 import { gated, gatedBody } from "../../../../shared/workers/route"
 import { requireIdList } from "../lib/bulk"
@@ -164,25 +164,19 @@ export async function postUploadLearningFile(request: Request, env: Env): Promis
     return fail(400, "invalid_input", "That file type isn't one we can store.")
   if (!request.body) return fail(400, "invalid_input", "No file was sent.")
 
-  // A declared size over the cap is refused before a single byte moves. It is
-  // not the real check — a client can declare anything — but it turns the
-  // ordinary too-big case into an instant, clear refusal instead of a 25 MB
-  // upload that fails at the end.
-  const declared = Number(request.headers.get("Content-Length") ?? 0)
-  if (declared > MAX_UPLOAD_BYTES)
+  const problem = uploadLengthProblem(request, MAX_UPLOAD_BYTES)
+  if (problem === "too_large")
     return fail(413, "file_too_large", "That file is over the 25 MB limit.")
+  if (problem === "unknown")
+    return fail(411, "length_required", "We couldn't tell how big that file is. Try uploading it again.")
 
   const id = ulid()
   const key = `${guard.teamId}/${id}`
-  try {
-    await env.LEARNING_MEDIA.put(key, cappedStream(request.body, MAX_UPLOAD_BYTES), {
-      httpMetadata: { contentType },
-    })
-  } catch {
-    // The counter aborted the write, or R2 refused it. Either way nothing was
-    // stored (an R2 put is atomic), so the honest answer is the size refusal.
-    return fail(413, "file_too_large", "That file is over the 25 MB limit.")
-  }
+  // The request body goes to R2 UNTOUCHED. Wrapping it in a transform (to count
+  // bytes, say) replaces a known-length stream with an unknown-length one, and
+  // R2 refuses those outright — see uploadLengthProblem for the whole story.
+  await env.LEARNING_MEDIA.put(key, request.body, { httpMetadata: { contentType } })
+
   // ?v= busts caches; the file itself is served immutable by the gateway.
   return json({
     url: `/media/learning/${guard.teamId}/${id}?v=${Date.now()}`,

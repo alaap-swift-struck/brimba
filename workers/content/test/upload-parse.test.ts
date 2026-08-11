@@ -14,7 +14,7 @@
 
 import { describe, expect, it } from "vitest"
 
-import { cappedStream, isInlineSafeUpload } from "../../../shared/workers/image"
+import { isInlineSafeUpload, uploadLengthProblem } from "../../../shared/workers/image"
 
 /** A body of `chunks` × `size` bytes, delivered in pieces like a real upload. */
 function bodyOf(chunks: number, size: number): ReadableStream {
@@ -67,36 +67,30 @@ describe("the mime allowlist", () => {
 })
 
 describe("the size cap", () => {
-  it("passes a body under the cap through byte-for-byte", async () => {
-    expect(await drain(cappedStream(bodyOf(4, 1000), 10_000))).toBe(4000)
+  const req = (headers: Record<string, string>) =>
+    new Request("https://app.example/api/content/learning/upload", { method: "POST", headers })
+
+  it("passes a declared size under the cap", () => {
+    expect(uploadLengthProblem(req({ "Content-Length": "1000" }), 25_000)).toBeNull()
   })
 
-  it("fails a body that goes OVER, however it was declared", async () => {
-    // This is the check that matters. `Content-Length` is client-supplied, so a
-    // caller can promise 1 KB and send 100 MB; only counting the bytes as they
-    // arrive catches that. Nothing reaches R2 after the cap is crossed.
-    await expect(drain(cappedStream(bodyOf(100, 1000), 5_000))).rejects.toThrow()
+  it("refuses a declared size over the cap BEFORE a byte moves", () => {
+    expect(uploadLengthProblem(req({ "Content-Length": "99999" }), 25_000)).toBe("too_large")
   })
 
-  it("fails on the chunk that crosses the line, not at the end", async () => {
-    // A cap only checked after the whole body arrived would mean holding the
-    // whole body — which is the thing this replaced.
-    let delivered = 0
-    const body = new ReadableStream({
-      pull(controller) {
-        // Bounded, though it far exceeds the cap. An endless source would let a
-        // BROKEN cap hang this test instead of failing it, and a check that
-        // hangs under sabotage is no better than one that stays green.
-        if (delivered++ >= 50) return controller.close()
-        controller.enqueue(new Uint8Array(1000))
-      },
-    })
-    await expect(drain(cappedStream(body, 2_500))).rejects.toThrow()
-    expect(delivered, "the source must be stopped, not read to completion").toBeLessThan(10)
+  it("allows a body exactly ON the cap", () => {
+    expect(uploadLengthProblem(req({ "Content-Length": "25000" }), 25_000)).toBeNull()
   })
 
-  it("allows a body exactly ON the cap", async () => {
-    expect(await drain(cappedStream(bodyOf(5, 1000), 5_000))).toBe(5000)
+  it("REFUSES a body whose size it cannot know", () => {
+    // A chunked upload has no Content-Length, so nothing bounds it. Guessing
+    // "probably fine" here would hand R2 an unbounded stream, which is exactly
+    // what the cap exists to prevent — and R2 would refuse it anyway, as a 500
+    // rather than as an answer the caller can act on.
+    expect(uploadLengthProblem(req({}), 25_000)).toBe("unknown")
+    expect(uploadLengthProblem(req({ "Content-Length": "0" }), 25_000)).toBe("unknown")
+    expect(uploadLengthProblem(req({ "Content-Length": "banana" }), 25_000)).toBe("unknown")
+    expect(uploadLengthProblem(req({ "Content-Length": "-5" }), 25_000)).toBe("unknown")
   })
 })
 
@@ -110,9 +104,13 @@ describe("the streaming door", () => {
     )
     const fn = src.slice(src.indexOf("export async function postUploadLearningFile"))
     expect(
-      fn.includes("cappedStream(request.body, MAX_UPLOAD_BYTES)"),
-      "the body must go to R2 as a stream — reading it first reintroduces the isolate ceiling"
+      fn.includes("env.LEARNING_MEDIA.put(key, request.body, "),
+      "the body must reach R2 UNWRAPPED — a transform replaces a known-length stream with an unknown-length one, and R2 refuses those outright"
     ).toBe(true)
+    expect(
+      /put\(key, \w+\(request\.body/.test(fn),
+      "nothing may wrap request.body on the way to R2 — that is the bug this door already had once"
+    ).toBe(false)
     expect(
       /await request\.(json|text|arrayBuffer|blob|formData)\(\)/.test(fn.slice(0, fn.indexOf("LEARNING_MEDIA.put"))),
       "reading the body into memory before the put is exactly what was removed"

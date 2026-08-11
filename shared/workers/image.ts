@@ -38,36 +38,30 @@ export function isInlineSafeUpload(contentType: string): boolean {
 }
 
 /**
- * Pass a body through unchanged, failing the stream the moment it exceeds a cap.
+ * THE SIZE CAP ON A STREAMED UPLOAD, and why it is a header check.
  *
- * Why this exists: an upload used to arrive as base64 inside a JSON body, which
- * meant the worker held the whole file THREE times — the JSON string, the base64
- * substring, and the decoded bytes — and base64 is a third larger than what it
- * encodes. A 25 MB video was therefore ~100 MB of a 128 MB isolate, and the
- * failure mode at the edge is the isolate being killed, which reads to the user
- * as "it just didn't work".
+ * The first attempt at this piped the body through a counting TransformStream
+ * so the cap could be enforced on the bytes themselves rather than on a
+ * client-supplied `Content-Length`. Every unit test passed and every upload
+ * failed, because R2 refuses a stream whose length it cannot know:
  *
- * Streaming instead means memory is one chunk, whatever the file size. The cap
- * still has to be enforced, and it cannot be enforced from `Content-Length`
- * alone — a client is free to declare one size and send another. So the bytes
- * are counted as they pass.
+ *   "Provided readable stream must have a known length
+ *    (request/response body or readable half of FixedLengthStream)"
+ *
+ * `request.body` HAS a known length — piping it through a transform is what
+ * throws that away. So the counter was not extra safety, it was the bug.
+ *
+ * Content-Length is safe to trust HERE, which is the part worth stating because
+ * it is normally not: the runtime frames the incoming body by that header, so a
+ * caller declaring 1 KB cannot then deliver 100 MB — the extra bytes are not
+ * part of the request at all. What a caller CAN do is omit the header entirely
+ * (a chunked body), and that is refused rather than guessed at: an unbounded
+ * body is exactly what the cap exists to prevent.
  */
-export function cappedStream(body: ReadableStream, maxBytes: number): ReadableStream {
-  let seen = 0
-  return body.pipeThrough(
-    new TransformStream({
-      transform(chunk: Uint8Array, controller) {
-        seen += chunk.byteLength
-        if (seen > maxBytes) {
-          // Erroring the stream aborts the R2 write in progress. R2 puts are
-          // atomic, so an aborted one leaves no partial object behind.
-          controller.error(new Error("upload_too_large"))
-          return
-        }
-        controller.enqueue(chunk)
-      },
-    })
-  )
+export function uploadLengthProblem(request: Request, maxBytes: number): "unknown" | "too_large" | null {
+  const header = request.headers.get("Content-Length")
+  if (header === null) return "unknown"
+  const declared = Number(header)
+  if (!Number.isFinite(declared) || declared <= 0) return "unknown"
+  return declared > maxBytes ? "too_large" : null
 }
-
-
