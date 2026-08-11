@@ -50,7 +50,7 @@ export async function listSelectableForExport(cfg: D1Rest, guard: MemberGuard): 
     cfg,
     guard.databaseId,
     // R14 hard cap — never unbounded; move to real paging before this bites (exports get the larger deliberate-download cap).
-    `SELECT type, value, is_default, deactivated_at, created_at, creator_name FROM selectable_data ORDER BY type ASC, value ASC LIMIT ${EXPORT_HARD_CAP}`
+    `SELECT type, value, is_default, deactivated_at, created_at, creator_name FROM selectable_data ORDER BY type ASC, value ASC LIMIT ${EXPORT_HARD_CAP + 1}` // +1: the extra row is how we learn the export was truncated
   )
 }
 

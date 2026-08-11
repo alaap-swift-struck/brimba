@@ -4,7 +4,8 @@
 // change ping (the publish-seam test enforces this).
 
 import { fail, json } from "../../../../shared/workers/http"
-import { csvResponse, toCsv } from "../../../../shared/workers/csv"
+import { boundExport, csvResponse, toCsv } from "../../../../shared/workers/csv"
+import { EXPORT_HARD_CAP } from "../../../../shared/workers/limits"
 import { requireText, TEXT_LIMITS } from "../../../../shared/workers/validate"
 import { publishChange } from "../../../../shared/workers/realtime"
 import { gated, gatedBody } from "../../../../shared/workers/route"
@@ -31,12 +32,13 @@ export async function getSelectable(request: Request, env: Env): Promise<Respons
  * (type, value) so the file round-trips through the CSV importer. */
 export async function getSelectableExport(request: Request, env: Env): Promise<Response> {
   const { cfg, guard } = await gated(request, env, "selectable_data", "read")
-  const rows = await listSelectableForExport(cfg, guard)
+  const all = await listSelectableForExport(cfg, guard)
+  const { rows, truncated } = await boundExport(all, EXPORT_HARD_CAP, () => countSelectable(cfg, guard))
   const csv = toCsv(
     ["type", "value", "active", "created_at", "created_by"],
     rows.map((r) => [r.type, r.value, r.deactivated_at == null, r.created_at, r.creator_name])
   )
-  return csvResponse("dropdown-values.csv", csv)
+  return csvResponse("dropdown-values.csv", csv, truncated)
 }
 
 export async function postCreateSelectable(request: Request, env: Env): Promise<Response> {

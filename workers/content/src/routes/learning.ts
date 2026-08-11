@@ -7,7 +7,8 @@
 // category, deactivate-not-delete) live in lib/learning.
 
 import { fail, json } from "../../../../shared/workers/http"
-import { csvResponse, toCsv } from "../../../../shared/workers/csv"
+import { boundExport, csvResponse, toCsv } from "../../../../shared/workers/csv"
+import { EXPORT_HARD_CAP } from "../../../../shared/workers/limits"
 import { requireText, TEXT_LIMITS } from "../../../../shared/workers/validate"
 import { publishChange } from "../../../../shared/workers/realtime"
 import { cappedStream, isInlineSafeUpload } from "../../../../shared/workers/image"
@@ -45,7 +46,10 @@ export async function getLearning(request: Request, env: Env): Promise<Response>
  * straight back through the CSV importer; `active` rides along as information. */
 export async function getLearningExport(request: Request, env: Env): Promise<Response> {
   const { cfg, guard } = await gated(request, env, "learning", "read")
-  const items = await listLearningForExport(cfg, guard)
+  const all = await listLearningForExport(cfg, guard)
+  // R14 says cap the read; honesty says SAY when the cap bit. A silent 10,000
+  // of 250,000 is a file that looks complete and is not.
+  const { rows: items, truncated } = await boundExport(all, EXPORT_HARD_CAP, () => countLearning(cfg, guard))
   const csv = toCsv(
     [
       "title", "category", "description", "contentType", "contentLink", "body",
@@ -58,7 +62,7 @@ export async function getLearningExport(request: Request, env: Env): Promise<Res
       l.created_at, l.creator_name, l.updated_at, l.editor_name, l.deactivated_at, l.deactivator_name,
     ])
   )
-  return csvResponse("learning.csv", csv)
+  return csvResponse("learning.csv", csv, truncated)
 }
 
 export async function postCreateLearning(request: Request, env: Env): Promise<Response> {

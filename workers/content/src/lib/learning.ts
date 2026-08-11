@@ -243,7 +243,7 @@ export async function listLearningForExport(
     `SELECT content_title, category, content_description, content_type, content_link, content_body,
             sequence, is_required, deactivated_at, deactivator_name,
             created_at, creator_name, updated_at, editor_name
-     FROM learning ORDER BY sequence, created_at LIMIT ${EXPORT_HARD_CAP}` // R14 hard cap (export tier)
+     FROM learning ORDER BY sequence, created_at LIMIT ${EXPORT_HARD_CAP + 1}` // R14 hard cap + 1: the extra row is how we learn the export was truncated
   )
 }
 
