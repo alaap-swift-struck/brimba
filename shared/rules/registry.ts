@@ -151,6 +151,13 @@ export const RULES_REGISTRY: Rule[] = [
     status: "enforced",
   },
   {
+    id: "R21",
+    dimension: "arch",
+    law: "A create door returns the CREATED RECORD, never the collection. Shipping a whole (capped) list back to add one row costs the caller a read it did not ask for, contradicts row-level live-sync (CACHING rule 3) and the paging rule — a screen reads one bounded page, never the table — and leaves the caller unable to learn the new record's id without a follow-up search. The response is `{ created, total }` (+ any honest extras like `emailSent`); the client patches that one row in through the `applyCreated` seam, exactly as an \"add\" ping would. DERIVED FROM THE GATE: a create door is any route that opens on the `create` right, so a new module is covered the moment it is gated. Earned by: POST /products returning listProducts() — a thousand rows to create one, and still no id.",
+    checkId: "create-returns-row",
+    status: "enforced",
+  },
+  {
     id: "R20",
     dimension: "ui",
     law: "Every navigable destination resolves in a FRESH TAB. The app is a static export, so a top-level `/<segment>` exists only if a page source emits it, and `/<segment>/<id>` resolves only if the gateway serves that module's shell for it — two requirements, in two workspaces, both INVISIBLE from inside the app (the client router never leaves the page, so the nav always works and the missing page shows up only when someone pastes the url). Both are DERIVED from the nav registries (NAV + TEAM_SECTIONS placement:\"sidebar\"), never hand-listed. Earned by: three modules in one fork shipping a sidebar entry with no page behind it, three separate times, with nothing red.",
@@ -261,3 +268,8 @@ export const FORM_DIALOGS = [
   "team-edit-dialog",
   "selectable-form-dialog",
 ] as const
+
+/** R21 — create doors that legitimately return something OTHER than the created
+ * row. Keyed by handler name, with the reason, so every exception is a visible
+ * reviewed line rather than a silent hole in the scan. */
+export const CREATE_RETURNS_EXEMPT: Record<string, string> = {}

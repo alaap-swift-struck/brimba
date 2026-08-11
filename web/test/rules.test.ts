@@ -12,6 +12,7 @@ import { GLOSSARY } from "@shared/glossary"
 import {
   ACTIVITY_GATE_MAP,
   ACTIVITY_TABLE_EXEMPT,
+  CREATE_RETURNS_EXEMPT,
   DEAF_EXEMPT,
   FORM_DIALOGS,
   GROWING_COLLECTIONS,
@@ -322,6 +323,52 @@ describe("RULES — the laws of the base", () => {
     ).toEqual([])
   })
 
+  // R21 — a create door returns the CREATED RECORD, never the collection. Handing
+  // the whole list back to add one row costs the caller a capped list it did not
+  // ask for, contradicts row-level live-sync (CACHING rule 3) and the paging rule
+  // (a screen reads one bounded page, never the table), and — the part that
+  // actually bites — leaves the caller unable to learn the new record's id
+  // without a follow-up search.
+  //
+  // DERIVED FROM THE GATE, not a hand-list of handler names: a create door is a
+  // route that opens on the `create` right. A new module's create door is covered
+  // the moment it is gated, which is the moment it exists.
+  it("create-returns-row: a create door returns the created record, never the collection", () => {
+    const offenders: string[] = []
+    const seen = new Set<string>()
+    const namedCreators: string[] = []
+    for (const [path, src] of workerSources()) {
+      if (!path.includes("/src/routes/")) continue
+      for (const n of src.matchAll(/export async function (postCreate\w+)/g)) namedCreators.push(n[1])
+      const re = /export async function (\w+)\s*\(/g
+      let m: RegExpExecArray | null
+      while ((m = re.exec(src))) {
+        const name = m[1]
+        const body = stripComments(declarationBody(src, m.index))
+        // `(?:<[^(<>]*>)?` — gatedBody carries a type argument at most call sites;
+        // a scan that doesn't allow for it silently skips every one of them.
+        if (!/(?:gatedBody|gated|requireRight)(?:<[^(<>]*>)?\([^)]*"create"\s*\)/.test(body)) continue
+        if (CREATE_RETURNS_EXEMPT[name]) continue
+        seen.add(name)
+        if (/:\s*await\s+(?:list|search)\w*\(/.test(body) || /return\s+\w*Page\(/.test(body))
+          offenders.push(`${path} → ${name} hands back a COLLECTION (return the created row + its exact total)`)
+        if (/await\s+create\w*\(/.test(body) && !/\bcreated:/.test(body))
+          offenders.push(`${path} → ${name} creates a record but never returns it as \`created\``)
+      }
+    }
+    // THE TRIPWIRE, cross-checked rather than a magic number. A handler NAMED
+    // postCreate* is a create door by construction; the scan finds doors by their
+    // GATE. Two independent signals, so a gate regex that quietly stops matching
+    // (e.g. forgetting that `gatedBody` carries a type argument) is caught by the
+    // other one instead of reporting all clear.
+    expect(namedCreators.length, "no postCreate* handlers found at all — the scan has gone blind").toBeGreaterThan(3)
+    expect(
+      namedCreators.filter((n) => !seen.has(n) && !CREATE_RETURNS_EXEMPT[n]),
+      "these handlers are named like create doors but the gate-derived scan never saw them — the scan is blind to some of the doors it is meant to cover"
+    ).toEqual([])
+    expect(offenders, `a create door returned a collection (R21): ${offenders.join("; ")}`).toEqual([])
+  })
+
   // R20 — every navigable destination resolves in a FRESH TAB. This app is a
   // static export: `/<segment>` only exists if a page source emits it, and a
   // sub-path like `/<segment>/<id>` only resolves if the gateway serves that
@@ -613,6 +660,7 @@ describe("RULES — the laws of the base", () => {
       "catalog-coverage", // R13: workers/data-ops/test/catalog-coverage.test.ts
       "agent-filter-parity", // R19: workers/mcp/test/filter-parity.test.ts
       "static-destinations", // R20: the page + gateway-shell scan above
+      "create-returns-row", // R21: the create-door response scan above
     ])
     for (const r of RULES_REGISTRY) {
       if (r.status === "enforced")

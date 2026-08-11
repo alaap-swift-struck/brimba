@@ -184,6 +184,14 @@ export async function listLearning(cfg: D1Rest, guard: MemberGuard): Promise<Lea
   return rows.map(toLearning)
 }
 
+/** ONE item by id, or null — what a create hands back (R21) and what the `?id=`
+ * door resolves. Picks from the bounded list read rather than repeating its
+ * projection + progress join, so a single row can never differ in shape from a
+ * listed one. */
+export async function oneLearning(cfg: D1Rest, guard: MemberGuard, id: string): Promise<Learning | null> {
+  return (await listLearning(cfg, guard)).find((l) => l.id === id) ?? null
+}
+
 /** R16: exact server COUNT(*) for the badge — never rows.length. */
 export async function countLearning(cfg: D1Rest, guard: MemberGuard): Promise<number> {
   const rows = await d1Query<{ n: number }>(cfg, guard.databaseId, "SELECT COUNT(*) AS n FROM learning")

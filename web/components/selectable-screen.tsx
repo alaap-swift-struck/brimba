@@ -24,6 +24,7 @@ import { Plus, Pencil, X, Check, Upload, Download, Power, Search } from "lucide-
 import type { SelectableValue } from "@shared/types"
 import { ApiFailure, tenancy } from "@/lib/api"
 import { SelectableFormDialog } from "@/components/selectable-form-dialog"
+import { applyCreated, totalKey } from "@/lib/live-resources"
 import { usePermissions } from "@/lib/perms"
 import { primeCache, useCached } from "@/lib/store"
 
@@ -73,8 +74,14 @@ export function SelectableScreen({
   // Create — the dialog calls this; it throws on failure so the dialog surfaces the
   // reason and stays open, and closes itself on success.
   async function addValue(type: string, value: string) {
-    const { values: next } = await tenancy.createSelectable(type, value)
-    primeCache(`selectable:${teamId}`, next)
+    // R21: the door returns the CREATED ROW — patch it in, don't re-pull the list.
+    const { created, total } = await tenancy.createSelectable(type, value)
+    await applyCreated({
+      listKey: `selectable:${teamId}`,
+      created,
+      total,
+      totalCacheKey: totalKey("selectable", teamId),
+    })
     toast.success(`Added "${value}".`)
   }
 

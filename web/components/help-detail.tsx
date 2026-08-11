@@ -160,12 +160,14 @@ export function HelpDetailScreen({
     }
     primeCache(`help-thread:${helpId}`, [...prev, optimistic]) // ~instant echo (WhatsApp-style)
     try {
-      const { replies } = await content.replyHelp(
+      const { created } = await content.replyHelp(
         helpId,
         body,
         mentions.map((m) => m.id)
       )
-      primeCache(`help-thread:${helpId}`, replies) // reconcile with server truth
+      // R21: the door returns the CREATED REPLY — swap the optimistic echo for it
+      // rather than re-pulling the whole thread to add one message.
+      primeCache(`help-thread:${helpId}`, created ? [...prev, created] : prev)
       invalidate(`help:${teamId}`)
     } catch (err) {
       primeCache(`help-thread:${helpId}`, prev) // rollback the echo

@@ -7,6 +7,7 @@ import {
   createInvite,
   getInviteAudit as readInviteAudit,
   listInvites,
+  oneInvite,
   revokeInvite,
   countInvites,
 } from "../lib/invites"
@@ -36,7 +37,12 @@ export async function postCreateInvite(request: Request, env: Env): Promise<Resp
   await publishChange(env.REALTIME, guard.teamId, "invites", inviteId, "add")
   // `emailSent` first + honest: the invite always succeeds (the row routes acceptance),
   // but the branded email is best-effort — the client + the agent report the real outcome.
-  return json({ emailSent, invites: await listInvites(env, cfg, guard), total: await countInvites(env, guard) })
+  // R21: the CREATED ROW, not the collection.
+  return json({
+    emailSent,
+    created: await oneInvite(env, cfg, guard, inviteId),
+    total: await countInvites(env, guard),
+  })
 }
 
 export async function postRevokeInvite(request: Request, env: Env): Promise<Response> {

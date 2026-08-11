@@ -142,6 +142,18 @@ export async function listRoles(
   }))
 }
 
+/** ONE role by id, or null — what a create hands back (R21). Picks from the
+ * bounded list read rather than repeating its projection + member-count rollup,
+ * so a single row can never differ in shape from a listed one. */
+export async function oneRole(
+  env: Env,
+  cfg: D1Rest,
+  guard: MemberGuard,
+  id: string
+): Promise<TeamRole | null> {
+  return (await listRoles(env, cfg, guard)).find((r) => r.id === id) ?? null
+}
+
 /** The membership row for a target user (active only), with their identity
  * (email + name) joined from the global users table — so activity rows can name
  * the affected person, not just "a member". */

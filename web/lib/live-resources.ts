@@ -13,7 +13,7 @@
 // a list primes its total in the same round-trip.
 
 import { content as contentApi, tenancy } from "@/lib/api"
-import { primeCache, readCache } from "@/lib/store"
+import { patchRow, primeCache, readCache } from "@/lib/store"
 
 /** The sidecar cache key holding a collection's exact server total (R16). */
 export function totalKey(prefix: string, teamId: string): string {
@@ -25,6 +25,35 @@ export function totalKey(prefix: string, teamId: string): string {
  * `undefined` means nothing has loaded yet. */
 export function cursorKey(listKey: string): string {
   return `cursor:${listKey}`
+}
+
+/** After a CREATE: put the new row into the loaded list and record the
+ * collection's exact new total (R21). A create door hands back the ROW, never the
+ * collection — this is the ONE seam that turns that row into a live screen
+ * update, and it does it through `patchRow`, exactly as an "add" ping would. So
+ * the person who created the row and everyone else see the same thing, and an
+ * unloaded list is correctly a no-op.
+ *
+ * `append` puts it at the END instead of the head — for an oldest-first thread. */
+export async function applyCreated<T extends Record<string, unknown>>(opts: {
+  listKey: string
+  created: T | null | undefined
+  total?: number
+  totalCacheKey?: string
+  idField?: string
+  append?: boolean
+}): Promise<void> {
+  const { listKey, created, total, totalCacheKey, idField = "id", append } = opts
+  if (created) {
+    if (append) {
+      const cur = readCache<T[]>(listKey)
+      if (cur && !cur.some((r) => r[idField] === created[idField]))
+        primeCache(listKey, [...cur, created])
+    } else {
+      await patchRow(listKey, idField, String(created[idField]), async () => created)
+    }
+  }
+  if (totalCacheKey && typeof total === "number") primeCache(totalCacheKey, total)
 }
 
 /** Fetch the NEXT page of a paged collection and APPEND it to the loaded prefix —

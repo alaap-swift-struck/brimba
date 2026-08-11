@@ -109,6 +109,17 @@ export async function getInviteAudit(
   }
 }
 
+/** ONE invite by id, or null — what a create hands back (R21). Picks from the
+ * bounded list read so a single row matches a listed one exactly. */
+export async function oneInvite(
+  env: Env,
+  cfg: D1Rest,
+  guard: MemberGuard,
+  id: string
+): Promise<Invite | null> {
+  return (await listInvites(env, cfg, guard)).find((i) => i.id === id) ?? null
+}
+
 /** R16: exact server COUNT(*) for the badge — never rows.length. */
 export async function countInvites(env: Env, guard: MemberGuard): Promise<number> {
   const row = await env.DB.prepare("SELECT COUNT(*) AS n FROM invite_index WHERE team_id = ?")

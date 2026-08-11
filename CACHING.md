@@ -118,6 +118,27 @@ const { members } = await tenancy.setMemberRole(userId, roleId)
 primeCache(`members:${teamId}`, members)   // instant for the actor
 ```
 
+**A CREATE is different — it returns the ROW, never the collection (LAW R21).**
+Handing the whole (capped) list back to add one row costs a read nobody asked
+for, contradicts rule 3, and — the part that actually bites — leaves the caller
+unable to learn the new record's id without a follow-up search. Every create door
+answers `{ created, total }` (plus honest extras like `emailSent`), and the client
+puts that one row in through the one `applyCreated` seam:
+
+```ts
+const { created, total } = await tenancy.createRole(title, description)
+await applyCreated({
+  listKey: `member_roles:${teamId}`,
+  created,
+  total,
+  totalCacheKey: totalKey("member_roles", teamId),   // R16: the exact new total
+})
+```
+
+`applyCreated` goes through `patchRow`, so the person who created the row sees
+exactly what everyone else's "add" ping produces — including its position at the
+head of the list. An unloaded list is correctly a no-op.
+
 ### 8 · Pings carry "what", never the content
 The ping says only `{ resource, id, op }` — that a row of some resource changed,
 never the row's CONTENT. (The id/op/timing ARE visible to anyone already on the

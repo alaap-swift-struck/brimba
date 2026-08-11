@@ -6,7 +6,7 @@ import { fail, json } from "../../../../shared/workers/http"
 import { csvResponse, toCsv } from "../../../../shared/workers/csv"
 import { optionalText, requireText, TEXT_LIMITS } from "../../../../shared/workers/validate"
 import { publishChange } from "../../../../shared/workers/realtime"
-import { listRoles, countRoles } from "../lib/members"
+import { listRoles, oneRole, countRoles } from "../lib/members"
 import { TEAM_MODULE_CATALOG } from "../team-schema"
 import { requireRight } from "../lib/permissions"
 import {
@@ -129,7 +129,9 @@ export async function postCreateRole(request: Request, env: Env): Promise<Respon
   if (withMatrix) await setRolePermissions(cfg, guard, actor, roleId, body.permissions as PermissionValue)
   // Row-level: carry the new role's id so open role lists patch just that row.
   await publishChange(env.REALTIME, guard.teamId, "member_roles", roleId, "add")
-  return json({ roles: await listRoles(env, cfg, guard), total: await countRoles(cfg, guard) })
+  // R21: the CREATED ROW, not the collection — the caller patches this one row in
+  // (CACHING rule 3) and now knows the new id without a follow-up search.
+  return json({ created: await oneRole(env, cfg, guard, roleId), total: await countRoles(cfg, guard) })
 }
 
 export async function postUpdateRole(request: Request, env: Env): Promise<Response> {

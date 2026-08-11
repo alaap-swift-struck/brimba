@@ -18,6 +18,7 @@ import {
   bulkSetLearningActive,
   createLearning,
   listLearning,
+  oneLearning,
   listProgress,
   setLearningActive,
   setLearningDone,
@@ -66,7 +67,10 @@ export async function postCreateLearning(request: Request, env: Env): Promise<Re
   const id = await createLearning(cfg, guard, actor, body)
   // Row-level: carry the new item's id so open learning lists patch just that row.
   await publishChange(env.REALTIME, guard.teamId, "learning", id, "add")
-  return json({ learning: await listLearning(cfg, guard), total: await countLearning(cfg, guard) })
+  // R21: the CREATED ROW, not the collection. Shipping the whole list back to add
+  // one row contradicts row-level live-sync (CACHING rule 3) and the paging rule,
+  // and left the caller unable to learn the new id without a follow-up search.
+  return json({ created: await oneLearning(cfg, guard, id), total: await countLearning(cfg, guard) })
 }
 
 export async function postUpdateLearning(request: Request, env: Env): Promise<Response> {

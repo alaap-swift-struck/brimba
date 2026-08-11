@@ -18,6 +18,7 @@ import * as React from "react"
 import { toast } from "@swift-struck/ui/registry/primitives/sonner/sonner"
 
 import { content as contentApi, tenancy } from "@/lib/api"
+import { applyCreated, helpKey, totalKey } from "@/lib/live-resources"
 import { invalidate, primeCache } from "@/lib/store"
 import type { LearningFormValues } from "@/components/learning-form-dialog"
 
@@ -44,8 +45,14 @@ export function useScreenActions(teamId: string | null) {
           break
         }
         case "invites.create": {
-          const { invites } = await tenancy.createInvite(payload.email, payload.roleId)
-          primeCache(`invites:${teamId}`, invites)
+          // R21: the door returns the CREATED ROW — patch it in, don't re-pull the list.
+          const { created, total } = await tenancy.createInvite(payload.email, payload.roleId)
+          await applyCreated({
+            listKey: `invites:${teamId}`,
+            created,
+            total,
+            totalCacheKey: totalKey("invites", teamId),
+          })
           toast.success(`Invited ${payload.email}.`)
           break
         }
@@ -56,8 +63,13 @@ export function useScreenActions(teamId: string | null) {
           break
         }
         case "roles.create": {
-          const { roles: next } = await tenancy.createRole(payload.title, payload.description)
-          primeCache(`member_roles:${teamId}`, next)
+          const { created, total } = await tenancy.createRole(payload.title, payload.description)
+          await applyCreated({
+            listKey: `member_roles:${teamId}`,
+            created,
+            total,
+            totalCacheKey: totalKey("member_roles", teamId),
+          })
           toast.success(`Created ${payload.title}.`)
           break
         }
@@ -72,14 +84,19 @@ export function useScreenActions(teamId: string | null) {
   const createLearning = React.useCallback(
     async (values: LearningFormValues) => {
       if (!teamId) return
-      const { learning: next } = await contentApi.createLearning({
+      const { created, total } = await contentApi.createLearning({
         title: values.title,
         category: values.category || null,
         contentType: values.contentType || null,
         contentLink: values.contentLink || null,
         body: values.body || null,
       })
-      primeCache(`learning:${teamId}`, next)
+      await applyCreated({
+        listKey: `learning:${teamId}`,
+        created,
+        total,
+        totalCacheKey: totalKey("learning", teamId),
+      })
       toast.success(`Created "${values.title}".`)
     },
     [teamId]
@@ -90,8 +107,15 @@ export function useScreenActions(teamId: string | null) {
   const createHelp = React.useCallback(
     async (input: { description: string; helpType?: string }) => {
       if (!teamId) return
-      const { tickets } = await contentApi.createHelp(input)
-      primeCache(`help:${teamId}`, tickets)
+      const { created, total, mineTotal } = await contentApi.createHelp(input)
+      // Both scopes: you raised it, so it belongs in All AND in My tickets.
+      await applyCreated({ listKey: helpKey(teamId, "all"), created, total, totalCacheKey: totalKey("help", teamId) })
+      await applyCreated({
+        listKey: helpKey(teamId, "mine"),
+        created,
+        total: mineTotal,
+        totalCacheKey: totalKey("help-mine", teamId),
+      })
       toast.success("Ticket raised.")
     },
     [teamId]

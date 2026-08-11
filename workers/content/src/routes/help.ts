@@ -18,6 +18,7 @@ import {
   getTicket,
   HELP_STATUSES,
   listReplies,
+  oneReply,
   listTickets,
   maybeDraftFirstReply,
   setStatus,
@@ -85,7 +86,11 @@ export async function postCreateHelp(request: Request, env: Env): Promise<Respon
   // HOOK (Phase 3): the agent drafts the first reply here; a no-op today, so the
   // ticket simply opens awaiting a human (per "ticket always opens").
   await maybeDraftFirstReply(cfg, guard, id, description)
-  return ticketPage(cfg, guard, "all")
+  // R21: the CREATED ROW, not page one of the collection. Handing a paged screen
+  // its first page on every create is the exact thing R14 exists to stop — the
+  // caller patches this one row into whichever scope it is showing.
+  const counts = await countTickets(cfg, guard)
+  return json({ created: await getTicket(cfg, guard, id), total: counts.total, mineTotal: counts.mineTotal })
 }
 
 /** POST /api/content/help/update — edit a ticket (help:edit). */
@@ -197,7 +202,10 @@ export async function postHelpReply(request: Request, env: Env): Promise<Respons
     replyBody,
     tagged
   )
-  return json({ replies: await listReplies(cfg, guard, body.helpId), total: await countReplies(cfg, guard, body.helpId) })
+  // R21 again, one level down: a reply is a create too. The thread grows with
+  // use, so returning all of it to add one message is the same defect at a
+  // smaller scale — the caller appends this message to the loaded thread.
+  return json({ created: await oneReply(cfg, guard, replyId), total: await countReplies(cfg, guard, body.helpId) })
 }
 
 /** GET /api/content/help/stakeholders?id=<ticketId> — the full derived ∪ added

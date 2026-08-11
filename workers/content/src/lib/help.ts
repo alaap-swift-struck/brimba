@@ -184,6 +184,18 @@ export async function listReplies(
   return rows.map(toMessage)
 }
 
+/** ONE reply by id, or null — what posting a reply hands back (R21). The team
+ * filter is the ticket the reply belongs to, which the id already carries. */
+export async function oneReply(cfg: D1Rest, guard: MemberGuard, id: string): Promise<HelpMessage | null> {
+  const rows = await d1Query<ReplyRow>(
+    cfg,
+    guard.databaseId,
+    "SELECT id, help_id, message_body, tagged_user_ids, is_agent, creator_id, creator_name, created_at FROM help_threads WHERE id = ?",
+    [id]
+  )
+  return rows[0] ? toMessage(rows[0]) : null
+}
+
 /** R16: the thread's exact reply COUNT(*) — the Conversation badge shows this,
  * never the loaded (THREAD_HARD_CAP-bounded) list's length. */
 export async function countReplies(cfg: D1Rest, guard: MemberGuard, ticketId: string): Promise<number> {
