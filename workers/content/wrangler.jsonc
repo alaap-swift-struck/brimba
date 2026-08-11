@@ -5,6 +5,7 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "brimba-content",
   "main": "src/index.ts",
+  "ratelimits": [{"name": "TEAM_LIMITER", "namespace_id": "1002", "simple": {"limit": 6000, "period": 60}}],
   "compatibility_date": "2026-06-01",
   // Only the gateway is public — this worker is reachable only via bindings.
   "workers_dev": false,
@@ -30,6 +31,7 @@
   // No cron — content modules have no nightly housekeeping.
   "env": {
     "staging": {
+      "ratelimits": [{"name": "TEAM_LIMITER", "namespace_id": "1002", "simple": {"limit": 6000, "period": 60}}],
       "name": "brimba-content-staging",
       "workers_dev": false,
       "preview_urls": false,

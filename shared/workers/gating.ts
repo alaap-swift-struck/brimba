@@ -10,6 +10,7 @@
 // module import would have to resolve from the repo root — which only worked
 // while an older wrangler happened to hoist the package there.
 
+import type { RateLimiter } from "./rate-limit"
 import type { SessionUser } from "../types"
 import { d1Query, type D1Rest } from "./d1-rest"
 import { fail } from "./http"
@@ -142,7 +143,39 @@ export async function teamContext(request: Request, env: GatingEnv): Promise<Tea
 
   const cfg = d1ConfigFrom(env)
   const guard = await requireMember(env, user.id, user.currentTeamId)
+
+  // THE PER-TENANT SURGE CEILING, here rather than at the gateway — because
+  // here is the first point the team is KNOWN. A team-scoped call carries no
+  // team in its URL (it is resolved from the session), so the public door
+  // cannot key on one without a session lookup of its own on every request.
+  // This costs nothing: the team id is already in hand.
+  //
+  // The gateway's ceiling stops one PERSON flooding; this stops one TENANT
+  // spending the capacity of the dozens of others sharing the account.
+  await limitTeam(env, guard.teamId)
+
   return { user, actor: toActor(user), cfg, guard }
+}
+
+/** Charge one request against the team's ceiling; 429 if it is spent. Fails
+ * OPEN — an absent binding (a fork, `wrangler dev`, a test) or a limiter hiccup
+ * lets the request through, because a safety feature that takes the app down
+ * when its own dependency wobbles has inverted its purpose. */
+async function limitTeam(env: GatingEnv, teamId: string): Promise<void> {
+  const limiter = (env as { TEAM_LIMITER?: RateLimiter }).TEAM_LIMITER
+  if (!limiter) return
+  try {
+    const { success } = await limiter.limit({ key: `t:${teamId}` })
+    if (!success)
+      throw new GuardError(
+        429,
+        "too_many_requests",
+        "Your team is making a lot of requests at once. Give it a few seconds and try again."
+      )
+  } catch (e) {
+    if (e instanceof GuardError) throw e
+    console.error("team rate limiter unavailable; allowing the request:", e)
+  }
 }
 
 /** Does the member's role hold this right on this module? (tall-sheet read) */
