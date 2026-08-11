@@ -20,7 +20,7 @@ import {
   TAB_COUNT_EXCEPTIONS,
 } from "@shared/rules/registry"
 import { SIMPLE_INVALIDATIONS, TEAM_RESOURCES } from "../lib/live-resources"
-import { TEAM_SECTIONS } from "../lib/pages"
+import { NAV, TEAM_SECTIONS } from "../lib/pages"
 import { BASE_RECIPES } from "../lib/screens"
 
 /** Every worker's src .ts file (recursively), as [repo-relative path, source]. */
@@ -242,6 +242,59 @@ describe("RULES — the laws of the base", () => {
       offenders,
       `unbounded list read (R14) — add a hard-cap LIMIT (with its comment) or real paging: ${offenders.join(", ")}`
     ).toEqual([])
+  })
+
+  // R20 — every navigable destination resolves in a FRESH TAB. This app is a
+  // static export: `/<segment>` only exists if a page source emits it, and a
+  // sub-path like `/<segment>/<id>` only resolves if the gateway serves that
+  // module's shell for it. Neither is visible from inside the app — the client
+  // router never leaves the page, so clicking the nav always works and the
+  // missing page shows up only when someone pastes the url somewhere. A fork hit
+  // this three times on three different modules before anything said a word.
+  //
+  // DERIVED from the registries, never hand-listed, so a new section is covered
+  // the moment it is declared rather than the moment someone remembers.
+  it("static-destinations: every rail destination has a page, and every module shell is served", () => {
+    const sidebar = TEAM_SECTIONS.filter((s) => s.placement === "sidebar")
+    // Tripwires. Renaming `placement: "sidebar"` (or emptying NAV) would leave
+    // the loops below iterating nothing and reporting all clear — the exact
+    // silent-disable this law exists to prevent.
+    expect(
+      sidebar.length,
+      'no TEAM_SECTIONS section has placement "sidebar" — the value was renamed and this check went blind'
+    ).toBeGreaterThan(0)
+    expect(NAV.length, "NAV is empty — this check went blind").toBeGreaterThan(1)
+
+    // (a) A page source for every top-level rail destination.
+    const pageFor = (segment: string) =>
+      [join(WEB, "app", segment, "page.tsx"), join(WEB, "app", segment, "[[...rest]]", "page.tsx")].find(
+        existsSync
+      )
+    for (const path of [...NAV.map((n) => n.path), ...sidebar.map((s) => `/${s.segment}`)])
+      expect(
+        pageFor(path.slice(1)),
+        `${path} is in the nav but has no page source — it works when clicked and 404s in a fresh tab. Add web/app${path}/[[...rest]]/page.tsx`
+      ).toBeDefined()
+
+    // (b) A sidebar section has RECORD sub-paths (/learning/<id>), so its page
+    // must be the catch-all shell, not a plain page.
+    for (const s of sidebar)
+      expect(
+        existsSync(join(WEB, "app", s.segment, "[[...rest]]", "page.tsx")),
+        `/${s.segment} needs the catch-all shell (web/app/${s.segment}/[[...rest]]/page.tsx) — a record url like /${s.segment}/<id> has nothing to resolve it`
+      ).toBe(true)
+
+    // (c) …and the gateway must serve that shell for those sub-paths.
+    const gateway = read(join(ROOT, "workers", "gateway", "src", "index.ts"))
+    const declared = /const MODULE_SHELLS = \[([^\]]*)\]/.exec(gateway)
+    expect(
+      declared,
+      "the gateway's MODULE_SHELLS list could not be found — it was renamed and this half of the check went blind"
+    ).not.toBeNull()
+    expect(
+      [...declared![1].matchAll(/"([^"]+)"/g)].map((m) => m[1]).sort(),
+      "the gateway serves a different set of module shells than the sidebar declares — a /<segment>/<id> url will 404 in a fresh tab"
+    ).toEqual(sidebar.map((s) => s.segment).sort())
   })
 
   // R14, the other half — a cap is an honest REFUSAL to answer, so a collection
@@ -481,6 +534,7 @@ describe("RULES — the laws of the base", () => {
       "counted-collections", // R16: the seam/place/arbitration scan above + format-count.test.ts
       "catalog-coverage", // R13: workers/data-ops/test/catalog-coverage.test.ts
       "agent-filter-parity", // R19: workers/mcp/test/filter-parity.test.ts
+      "static-destinations", // R20: the page + gateway-shell scan above
     ])
     for (const r of RULES_REGISTRY) {
       if (r.status === "enforced")

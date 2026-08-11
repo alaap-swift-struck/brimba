@@ -19,6 +19,11 @@ function mediaHeaders(object: R2ObjectBody): HeadersInit {
   }
 }
 
+/** The team sections that have a clean TOP-LEVEL url of their own (R20). One
+ * entry per `placement: "sidebar"` section in `web/lib/pages.ts` — the check
+ * asserts this list and that registry match exactly, in both directions. */
+const MODULE_SHELLS = ["learning", "help"]
+
 type Env = {
   ASSETS: Fetcher
   AUTH: Fetcher
@@ -132,7 +137,14 @@ export default {
     // shells (their own clean URLs, active team from context). Serve the module's
     // shell for any sub-path (e.g. /learning/<id>); the bare /learning is a real
     // static file served below.
-    for (const mod of ["learning", "help"]) {
+    //
+    // LAW R20 — this list is the SECOND thing a sidebar section needs, in a
+    // different worker from the first (its `web/app/<segment>/[[...rest]]` page).
+    // Both are invisible from inside the app: the client router never leaves the
+    // page, so a section with neither still navigates perfectly and only breaks
+    // when someone pastes the URL into a fresh tab. Named, so the check that
+    // derives it from TEAM_SECTIONS can find it — and says so when it can't.
+    for (const mod of MODULE_SHELLS) {
       if (pathname.startsWith(`/${mod}/`)) {
         const shell = new URL(request.url)
         shell.pathname = `/${mod}`

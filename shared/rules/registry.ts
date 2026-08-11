@@ -150,6 +150,13 @@ export const RULES_REGISTRY: Rule[] = [
     checkId: "agent-filter-parity",
     status: "enforced",
   },
+  {
+    id: "R20",
+    dimension: "ui",
+    law: "Every navigable destination resolves in a FRESH TAB. The app is a static export, so a top-level `/<segment>` exists only if a page source emits it, and `/<segment>/<id>` resolves only if the gateway serves that module's shell for it — two requirements, in two workspaces, both INVISIBLE from inside the app (the client router never leaves the page, so the nav always works and the missing page shows up only when someone pastes the url). Both are DERIVED from the nav registries (NAV + TEAM_SECTIONS placement:\"sidebar\"), never hand-listed. Earned by: three modules in one fork shipping a sidebar entry with no page behind it, three separate times, with nothing red.",
+    checkId: "static-destinations",
+    status: "enforced",
+  },
 ]
 
 /** R13 — reviewed exemptions: modules that are deliberately NOT import targets,
