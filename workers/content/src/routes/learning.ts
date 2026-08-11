@@ -10,7 +10,7 @@ import { fail, json } from "../../../../shared/workers/http"
 import { csvResponse, toCsv } from "../../../../shared/workers/csv"
 import { requireText, TEXT_LIMITS } from "../../../../shared/workers/validate"
 import { publishChange } from "../../../../shared/workers/realtime"
-import { parseUploadDataUrl } from "../../../../shared/workers/image"
+import { cappedStream, isInlineSafeUpload } from "../../../../shared/workers/image"
 import { ulid } from "../../../../shared/workers/id"
 import { gated, gatedBody } from "../../../../shared/workers/route"
 import { requireIdList } from "../lib/bulk"
@@ -131,26 +131,55 @@ export async function getLearningProgress(request: Request, env: Env): Promise<R
   return json({ progress: await listProgress(cfg, guard) })
 }
 
-/** Local file upload for a learning item (images + short clips, cap 25 MB) sent
- * as a base64 data URL — same JSON pattern as the profile-photo / team-logo
- * upload, not multipart. Stores the bytes in the team's learning-media bucket
- * under <teamId>/<ulid> and hands back the gateway URL the editor pastes into
- * the article. HOUSEKEEPING: it writes a file, NOT a record — there's no row to
- * patch, so nothing to broadcast (the create/edit that references the URL pings
- * its own row). Gated by learning:create. */
+/** Local file upload for a learning item (images + short clips, cap 25 MB).
+ * Stores the bytes in the team's learning-media bucket under <teamId>/<ulid> and
+ * hands back the gateway URL the editor pastes into the article. HOUSEKEEPING:
+ * it writes a file, NOT a record — there's no row to patch, so nothing to
+ * broadcast (the create/edit that references the URL pings its own row). Gated
+ * by learning:create.
+ *
+ * THE BYTES ARE STREAMED, NOT BUFFERED. This used to take a base64 data URL in a
+ * JSON body, which held the file three times over in a 128 MB isolate — the JSON
+ * string, the base64 substring, and the decoded array — with base64 a third
+ * larger than the file itself. 25 MB of video was most of the isolate, and
+ * running out of one does not produce an error a user can act on; it just dies.
+ * Now the request body goes straight to R2 through a counter, so memory is one
+ * chunk regardless of size. (Scaling review, 2026-08-11.)
+ *
+ * The mime comes from the Content-Type header and goes through the SAME
+ * allowlist the data-URL path used — this file is served back inline on the app
+ * origin, so a script-capable type would be stored XSS. */
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 export async function postUploadLearningFile(request: Request, env: Env): Promise<Response> {
-  const { guard, body } = await gatedBody<{ dataUrl?: unknown }>(request, env, "learning", "create")
-  const parsed = parseUploadDataUrl(body.dataUrl, MAX_UPLOAD_BYTES)
-  if (!parsed) return fail(400, "invalid_input", "That file isn't a supported upload (max 25 MB).")
+  const { guard } = await gated(request, env, "learning", "create")
+
+  const contentType = (request.headers.get("Content-Type") ?? "").split(";")[0].trim()
+  if (!isInlineSafeUpload(contentType))
+    return fail(400, "invalid_input", "That file type isn't one we can store.")
+  if (!request.body) return fail(400, "invalid_input", "No file was sent.")
+
+  // A declared size over the cap is refused before a single byte moves. It is
+  // not the real check — a client can declare anything — but it turns the
+  // ordinary too-big case into an instant, clear refusal instead of a 25 MB
+  // upload that fails at the end.
+  const declared = Number(request.headers.get("Content-Length") ?? 0)
+  if (declared > MAX_UPLOAD_BYTES)
+    return fail(413, "file_too_large", "That file is over the 25 MB limit.")
+
   const id = ulid()
   const key = `${guard.teamId}/${id}`
-  await env.LEARNING_MEDIA.put(key, parsed.bytes, {
-    httpMetadata: { contentType: parsed.contentType },
-  })
+  try {
+    await env.LEARNING_MEDIA.put(key, cappedStream(request.body, MAX_UPLOAD_BYTES), {
+      httpMetadata: { contentType },
+    })
+  } catch {
+    // The counter aborted the write, or R2 refused it. Either way nothing was
+    // stored (an R2 put is atomic), so the honest answer is the size refusal.
+    return fail(413, "file_too_large", "That file is over the 25 MB limit.")
+  }
   // ?v= busts caches; the file itself is served immutable by the gateway.
   return json({
     url: `/media/learning/${guard.teamId}/${id}?v=${Date.now()}`,
-    contentType: parsed.contentType,
+    contentType,
   })
 }

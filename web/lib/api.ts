@@ -446,13 +446,19 @@ export const content = {
     api<{ learning: Learning[] }>("/api/content/learning/update", post(input)),
   setLearningActive: (id: string, active: boolean) =>
     api<{ learning: Learning[] }>("/api/content/learning/active", post({ id, active })),
-  /** Upload a file for an article (gated by learning:create). Send the raw
-   * base64 data URL; get back the served /media URL + its content type. */
-  uploadLearningFile: (dataUrl: string, filename?: string) =>
-    api<{ url: string; contentType: string }>(
-      "/api/content/learning/upload",
-      post({ dataUrl, filename })
-    ),
+  /** Upload a file for an article (gated by learning:create); get back the served
+   * /media URL + its content type.
+   *
+   * The FILE ITSELF is the body — no base64. Encoding it made the browser hold a
+   * second copy a third larger than the original and made the worker hold three,
+   * inside a 128 MB isolate. `fetch` streams a File without reading it into
+   * memory at either end. */
+  uploadLearningFile: (file: File) =>
+    api<{ url: string; contentType: string }>("/api/content/learning/upload", {
+      method: "POST",
+      headers: { "Content-Type": file.type },
+      body: file,
+    }),
   markLearningDone: (id: string, done: boolean) =>
     api<{ ok: true }>("/api/content/learning/done", post({ id, done })),
   learningProgress: () =>
