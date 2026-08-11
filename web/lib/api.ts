@@ -1,6 +1,8 @@
 // The ONE place the web app talks to the workers. Same-origin /api calls —
 // the gateway routes them — so cookies flow automatically, no config needed.
 
+import { currentSubmitKey } from "./idempotency"
+
 import type {
   ActiveContext,
   ActivityItem,
@@ -139,8 +141,15 @@ async function streamSse(
 }
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  // If we are inside a form submit, carry its retry key so the server can tell a
+  // re-send apart from a second request (web/lib/idempotency.ts). Reads are left
+  // alone: replaying a GET buys nothing and re-running one costs nothing.
+  const key = init?.method && init.method !== "GET" ? currentSubmitKey() : null
   const res = await fetch(path, {
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(key ? { "Idempotency-Key": key } : {}),
+    },
     ...init,
   })
   if (!res.ok) {
@@ -298,10 +307,10 @@ export const tenancy = {
     }),
 
   /** Rename / re-describe a role (not the locked Admin); returns the list. */
-  updateRole: (roleId: string, title: string, description: string) =>
+  updateRole: (roleId: string, title: string, description: string, expectedVersion?: string | null) =>
     api<{ roles: TeamRole[] }>("/api/tenancy/roles/update", {
       method: "POST",
-      body: JSON.stringify({ roleId, title, description }),
+      body: JSON.stringify({ roleId, title, description, expectedVersion }),
     }),
 
   /** Deactivate / reactivate a role (never deleted; holders keep access). Needs
@@ -329,10 +338,10 @@ export const tenancy = {
     }),
 
   /** Rename a dropdown value (its type stays). Needs selectable_data:edit. */
-  updateSelectable: (id: string, value: string) =>
+  updateSelectable: (id: string, value: string, expectedVersion?: string | null) =>
     api<{ values: SelectableValue[] }>("/api/tenancy/selectable/update", {
       method: "POST",
-      body: JSON.stringify({ id, value }),
+      body: JSON.stringify({ id, value, expectedVersion }),
     }),
 
   /** Deactivate / reactivate a dropdown value (deactivate-only). Needs
@@ -431,7 +440,9 @@ export const content = {
     api<{ learning: Learning[] }>(`/api/content/learning?id=${enc(id)}`).then((r) => r.learning[0] ?? null),
   createLearning: (input: Partial<Learning>) =>
     api<{ created: Learning | null; total: number }>("/api/content/learning", post(input)),
-  updateLearning: (input: Partial<Learning> & { id: string }) =>
+  /** `expectedVersion` is the `updated_at` the editor was shown: the write is
+   * refused rather than landing on top of a change they never saw. */
+  updateLearning: (input: Partial<Learning> & { id: string; expectedVersion?: string | null }) =>
     api<{ learning: Learning[] }>("/api/content/learning/update", post(input)),
   setLearningActive: (id: string, active: boolean) =>
     api<{ learning: Learning[] }>("/api/content/learning/active", post({ id, active })),
@@ -459,7 +470,7 @@ export const content = {
     api<{ replies: HelpMessage[]; total: number }>(`/api/content/help/thread?id=${enc(id)}`),
   createHelp: (input: { description: string; helpType?: string; sourceScreen?: string }) =>
     api<{ created: HelpTicket | null; total: number; mineTotal: number }>("/api/content/help", post(input)),
-  updateHelp: (input: { id: string; description: string; helpType?: string }) =>
+  updateHelp: (input: { id: string; description: string; helpType?: string; expectedVersion?: string | null }) =>
     api<{ tickets: HelpTicket[] }>("/api/content/help/update", post(input)),
   setHelpStatus: (id: string, status: HelpTicket["status"]) =>
     api<{ tickets: HelpTicket[] }>("/api/content/help/status", post({ id, status })),

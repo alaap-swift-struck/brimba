@@ -118,6 +118,7 @@ export function LearningDetailScreen({ teamId, learningId }: { teamId: string; l
       contentType: values.contentType || null,
       contentLink: values.contentLink || null,
       body: values.body || null,
+      expectedVersion: item?.updatedAt ?? null,
     })
     primeCache(`learning:${teamId}`, nextList)
     invalidateActivity()

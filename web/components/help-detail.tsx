@@ -134,6 +134,7 @@ export function HelpDetailScreen({
       id: helpId,
       description: input.description,
       helpType: input.helpType,
+      expectedVersion: ticket?.updatedAt ?? null,
     })
     primeCache(`help:${teamId}`, tickets)
     invalidate(`activity:record:help:${helpId}`)

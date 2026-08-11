@@ -20,6 +20,7 @@
 //   GET  /api/data-ops/health
 
 import { brand } from "../../../shared/brand"
+import { withIdempotency } from "../../../shared/workers/concurrency"
 import { fail, json } from "../../../shared/workers/http"
 import { GuardError } from "../../../shared/workers/gating"
 import { recordWorkerError } from "../../../shared/workers/error-log"
@@ -108,7 +109,12 @@ export default {
       if (route === "GET /api/data-ops/health") return json({ ok: true })
       const def = ROUTES[route]
       if (!def) return fail(404, "not_found", "No such data-ops action.")
-      return await def.handler(request, env)
+      // A client may send `Idempotency-Key` on a mutation to make it safe to
+      // retry: the first request does the work and its outcome is stored, and a
+      // retry replays that outcome instead of writing again. Without the header
+      // this is a pass-through and costs nothing (shared/workers/concurrency.ts).
+      if (def.kind !== "mutation") return await def.handler(request, env)
+      return await withIdempotency(request, env.DB, route, () => def.handler(request, env))
     } catch (e) {
       if (e instanceof GuardError) return fail(e.status, e.code, e.message)
       console.error("data-ops worker error:", e)

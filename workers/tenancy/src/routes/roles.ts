@@ -141,10 +141,11 @@ export async function postUpdateRole(request: Request, env: Env): Promise<Respon
     roleId?: string
     title?: string
     description?: string
+    expectedVersion?: string
   }
   if (!body.roleId) return fail(400, "invalid_input", "roleId and title are required.")
   const title = requireText(body.title, "Name", TEXT_LIMITS.short)
-  await updateRole(cfg, guard, actor, body.roleId, title, (optionalText(body.description, "Description", TEXT_LIMITS.long) ?? ""))
+  await updateRole(cfg, guard, actor, body.roleId, title, (optionalText(body.description, "Description", TEXT_LIMITS.long) ?? ""), body.expectedVersion)
   await publishChange(env.REALTIME, guard.teamId, "member_roles", body.roleId)
   return json({ roles: await listRoles(env, cfg, guard), total: await countRoles(cfg, guard) })
 }

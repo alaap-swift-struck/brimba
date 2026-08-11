@@ -74,10 +74,10 @@ export async function postCreateLearning(request: Request, env: Env): Promise<Re
 }
 
 export async function postUpdateLearning(request: Request, env: Env): Promise<Response> {
-  const { actor, cfg, guard, body } = await gatedBody<LearningInput & { id?: string }>(request, env, "learning", "edit")
+  const { actor, cfg, guard, body } = await gatedBody<LearningInput & { id?: string; expectedVersion?: string }>(request, env, "learning", "edit")
   if (!body.id) return fail(400, "invalid_input", "id and title are required.")
   requireText(body.title, "Title", TEXT_LIMITS.short)
-  await updateLearning(cfg, guard, actor, body.id, body)
+  await updateLearning(cfg, guard, actor, body.id, body, body.expectedVersion)
   await publishChange(env.REALTIME, guard.teamId, "learning", body.id)
   return json({ learning: await listLearning(cfg, guard), total: await countLearning(cfg, guard) })
 }

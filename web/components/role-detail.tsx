@@ -125,7 +125,7 @@ export function RoleDetailScreen({ teamId, roleId }: { teamId: string; roleId: s
   }
 
   async function updateDetails(title: string, description: string) {
-    const { roles: next } = await tenancy.updateRole(roleId, title, description)
+    const { roles: next } = await tenancy.updateRole(roleId, title, description, role?.updatedAt ?? null)
     primeCache(`member_roles:${teamId}`, next)
     toast.success("Role updated.")
   }

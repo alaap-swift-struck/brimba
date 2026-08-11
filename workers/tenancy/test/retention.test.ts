@@ -9,7 +9,7 @@
 // Deleting a customer's audit trail is the product owner's call, so both ship
 // KEEP_FOREVER and stay that way until someone deliberately sets a window.
 
-import { readFileSync } from "node:fs"
+import { readFileSync, readdirSync } from "node:fs"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 
@@ -71,12 +71,15 @@ describe("retention rules", () => {
   it("every swept column is INDEXED — or the sweep scans the table it is pruning", () => {
     // The job that exists to stop a table growing must not be the thing that
     // reads all of it. Each rule's column needs a leading index.
-    const core = [
-      "0001_core_auth", "0007_account_activity", "0011_agent_usage_log",
-      "0012_error_logs", "0015_scale_indexes",
-    ]
-      .map((f) => readFileSync(join(__dirname, "..", "..", "..", "db", "core", `${f}.sql`), "utf8"))
-      .join("\n")
+    // Read EVERY core migration, not a list of the ones that happened to matter
+    // when this was written. A hand-list is how the check went quiet the first
+    // time: adding `idempotency_keys` in 0017 left its index in a file the test
+    // did not open, so a swept table looked unindexed. Derive it, and a new
+    // migration is covered the moment it lands.
+    const dir = join(__dirname, "..", "..", "..", "db", "core")
+    const files = readdirSync(dir).filter((f) => f.endsWith(".sql"))
+    expect(files.length, "no core migrations found — the check would pass vacuously").toBeGreaterThan(10)
+    const core = files.map((f) => readFileSync(join(dir, f), "utf8")).join("\n")
     for (const r of CORE_RETENTION) {
       expect(
         new RegExp(`CREATE INDEX[^;]*ON ${r.table} \\(${r.column}`).test(core),

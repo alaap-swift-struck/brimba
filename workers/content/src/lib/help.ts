@@ -9,6 +9,7 @@
 //   • the AI agent's first-draft reply is a HOOK (maybeDraftFirstReply) left off
 //     until the agent worker exists — a ticket always opens regardless.
 
+import { assertNotConflicted, versionPredicate } from "../../../../shared/workers/concurrency"
 import { describeChanges, logActivity, type Actor } from "../../../../shared/workers/activity"
 import { d1ExecScript, d1Query, sqlString, type D1Rest } from "../../../../shared/workers/d1-rest"
 import { ulid } from "../../../../shared/workers/id"
@@ -254,17 +255,23 @@ export async function updateTicket(
   guard: MemberGuard,
   actor: Actor,
   id: string,
-  input: TicketInput
+  input: TicketInput,
+  /** The `updated_at` the caller was shown. Given one, the write refuses to land
+   * on a row that has moved on since — see shared/workers/concurrency.ts. */
+  expectedVersion?: string | null
 ): Promise<void> {
   const before = await ticketOrThrow(cfg, guard, id)
   const description = requireText(input.description, "Description", TEXT_LIMITS.long)
 
   const now = new Date().toISOString()
-  await d1ExecScript(
+  // RETURNING turns the write into its own answer: no rows came back means
+  // the predicate did not match, i.e. someone else changed this row first.
+  const landed = await d1Query<{ id: string }>(
     cfg,
     guard.databaseId,
-    `UPDATE help SET help_type = ${sqlString((optionalText(input.helpType, "Type", TEXT_LIMITS.short) ?? null))}, description = ${sqlString(description)}, screen_recording_link = ${sqlString((optionalText(input.screenRecordingLink, "Screen recording link", TEXT_LIMITS.link) ?? null))}, source_screen = ${sqlString((optionalText(input.sourceScreen, "Source", TEXT_LIMITS.short) ?? null))}, updated_at = ${sqlString(now)}, editor_id = ${sqlString(actor.id)}, editor_email = ${sqlString(actor.email)}, editor_name = ${sqlString(actor.name)} WHERE id = ${sqlString(id)};`
+    `UPDATE help SET help_type = ${sqlString((optionalText(input.helpType, "Type", TEXT_LIMITS.short) ?? null))}, description = ${sqlString(description)}, screen_recording_link = ${sqlString((optionalText(input.screenRecordingLink, "Screen recording link", TEXT_LIMITS.link) ?? null))}, source_screen = ${sqlString((optionalText(input.sourceScreen, "Source", TEXT_LIMITS.short) ?? null))}, updated_at = ${sqlString(now)}, editor_id = ${sqlString(actor.id)}, editor_email = ${sqlString(actor.email)}, editor_name = ${sqlString(actor.name)} WHERE id = ${sqlString(id)}${versionPredicate(expectedVersion)} RETURNING id`
   )
+  assertNotConflicted(landed.length, expectedVersion)
 
   const changes = describeChanges([
     { label: "Type", from: before.help_type, to: optionalText(input.helpType, "Type", TEXT_LIMITS.short) ?? null },

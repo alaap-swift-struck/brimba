@@ -73,6 +73,13 @@ export const CORE_RETENTION: RetentionRule[] = [
     why: "Long enough to answer 'what did we spend last year' with a margin, and it is per-turn exhaust that grows fastest of anything here.",
   },
   {
+    table: "idempotency_keys",
+    column: "created_at",
+    days: 2,
+    envVar: "RETAIN_IDEMPOTENCY_DAYS",
+    why: "A retry window, not a history. A client retrying a two-day-old request is not retrying, it is submitting again — and every mutation a client protects writes a row here, so this is the fastest-growing table the base has.",
+  },
+  {
     table: "account_activity",
     column: "created_at",
     days: KEEP_FOREVER,

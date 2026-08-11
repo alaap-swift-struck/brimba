@@ -51,10 +51,10 @@ export async function postCreateSelectable(request: Request, env: Env): Promise<
 }
 
 export async function postUpdateSelectable(request: Request, env: Env): Promise<Response> {
-  const { actor, cfg, guard, body } = await gatedBody<{ id?: string; value?: string }>(request, env, "selectable_data", "edit")
+  const { actor, cfg, guard, body } = await gatedBody<{ id?: string; value?: string; expectedVersion?: string }>(request, env, "selectable_data", "edit")
   if (!body.id) return fail(400, "invalid_input", "id and value are required.")
   const value = requireText(body.value, "Option", TEXT_LIMITS.short)
-  await updateSelectable(cfg, guard, actor, body.id, value)
+  await updateSelectable(cfg, guard, actor, body.id, value, body.expectedVersion)
   await publishChange(env.REALTIME, guard.teamId, "selectable_data", body.id)
   return json({ values: await listSelectable(cfg, guard), total: await countSelectable(cfg, guard) })
 }
