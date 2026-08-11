@@ -4,11 +4,13 @@
   "private": true,
   "description": "Brimba's front door: serves the screens, routes /api to the domain workers.",
   "scripts": {
+    "test": "vitest run",
     "deploy:staging": "wrangler deploy --env staging",
     "deploy:production": "wrangler deploy"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260101.0",
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "vitest": "^4.1.8"
   }
 }
