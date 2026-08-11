@@ -40,7 +40,7 @@ import { brand } from "../../../shared/brand"
 import { fail, json } from "../../../shared/workers/http"
 import { recordWorkerError } from "../../../shared/workers/error-log"
 import { GuardError } from "./lib/permissions"
-import { checkDatabaseSizes, runRetention } from "./lib/sharding"
+import { checkDatabaseSizes, recomputeShardCounts, runRetention } from "./lib/sharding"
 import { d1Config } from "./lib/teams"
 import type { Env } from "./env"
 import {
@@ -172,6 +172,10 @@ export default {
       // AFTER the sizing so tonight's alarm reflects tonight's real size.
       const swept = await runRetention(env, d1Config(env))
       console.log(`retention: ${swept.core} core table(s), ${swept.teams} team database(s)`)
+      // And split the live channel of any team that has outgrown one object —
+      // the request-side valve, alongside the two storage-side ones above.
+      const shards = await recomputeShardCounts(env)
+      console.log(`live channels: ${shards.raised.length} team(s) split further`)
     } catch (e) {
       // LAW R12: unattended work has no user watching, so a swallowed failure would be
       // invisible — record it to the error store, not just the console.

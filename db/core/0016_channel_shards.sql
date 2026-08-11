@@ -1,0 +1,21 @@
+-- 0016 · SCALE: how many objects one team's live channel is split across.
+--
+-- One Durable Object per team held every socket in that team, and its broadcast
+-- walks them one at a time. A tenant with 25,000 people online at once puts
+-- 25,000 sends through a single object on every write, against a soft ceiling of
+-- about 1,000 requests per second. That was the first hard ceiling in the whole
+-- system and the only one with no relief valve at all.
+--
+-- This column is that valve. 1 means "not split" and addresses exactly the
+-- object it always did, so every existing team is untouched. The nightly cron
+-- raises it as a team grows.
+--
+-- IT ONLY EVER GOES UP. That is not tidiness, it is the safety property: a
+-- socket that connected when the count was N' is on a shard below N', so any
+-- later (larger) count still covers it when a publisher fans out. Lowering it
+-- would strand the sockets above the new count until they reconnect, so a
+-- lowering is a deliberate manual act, never something the cron does.
+--
+-- Found by the scaling review, 2026-08-11 — see SCALING.md §5.1.
+
+ALTER TABLE teams ADD COLUMN shard_count INTEGER NOT NULL DEFAULT 1;

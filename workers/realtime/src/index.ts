@@ -18,6 +18,7 @@ import { DurableObject } from "cloudflare:workers"
 import type { SessionUser } from "../../../shared/types"
 import { fail, json } from "../../../shared/workers/http"
 import { isActiveMember } from "../../../shared/workers/membership"
+import { MAX_SHARDS, shardChannel, shardFor } from "../../../shared/workers/realtime"
 
 export type Env = {
   /** The per-team live channels (one Durable Object instance per team). */
@@ -63,6 +64,38 @@ export class TeamChannel extends DurableObject<Env> {
   async webSocketError(): Promise<void> {}
 }
 
+// HOW MANY SHARDS a team's channel is split into, memoised per isolate.
+//
+// This is read on EVERY publish, and a publish happens on every write in the
+// app — so a database round-trip here would tax the whole product to serve the
+// handful of tenants big enough to be split. The count changes at most once a
+// night (the tenancy cron recomputes it), so a short memo is exact in practice
+// and cheap always. A cold isolate pays one read; the next 60 seconds are free.
+const shardMemo = new Map<string, { n: number; until: number }>()
+const SHARD_MEMO_MS = 60_000
+
+async function shardsFor(env: Env, teamId: string): Promise<number> {
+  const now = Date.now()
+  const hit = shardMemo.get(teamId)
+  if (hit && hit.until > now) return hit.n
+  let n = 1
+  try {
+    const row = await env.DB.prepare("SELECT shard_count FROM teams WHERE id = ?")
+      .bind(teamId)
+      .first<{ shard_count: number }>()
+    // Clamp: a nonsense stored value must not silently disable the live layer
+    // (n < 1 would fan to nothing) or fan out unboundedly.
+    n = Math.min(Math.max(Number(row?.shard_count) || 1, 1), MAX_SHARDS)
+  } catch (e) {
+    // A read hiccup falls back to ONE shard — the bare channel name, which is
+    // where an unsharded team's sockets are. Degrading to "the live layer still
+    // works for most people" beats degrading to "nobody gets anything".
+    console.error("shard count lookup failed; using 1:", e)
+  }
+  shardMemo.set(teamId, { n, until: now + SHARD_MEMO_MS })
+  return n
+}
+
 /** Ask the auth worker (one session system, one master) who this is. */
 async function whoAmI(request: Request, env: Env): Promise<SessionUser | null> {
   const res = await env.AUTH.fetch("https://auth/api/auth/me", {
@@ -85,7 +118,21 @@ export default {
       }
       if (!channel || event === undefined)
         return fail(400, "invalid_input", "channel and event are required.")
-      await env.CHANNELS.getByName(channel).broadcast(JSON.stringify(event))
+
+      const body = JSON.stringify(event)
+      // A TEAM channel may be split across several objects; a user channel never
+      // is (one person's devices are a handful). The caller says `team:<id>` and
+      // knows nothing about shards — this is the ONE place that expands it.
+      const teamId = channel.startsWith("team:") ? channel.slice("team:".length) : null
+      const shards = teamId ? await shardsFor(env, teamId) : 1
+      // In parallel: the fan-out is the thing being optimised, so doing it
+      // serially would hand back the latency the split just bought. Bounded by
+      // MAX_SHARDS, and each send is already best-effort inside broadcast().
+      await Promise.all(
+        Array.from({ length: shards }, (_, i) =>
+          env.CHANNELS.getByName(shardChannel(channel, i)).broadcast(body)
+        )
+      )
       return json({ ok: true })
     }
 
@@ -116,7 +163,11 @@ export default {
         // Team channel: must be an active member of THIS team.
         if (!(await isActiveMember(env.DB, user.id, teamId)))
           return fail(403, "not_member", "You're not a member of this team.")
-        return env.CHANNELS.getByName(`team:${teamId}`).fetch(request)
+        // Which shard is decided HERE, from the session's user id — the client
+        // asks for a team and gets one, exactly as before. All of a person's
+        // devices land together, and a reconnect returns to the same object.
+        const shard = shardFor(user.id, await shardsFor(env, teamId))
+        return env.CHANNELS.getByName(shardChannel(`team:${teamId}`, shard)).fetch(request)
       }
 
       return fail(400, "invalid_input", "team or user is required.")

@@ -20,6 +20,7 @@ import {
 } from "../../../../shared/workers/d1-rest"
 import { ulid } from "../../../../shared/workers/id"
 import { numberVar } from "../../../../shared/workers/limits"
+import { shardCount } from "../../../../shared/workers/realtime"
 import {
   CORE_RETENTION,
   EXPIRED_SESSIONS_SQL,
@@ -93,6 +94,52 @@ export async function checkDatabaseSizes(
   }
   return { checked: watched.length, alerted }
 }
+
+/**
+ * Nightly: raise the live-channel shard count for any team that has outgrown a
+ * single channel object. The fourth relief valve, and the only one that acts on
+ * REQUESTS rather than on stored bytes.
+ *
+ * Only teams past the first threshold are even looked at — `shardCount` needs
+ * more than one shard only above 10,000 members, so the HAVING clause turns a
+ * scan of every membership into a handful of rows however many tenants exist.
+ *
+ * THE UPDATE ONLY EVER RAISES (`shard_count < ?`). A team that shrinks keeps its
+ * shards: over-splitting costs a few extra sends per publish, while under-
+ * splitting would strand every socket sitting above the new count. The predicate
+ * rides the UPDATE (R17), so a night where nothing grew moves zero rows and
+ * writes nothing.
+ */
+export async function recomputeShardCounts(env: Env): Promise<{ raised: string[] }> {
+  const { results } = await env.DB.prepare(
+    `SELECT team_id, COUNT(*) AS members FROM team_members
+      WHERE deactivated_at IS NULL
+      GROUP BY team_id HAVING COUNT(*) > ?`
+  )
+    .bind(SHARD_THRESHOLD_MEMBERS)
+    .all<{ team_id: string; members: number }>()
+
+  const raised: string[] = []
+  for (const row of results ?? []) {
+    const want = shardCount(row.members)
+    const res = await env.DB.prepare(
+      "UPDATE teams SET shard_count = ? WHERE id = ? AND shard_count < ?"
+    )
+      .bind(want, row.team_id, want)
+      .run()
+    if (res.meta.changes > 0) {
+      raised.push(`${row.team_id}→${want}`)
+      console.log(`live channel split: team ${row.team_id} now uses ${want} shards`)
+    }
+  }
+  return { raised }
+}
+
+/** Below this a team always fits one channel object, so the nightly recompute
+ * need not consider it at all. Derived from `shardCount`, not guessed — a test
+ * asserts the two agree, so changing the ladder cannot silently strand teams
+ * between the threshold and the first split. */
+export const SHARD_THRESHOLD_MEMBERS = 10_000
 
 /**
  * Where does (team, module) live? The team's main database plus any dedicated

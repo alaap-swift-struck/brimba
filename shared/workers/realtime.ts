@@ -14,7 +14,71 @@
 //
 // The payload NEVER carries row data (`{resource,id}` only) — the client pulls
 // that one row through the permission-checked endpoint, so nothing can leak.
+//
+// SHARDING (see below): a team channel may be split across several objects. That
+// is invisible from here — a publisher still names `team:<id>` and the realtime
+// worker expands it. One resolver, in one place, instead of every caller.
 
+// ---------------------------------------------------------------------------
+// SHARD ADDRESSING — the shared vocabulary, so the two sides cannot disagree.
+//
+// One Durable Object per team holds every socket in that team and `broadcast()`
+// walks them in a single thread. At 25,000 concurrent sessions in one tenant
+// that is 25,000 sends per ping against a soft limit of ~1,000 requests/second
+// per object. Splitting the channel into N objects divides the walk by N.
+//
+// A subscriber lands on a shard picked from their USER ID, so a person's every
+// device shares one shard and the split is stable across reconnects. A publisher
+// fans to ALL N shards.
+// ---------------------------------------------------------------------------
+
+/** The most shards one team's channel may be split into. 32 objects × ~1,000
+ * sends/second each is ~32,000 concurrently-served sockets in a single tenant —
+ * comfortably past the 250,000-member / 10%-concurrent yardstick. Past this the
+ * fan-out itself (N calls per publish) becomes the cost worth optimising, which
+ * is a different design (a fan-out tree), not a bigger number here. */
+export const MAX_SHARDS = 32
+
+/**
+ * How many shards a team of this size needs — one per ~1,000 concurrent
+ * sessions, assuming ~10% of members are live at once. Always a power of two so
+ * the count reads as a doubling ladder (1, 2, 4 …) rather than an arbitrary
+ * number, and always at least 1.
+ *
+ * MONOTONIC BY CONTRACT — see `shardCount`'s caller: the nightly recompute only
+ * ever RAISES a team's stored count. That is what makes sharding safe to change
+ * underneath live sockets: a socket that connected when the count was N' sits on
+ * a shard index < N', and every later count is ≥ N', so a publisher fanning to
+ * the current N always covers it. No connected listener can be stranded. A
+ * SHRINK would strand the sockets above the new count, so a shrink is a manual,
+ * documented act that takes effect as clients reconnect.
+ */
+export function shardCount(memberCount: number): number {
+  const wanted = Math.ceil(Math.max(memberCount, 1) * 0.1 / 1000)
+  let n = 1
+  while (n < wanted && n < MAX_SHARDS) n *= 2
+  return n
+}
+
+/** Which shard a user belongs on. FNV-1a: deterministic, dependency-free, and
+ * well-spread over ULIDs (whose leading characters are a timestamp and would
+ * clump badly under a naive sum). */
+export function shardFor(userId: string, shards: number): number {
+  if (shards <= 1) return 0
+  let h = 0x811c9dc5
+  for (let i = 0; i < userId.length; i++) {
+    h ^= userId.charCodeAt(i)
+    h = Math.imul(h, 0x01000193)
+  }
+  return (h >>> 0) % shards
+}
+
+/** The object name for one shard of a channel. Shard 0 keeps the BARE name, so
+ * a team that has never been split addresses exactly the object it always did —
+ * no migration, no reconnect, and an unsharded team is bit-for-bit unchanged. */
+export function shardChannel(channel: string, shard: number): string {
+  return shard === 0 ? channel : `${channel}#${shard}`
+}
 
 /** One change ping. `op` is advisory; the client re-pulls the row and decides
  * whether it still belongs in the collection (keep-or-drop), so "edit" vs
