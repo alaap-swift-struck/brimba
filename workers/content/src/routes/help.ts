@@ -95,12 +95,13 @@ export async function postCreateHelp(request: Request, env: Env): Promise<Respon
 
 /** POST /api/content/help/update — edit a ticket (help:edit). */
 export async function postUpdateHelp(request: Request, env: Env): Promise<Response> {
-  const { actor, cfg, guard, body } = await gatedBody<TicketInput & { id?: string }>(request, env, "help", "edit")
+  const { actor, cfg, guard, body } = await gatedBody<TicketInput & { id?: string; expectedVersion?: string }>(request, env, "help", "edit")
   if (!body.id) return fail(400, "invalid_input", "id and description are required.")
   requireText(body.description, "Description", TEXT_LIMITS.long)
-  await updateTicket(cfg, guard, actor, body.id, body)
+  await updateTicket(cfg, guard, actor, body.id, body, body.expectedVersion)
   await publishChange(env.REALTIME, guard.teamId, "help", body.id)
-  return ticketPage(cfg, guard, "all")
+  // R23: the AFFECTED ROW, never the collection — see RULES.md.
+  return json({ updated: await getTicket(cfg, guard, body.id) })
 }
 
 /** POST /api/content/help/status — move a ticket along its fixed lifecycle.
@@ -117,7 +118,8 @@ export async function postHelpStatus(request: Request, env: Env): Promise<Respon
   // R17: already at that status → zero rows moved → no ping, no duplicate history.
   const changed = await setStatus(cfg, guard, actor, body.id, status)
   if (changed) await publishChange(env.REALTIME, guard.teamId, "help", body.id)
-  return ticketPage(cfg, guard, "all")
+  // R23: the AFFECTED ROW, never the collection — see RULES.md.
+  return json({ updated: await getTicket(cfg, guard, body.id) })
 }
 
 /** POST /api/content/help/bulk-status-by-filter — the SET-shaped bulk: move every

@@ -19,6 +19,7 @@ import * as React from "react"
 
 import { Separator } from "@swift-struck/ui/registry/primitives/separator/separator"
 
+import { newSubmitKey, withSubmitKey } from "@/lib/idempotency"
 import { openRecord } from "@/lib/nav"
 
 export function FormShell({
@@ -46,8 +47,19 @@ export function FormShell({
    * `CREATE_OPENS_RECORD_EXEMPT` (an accessory row with no detail screen). */
   opensRecord?: { segment: string; teamId: string | null } | null
 }) {
+  // The retry key for the submit in flight. It lives here for the same reason
+  // R22 does: every form gets it by existing, and no screen can forget it.
+  //
+  // A FAILED submit KEEPS its key, so tapping save again is recognised as the
+  // same attempt and cannot write twice. A SUCCESSFUL one clears it, so the next
+  // save is a new intention — reusing the key there would replay the last save
+  // and silently discard the new edit.
+  const submitKey = React.useRef("")
+
   async function handleSubmit(e: React.FormEvent) {
-    const id = await onSubmit?.(e)
+    if (!submitKey.current) submitKey.current = newSubmitKey()
+    const id = await withSubmitKey(submitKey.current, async () => onSubmit?.(e))
+    submitKey.current = ""
     // Only a real id navigates: a failed submit throws (the dialog stays open and
     // shows why) and an edit resolves with nothing.
     //

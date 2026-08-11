@@ -50,6 +50,7 @@ import { ApiFailure, tenancy } from "@/lib/api"
 import { auditItems } from "@/lib/audit-overview"
 import { formatActivityWhen } from "@/lib/format"
 import { usePermissions } from "@/lib/perms"
+import { applyUpdated, totalKey } from "@/lib/live-resources"
 import { primeCache, useCached } from "@/lib/store"
 
 export function RoleDetailScreen({ teamId, roleId }: { teamId: string; roleId: string }) {
@@ -125,16 +126,16 @@ export function RoleDetailScreen({ teamId, roleId }: { teamId: string; roleId: s
   }
 
   async function updateDetails(title: string, description: string) {
-    const { roles: next } = await tenancy.updateRole(roleId, title, description)
-    primeCache(`member_roles:${teamId}`, next)
+    const { updated, total } = await tenancy.updateRole(roleId, title, description, role?.updatedAt ?? null)
+    await applyUpdated({ listKey: `member_roles:${teamId}`, id: roleId, row: updated, total, totalCacheKey: totalKey("member_roles", teamId) })
     toast.success("Role updated.")
   }
 
   async function setActive(activeNext: boolean) {
     setBusyActive(true)
     try {
-      const { roles: next } = await tenancy.setRoleActive(roleId, activeNext)
-      primeCache(`member_roles:${teamId}`, next)
+      const { updated, total } = await tenancy.setRoleActive(roleId, activeNext)
+      await applyUpdated({ listKey: `member_roles:${teamId}`, id: roleId, row: updated, total, totalCacheKey: totalKey("member_roles", teamId) })
       toast.success(activeNext ? "Role activated." : "Role deactivated.")
       setConfirmDeactivate(false)
     } catch (err) {

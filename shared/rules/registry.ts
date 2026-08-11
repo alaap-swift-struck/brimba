@@ -171,6 +171,13 @@ export const RULES_REGISTRY: Rule[] = [
     checkId: "static-destinations",
     status: "enforced",
   },
+  {
+    id: "R23",
+    dimension: "arch",
+    law: "A mutation door returns the AFFECTED ROW, never the collection. R21 established this for creates and stopped there, so every EDIT, STATUS and DEACTIVATE door still shipped the whole (capped) list back — a full list read plus a COUNT on the server and the entire collection over the wire, to change one row. It also contradicted the rule the base enforces everywhere else: a live ping makes every OTHER client patch the single changed row (CACHING rule 3), while the client that did the work replaced everything it was showing. Two update paths for one event, and the expensive one belonged to the person actually waiting. The response is `{ updated, total? }` and the client folds it in through `applyUpdated`; a NULL row is the answer, not a miss — it means the record left the list and should be dropped. DERIVED FROM THE GATE: a mutation door is any route opening on `edit` or `delete`, so a new module is covered the moment it is gated. Doors that return a count (`{ updated, skipped }` from a bulk) or a bare `{ ok: true }` are already fine — what is banned is the collection. Earned by: eleven doors in this base, and a help door that returned a whole PAGE of a growing collection on every status change.",
+    checkId: "mutation-returns-row",
+    status: "enforced",
+  },
 ]
 
 /** R13 — reviewed exemptions: modules that are deliberately NOT import targets,
@@ -280,6 +287,12 @@ export const FORM_DIALOGS = [
  * row. Keyed by handler name, with the reason, so every exception is a visible
  * reviewed line rather than a silent hole in the scan. */
 export const CREATE_RETURNS_EXEMPT: Record<string, string> = {}
+
+/** R23 — reviewed exemptions: mutation doors that legitimately hand back
+ * something other than the affected row. A door returning a COUNT (a bulk) or a
+ * bare `{ ok: true }` needs no entry — it is already not a collection. This is
+ * only for a door that genuinely must return a list, with the reason. */
+export const MUTATION_RETURNS_EXEMPT: Record<string, string> = {}
 
 /** R22 — which form dialog CREATES which table, and the URL segment that table's
  * detail screen sits under. Every FORM_DIALOGS entry must appear here or in

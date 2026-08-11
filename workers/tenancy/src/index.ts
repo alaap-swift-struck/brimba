@@ -37,10 +37,11 @@
 //   cron (nightly)                         -> the 80% size alarms
 
 import { brand } from "../../../shared/brand"
+import { withIdempotency } from "../../../shared/workers/concurrency"
 import { fail, json } from "../../../shared/workers/http"
 import { recordWorkerError } from "../../../shared/workers/error-log"
 import { GuardError } from "./lib/permissions"
-import { checkDatabaseSizes, runRetention } from "./lib/sharding"
+import { checkDatabaseSizes, recomputeShardCounts, runRetention } from "./lib/sharding"
 import { d1Config } from "./lib/teams"
 import type { Env } from "./env"
 import {
@@ -147,7 +148,12 @@ export default {
       if (route === "GET /api/tenancy/health") return json({ ok: true })
       const def = ROUTES[route]
       if (!def) return fail(404, "not_found", "No such tenancy action.")
-      return await def.handler(request, env)
+      // A client may send `Idempotency-Key` on a mutation to make it safe to
+      // retry: the first request does the work and its outcome is stored, and a
+      // retry replays that outcome instead of writing again. Without the header
+      // this is a pass-through and costs nothing (shared/workers/concurrency.ts).
+      if (def.kind !== "mutation") return await def.handler(request, env)
+      return await withIdempotency(request, env.DB, route, () => def.handler(request, env))
     } catch (e) {
       if (e instanceof GuardError) return fail(e.status, e.code, e.message)
       console.error("tenancy worker error:", e)
@@ -172,6 +178,10 @@ export default {
       // AFTER the sizing so tonight's alarm reflects tonight's real size.
       const swept = await runRetention(env, d1Config(env))
       console.log(`retention: ${swept.core} core table(s), ${swept.teams} team database(s)`)
+      // And split the live channel of any team that has outgrown one object —
+      // the request-side valve, alongside the two storage-side ones above.
+      const shards = await recomputeShardCounts(env)
+      console.log(`live channels: ${shards.raised.length} team(s) split further`)
     } catch (e) {
       // LAW R12: unattended work has no user watching, so a swallowed failure would be
       // invisible — record it to the error store, not just the console.

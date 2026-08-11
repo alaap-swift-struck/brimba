@@ -5,6 +5,7 @@
 //   • auto-flip-read — turning on any write right (create/edit/delete) forces
 //     Read on (you can't have write without read).
 
+import { assertNotConflicted, versionPredicate } from "../../../../shared/workers/concurrency"
 import { describeChanges, logActivity, type Actor } from "../../../../shared/workers/activity"
 import {
   d1ExecScript,
@@ -233,7 +234,10 @@ export async function updateRole(
   actor: Actor,
   roleId: string,
   title: string,
-  description: string
+  description: string,
+  /** The `updated_at` the caller was shown. Given one, the write refuses to land
+   * on a row that has moved on since — see shared/workers/concurrency.ts. */
+  expectedVersion?: string | null
 ): Promise<void> {
   const role = await roleOrThrow(cfg, guard, roleId)
   if (role.is_default === 1)
@@ -242,11 +246,14 @@ export async function updateRole(
   if (!cleanTitle) throw new GuardError(400, "invalid_input", "A role needs a name.")
 
   const now = new Date().toISOString()
-  await d1ExecScript(
+  // RETURNING turns the write into its own answer: no rows came back means
+  // the predicate did not match, i.e. someone else changed this row first.
+  const landed = await d1Query<{ id: string }>(
     cfg,
     guard.databaseId,
-    `UPDATE member_roles SET title = ${sqlString(cleanTitle)}, description = ${sqlString(description.trim() || null)}, updated_at = ${sqlString(now)}, editor_id = ${sqlString(actor.id)}, editor_email = ${sqlString(actor.email)}, editor_name = ${sqlString(actor.name)} WHERE id = ${sqlString(roleId)};`
+    `UPDATE member_roles SET title = ${sqlString(cleanTitle)}, description = ${sqlString(description.trim() || null)}, updated_at = ${sqlString(now)}, editor_id = ${sqlString(actor.id)}, editor_email = ${sqlString(actor.email)}, editor_name = ${sqlString(actor.name)} WHERE id = ${sqlString(roleId)}${versionPredicate(expectedVersion)} RETURNING id`
   )
+  assertNotConflicted(landed.length, expectedVersion)
 
   // Name exactly what changed, old -> new (the activity ruleset: edits carry
   // their field diffs, not just "edited").

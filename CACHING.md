@@ -307,3 +307,24 @@ in-app hop: in a static export it has no data file for an arbitrary deep path an
 falls back to a full-page reload. The router is only for the **pre-auth** routes
 (`/login`, `/onboarding`) — entering / leaving the app. (One-shell re-architecture
 2026-07-10; the original /t-only shell landed 2026-06-21.)
+
+---
+
+## 13 · A mutation hands back ONE row (LAW R23)
+
+Rule 3 says: patch the changed row, never refetch the collection. Every client
+receiving a live ping did exactly that. The client that did the WORK did not —
+its mutation shipped the whole capped list back, so it threw away everything it
+was showing and took a fresh one.
+
+Two update paths for one event, and the expensive one belonged to the person
+actually waiting for their own save.
+
+A mutation door now returns `{ updated, total? }` and the client folds it in
+through **`applyUpdated`** (`web/lib/live-resources.ts`) — the same patch a ping
+would make. `applyCreated` is its sibling for R21.
+
+A **null** row is the answer, not a miss: it means the record left the list
+(removed from the team, deactivated out of the active view), so the row is
+dropped. That is why the id travels next to the row rather than being read off
+it.

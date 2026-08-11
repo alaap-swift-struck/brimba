@@ -4,6 +4,7 @@
 // stay theirs to shape. Deactivate-only (ARCHITECTURE §4): a removed value is
 // retired, never hard-deleted, so old rows that referenced it stay truthful.
 
+import { assertNotConflicted, versionPredicate } from "../../../../shared/workers/concurrency"
 import { logActivity, type Actor } from "../../../../shared/workers/activity"
 import { d1ExecScript, d1Query, sqlString, type D1Rest } from "../../../../shared/workers/d1-rest"
 import { ulid } from "../../../../shared/workers/id"
@@ -49,7 +50,7 @@ export async function listSelectableForExport(cfg: D1Rest, guard: MemberGuard): 
     cfg,
     guard.databaseId,
     // R14 hard cap — never unbounded; move to real paging before this bites (exports get the larger deliberate-download cap).
-    `SELECT type, value, is_default, deactivated_at, created_at, creator_name FROM selectable_data ORDER BY type ASC, value ASC LIMIT ${EXPORT_HARD_CAP}`
+    `SELECT type, value, is_default, deactivated_at, created_at, creator_name FROM selectable_data ORDER BY type ASC, value ASC LIMIT ${EXPORT_HARD_CAP + 1}` // +1: the extra row is how we learn the export was truncated
   )
 }
 
@@ -111,7 +112,10 @@ export async function updateSelectable(
   guard: MemberGuard,
   actor: Actor,
   id: string,
-  value: string
+  value: string,
+  /** The `updated_at` the caller was shown. Given one, the write refuses to land
+   * on a row that has moved on since — see shared/workers/concurrency.ts. */
+  expectedVersion?: string | null
 ): Promise<void> {
   const v = value.trim()
   if (!v) throw new GuardError(400, "invalid_input", "A dropdown value can't be empty.")
@@ -126,11 +130,14 @@ export async function updateSelectable(
   if (!row) throw new GuardError(404, "not_found", "That dropdown value doesn't exist.")
 
   const now = new Date().toISOString()
-  await d1ExecScript(
+  // RETURNING turns the write into its own answer: no rows came back means
+  // the predicate did not match, i.e. someone else changed this row first.
+  const landed = await d1Query<{ id: string }>(
     cfg,
     guard.databaseId,
-    `UPDATE selectable_data SET value = ${sqlString(v)}, updated_at = ${sqlString(now)}, editor_id = ${sqlString(actor.id)}, editor_email = ${sqlString(actor.email)}, editor_name = ${sqlString(actor.name)} WHERE id = ${sqlString(id)};`
+    `UPDATE selectable_data SET value = ${sqlString(v)}, updated_at = ${sqlString(now)}, editor_id = ${sqlString(actor.id)}, editor_email = ${sqlString(actor.email)}, editor_name = ${sqlString(actor.name)} WHERE id = ${sqlString(id)}${versionPredicate(expectedVersion)} RETURNING id`
   )
+  assertNotConflicted(landed.length, expectedVersion)
   await logActivity(cfg, guard.databaseId, actor, {
     type: "Dropdown value edited",
     description: `${actor.name} renamed a ${row.type} value: "${row.value}" → "${v}"`,

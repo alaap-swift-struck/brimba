@@ -49,6 +49,8 @@ async function serveObject(bucket: R2Bucket, key: string, request: Request): Pro
  * asserts this list and that registry match exactly, in both directions. */
 const MODULE_SHELLS = ["learning", "help"]
 
+import { rateLimit, type RateLimiter } from "../../../shared/workers/rate-limit"
+
 type Env = {
   ASSETS: Fetcher
   AUTH: Fetcher
@@ -61,11 +63,26 @@ type Env = {
   LEARNING_MEDIA: R2Bucket
   /** shared secret for auth's /internal/* doors (same value as auth/tenancy/content). */
   INTERNAL_KEY?: string
+  /** Surge ceilings — per caller and per team. Optional: absent in a fork that
+   * has not enabled them, in `wrangler dev`, and in tests. */
+  USER_LIMITER?: RateLimiter
+  TEAM_LIMITER?: RateLimiter
 }
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const { pathname } = new URL(request.url)
+
+    // THE SURGE CEILING, at the one public door. Everything below is bounded in
+    // SIZE (list caps, import ceilings, upload caps, the AI quota); this is the
+    // only thing that bounds RATE. It sits above the routing table so a new
+    // route cannot be added outside it, and it deliberately covers /api/* only:
+    // static assets and /media/* are served from cache and are not a load the
+    // app has to survive. (Scaling review, 2026-08-11 — see SCALING.md.)
+    if (pathname.startsWith("/api/") || pathname === "/mcp") {
+      const limited = await rateLimit(request, env)
+      if (limited) return limited
+    }
 
     if (pathname.startsWith("/api/auth/")) return env.AUTH.fetch(request)
     if (pathname.startsWith("/api/tenancy/")) return env.TENANCY.fetch(request)

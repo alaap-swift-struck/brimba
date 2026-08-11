@@ -141,12 +141,14 @@ export async function postUpdateRole(request: Request, env: Env): Promise<Respon
     roleId?: string
     title?: string
     description?: string
+    expectedVersion?: string
   }
   if (!body.roleId) return fail(400, "invalid_input", "roleId and title are required.")
   const title = requireText(body.title, "Name", TEXT_LIMITS.short)
-  await updateRole(cfg, guard, actor, body.roleId, title, (optionalText(body.description, "Description", TEXT_LIMITS.long) ?? ""))
+  await updateRole(cfg, guard, actor, body.roleId, title, (optionalText(body.description, "Description", TEXT_LIMITS.long) ?? ""), body.expectedVersion)
   await publishChange(env.REALTIME, guard.teamId, "member_roles", body.roleId)
-  return json({ roles: await listRoles(env, cfg, guard), total: await countRoles(cfg, guard) })
+  // R23: the AFFECTED ROW, never the collection — see RULES.md.
+  return json({ updated: await oneRole(env, cfg, guard, body.roleId), total: await countRoles(cfg, guard) })
 }
 
 /** Deactivate / reactivate a role — never deleted (holders keep access). Gated
@@ -164,5 +166,6 @@ export async function postSetRoleActive(request: Request, env: Env): Promise<Res
   // published and no duplicate history exists; the response is still the list.
   const changed = await setRoleActive(cfg, guard, actor, body.roleId, body.active)
   if (changed) await publishChange(env.REALTIME, guard.teamId, "member_roles", body.roleId)
-  return json({ roles: await listRoles(env, cfg, guard), total: await countRoles(cfg, guard) })
+  // R23: the AFFECTED ROW, never the collection — see RULES.md.
+  return json({ updated: await oneRole(env, cfg, guard, body.roleId), total: await countRoles(cfg, guard) })
 }

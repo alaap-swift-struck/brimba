@@ -54,7 +54,8 @@ export async function postRevokeInvite(request: Request, env: Env): Promise<Resp
   // Revoke is an in-place edit (the row stays, status → 'revoked'), so re-pulling
   // this one id keeps the list live without a full refetch.
   await publishChange(env.REALTIME, guard.teamId, "invites", body.inviteId, "edit")
-  return json({ invites: await listInvites(env, cfg, guard), total: await countInvites(env, guard) })
+  // R23: the AFFECTED ROW, never the collection — see RULES.md.
+  return json({ updated: await oneInvite(env, cfg, guard, body.inviteId), total: await countInvites(env, guard) })
 }
 
 /** The per-team invite_logs audit for one invite (M4): inviter snapshot +

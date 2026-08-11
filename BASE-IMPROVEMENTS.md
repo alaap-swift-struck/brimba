@@ -424,3 +424,46 @@ A sweep of real bugs surfaced by the team exercising the AI co-pilot on staging.
 ## The meta-lesson (worth its own guardrail)
 
 Two of the worst issues (the agent confirm gap, the fork-sweep leaving live URLs) **slipped past our own checks because a check encoded the wrong intent** — a test that asserted the vulnerable behaviour as correct, and a sweep rule that treated a live URL as "history." An incumbent review rationalises what's already there. **Schedule a periodic fresh, no-prior-context review** (a clean clone, independent agents) — it finds what the incumbent gate accepts. This is why the base now recommends running the audits against a *pristine* clone, not the working tree.
+
+---
+
+## Scaling round 2 — 2026-08-11 (BREAKING for a fork already on the base)
+
+Six changes a fork must know about before pulling. All are deliberate; none is
+reversible by config.
+
+**1 · Eleven mutation endpoints changed shape (LAW R23).** Edit / status /
+deactivate doors used to return the whole collection; they now return
+`{ updated, total? }`. If your fork calls them directly, switch to
+`applyUpdated` (`web/lib/live-resources.ts`). A NULL `updated` means the record
+left the list — drop the row.
+
+**2 · The learning upload wire format changed.** It was `POST { dataUrl }` with a
+base64 data URL; it is now the raw file as the request body with the file's
+`Content-Type`. The old parser (`parseUploadDataUrl`) is gone rather than left as
+a second door with its own idea of what mime is safe.
+
+**3 · Two core migrations.** `0016_channel_shards` and `0017_idempotency`. Apply
+them BEFORE deploying, or a publish falls back to one shard (safe) and a
+mutation carrying `Idempotency-Key` 500s (not safe).
+
+**4 · `teamContext` can now throw 429.** The per-tenant rate ceiling lives there.
+It fails open when the binding is absent, so a fork that does nothing sees no
+change — but a fork that wraps `teamContext` should let the GuardError through.
+
+**5 · `MemberGuard` is unchanged, but `GatingEnv` may carry `TEAM_LIMITER`.**
+Optional; absent is fine.
+
+**6 · Four update libs take an extra `expectedVersion` parameter.** Optional and
+last, so existing calls compile unchanged and behave exactly as before.
+
+### Two testing lessons from this round, worth more than the fixes
+
+**The gateway was the only worker `npm test` never ran** — and it is the only
+PUBLIC one. Sixteen new tests against it were about to sit on disk looking like
+coverage. If your fork added a worker, check it is in the root `test` script.
+
+**A check that hangs under sabotage is no better than one that stays green.** An
+over-cap upload test used an endless source stream: with the cap working it
+threw immediately, and with the cap BROKEN it looped for ever instead of
+failing. Bound the fixtures you sabotage against.

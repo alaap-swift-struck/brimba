@@ -1,6 +1,8 @@
 // The ONE place the web app talks to the workers. Same-origin /api calls —
 // the gateway routes them — so cookies flow automatically, no config needed.
 
+import { currentSubmitKey } from "./idempotency"
+
 import type {
   ActiveContext,
   ActivityItem,
@@ -139,8 +141,15 @@ async function streamSse(
 }
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  // If we are inside a form submit, carry its retry key so the server can tell a
+  // re-send apart from a second request (web/lib/idempotency.ts). Reads are left
+  // alone: replaying a GET buys nothing and re-running one costs nothing.
+  const key = init?.method && init.method !== "GET" ? currentSubmitKey() : null
   const res = await fetch(path, {
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(key ? { "Idempotency-Key": key } : {}),
+    },
     ...init,
   })
   if (!res.ok) {
@@ -298,16 +307,16 @@ export const tenancy = {
     }),
 
   /** Rename / re-describe a role (not the locked Admin); returns the list. */
-  updateRole: (roleId: string, title: string, description: string) =>
-    api<{ roles: TeamRole[] }>("/api/tenancy/roles/update", {
+  updateRole: (roleId: string, title: string, description: string, expectedVersion?: string | null) =>
+    api<{ updated: TeamRole | null; total: number }>("/api/tenancy/roles/update", {
       method: "POST",
-      body: JSON.stringify({ roleId, title, description }),
+      body: JSON.stringify({ roleId, title, description, expectedVersion }),
     }),
 
   /** Deactivate / reactivate a role (never deleted; holders keep access). Needs
    * member_roles:delete. Returns the refreshed role list. */
   setRoleActive: (roleId: string, active: boolean) =>
-    api<{ roles: TeamRole[] }>("/api/tenancy/roles/active", {
+    api<{ updated: TeamRole | null; total: number }>("/api/tenancy/roles/active", {
       method: "POST",
       body: JSON.stringify({ roleId, active }),
     }),
@@ -329,30 +338,30 @@ export const tenancy = {
     }),
 
   /** Rename a dropdown value (its type stays). Needs selectable_data:edit. */
-  updateSelectable: (id: string, value: string) =>
-    api<{ values: SelectableValue[] }>("/api/tenancy/selectable/update", {
+  updateSelectable: (id: string, value: string, expectedVersion?: string | null) =>
+    api<{ updated: SelectableValue | null; total: number }>("/api/tenancy/selectable/update", {
       method: "POST",
-      body: JSON.stringify({ id, value }),
+      body: JSON.stringify({ id, value, expectedVersion }),
     }),
 
   /** Deactivate / reactivate a dropdown value (deactivate-only). Needs
    * selectable_data:delete. Returns the refreshed value list. */
   setSelectableActive: (id: string, active: boolean) =>
-    api<{ values: SelectableValue[] }>("/api/tenancy/selectable/active", {
+    api<{ updated: SelectableValue | null; total: number }>("/api/tenancy/selectable/active", {
       method: "POST",
       body: JSON.stringify({ id, active }),
     }),
 
   /** Change a member's role; returns the refreshed member list. */
   setMemberRole: (userId: string, roleId: string) =>
-    api<{ members: TeamMember[] }>("/api/tenancy/members/role", {
+    api<{ updated: TeamMember | null }>("/api/tenancy/members/role", {
       method: "POST",
       body: JSON.stringify({ userId, roleId }),
     }),
 
   /** Remove (deactivate) a member; returns the refreshed member list. */
   removeMember: (userId: string) =>
-    api<{ members: TeamMember[] }>("/api/tenancy/members/remove", {
+    api<{ updated: TeamMember | null }>("/api/tenancy/members/remove", {
       method: "POST",
       body: JSON.stringify({ userId }),
     }),
@@ -369,7 +378,7 @@ export const tenancy = {
 
   /** Revoke ("redact") a pending invite; returns the refreshed invite list. */
   revokeInvite: (inviteId: string) =>
-    api<{ invites: Invite[] }>("/api/tenancy/invites/revoke", {
+    api<{ updated: Invite | null; total: number }>("/api/tenancy/invites/revoke", {
       method: "POST",
       body: JSON.stringify({ inviteId }),
     }),
@@ -431,17 +440,25 @@ export const content = {
     api<{ learning: Learning[] }>(`/api/content/learning?id=${enc(id)}`).then((r) => r.learning[0] ?? null),
   createLearning: (input: Partial<Learning>) =>
     api<{ created: Learning | null; total: number }>("/api/content/learning", post(input)),
-  updateLearning: (input: Partial<Learning> & { id: string }) =>
-    api<{ learning: Learning[] }>("/api/content/learning/update", post(input)),
+  /** `expectedVersion` is the `updated_at` the editor was shown: the write is
+   * refused rather than landing on top of a change they never saw. */
+  updateLearning: (input: Partial<Learning> & { id: string; expectedVersion?: string | null }) =>
+    api<{ updated: Learning | null; total: number }>("/api/content/learning/update", post(input)),
   setLearningActive: (id: string, active: boolean) =>
-    api<{ learning: Learning[] }>("/api/content/learning/active", post({ id, active })),
-  /** Upload a file for an article (gated by learning:create). Send the raw
-   * base64 data URL; get back the served /media URL + its content type. */
-  uploadLearningFile: (dataUrl: string, filename?: string) =>
-    api<{ url: string; contentType: string }>(
-      "/api/content/learning/upload",
-      post({ dataUrl, filename })
-    ),
+    api<{ updated: Learning | null; total: number }>("/api/content/learning/active", post({ id, active })),
+  /** Upload a file for an article (gated by learning:create); get back the served
+   * /media URL + its content type.
+   *
+   * The FILE ITSELF is the body — no base64. Encoding it made the browser hold a
+   * second copy a third larger than the original and made the worker hold three,
+   * inside a 128 MB isolate. `fetch` streams a File without reading it into
+   * memory at either end. */
+  uploadLearningFile: (file: File) =>
+    api<{ url: string; contentType: string }>("/api/content/learning/upload", {
+      method: "POST",
+      headers: { "Content-Type": file.type },
+      body: file,
+    }),
   markLearningDone: (id: string, done: boolean) =>
     api<{ ok: true }>("/api/content/learning/done", post({ id, done })),
   learningProgress: () =>
@@ -459,10 +476,10 @@ export const content = {
     api<{ replies: HelpMessage[]; total: number }>(`/api/content/help/thread?id=${enc(id)}`),
   createHelp: (input: { description: string; helpType?: string; sourceScreen?: string }) =>
     api<{ created: HelpTicket | null; total: number; mineTotal: number }>("/api/content/help", post(input)),
-  updateHelp: (input: { id: string; description: string; helpType?: string }) =>
-    api<{ tickets: HelpTicket[] }>("/api/content/help/update", post(input)),
+  updateHelp: (input: { id: string; description: string; helpType?: string; expectedVersion?: string | null }) =>
+    api<{ updated: HelpTicket | null }>("/api/content/help/update", post(input)),
   setHelpStatus: (id: string, status: HelpTicket["status"]) =>
-    api<{ tickets: HelpTicket[] }>("/api/content/help/status", post({ id, status })),
+    api<{ updated: HelpTicket | null }>("/api/content/help/status", post({ id, status })),
   replyHelp: (helpId: string, body: string, taggedUserIds?: string[]) =>
     api<{ created: HelpMessage | null; total: number }>("/api/content/help/reply", post({ helpId, body, taggedUserIds })),
   helpStakeholders: (id: string) =>

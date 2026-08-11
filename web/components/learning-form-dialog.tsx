@@ -61,16 +61,6 @@ function acceptFor(t: string): string {
 
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024 // 25 MB client cap
 
-// Read a File to a raw base64 data URL (no canvas re-encode — lossless).
-function readFileAsDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(reader.result as string)
-    reader.onerror = () => reject(reader.error ?? new Error("read failed"))
-    reader.readAsDataURL(file)
-  })
-}
-
 /** What the form prefills from / submits — the editable surface of a Learning. */
 export type LearningFormValues = {
   title: string
@@ -136,8 +126,7 @@ export function LearningFormDialog({
     }
     setUploading(true)
     try {
-      const dataUrl = await readFileAsDataUrl(file)
-      const { url } = await content.uploadLearningFile(dataUrl, file.name)
+      const { url } = await content.uploadLearningFile(file)
       setValues((v) => ({ ...v, contentLink: url }))
       setFileName(file.name)
     } catch (err) {

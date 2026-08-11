@@ -7,6 +7,7 @@
 //     'Learning category' selectable value gets added as one (Base v3 behaviour);
 //   • per-user progress is an explicit, reversible "mark as done" upsert.
 
+import { assertNotConflicted, versionPredicate } from "../../../../shared/workers/concurrency"
 import { describeChanges, logActivity, type Actor } from "../../../../shared/workers/activity"
 import {
   d1ExecScript,
@@ -242,7 +243,7 @@ export async function listLearningForExport(
     `SELECT content_title, category, content_description, content_type, content_link, content_body,
             sequence, is_required, deactivated_at, deactivator_name,
             created_at, creator_name, updated_at, editor_name
-     FROM learning ORDER BY sequence, created_at LIMIT ${EXPORT_HARD_CAP}` // R14 hard cap (export tier)
+     FROM learning ORDER BY sequence, created_at LIMIT ${EXPORT_HARD_CAP + 1}` // R14 hard cap + 1: the extra row is how we learn the export was truncated
   )
 }
 
@@ -292,7 +293,10 @@ export async function updateLearning(
   guard: MemberGuard,
   actor: Actor,
   id: string,
-  input: LearningInput
+  input: LearningInput,
+  /** The `updated_at` the caller was shown. Given one, the write refuses to land
+   * on a row that has moved on since — see shared/workers/concurrency.ts. */
+  expectedVersion?: string | null
 ): Promise<void> {
   const before = await learningOrThrow(cfg, guard, id)
   const title = requireText(input.title, "Title", TEXT_LIMITS.short)
@@ -308,11 +312,14 @@ export async function updateLearning(
   const description = optionalText(input.description, "Description", TEXT_LIMITS.long) ?? previewFromBody(body)
 
   const now = new Date().toISOString()
-  await d1ExecScript(
+  // RETURNING turns the write into its own answer: no rows came back means
+  // the predicate did not match, i.e. someone else changed this row first.
+  const landed = await d1Query<{ id: string }>(
     cfg,
     guard.databaseId,
-    `UPDATE learning SET category = ${sqlString(category)}, content_title = ${sqlString(title)}, content_description = ${sqlString(description)}, content_type = ${sqlString(contentType)}, content_link = ${sqlString(safeLink(optionalText(input.contentLink, "Link", TEXT_LIMITS.link)))}, content_body = ${sqlString(body)}, sequence = ${intOr(input.sequence, 0)}, is_required = ${input.required ? 1 : 0}, updated_at = ${sqlString(now)}, editor_id = ${sqlString(actor.id)}, editor_email = ${sqlString(actor.email)}, editor_name = ${sqlString(actor.name)} WHERE id = ${sqlString(id)};`
+    `UPDATE learning SET category = ${sqlString(category)}, content_title = ${sqlString(title)}, content_description = ${sqlString(description)}, content_type = ${sqlString(contentType)}, content_link = ${sqlString(safeLink(optionalText(input.contentLink, "Link", TEXT_LIMITS.link)))}, content_body = ${sqlString(body)}, sequence = ${intOr(input.sequence, 0)}, is_required = ${input.required ? 1 : 0}, updated_at = ${sqlString(now)}, editor_id = ${sqlString(actor.id)}, editor_email = ${sqlString(actor.email)}, editor_name = ${sqlString(actor.name)} WHERE id = ${sqlString(id)}${versionPredicate(expectedVersion)} RETURNING id`
   )
+  assertNotConflicted(landed.length, expectedVersion)
 
   const changes = describeChanges([
     { label: "Title", from: before.content_title, to: title },

@@ -177,3 +177,45 @@ deploy needed to change one.
 - The UI library (`@swift-struck/ui`) installs from GitHub. Update: `npm install github:alaap-swift-struck/swift-struck-ui`.
 - `web/app/globals.css` is a COPY of the library theme (master: swift-struck-ui repo, www/app/globals.css). Its `@source` points at the ROOT node_modules (workspaces hoist).
 - Missing UI components are placeholdered in `web/components/temp/` and tracked in UI-GAPS.md — the library absorbs them, then placeholders get deleted.
+
+---
+
+## Scaling round 2 (2026-08-11) — what a deploy of this needs
+
+**Core migrations to apply BEFORE deploying** (production is owner-gated):
+
+| Migration | Adds | Why it must land first |
+|---|---|---|
+| `0016_channel_shards` | `teams.shard_count` | the realtime worker reads it on every publish; absent, the lookup fails and every team falls back to one shard (safe, but the valve does nothing) |
+| `0017_idempotency` | `idempotency_keys` | the mutation dispatchers write to it whenever a client sends `Idempotency-Key`; absent, the claim throws and the mutation 500s |
+
+Then `POST /api/tenancy/admin/migrate-teams` (x-admin-key) as usual — team
+migration `0007_scale_indexes` is unchanged from the first pass.
+
+**Rate-limit bindings.** `ratelimits` blocks are declared in four wrangler
+configs — `gateway` (USER_LIMITER) and `tenancy` / `content` / `data-ops`
+(TEAM_LIMITER), in BOTH the top-level (production) and `env.staging` blocks. The
+syntax is Cloudflare's `ratelimits` key, and `period` must be **10 or 60** —
+anything else is a deploy that fails, which a test asserts. Nothing needs
+creating in the dashboard; the namespace ids are labels.
+
+If the account does not have the binding available, the seam **fails open**: the
+app runs exactly as before, minus the ceiling. That is by design, but it is also
+silent — check a deploy's output rather than assuming. `wrangler deploy
+--dry-run` prints the resolved bindings, and a live one reads
+`env.USER_LIMITER (600 requests/60s)  Rate Limit`.
+
+**How to actually verify it fires** (a burst against the real ceiling will NOT
+prove it — the count is per colocation, so a parallel burst spreads out and no
+counter reaches the limit). Temporarily set the STAGING limit to something like
+`{"limit": 5, "period": 10}`, deploy the gateway, send ~25 SEQUENTIAL requests to
+`/api/auth/me`, and expect 429s from the 6th. Then restore and redeploy. Done on
+2026-08-11; the result is recorded in SCALING.md §4.6.
+
+**Retention gains a table.** `idempotency_keys` is swept after 2 days
+(`RETAIN_IDEMPOTENCY_DAYS`). It is the fastest-growing table the base has, since
+every protected mutation writes a row.
+
+**The nightly cron does one more thing.** After sizing databases and sweeping
+retention it now raises `teams.shard_count` for any team past 10,000 members.
+The raise is one-way; see SCALING.md §3.

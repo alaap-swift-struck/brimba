@@ -7,10 +7,11 @@
 // category, deactivate-not-delete) live in lib/learning.
 
 import { fail, json } from "../../../../shared/workers/http"
-import { csvResponse, toCsv } from "../../../../shared/workers/csv"
+import { boundExport, csvResponse, toCsv } from "../../../../shared/workers/csv"
+import { EXPORT_HARD_CAP } from "../../../../shared/workers/limits"
 import { requireText, TEXT_LIMITS } from "../../../../shared/workers/validate"
 import { publishChange } from "../../../../shared/workers/realtime"
-import { parseUploadDataUrl } from "../../../../shared/workers/image"
+import { isInlineSafeUpload, uploadLengthProblem } from "../../../../shared/workers/image"
 import { ulid } from "../../../../shared/workers/id"
 import { gated, gatedBody } from "../../../../shared/workers/route"
 import { requireIdList } from "../lib/bulk"
@@ -45,7 +46,10 @@ export async function getLearning(request: Request, env: Env): Promise<Response>
  * straight back through the CSV importer; `active` rides along as information. */
 export async function getLearningExport(request: Request, env: Env): Promise<Response> {
   const { cfg, guard } = await gated(request, env, "learning", "read")
-  const items = await listLearningForExport(cfg, guard)
+  const all = await listLearningForExport(cfg, guard)
+  // R14 says cap the read; honesty says SAY when the cap bit. A silent 10,000
+  // of 250,000 is a file that looks complete and is not.
+  const { rows: items, truncated } = await boundExport(all, EXPORT_HARD_CAP, () => countLearning(cfg, guard))
   const csv = toCsv(
     [
       "title", "category", "description", "contentType", "contentLink", "body",
@@ -58,7 +62,7 @@ export async function getLearningExport(request: Request, env: Env): Promise<Res
       l.created_at, l.creator_name, l.updated_at, l.editor_name, l.deactivated_at, l.deactivator_name,
     ])
   )
-  return csvResponse("learning.csv", csv)
+  return csvResponse("learning.csv", csv, truncated)
 }
 
 export async function postCreateLearning(request: Request, env: Env): Promise<Response> {
@@ -74,12 +78,13 @@ export async function postCreateLearning(request: Request, env: Env): Promise<Re
 }
 
 export async function postUpdateLearning(request: Request, env: Env): Promise<Response> {
-  const { actor, cfg, guard, body } = await gatedBody<LearningInput & { id?: string }>(request, env, "learning", "edit")
+  const { actor, cfg, guard, body } = await gatedBody<LearningInput & { id?: string; expectedVersion?: string }>(request, env, "learning", "edit")
   if (!body.id) return fail(400, "invalid_input", "id and title are required.")
   requireText(body.title, "Title", TEXT_LIMITS.short)
-  await updateLearning(cfg, guard, actor, body.id, body)
+  await updateLearning(cfg, guard, actor, body.id, body, body.expectedVersion)
   await publishChange(env.REALTIME, guard.teamId, "learning", body.id)
-  return json({ learning: await listLearning(cfg, guard), total: await countLearning(cfg, guard) })
+  // R23: the AFFECTED ROW, never the collection — see RULES.md.
+  return json({ updated: await oneLearning(cfg, guard, body.id), total: await countLearning(cfg, guard) })
 }
 
 /** Deactivate / reactivate a learning item — never deleted (progress survives).
@@ -91,7 +96,8 @@ export async function postSetLearningActive(request: Request, env: Env): Promise
   // R17: no-op repeat → no ping, no duplicate history (see setLearningActive).
   const changed = await setLearningActive(cfg, guard, actor, body.id, body.active)
   if (changed) await publishChange(env.REALTIME, guard.teamId, "learning", body.id)
-  return json({ learning: await listLearning(cfg, guard), total: await countLearning(cfg, guard) })
+  // R23: the AFFECTED ROW, never the collection — see RULES.md.
+  return json({ updated: await oneLearning(cfg, guard, body.id), total: await countLearning(cfg, guard) })
 }
 
 /** Deactivate / reactivate MANY learning items in one call (the bulk sibling of
@@ -131,26 +137,49 @@ export async function getLearningProgress(request: Request, env: Env): Promise<R
   return json({ progress: await listProgress(cfg, guard) })
 }
 
-/** Local file upload for a learning item (images + short clips, cap 25 MB) sent
- * as a base64 data URL — same JSON pattern as the profile-photo / team-logo
- * upload, not multipart. Stores the bytes in the team's learning-media bucket
- * under <teamId>/<ulid> and hands back the gateway URL the editor pastes into
- * the article. HOUSEKEEPING: it writes a file, NOT a record — there's no row to
- * patch, so nothing to broadcast (the create/edit that references the URL pings
- * its own row). Gated by learning:create. */
+/** Local file upload for a learning item (images + short clips, cap 25 MB).
+ * Stores the bytes in the team's learning-media bucket under <teamId>/<ulid> and
+ * hands back the gateway URL the editor pastes into the article. HOUSEKEEPING:
+ * it writes a file, NOT a record — there's no row to patch, so nothing to
+ * broadcast (the create/edit that references the URL pings its own row). Gated
+ * by learning:create.
+ *
+ * THE BYTES ARE STREAMED, NOT BUFFERED. This used to take a base64 data URL in a
+ * JSON body, which held the file three times over in a 128 MB isolate — the JSON
+ * string, the base64 substring, and the decoded array — with base64 a third
+ * larger than the file itself. 25 MB of video was most of the isolate, and
+ * running out of one does not produce an error a user can act on; it just dies.
+ * Now the request body goes straight to R2 through a counter, so memory is one
+ * chunk regardless of size. (Scaling review, 2026-08-11.)
+ *
+ * The mime comes from the Content-Type header and goes through the SAME
+ * allowlist the data-URL path used — this file is served back inline on the app
+ * origin, so a script-capable type would be stored XSS. */
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 export async function postUploadLearningFile(request: Request, env: Env): Promise<Response> {
-  const { guard, body } = await gatedBody<{ dataUrl?: unknown }>(request, env, "learning", "create")
-  const parsed = parseUploadDataUrl(body.dataUrl, MAX_UPLOAD_BYTES)
-  if (!parsed) return fail(400, "invalid_input", "That file isn't a supported upload (max 25 MB).")
+  const { guard } = await gated(request, env, "learning", "create")
+
+  const contentType = (request.headers.get("Content-Type") ?? "").split(";")[0].trim()
+  if (!isInlineSafeUpload(contentType))
+    return fail(400, "invalid_input", "That file type isn't one we can store.")
+  if (!request.body) return fail(400, "invalid_input", "No file was sent.")
+
+  const problem = uploadLengthProblem(request, MAX_UPLOAD_BYTES)
+  if (problem === "too_large")
+    return fail(413, "file_too_large", "That file is over the 25 MB limit.")
+  if (problem === "unknown")
+    return fail(411, "length_required", "We couldn't tell how big that file is. Try uploading it again.")
+
   const id = ulid()
   const key = `${guard.teamId}/${id}`
-  await env.LEARNING_MEDIA.put(key, parsed.bytes, {
-    httpMetadata: { contentType: parsed.contentType },
-  })
+  // The request body goes to R2 UNTOUCHED. Wrapping it in a transform (to count
+  // bytes, say) replaces a known-length stream with an unknown-length one, and
+  // R2 refuses those outright — see uploadLengthProblem for the whole story.
+  await env.LEARNING_MEDIA.put(key, request.body, { httpMetadata: { contentType } })
+
   // ?v= busts caches; the file itself is served immutable by the gateway.
   return json({
     url: `/media/learning/${guard.teamId}/${id}?v=${Date.now()}`,
-    contentType: parsed.contentType,
+    contentType,
   })
 }
