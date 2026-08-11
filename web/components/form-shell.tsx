@@ -50,6 +50,14 @@ export function FormShell({
     const id = await onSubmit?.(e)
     // Only a real id navigates: a failed submit throws (the dialog stays open and
     // shows why) and an edit resolves with nothing.
+    //
+    // AND THIS NAVIGATION *IS* THE CLOSE. A create form must NOT also close itself
+    // — the host's own close is `router.back()`, which is asynchronous, so it fires
+    // AFTER this push and pops straight back off the record just opened. (Found in
+    // a browser on staging; every unit check was green while the law did nothing.)
+    // Navigating drops `?panel=add` from the url, which is what the dialog's `open`
+    // is derived from — so the panel closes as a consequence, and the history is
+    // one clean step instead of a back and a push racing each other.
     if (opensRecord && typeof id === "string" && id) openRecord(opensRecord.segment, opensRecord.teamId, id)
   }
   return (

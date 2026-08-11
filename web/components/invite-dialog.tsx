@@ -72,7 +72,7 @@ export function InviteDialog({
     try {
       const createdId = await onSubmit(values.email.trim(), values.roleId)
       clearDraft()
-      onOpenChange(false)
+      if (!createdId) onOpenChange(false) // R22: a create CLOSES BY NAVIGATING (see FormShell)
       return createdId ?? undefined // R22: FormShell opens the new invite
     } catch (err) {
       // ApiFailure carries the server's specific reason (e.g. "They're already on

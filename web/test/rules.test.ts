@@ -355,6 +355,15 @@ describe("RULES — the laws of the base", () => {
         /return createdId/.test(src),
         `${dialog} declares opensRecord but never resolves with the created id — the record would never open`
       ).toBe(true)
+      // …and it must NOT close itself on the create path. The host's close is
+      // `router.back()`, which is ASYNCHRONOUS: it fires after FormShell's push
+      // and pops straight back off the record just opened. Every check here was
+      // green while the law did nothing, on staging, in a browser — so this is
+      // the assertion that would have caught it: the close is GUARDED by the id.
+      expect(
+        /if \(!createdId\) onOpenChange\(false\)/.test(src),
+        `${dialog} closes itself on the create path — the host's close is router.back(), which fires AFTER the navigation and pops off the new record. Guard it: \`if (!createdId) onOpenChange(false)\``
+      ).toBe(true)
     }
     // The seam itself: the navigation lives in FormShell, not in the screens.
     const shell = read(join(WEB, "components", "form-shell.tsx"))

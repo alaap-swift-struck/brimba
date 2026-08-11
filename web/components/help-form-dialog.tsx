@@ -80,7 +80,7 @@ export function HelpFormDialog({
         helpType: values.helpType === NONE ? undefined : values.helpType,
       })
       clearDraft()
-      onOpenChange(false)
+      if (!createdId) onOpenChange(false) // R22: a create CLOSES BY NAVIGATING (see FormShell)
       return createdId ?? undefined // R22: FormShell opens the new ticket
     } catch (err) {
       toast.error(

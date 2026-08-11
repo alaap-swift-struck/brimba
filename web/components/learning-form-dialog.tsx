@@ -164,7 +164,7 @@ export function LearningFormDialog({
         body: values.body,
       })
       clearDraft()
-      onOpenChange(false)
+      if (!createdId) onOpenChange(false) // R22: a create CLOSES BY NAVIGATING (see FormShell)
       return createdId ?? undefined // R22: FormShell opens the new article
     } catch (err) {
       toast.error(err instanceof ApiFailure ? err.message : "Couldn't save the article.")

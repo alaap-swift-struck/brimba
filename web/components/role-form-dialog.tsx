@@ -61,7 +61,7 @@ export function RoleFormDialog({
     try {
       const createdId = await onSubmit(values.title.trim(), values.description.trim())
       clearDraft()
-      onOpenChange(false)
+      if (!createdId) onOpenChange(false) // R22: a create CLOSES BY NAVIGATING (see FormShell)
       return createdId ?? undefined // R22: FormShell opens the new role
     } catch (err) {
       toast.error(

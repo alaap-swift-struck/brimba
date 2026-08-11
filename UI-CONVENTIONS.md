@@ -312,6 +312,15 @@ Three pieces make it work, and the check asserts all three:
 3. **`FormShell` navigates** — `openRecord(segment, teamId, id)` → `softNavigate`, so it
    is a History-API move inside the one shell, never a reload (CACHING.md).
 
+**The navigation IS the close — a create form must not also close itself.** The
+host's close is `router.back()`, which is *asynchronous*: it fires after
+FormShell's push and pops straight back off the record just opened. So the
+dialogs guard it — `if (!createdId) onOpenChange(false)` — and a create closes
+because navigating drops `?panel=add` from the url, which is what the dialog's
+`open` is derived from. One clean history step instead of a back and a push
+racing each other. *Found in a browser on staging: every unit check was green
+while the law did nothing, which is why the guard is now asserted too.*
+
 **Scope.** It applies to master records created deliberately through a form container —
 **not** to accessory or child rows created as a side effect (a reply, a stakeholder, a
 dropdown value the form auto-creates behind a picker).
