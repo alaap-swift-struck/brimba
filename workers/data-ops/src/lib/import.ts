@@ -395,6 +395,40 @@ export async function writeRow(
   return { ok: false, error }
 }
 
+/** Write ONE PARCEL of rows through the target's gated BULK create door, AS the
+ * caller. Only reached when the target declares `bulk` — a door that takes many
+ * rows per request. The parcel was already sized by `parcelSize()` to the MINIMUM
+ * of the global ceiling and this door's own, because a bulk door refuses an
+ * oversized parcel WHOLE.
+ *
+ * Which is exactly why the failure comes back PARCEL-SCOPED: the door said no to
+ * the request, not to any particular row, and reporting it per row turns one
+ * problem into N and hides what actually went wrong. */
+export async function writeParcel(
+  env: Env,
+  request: Request,
+  target: TargetDef,
+  bodies: Record<string, unknown>[]
+): Promise<{ ok: boolean; error?: string }> {
+  const bulk = target.bulk
+  if (!bulk) return { ok: false, error: "That table has no bulk import door." }
+  const fetcher = target.endpoint.binding === "CONTENT" ? env.CONTENT : env.TENANCY
+  const res = await fetcher.fetch(`https://internal${bulk.path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Cookie: request.headers.get("Cookie") ?? "" },
+    body: JSON.stringify({ rows: bodies }),
+  })
+  if (res.ok) return { ok: true }
+  let error = `The whole batch of ${bodies.length} row(s) was refused (HTTP ${res.status}) — no row in it was written.`
+  try {
+    const j = (await res.json()) as { message?: string }
+    if (j?.message) error = `${j.message} (this affected the whole batch of ${bodies.length} row(s), not one row)`
+  } catch {
+    /* keep the default */
+  }
+  return { ok: false, error }
+}
+
 /** Stage 3: write every mapped row (insert-only), skipping rows missing a required
  * value. Marks the session complete and returns a tally. The caller publishes ONE
  * list-ping for the affected table afterwards (bulk = one ping, not per row). */

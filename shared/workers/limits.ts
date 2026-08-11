@@ -40,6 +40,14 @@ export const AGENT_REPLY_ENVELOPE_TOKENS = 512
  * enforces, and the number that physically fits are one number. */
 export const BULK_IDS_LIMIT = Math.floor((AGENT_MAX_TOKENS - AGENT_REPLY_ENVELOPE_TOKENS) / TOKENS_PER_EMITTED_ID)
 
+/** The GLOBAL ceiling on rows in ONE bulk import call — how many the pipeline is
+ * willing to put in a single request, whatever the door says. It is a CEILING, not
+ * a target: a target's own bulk endpoint may cap LOWER, and `parcelSize()` takes
+ * the MINIMUM of the two. Taking only this number is how a 400-row import failed
+ * 400 rows against a door that caps at 200 — one oversized parcel, refused whole,
+ * reported as if every row in it were bad. */
+export const BULK_MAX_ROWS = 2000
+
 /** Per-user ceiling on CREATED teams. Every team provisions a REAL database, so
  * an uncapped create door lets one signed-up account exhaust the platform's
  * database quota. Low on purpose — a person runs a handful of teams, not fifty;

@@ -363,7 +363,22 @@ export type ImportPlan = {
   bySource: "agent" | "fallback" // did the model plan it, or the deterministic fallback?
 }
 
-export type ImportRejection = { file: string; row: number; reason: string }
+/** One reason a row (or a whole PARCEL of rows) didn't import.
+ *
+ * `rows` is what makes a parcel failure legible. A bulk door refuses an oversized
+ * parcel WHOLE, so 400 rows can fail for ONE reason that has nothing to do with
+ * any of them — and reporting that per row reads as "400 bad rows" when the truth
+ * is "one bad parcel". So a parcel-scoped rejection is a SINGLE entry that says
+ * how many rows it covers; a row-scoped one leaves `rows` undefined (= 1). */
+export type ImportRejection = {
+  file: string
+  /** the row it starts at (1-based, within the file) */
+  row: number
+  reason: string
+  /** present only on a PARCEL-scoped rejection: how many rows this one covers */
+  rows?: number
+  scope?: "row" | "parcel"
+}
 
 /** The per-target tally + every rejected row's reason, produced by execution. */
 export type ImportBatchReport = {

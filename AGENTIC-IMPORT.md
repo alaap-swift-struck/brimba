@@ -224,6 +224,36 @@ or skip validation — same safety model as the chat agent.
 - **No model call touches user data at write time** — execution is deterministic,
   so a huge file doesn't multiply model spend.
 
+### 6.1 · Bulk doors: the door's own ceiling wins
+
+Most targets are written one row at a time. A target that also has a **gated bulk
+create door** declares it, and the importer writes in parcels:
+
+```ts
+bulk: { path: "/api/<worker>/<module>/bulk", maxRows: 200 }
+```
+
+`maxRows` is **that door's own ceiling**. The pipeline has a global one too
+(`BULK_MAX_ROWS`, `shared/workers/limits.ts`), and `parcelSize()` takes the
+**minimum of the two** — the door only accepts what it says it accepts, and the
+global cap is about what a single request should carry, so neither number may be
+ignored. Declaring one *larger* than the global cap does not raise it.
+
+**Why it matters more than it looks.** A bulk door refuses an oversized parcel
+**whole**. Pack 400 rows for a door that caps at 200 and all 400 fail — for a
+reason that has nothing to do with any of them. That is how a real import "failed
+400 rows" when one parcel was simply too big.
+
+So the failure is reported at the altitude it happened. A refused parcel is **one**
+rejection carrying `scope: "parcel"` and `rows: <n>`, and the report separates the
+two numbers — *"400 row(s) not imported · 1 problem(s)"* — instead of listing 400
+identical problems and sending someone hunting through 400 good rows. Omitting
+`maxRows` says "this door accepts the global ceiling", which is a claim about the
+door: make it deliberately.
+
+Locked by `workers/data-ops/test/bulk-parcels.test.ts` (the arithmetic, and that a
+refused parcel is never reported per row).
+
 ---
 
 ## 7 · Data model + endpoints (additive)

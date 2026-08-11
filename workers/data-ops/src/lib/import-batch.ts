@@ -13,9 +13,9 @@ import type { Env } from "../env"
 import type { ImportBatchReport, ImportBatchSummary, ImportBatchView, ImportPlan, ImportRejection } from "../../../../shared/types"
 import { parseCsv } from "./csv"
 import { norm, TARGETS, type TargetDef } from "./targets"
-import { resolveRow, scanRows } from "./import-plan"
+import { packParcels, resolveRow, scanRows } from "./import-plan"
 import { analyzeBatch, type AnalyzeFile } from "./import-agent"
-import { writeRow } from "./import"
+import { writeParcel, writeRow } from "./import"
 
 const MAX_FILES = 8
 const MAX_ROWS_PER_FILE = 1000
@@ -225,24 +225,51 @@ export async function confirmBatch(
     // The SAME scan the plan predicted with (missing required / duplicate rows) —
     // so the review screen and the run can never disagree.
     const scans = scanRows(def, step.mapping, step.transforms, file.headers, file.rows)
+    // Rows that survived validation + reference resolution, each keeping its file
+    // row number so a failure can still name where it came from.
+    const ready: { row: number; body: Record<string, unknown> }[] = []
     for (let i = 0; i < scans.length; i++) {
       const { mapped, reject } = scans[i]
       if (reject) {
         tally.skipped++
-        report.rejections.push({ file: file.name, row: i + 1, reason: reject })
+        report.rejections.push({ file: file.name, row: i + 1, reason: reject, scope: "row" })
         continue
       }
       const { refs, error } = resolveRow(mapped, def.references ?? [], resolved)
       if (error) {
         tally.skipped++
-        report.rejections.push({ file: file.name, row: i + 1, reason: error })
+        report.rejections.push({ file: file.name, row: i + 1, reason: error, scope: "row" })
         continue
       }
-      const out = await writeRow(env, request, def, def.buildBody(mapped, refs))
-      if (out.ok) tally.created++
-      else {
-        tally.failed++
-        report.rejections.push({ file: file.name, row: i + 1, reason: out.error ?? "Write failed." })
+      ready.push({ row: i + 1, body: def.buildBody(mapped, refs) })
+    }
+
+    if (def.bulk) {
+      // BULK door: parcels sized to the MINIMUM of the global ceiling and this
+      // door's own (`parcelSize`). A refused parcel is ONE rejection covering N
+      // rows — the door said no to the request, not to any row in it.
+      for (const parcel of packParcels(ready, def)) {
+        const out = await writeParcel(env, request, def, parcel.map((r) => r.body))
+        if (out.ok) tally.created += parcel.length
+        else {
+          tally.failed += parcel.length
+          report.rejections.push({
+            file: file.name,
+            row: parcel[0]?.row ?? 1,
+            rows: parcel.length,
+            scope: "parcel",
+            reason: out.error ?? "That batch was refused.",
+          })
+        }
+      }
+    } else {
+      for (const { row, body } of ready) {
+        const out = await writeRow(env, request, def, body)
+        if (out.ok) tally.created++
+        else {
+          tally.failed++
+          report.rejections.push({ file: file.name, row, reason: out.error ?? "Write failed.", scope: "row" })
+        }
       }
     }
 

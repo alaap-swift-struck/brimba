@@ -60,6 +60,15 @@ export type TargetDef = {
   columns: ImportColumn[]
   /** the gated create endpoint each mapped row is written through (act-as-user). */
   endpoint: { binding: "CONTENT" | "TENANCY"; path: string }
+  /** OPTIONAL: this target also has a gated BULK create door, so the importer can
+   * write many rows per request instead of one. `maxRows` is THIS DOOR'S OWN
+   * ceiling — declare it whenever the door caps lower than `BULK_MAX_ROWS`, and
+   * `parcelSize()` takes the minimum of the two. Omitting `maxRows` means "this
+   * door accepts the global ceiling", which is a claim about the door, so make it
+   * deliberately: an oversized parcel is refused WHOLE, and a whole parcel of good
+   * rows failing looks exactly like a whole parcel of bad ones. Base targets omit
+   * `bulk` entirely (their doors are single-row); an app adds it. */
+  bulk?: { path: string; maxRows?: number }
   /** shape one mapped row into that endpoint's body. `refs` carries any resolved
    * parent ids (mode:"id" references) — existing single-key targets ignore it. */
   buildBody: (row: Record<string, string>, refs?: Record<string, string>) => Record<string, unknown>
