@@ -129,6 +129,15 @@ Before this pass: **25/100**. Seven workers could handle one click and write sev
 lines with nothing in common. "The import failed for one customer at 14:02" meant reading
 five logs and guessing which lines belonged together.
 
+**A correction to this criterion, made after the score was published.** When 98 was first
+computed, propagation was **broken whenever a client supplied its own `x-request-id`** —
+`new Headers([...headers, [name, value]])` combines same-named headers rather than
+replacing them, producing `"theirs, ours"`, which fails the shape check downstream. The
+ship gate caught it before deploy and it is fixed (`.set()`, plus two regression tests).
+So 98 was mildly optimistic at the moment it was published, and is now honestly earned. The
+score does not move — the defect was in one branch of one hop — but a number published
+before its subject worked is worth saying out loud rather than quietly correcting.
+
 **The −2:** the WebSocket upgrade at [index.ts:125](workers/gateway/src/index.ts:125) does
 not carry the id, because re-constructing a `Request` drops the upgrade and the socket
 never opens. It is one long-lived connection rather than a hop in a chain, so there is
@@ -233,6 +242,13 @@ Nothing here blocks a ship.
 | whether the machine surface matches the UI | `interface_lessness_meter` | 98 |
 
 ---
+
+## Seeing it rather than reading it
+
+`architecture-blueprint.html` renders this same structure — read live from the repo, not
+hand-maintained — as an interactive map: one public door, six specialists, a private
+database per team, and a ten-step plain-English walkthrough. Three views: how it works,
+where data lives, where the code lives. Every box and chip opens a detail card.
 
 ## The verdict
 
