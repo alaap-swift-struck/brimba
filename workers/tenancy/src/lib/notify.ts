@@ -11,6 +11,7 @@
 import { brand } from "../../../../shared/brand"
 import { brandedEmail, type BrandedEmail } from "../../../../shared/workers/email-template"
 import type { Env } from "../env"
+import { callService } from "../../../../shared/workers/trace"
 
 async function teamName(env: Env, teamId: string): Promise<string> {
   const row = await env.DB.prepare("SELECT name FROM teams WHERE id = ?")
@@ -27,11 +28,20 @@ async function send(
   content: Pick<BrandedEmail, "heading" | "intro" | "footnote">
 ): Promise<void> {
   const { html, text } = brandedEmail(content)
-  await env.AUTH.fetch("https://auth/internal/send-email", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-internal-key": env.INTERNAL_KEY ?? "" },
-    body: JSON.stringify({ to, subject, html, text }),
-  })
+  // Bounded and guarded. Email is best-effort by design — every caller already
+  // wraps this in a try/catch so a mail failure never fails the write it describes
+  // — but "best-effort" without a timeout still means a wedged mail hop holds the
+  // user's request open for as long as the platform allows.
+  await callService(
+    env.AUTH,
+    "https://auth/internal/send-email",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-internal-key": env.INTERNAL_KEY ?? "" },
+      body: JSON.stringify({ to, subject, html, text }),
+    },
+    { worker: "tenancy", place: "send-email" }
+  )
 }
 
 /** A member's role was changed by someone else. */

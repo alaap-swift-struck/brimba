@@ -50,6 +50,7 @@ async function serveObject(bucket: R2Bucket, key: string, request: Request): Pro
 const MODULE_SHELLS = ["learning", "help"]
 
 import { rateLimit, type RateLimiter } from "../../../shared/workers/rate-limit"
+import { proxyService, requestIdFrom, REQUEST_ID_HEADER, callService } from "../../../shared/workers/trace"
 
 type Env = {
   ASSETS: Fetcher
@@ -74,6 +75,25 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const { pathname } = new URL(request.url)
 
+    // THE REQUEST ID, minted once at the one public door and carried on every
+    // internal hop from here (shared/workers/trace.ts). Seven workers can handle
+    // one click; without this their log lines have nothing in common and an
+    // incident is read by guessing which lines belong together. An inbound
+    // x-request-id is honoured so a client or proxy can supply its own.
+    const req = requestIdFrom(request)
+    // The forwarded request carries the id. Built once, and NOT used for the
+    // WebSocket route below — a re-constructed Request loses the upgrade, so
+    // that one path forwards the original object untouched.
+    //
+    // `.set()`, NOT `new Headers([...headers, [name, value]])`. The array form
+    // COMBINES same-named headers rather than replacing them, so a client that
+    // sends its own x-request-id produced "theirs, ours" — which fails the
+    // downstream shape check, so every worker minted its own id and correlation
+    // broke silently, in exactly the case the inbound-id support exists for.
+    const tracedHeaders = new Headers(request.headers)
+    tracedHeaders.set(REQUEST_ID_HEADER, req)
+    const traced = new Request(request, { headers: tracedHeaders })
+
     // THE SURGE CEILING, at the one public door. Everything below is bounded in
     // SIZE (list caps, import ceilings, upload caps, the AI quota); this is the
     // only thing that bounds RATE. It sits above the routing table so a new
@@ -85,17 +105,31 @@ export default {
       if (limited) return limited
     }
 
-    if (pathname.startsWith("/api/auth/")) return env.AUTH.fetch(request)
-    if (pathname.startsWith("/api/tenancy/")) return env.TENANCY.fetch(request)
+    // Every hop below is GUARDED (shared/workers/trace.ts): a worker that is down,
+    // not yet deployed, or mid-rollout used to surface as an unhandled rejection
+    // and a bare platform 500 with no body — indistinguishable from a bug in the
+    // app. It now returns a clean 503 that says which part is unwell. There is
+    // deliberately no timeout here: this path carries the agent's streamed reply,
+    // and an abort would truncate a legitimate long answer.
+    const p = (b: { fetch(r: Request): Promise<Response> }, worker: string) =>
+      proxyService(b, traced, { req, worker, place: `${request.method} ${pathname}` })
+
+    if (pathname.startsWith("/api/auth/")) return p(env.AUTH, "auth")
+    if (pathname.startsWith("/api/tenancy/")) return p(env.TENANCY, "tenancy")
     // Content modules (Learning, Help) and data-ops (import + the AI agent).
-    if (pathname.startsWith("/api/content/")) return env.CONTENT.fetch(request)
-    if (pathname.startsWith("/api/data-ops/")) return env.DATAOPS.fetch(request)
+    if (pathname.startsWith("/api/content/")) return p(env.CONTENT, "content")
+    if (pathname.startsWith("/api/data-ops/")) return p(env.DATAOPS, "data-ops")
     // The MCP front desk: token management (session-gated) + the MCP endpoint
     // itself (bearer-token-gated JSON-RPC) — ARCHITECTURE "gateway / MCP".
-    if (pathname.startsWith("/api/mcp/")) return env.MCP.fetch(request)
-    if (pathname === "/mcp") return env.MCP.fetch(request)
+    if (pathname.startsWith("/api/mcp/")) return p(env.MCP, "mcp")
+    if (pathname === "/mcp") return p(env.MCP, "mcp")
     // Live channels (WebSocket upgrade + health) → the realtime switchboard.
-    if (pathname.startsWith("/api/realtime")) return env.REALTIME.fetch(request)
+    // THE ORIGINAL REQUEST, not the traced copy: re-constructing a Request drops
+    // the WebSocket upgrade and the socket never opens. Losing the id on this one
+    // path is the right trade — it is a single long-lived connection, not a hop in
+    // a chain, so there is nothing to correlate it with anyway.
+    if (pathname.startsWith("/api/realtime"))
+      return proxyService(env.REALTIME, request, { req, worker: "realtime", place: "ws" })
 
     // Client error beacon → console (Cloudflare observability, live tails) AND
     // the central error_logs table via auth's internal door, so a crash on a
@@ -111,9 +145,14 @@ export default {
       const cookie = request.headers.get("Cookie") ?? ""
       const signedIn =
         cookie.includes("brimba_session=") &&
-        (await env.AUTH.fetch("https://internal/api/auth/me", { headers: { Cookie: cookie } })
-          .then((r) => r.ok)
-          .catch(() => false))
+        (
+          await callService(
+            env.AUTH,
+            "https://internal/api/auth/me",
+            { headers: { Cookie: cookie } },
+            { req, worker: "gateway", place: "beacon/verify" }
+          )
+        )?.ok === true
       if (signedIn) {
         let b: { where?: string; message?: string; stack?: string; url?: string } = {}
         try {
@@ -122,20 +161,29 @@ export default {
           /* an unparsable beacon stays console-only */
         }
         if (b.message)
-          await env.AUTH.fetch("https://internal/internal/log-error", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "x-internal-key": env.INTERNAL_KEY ?? "",
+          // callService already swallows a failure — recording must never break
+          // the beacon — and now bounds it, so a slow auth cannot hold the
+          // browser's beacon open.
+          await callService(
+            env.AUTH,
+            "https://internal/internal/log-error",
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "x-internal-key": env.INTERNAL_KEY ?? "",
+              },
+              body: JSON.stringify({
+                source: "web",
+                place: b.where ?? "unknown",
+                message: b.message,
+                stack: b.stack,
+                url: b.url,
+                requestId: req,
+              }),
             },
-            body: JSON.stringify({
-              source: "web",
-              place: b.where ?? "unknown",
-              message: b.message,
-              stack: b.stack,
-              url: b.url,
-            }),
-          }).catch(() => null) // recording must never break the beacon
+            { req, worker: "gateway", place: "beacon/record" }
+          )
       }
       return new Response(null, { status: 204 })
     }

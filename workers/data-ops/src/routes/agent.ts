@@ -48,7 +48,7 @@ function wantsStream(request: Request): boolean {
  * refusal must say WHY — never the generic line); anything else becomes the safe
  * generic event AND is recorded in the central error store (the worker's main catch
  * can't see a throw that happens inside the stream). */
-function streamRun(env: Env, run: (emit: Emit) => Promise<ChatOutcome>): Response {
+function streamRun(env: Env, request: Request, run: (emit: Emit) => Promise<ChatOutcome>): Response {
   const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>()
   const writer = writable.getWriter()
   const enc = new TextEncoder()
@@ -63,7 +63,7 @@ function streamRun(env: Env, run: (emit: Emit) => Promise<ChatOutcome>): Respons
         await write({ t: "error", message: e.message })
       } else {
         console.error("agent stream error:", e)
-        await recordWorkerError(opsDatabase(env), "data-ops", "POST /api/data-ops/agent (stream)", e)
+        await recordWorkerError(opsDatabase(env), "data-ops", "POST /api/data-ops/agent (stream)", e, request)
         await write({ t: "error", message: "The assistant had trouble just now. Please try again in a moment." })
       }
     } finally {
@@ -143,7 +143,7 @@ export async function postAgentChat(request: Request, env: Env): Promise<Respons
   }
   const opts = { threadId, message, source: "in-app", files }
   if (wantsStream(request))
-    return streamRun(env, (emit) => runChat(env, request, cfg, guard, actor, opts, emit))
+    return streamRun(env, request, (emit) => runChat(env, request, cfg, guard, actor, opts, emit))
   return json(await runChat(env, request, cfg, guard, actor, opts))
 }
 
@@ -159,7 +159,7 @@ export async function postAgentConfirm(request: Request, env: Env): Promise<Resp
   // client — any client-supplied `calls` are ignored, so nothing un-proposed executes.
   const opts = { threadId: body.threadId, approve: body.approve, source: "in-app" }
   if (wantsStream(request))
-    return streamRun(env, (emit) => confirmAndRun(env, request, cfg, guard, actor, opts, emit))
+    return streamRun(env, request, (emit) => confirmAndRun(env, request, cfg, guard, actor, opts, emit))
   return json(await confirmAndRun(env, request, cfg, guard, actor, opts))
 }
 

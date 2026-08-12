@@ -2,6 +2,7 @@
 // same error contract (shared/types.ts ApiError), defined exactly once.
 
 import type { ApiError } from "../types"
+import { REQUEST_ID_HEADER } from "./trace"
 
 export const json = (
   data: unknown,
@@ -50,11 +51,19 @@ export async function forwardToDoor(
      * to — so the key has to survive the hop to the door, or the machine
      * surface is the one place the protection does not reach. */
     idempotencyKey?: string | null
+    /** The trace id from the caller's own request (shared/workers/trace.ts). An
+     * agent turn or one MCP tools/call fans out to SEVERAL doors; without this,
+     * each door's logs are an island and "which of the five steps failed?" cannot
+     * be answered from the record. Deliberately NO timeout here: a door on this
+     * path does real work of unbounded duration (an import batch), and a bound
+     * that cuts a working import off is worse than no bound. */
+    requestId?: string | null
   }
 ): Promise<Response> {
   const init: RequestInit = { method: opts.method, headers: { Cookie: opts.cookie } }
+  const headers = init.headers as Record<string, string>
+  if (opts.requestId) headers[REQUEST_ID_HEADER] = opts.requestId
   if (opts.method === "POST") {
-    const headers = init.headers as Record<string, string>
     headers["Content-Type"] = "application/json"
     if (opts.idempotencyKey) headers["Idempotency-Key"] = opts.idempotencyKey
     init.body = JSON.stringify(opts.body ?? {})

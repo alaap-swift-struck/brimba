@@ -28,6 +28,7 @@ import type { Env } from "./env"
 import { createToken, listTokens, revokeToken, verifyToken } from "./lib/tokens"
 import { dropCachedSession, sessionCookieFor } from "./lib/bridge"
 import { forwardTool, getMcpTool, MCP_TOOLS } from "./lib/tools"
+import { REQUEST_ID_HEADER } from "../../../shared/workers/trace"
 
 const PROTOCOL_VERSION = "2025-06-18"
 
@@ -85,7 +86,7 @@ async function handleMcp(request: Request, env: Env): Promise<Response> {
       if (!tool) return rpcError(id, -32602, `No such tool: ${name}.`)
       const input = (rpc.params?.arguments ?? {}) as Record<string, unknown>
       const cookie = await sessionCookieFor(env, token)
-      const out = await forwardTool(env, tool, input, cookie, idempotencyKey)
+      const out = await forwardTool(env, tool, input, cookie, idempotencyKey, request.headers.get(REQUEST_ID_HEADER))
       return rpcResult(id, {
         content: [{ type: "text", text: out.text }],
         isError: !out.ok,
@@ -168,7 +169,7 @@ export default {
     } catch (e) {
       if (e instanceof GuardError) return fail(e.status, e.code, e.message)
       console.error("mcp worker error:", e)
-      await recordWorkerError(opsDatabase(env), "mcp", `${request.method} ${pathname}`, e)
+      await recordWorkerError(opsDatabase(env), "mcp", `${request.method} ${pathname}`, e, request)
       return fail(500, "internal", "Something went wrong on our side. Try again.")
     }
   },

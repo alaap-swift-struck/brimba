@@ -322,16 +322,48 @@ ledger records it as applied and it will not run again.
 **Secrets** — `secrets.vault`, committed and encrypted. `npm run vault:open`
 restores every `.dev.vars` after a fresh clone. See SECRETS.md.
 
-**Databases** — Cloudflare D1 keeps point-in-time recovery on the paid plan. To
-restore a database to an earlier moment:
+**Databases** — Cloudflare D1 Time Travel. **The window is 30 days** on the
+Workers Paid plan (7 on Free — checked against Cloudflare's docs 2026-08-12).
+Bookmarks are automatic: there is no backup to remember to take, and restoring
+costs nothing. Everything older than 30 days is **not recoverable** — if a
+retention rule or a support answer ever needs data beyond that, it must be
+exported before it ages out, and nothing does that today.
 
 ```bash
-npx wrangler d1 time-travel info <database-name> --remote
-npx wrangler d1 time-travel restore <database-name> --timestamp <iso-8601> --remote
+cf-exec npx wrangler d1 time-travel info <database-name>
+cf-exec npx wrangler d1 time-travel restore <database-name> --bookmark=<bookmark>
 ```
+
+A **bookmark** is exact; `--timestamp <iso-8601>` also works and is what you use
+when all you know is "before 14:30". Restoring is irreversible in the forward
+direction, but the command prints the bookmark you were AT, so an unwanted
+restore can itself be undone — write that bookmark down before you proceed.
 
 Per-team databases are separate, so one team can be restored without touching
 anyone else — which is the whole point of the per-team split.
+
+### The restore drill — last proven 2026-08-12
+
+An untested restore is not a restore, so this one was actually run, end to end,
+on a throwaway database (`brimba-restore-drill`, created and deleted for the
+purpose — no real data was touched):
+
+1. created the database, wrote two rows
+2. took a bookmark with `time-travel info`
+3. `DELETE FROM invoices` — confirmed 0 rows, the accident
+4. `time-travel restore --bookmark=<the bookmark>`
+5. **both rows came back, values identical**
+6. deleted the drill database
+
+**Two things the drill found, which is the reason for running it.** The command
+written here previously was `time-travel info <db> --remote` — `--remote` is not
+a valid flag for that subcommand and the command simply fails, so the runbook
+would have been wrong in the one moment it mattered. And `restore --timestamp`
+was the only form documented; the bookmark form is the precise one and is what
+`info` actually hands you.
+
+Re-run this drill whenever wrangler has a major version bump, and update the date
+above. It takes about three minutes.
 
 **R2 objects** — not versioned. An overwritten or swept object is gone. The
 nightly orphan sweep only removes objects no record references and only after a

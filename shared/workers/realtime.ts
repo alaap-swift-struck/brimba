@@ -19,6 +19,8 @@
 // is invisible from here — a publisher still names `team:<id>` and the realtime
 // worker expands it. One resolver, in one place, instead of every caller.
 
+import { callService } from "./trace"
+
 // ---------------------------------------------------------------------------
 // SHARD ADDRESSING — the shared vocabulary, so the two sides cannot disagree.
 //
@@ -93,16 +95,23 @@ export type ChangeEvent = {
   op?: "add" | "edit" | "remove" | "session"
 }
 
+/** The ONE place a change ping leaves a worker — which is why guarding it here
+ * covers all ~53 publish call sites in the base at once, and why bounding it here
+ * matters: without a timeout a wedged live layer would hold open every write that
+ * had just succeeded, turning a cosmetic outage into a total one. `callService`
+ * swallows the failure (best-effort, as the contract above promises) and records
+ * a structured line carrying the request id. */
 async function publish(realtime: Fetcher, channel: string, event: ChangeEvent): Promise<void> {
-  try {
-    await realtime.fetch("https://realtime/publish", {
+  await callService(
+    realtime,
+    "https://realtime/publish",
+    {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ channel, event }),
-    })
-  } catch (e) {
-    console.error("realtime publish failed:", e)
-  }
+    },
+    { worker: "realtime-publish", place: channel }
+  )
 }
 
 /** Tell a TEAM's channel that one row in `resource` changed. */

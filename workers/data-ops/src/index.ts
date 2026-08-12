@@ -121,7 +121,7 @@ export default {
       console.error("data-ops worker error:", e)
       // Record the crash in the central error log (core DB) — best-effort,
       // never blocks the response. Clean GuardError refusals never reach here.
-      await recordWorkerError(opsDatabase(env), "data-ops", `${request.method} ${new URL(request.url).pathname}`, e)
+      await recordWorkerError(opsDatabase(env), "data-ops", `${request.method} ${new URL(request.url).pathname}`, e, request)
       const message = e instanceof Error ? e.message : ""
       if (message.startsWith("cloud_key_missing:"))
         return fail(503, "cloud_key_missing", `${brand.name}'s cloud key isn't set up yet — imports are paused.`)

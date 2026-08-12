@@ -102,144 +102,40 @@
 <script>
 /* DATA:START */
 window.LEAN_MEAN_DATA = {
-  "project": "brimba",
-  "scannedAt": "2026-08-12",
-  "overall": 96,
-  "grade": "A",
-  "verdict": "Lean, and now honest about itself: three days of scaling work had left a rate-limit branch that could never fire and four documents describing a database layout that had already moved.",
-  "stats": {
-    "codeFiles": 312,
-    "codeLoc": 34271,
-    "docFiles": 30,
-    "docLoc": 7557,
-    "testFiles": 67,
-    "testRatioPct": 21.5,
-    "todos": 2,
-    "duplicationPct": 6.1,
-    "commentPct": 20.1
-  },
-  "callouts": {
-    "strong": [
-      "518 tests, and every law added this round was sabotage-proven \u2014 broken on purpose, watched go red, restored.",
-      "25 seams that ten documents name-dropped are now defined in one place, with their files."
-    ],
-    "watch": [
-      "Four per-worker gating-seam suites are near-identical; it grew from three when mcp landed."
-    ],
-    "fix": [
-      "idempotent-transitions still asserts on source text rather than behaviour \u2014 a rename can blind it."
-    ]
-  },
-  "dimensions": [
-    {
-      "key": "size",
-      "label": "Size & Scope",
-      "score": 94,
-      "status": "green",
-      "headline": "Compact for what it does",
-      "strengths": [
-        "34.2k lines carries seven workers, per-tenant databases, an operations database, an AI assistant, an external machine surface and a CSV importer.",
-        "Two parked TODOs in 312 files.",
-        "This round removed more than it added: 28 lines of pasted comment and a dead code branch."
-      ],
-      "improvements": [
-        {
-          "what": "Twelve files pass 400 lines.",
-          "why": "Each is one cohesive unit (the rules suite, the agent loop, the API client), so splitting would scatter related logic. Worth re-checking if any passes 700."
-        }
-      ]
-    },
-    {
-      "key": "robustness",
-      "label": "Robustness",
-      "score": 97,
-      "status": "green",
-      "headline": "The checks can fail",
-      "strengths": [
-        "518 tests across 67 files, 21.5% test-to-code.",
-        "Every law added in the scaling rounds was sabotage-proven, and one sabotage that silently did nothing was caught and redone.",
-        "Three faults this month were found by USING the app, not by the suite \u2014 and each became a test."
-      ],
-      "improvements": [
-        {
-          "what": "One check still reads source text instead of behaviour.",
-          "why": "idempotent-transitions greps for a SQL predicate, so renaming the function blinds it. activity-scope.test.ts shows the stronger shape: mock the data door, run the function, assert the SQL that comes out."
-        }
-      ]
-    },
-    {
-      "key": "documentation",
-      "label": "Documentation",
-      "score": 97,
-      "status": "green",
-      "headline": "Every seam now has a name",
-      "strengths": [
-        "30 docs, 7,557 lines, 20.1% comment ratio; every law pinned doc \u2192 registry \u2192 check.",
-        "BASE-MANUAL 2.5 defines all 25 seams the corpus leans on, each with its file.",
-        "Comments carry the failure that earned the rule, not just the rule."
-      ],
-      "improvements": [
-        {
-          "what": "Two shipped plan documents are still separate from the roadmap.",
-          "why": "SCREEN-ENGINE-PLAN and AGENT-MODULES-PLAN describe finished work; five live docs cite them, so folding them into ROADMAP means editing those five, not deleting two."
-        }
-      ]
-    },
-    {
-      "key": "understandability",
-      "label": "Understandability",
-      "score": 95,
-      "status": "green",
-      "headline": "No more phantom controls",
-      "strengths": [
-        "The gateway no longer appears to enforce a team ceiling it cannot reach.",
-        "Naming and handler shape are uniform across all seven workers.",
-        "A newcomer can find any seam by name from one table."
-      ],
-      "improvements": [
-        {
-          "what": "Three symbols are exported with no outside consumer.",
-          "why": "HEAVY_PATHS, memberLabel and PRIVILEGE_MODULES are public surface nothing imports, which invites a future caller to depend on an internal."
-        }
-      ]
-    },
-    {
-      "key": "leanness",
-      "label": "Leanness & Optimization",
-      "score": 93,
-      "status": "green",
-      "headline": "Dead weight removed",
-      "strengths": [
-        "Duplication 6.1%, down from 6.6%.",
-        "A rate-limit branch that could never execute, and the helper feeding it, are gone.",
-        "The five-line R23 comment pasted into seven doors is one line each, pointing at RULES.md."
-      ],
-      "improvements": [
-        {
-          "what": "Four gating-seam test suites repeat ~360 lines.",
-          "why": "Each imports its own worker's ROUTES, so the fix is one shared scanner plus four thin files. It grew from three to four when mcp landed \u2014 the shape of a pattern that keeps growing."
-        }
-      ]
-    },
-    {
-      "key": "scalability",
-      "label": "Scalability & Structure",
-      "score": 97,
-      "status": "green",
-      "headline": "Measured, not assumed",
-      "strengths": [
-        "Scored 94 on a dedicated scaling review after three repair passes, with published arithmetic.",
-        "The operations database, channel sharding and the ops seam all fall back safely when absent.",
-        "Every relief valve is documented with the failure that earned it."
-      ],
-      "improvements": [
-        {
-          "what": "An exact COUNT(*) still runs on every list read.",
-          "why": "R16 requires exactness and a maintained counter would put that at risk, so the trade needs its own design pass rather than a quick fix."
-        }
-      ]
-    }
-  ]
+  project: "Brimba — the multi-tenant SaaS base", scannedAt: "12 August 2026",
+  overall: { score: 97, grade: "A", verdict: "Leaner and better locked — including a rule-check that had been blind since it was written.",
+    sub: "570 tests green · 5.8% duplication · 304 lines of duplicated security test collapsed onto one shared scanner." },
+  dimensions: [
+    { key:"size", title:"Size & Scope", icon:"", score:94, status:"green", headline:"Compact for what it does",
+      metrics:[{label:"Files",value:"321"},{label:"Lines",value:"35,549"},{label:"Over 400 LOC",value:"12"}],
+      strengths:["Seven workers with clear boundaries and no overlap.","No vendored code, no dead directories, no parked TODOs.","The +584 lines this pass replaced sixteen scattered cross-service calls with one seam."],
+      improvements:[{what:"The rules test file is now the largest in the repo.",why:"884 lines holding 23 unrelated law checks; it grew again this pass. Split by dimension, sharing the existing helpers."}] },
+    { key:"robustness", title:"Robustness", icon:"", score:99, status:"green", headline:"Every new lock was deliberately broken first",
+      metrics:[{label:"Tests",value:"570"},{label:"Test-to-code",value:"22.4%"},{label:"Laws checked",value:"24"}],
+      strengths:["Every cross-service call guarded; the short hops bounded at 5 seconds.","Each check changed this pass was sabotage-proven: broken on purpose, watched go red naming the right file, restored from a copy rather than git checkout.","Two behavioural suites now cover what a source scan structurally cannot see."],
+      improvements:[{what:"Three laws still rest on source scans alone.",why:"bounded-lists, activity-gate-coverage and static-destinations. The blindness found in R17 this pass is the argument for auditing them the same way — a green check is not a working law."}] },
+    { key:"documentation", title:"Documentation", icon:"", score:98, status:"green", headline:"Now true where it was wrong",
+      metrics:[{label:"Documents",value:"41"},{label:"Lines",value:"8,064"},{label:"TODOs",value:"0"}],
+      strengths:["The single point of failure is named at last — it was written down nowhere.","Two shared tables now state who owns them, and the rule for what comes next.","A law that claimed something false about the platform has been rewritten."],
+      improvements:[{what:"Two documents are too long to read end to end.",why:"CONVENTIONS.md and EDGE-CASES.md are reference material read by search; both would serve better with a jump index at the top."}] },
+    { key:"understandability", title:"Understandability", icon:"", score:96, status:"green", headline:"One answer per question",
+      metrics:[{label:"Comment ratio",value:"20.7%"},{label:"Duplicate suites",value:"0"}],
+      strengths:["Comments explain why, not what the line already says.","How two workers talk now has one answer in one file.","One gating scanner to read instead of four near-copies that had already drifted apart."],
+      improvements:[{what:"How the laws are enforced is hard to learn.",why:"It lives in one 884-line file, which is the main obstacle for a newcomer."}] },
+    { key:"leanness", title:"Leanness & Optimization", icon:"", score:96, status:"green", headline:"The biggest duplicated block is gone",
+      metrics:[{label:"Duplication",value:"5.8%"},{label:"Lines removed",value:"304"},{label:"Dead exports",value:"0"}],
+      strengths:["Four near-identical security suites became one shared scanner plus three sixteen-line callers.","Three exports with no consumer outside their own file were dropped.","Duplication fell to 5.8% while the codebase grew."],
+      improvements:[{what:"Some duplication is deliberate and stays.",why:"Per-worker route tables must repeat, because the workers have to stay independently deployable."}] },
+    { key:"scalability", title:"Scalability & Structure", icon:"", score:97, status:"green", headline:"Built to be extended",
+      metrics:[{label:"Workers",value:"7"},{label:"Databases",value:"per-team + core + ops"}],
+      strengths:["Per-team databases, keyset paging, bounded lists, sharded live channels.","Adding a hop between workers is a one-line change at one seam."],
+      improvements:[{what:"Nothing structural moved this pass.",why:"Unchanged from the previous measurement, and nothing here is pressing."}] }
+  ],
+  callouts:{
+    strong:["A rule-check blind since it was written, found and fixed.","304 lines of duplicated security test collapsed onto one scanner.","Every check changed this pass was proven by breaking it first."],
+    watch:["The rules test file is now the largest in the repo, at 884 lines.","Three laws still rest on source scans alone."],
+    fix:["Split web/test/rules.test.ts by dimension."]
+  }
 };
 /* DATA:END */
 </script>

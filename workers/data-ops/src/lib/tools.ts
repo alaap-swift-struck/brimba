@@ -36,6 +36,7 @@ import { isPrivilegeWrite,
 import { confirmBatch, getBatchView, planModules } from "./import-batch"
 import type { Env } from "../env"
 import type { ToolSpec } from "./model"
+import { REQUEST_ID_HEADER } from "../../../../shared/workers/trace"
 
 export type AgentTool = {
   name: string
@@ -289,6 +290,7 @@ export async function executeTool(
     path: tool.path,
     method: tool.method,
     cookie: request.headers.get("Cookie") ?? "",
+    requestId: request.headers.get(REQUEST_ID_HEADER),
     query: tool.method === "GET" && tool.buildQuery ? tool.buildQuery(input) : "",
     body: tool.buildBody ? tool.buildBody(input) : {},
   })

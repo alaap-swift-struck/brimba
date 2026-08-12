@@ -50,7 +50,7 @@ export type RateLimitEnv = {
  * the quota bounds SPEND over a day, this bounds RATE over a minute. A retry
  * loop can exhaust a day's quota in seconds without something like this.
  */
-export const HEAVY_PATHS = [
+const HEAVY_PATHS = [
   "/api/data-ops/agent",
   "/api/data-ops/import",
   "/api/content/learning/upload",

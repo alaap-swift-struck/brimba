@@ -22,6 +22,7 @@ import { appendMessage, consumePendingProposal, createThread, getPendingProposal
 import { addBatchFile, createBatch, planBatch } from "./import-batch"
 import { GuardError } from "../../../../shared/workers/gating"
 import { recordWorkerError } from "../../../../shared/workers/error-log"
+import { callService, REQUEST_ID_HEADER } from "../../../../shared/workers/trace"
 
 const MAX_STEPS = 12
 
@@ -180,8 +181,17 @@ async function resolveNames(
   const wantRoles = calls.some((c) => typeof c.input.roleId === "string")
   const cookie = request.headers.get("Cookie") ?? ""
   const get = async (path: string): Promise<unknown> => {
-    const res = await env.TENANCY.fetch(`https://internal${path}`, { headers: { Cookie: cookie } })
-    return res.ok ? await res.json() : null
+    // Bounded: this only prettifies ids into names for the step summary, so a
+    // slow tenancy must degrade to "role 01H..." rather than hold the agent's
+    // whole reply. `callService` returns null on no-answer, which the `res?.ok`
+    // below already treats as "no names available".
+    const res = await callService(
+      env.TENANCY,
+      `https://internal${path}`,
+      { headers: { Cookie: cookie } },
+      { req: request.headers.get(REQUEST_ID_HEADER) ?? undefined, worker: "data-ops", place: `resolve-names ${path}` }
+    )
+    return res?.ok ? await res.json() : null
   }
   try {
     if (wantMembers) {
@@ -399,7 +409,7 @@ async function runPlanLoop(
       // A model/runtime hiccup becomes a friendly, saved turn — never an uncaught 500.
       // But the USER only sees "try again"; the OWNER must be able to see WHY, so record
       // the swallowed error to the store (best-effort; never blocks the friendly reply).
-      await recordWorkerError(opsDatabase(env), "data-ops", "agent/model-call", e)
+      await recordWorkerError(opsDatabase(env), "data-ops", "agent/model-call", e, request)
       const msg = "The assistant had trouble just now and couldn't reply. Please try again in a moment."
       say(msg)
       await appendMessage(cfg, guard, actor, threadId, { role: "assistant", content: msg, source: opts.source })

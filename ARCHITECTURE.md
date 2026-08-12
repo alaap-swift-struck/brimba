@@ -242,6 +242,55 @@ failure a user cannot detect. So every non-GET route must publish, and a test
 reads every handler's source to prove it (`workers/*/test/publish-seam.test.ts`).
 The two reviewed exceptions are named in CACHING rule 5.
 
+### 2b · The single point of failure is `auth` — stated, not discovered (2026-08-12)
+
+Every architecture has one component whose loss is not survivable. Pretending
+otherwise is how a 3am incident becomes a two-hour incident, so this says which
+one it is, what it takes down, and what a person sees.
+
+**It is `brimba-auth`, and six of the seven workers depend on it.**
+
+```
+                       gateway (public)
+                          │
+      ┌──────────┬────────┼─────────┬──────────┐
+   tenancy    content  data-ops    mcp     realtime
+      └──────────┴────────┴─────────┴──────────┘
+                          ▼
+                        AUTH  ← every gated request starts here
+```
+
+Every gated request in every worker opens with `whoAmI` (`shared/workers/gating.ts`),
+which asks auth who is calling. There is no fallback and, by decision, no cached
+one — see below.
+
+**If auth is down:** every screen that needs a signed-in user stops working.
+Reads and writes both. The person sees *"We couldn't check your sign-in just now.
+Nothing was changed — try again in a moment."* and their work stays on screen.
+Already-open live sockets keep running; new ones are refused. Static pages and
+`/media/*` still serve, because neither is gated.
+
+**What is deliberately NOT built:** a short-lived cache of "this session is
+valid", which would let a brief auth wobble pass unnoticed. It is not built
+because it buys resilience with revocation: a session you revoked — a departing
+employee, a stolen laptop — would keep working for the length of the cache.
+Revocation is instant today, and the owner's decision (2026-08-12) is to keep it
+that way. This is a trade that can be revisited; it must not be made by accident.
+
+**Why the failure is at least honest now.** Until 2026-08-12 `whoAmI` could not
+tell "auth says this person is not signed in" from "auth did not answer" — both
+returned null, so an auth outage silently signed every working user out and sent
+them to a login screen that could not help either. LAW R11's internal half
+(`shared/workers/trace.ts`) makes those two different answers: a refusal is a 401,
+a silence is a 503, and both are bounded so a slow auth cannot hold every request
+in every worker open.
+
+**The second dependency worth knowing:** `auth` and `realtime` bind *each other*
+— auth publishes user-channel pings, realtime verifies sockets with auth. It is a
+real cycle but an asymmetric one: auth's direction is best-effort and swallowed,
+so realtime being down costs live updates, not writes. Its one sharp edge is a
+cold-start deploy on a fresh account, which OPERATIONS.md documents (error 10143).
+
 
 ## 3 · Tenancy & security rules (LOCKED)
 

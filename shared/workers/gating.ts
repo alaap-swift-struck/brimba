@@ -14,6 +14,7 @@ import type { RateLimiter } from "./rate-limit"
 import type { SessionUser } from "../types"
 import { d1Query, type D1Rest } from "./d1-rest"
 import { fail } from "./http"
+import { callService, REQUEST_ID_HEADER } from "./trace"
 
 /** The slice of a worker Env the gating needs. Every domain worker's Env
  * structurally satisfies this (the AUTH binding + the core DB + the Cloudflare
@@ -62,11 +63,36 @@ export function d1ConfigFrom(env: GatingEnv): D1Rest {
   return { accountId: env.CF_ACCOUNT_ID, apiToken: env.CF_D1_TOKEN }
 }
 
-/** Ask the auth worker (one session system, one master) who this request is. */
+/**
+ * Ask the auth worker (one session system, one master) who this request is.
+ *
+ * THE BUSIEST CROSS-SERVICE CALL IN THE BASE — every gated request in every
+ * worker starts here, which makes auth the component everything else depends on
+ * (ARCHITECTURE §1c). Two consequences are handled explicitly:
+ *
+ *   • **Bounded.** A service binding has no default timeout, so a slow auth used
+ *     to hold every request in every worker open until the platform killed them.
+ *
+ *   • **"No" and "no answer" are different.** A non-200 means auth looked and
+ *     says this person is not signed in → `null` → the caller's 401, correct. But
+ *     an auth that does not ANSWER used to take the same branch, so an auth
+ *     outage silently logged everyone out instead of admitting a fault. It now
+ *     throws a 503 that says so. Signing a working user out is the worse failure:
+ *     it destroys their draft and sends them to a login screen that cannot help.
+ */
 export async function whoAmI(request: Request, env: GatingEnv): Promise<SessionUser | null> {
-  const res = await env.AUTH.fetch("https://auth/api/auth/me", {
-    headers: { Cookie: request.headers.get("Cookie") ?? "" },
-  })
+  const res = await callService(
+    env.AUTH,
+    "https://auth/api/auth/me",
+    { headers: { Cookie: request.headers.get("Cookie") ?? "" } },
+    { req: request.headers.get(REQUEST_ID_HEADER) ?? undefined, worker: "gating", place: "whoAmI" }
+  )
+  if (!res)
+    throw new GuardError(
+      503,
+      "auth_unreachable",
+      "We couldn't check your sign-in just now. Nothing was changed — try again in a moment."
+    )
   if (!res.ok) return null
   return ((await res.json()) as { user: SessionUser }).user
 }

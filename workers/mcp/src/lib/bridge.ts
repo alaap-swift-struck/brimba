@@ -7,6 +7,7 @@
 // itself is re-verified on EVERY request, so revocation bites immediately.
 
 import { GuardError } from "../../../../shared/workers/gating"
+import { callService } from "../../../../shared/workers/trace"
 import type { Env } from "../env"
 import type { McpTokenRow } from "./tokens"
 
@@ -20,14 +21,29 @@ export async function sessionCookieFor(env: Env, token: McpTokenRow): Promise<st
   const hit = cache.get(token.id)
   if (hit && hit.expires > Date.now()) return hit.cookie
 
-  const res = await env.AUTH.fetch("https://internal/internal/mcp-session", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-internal-key": env.INTERNAL_KEY ?? "",
+  const res = await callService(
+    env.AUTH,
+    "https://internal/internal/mcp-session",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-internal-key": env.INTERNAL_KEY ?? "",
+      },
+      body: JSON.stringify({ userId: token.user_id, teamId: token.team_id }),
     },
-    body: JSON.stringify({ userId: token.user_id, teamId: token.team_id }),
-  })
+    { worker: "mcp", place: "bridge/mint-session" }
+  )
+  // NO ANSWER is not the same as a refusal. A refusal (403) below is auth saying
+  // this token's owner may not act — a permanent answer the machine caller should
+  // stop retrying. A silent auth is temporary, so it gets a 503, which is what an
+  // MCP client's retry logic is looking for.
+  if (!res)
+    throw new GuardError(
+      503,
+      "auth_unreachable",
+      "Couldn't verify this token right now. Nothing was changed — try again in a moment."
+    )
   if (!res.ok) {
     // auth's clean reason (e.g. no longer an active member) passes straight out.
     const body = (await res.json().catch(() => null)) as { message?: string } | null

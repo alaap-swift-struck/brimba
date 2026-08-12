@@ -90,7 +90,7 @@ export const RULES_REGISTRY: Rule[] = [
   {
     id: "R11",
     dimension: "arch",
-    law: "Every external fetch (a bare global fetch() to the internet — the D1 REST door, the email sender, the AI model call) carries an AbortSignal timeout, so a hung socket can never stall a worker. Service-binding calls (X.fetch()) are Cloudflare-bounded and exempt.",
+    law: "Every call that leaves a worker is bounded and guarded. EXTERNAL (a bare global fetch() to the internet — the D1 REST door, the email sender, the AI model call): an AbortSignal timeout, so a hung socket can never stall a worker. INTERNAL (a service binding): through the one seam, shared/workers/trace.ts — callService bounds it, never throws, returns NULL for \"did not answer\" as distinct from a Response that says no, and carries the request id. The internal half was added 2026-08-12; the law previously EXEMPTED service bindings as \"Cloudflare-bounded\", which the architecture review disproved — the platform bounds the worker, nothing bounds the call, and a caller could not tell an outage from a refusal. Two exceptions, each with a written reason: the gateway proxy and forwardToDoor are guarded but deliberately NOT bounded, because both carry responses of unbounded legitimate duration (the agent's streamed reply, an import batch) and a bound that truncates working output is worse than none.",
     checkId: "fetch-timeout",
     status: "enforced",
   },

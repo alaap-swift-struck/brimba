@@ -13,6 +13,7 @@ import type { Env } from "../env"
 import { GuardError, type MemberGuard } from "./permissions"
 import { notifyInviteRevoked } from "./notify"
 import { LIST_HARD_CAP } from "../../../../shared/workers/limits"
+import { callService } from "../../../../shared/workers/trace"
 
 const INVITE_TTL_DAYS = 7
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
@@ -250,21 +251,30 @@ export async function createInvite(
   // when it wasn't.
   let emailSent = false
   try {
-    const res = await env.AUTH.fetch("https://auth/internal/send-email", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-internal-key": env.INTERNAL_KEY ?? "",
+    const res = await callService(
+      env.AUTH,
+      "https://auth/internal/send-email",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-internal-key": env.INTERNAL_KEY ?? "",
+        },
+        body: JSON.stringify({
+          to,
+          subject: `You're invited to ${teamName} on ${brand.name}`,
+          html,
+          text,
+        }),
       },
-      body: JSON.stringify({
-        to,
-        subject: `You're invited to ${teamName} on ${brand.name}`,
-        html,
-        text,
-      }),
-    })
-    emailSent = res.ok
-    if (!res.ok) console.error("invite email failed:", res.status)
+      { worker: "tenancy", place: "invite-email" }
+    )
+    // A no-answer is NOT a send. `emailSent` feeds the honest wording the caller
+    // and the agent use ("invite created, email couldn't be sent"), so folding an
+    // unreachable mail hop into "sent" would be the exact dishonesty this flag
+    // was added to prevent.
+    emailSent = res?.ok === true
+    if (!res?.ok) console.error("invite email failed:", res?.status ?? "no answer")
   } catch (e) {
     console.error("invite email failed:", e)
   }

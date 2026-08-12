@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Architecture Review — Brimba</title>
+<style>
+  :root{
+    --bg:#f7f8fa; --card:#fff; --ink:#12151a; --muted:#5b6472; --line:#e3e7ed;
+    --green:#137a4b; --green-bg:#e6f4ec; --amber:#8a5a00; --amber-bg:#fdf3e0;
+    --red:#a3232b; --red-bg:#fbeaea; --accent:#1d4ed8; --accent-bg:#e8eeff;
+    --dead:#c7cdd6; --shade:#f2d9d9;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#0e1116; --card:#161b22; --ink:#e8ecf1; --muted:#98a2b3; --line:#262d38;
+      --green:#4ade80; --green-bg:#10251b; --amber:#fbbf24; --amber-bg:#2a2010;
+      --red:#f87171; --red-bg:#2a1416; --accent:#7aa2ff; --accent-bg:#152039;
+      --dead:#3a424f; --shade:#3a1f22;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0e1116; --card:#161b22; --ink:#e8ecf1; --muted:#98a2b3; --line:#262d38;
+    --green:#4ade80; --green-bg:#10251b; --amber:#fbbf24; --amber-bg:#2a2010;
+    --red:#f87171; --red-bg:#2a1416; --accent:#7aa2ff; --accent-bg:#152039;
+    --dead:#3a424f; --shade:#3a1f22;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:400 15px/1.6 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    padding:32px 20px 72px}
+  .wrap{max-width:960px;margin:0 auto}
+  h1{font-size:26px;font-weight:600;margin:0 0 4px;letter-spacing:-.01em}
+  .sub{color:var(--muted);margin:0 0 28px;font-size:14px}
+  h2{font-size:17px;font-weight:600;margin:36px 0 12px;letter-spacing:-.005em}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px;margin-bottom:16px}
+  .verdict{display:flex;gap:24px;align-items:center;flex-wrap:wrap}
+  .big{font-size:56px;font-weight:600;line-height:1;letter-spacing:-.03em;color:var(--green)}
+  .big small{font-size:17px;color:var(--muted);font-weight:400;letter-spacing:0}
+  .delta{display:inline-block;background:var(--green-bg);color:var(--green);
+    border-radius:999px;padding:3px 11px;font-size:13px;font-weight:500;margin-top:8px}
+  .vtext{flex:1;min-width:260px}
+  .vtext strong{font-weight:600}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th{text-align:left;font-weight:500;color:var(--muted);padding:7px 8px;border-bottom:1px solid var(--line);font-size:12.5px;
+    text-transform:uppercase;letter-spacing:.04em}
+  td{padding:9px 8px;border-bottom:1px solid var(--line);vertical-align:middle}
+  tr:last-child td{border-bottom:none}
+  .bar{height:7px;background:var(--line);border-radius:4px;overflow:hidden;min-width:90px}
+  .bar span{display:block;height:100%;border-radius:4px;background:var(--green)}
+  .bar.mid span{background:var(--amber)}
+  .num{font-variant-numeric:tabular-nums;text-align:right;font-weight:500}
+  .was{color:var(--muted);font-variant-numeric:tabular-nums;font-size:13px}
+  .gate{background:var(--accent-bg);color:var(--accent);border-radius:5px;padding:1px 7px;font-size:11px;
+    font-weight:600;letter-spacing:.04em;margin-left:7px;vertical-align:middle}
+  .scroll{overflow-x:auto}
+  figure{margin:0}
+  figcaption{color:var(--muted);font-size:13px;margin-top:10px}
+  .two{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+  .chip{display:inline-block;border-radius:999px;padding:2px 10px;font-size:12px;font-weight:500}
+  .c-med{background:var(--amber-bg);color:var(--amber)}
+  .c-low{background:var(--accent-bg);color:var(--accent)}
+  .c-ok{background:var(--green-bg);color:var(--green)}
+  ul{margin:8px 0 0;padding-left:20px}
+  li{margin:5px 0}
+  code{font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--bg);
+    border:1px solid var(--line);border-radius:4px;padding:1px 5px}
+  .note{color:var(--muted);font-size:13.5px;margin:10px 0 0}
+  svg{max-width:100%;height:auto;display:block}
+  .n-label{font:500 12px ui-sans-serif,system-ui,sans-serif}
+  .n-sub{font:400 10px ui-sans-serif,system-ui,sans-serif}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Architecture review — Brimba</h1>
+  <p class="sub">12 August 2026 · does the shape hold when something goes wrong or changes?</p>
+
+  <div class="card verdict">
+    <div>
+      <div class="big">96<small> / 100</small></div>
+      <div class="delta">was 74 — up 22</div>
+    </div>
+    <div class="vtext">
+      <strong>The worst case, named:</strong> if <code>brimba-auth</code> is down, six of the
+      seven workers stop serving gated requests. The person sees “We couldn’t check your
+      sign-in just now. Nothing was changed — try again in a moment.” and their work stays
+      on screen. Before this pass they saw a bare 500, or were silently signed out.
+      <p class="note">570 tests green · gate cleared (criterion 2 at 81, cap applies below 40)</p>
+    </div>
+  </div>
+
+  <h2>The scorecard</h2>
+  <div class="card scroll">
+    <table>
+      <thead><tr><th>#</th><th>Criterion</th><th style="width:120px">Score</th><th class="num">Now</th><th class="num">Was</th><th class="num">Weight</th><th>Method</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>Dependencies point one way</td><td><div class="bar"><span style="width:100%"></span></div></td><td class="num">100</td><td class="num was">100</td><td class="num">16</td><td>defect</td></tr>
+        <tr><td>2</td><td>Blast radius is contained<span class="gate">GATE</span></td><td><div class="bar mid"><span style="width:81%"></span></div></td><td class="num">81</td><td class="num was">46</td><td class="num">18</td><td>coverage</td></tr>
+        <tr><td>3</td><td>Every fact has one owner</td><td><div class="bar"><span style="width:97%"></span></div></td><td class="num">97</td><td class="num was">90</td><td class="num">16</td><td>defect</td></tr>
+        <tr><td>4</td><td>A request can be followed end to end</td><td><div class="bar"><span style="width:98%"></span></div></td><td class="num">98</td><td class="num was">25</td><td class="num">12</td><td>coverage</td></tr>
+        <tr><td>5</td><td>Environments match</td><td><div class="bar"><span style="width:100%"></span></div></td><td class="num">100</td><td class="num was">100</td><td class="num">10</td><td>defect</td></tr>
+        <tr><td>6</td><td>Live data can be recovered</td><td><div class="bar"><span style="width:100%"></span></div></td><td class="num">100</td><td class="num was">55</td><td class="num">12</td><td>coverage</td></tr>
+        <tr><td>7</td><td>The next module is cheap</td><td><div class="bar"><span style="width:100%"></span></div></td><td class="num">100</td><td class="num was">100</td><td class="num">10</td><td>coverage</td></tr>
+        <tr><td>8</td><td>The platform is a choice, not a cage</td><td><div class="bar"><span style="width:100%"></span></div></td><td class="num">100</td><td class="num was">100</td><td class="num">6</td><td>coverage</td></tr>
+      </tbody>
+    </table>
+    <p class="note">
+      (100×16 + 81×18 + 97×16 + 98×12 + 100×10 + 100×12 + 100×10 + 100×6) ÷ 100 =
+      9586 ÷ 100 = <strong>96</strong>
+    </p>
+  </div>
+
+  <h2>The blast-radius map</h2>
+  <div class="card">
+    <div class="two">
+      <figure>
+        <svg viewBox="0 0 380 300" role="img" aria-label="Normal operation: seven workers, all healthy">
+          <text x="190" y="18" text-anchor="middle" class="n-label" fill="var(--muted)">Normal</text>
+          <g stroke="var(--line)" stroke-width="1.5" fill="none">
+            <path d="M190 48 L70 108 M190 48 L130 108 M190 48 L190 108 M190 48 L250 108 M190 48 L310 108"/>
+            <path d="M70 132 L190 205 M130 132 L190 205 M250 132 L190 205 M310 132 L190 205"/>
+          </g>
+          <rect x="140" y="30" width="100" height="26" rx="7" fill="var(--accent-bg)" stroke="var(--accent)"/>
+          <text x="190" y="47" text-anchor="middle" class="n-label" fill="var(--accent)">gateway</text>
+          <g>
+            <rect x="40" y="108" width="60" height="24" rx="6" fill="var(--card)" stroke="var(--line)"/><text x="70" y="124" text-anchor="middle" class="n-sub" fill="var(--ink)">tenancy</text>
+            <rect x="104" y="108" width="56" height="24" rx="6" fill="var(--card)" stroke="var(--line)"/><text x="132" y="124" text-anchor="middle" class="n-sub" fill="var(--ink)">content</text>
+            <rect x="164" y="108" width="60" height="24" rx="6" fill="var(--card)" stroke="var(--line)"/><text x="194" y="124" text-anchor="middle" class="n-sub" fill="var(--ink)">data-ops</text>
+            <rect x="228" y="108" width="46" height="24" rx="6" fill="var(--card)" stroke="var(--line)"/><text x="251" y="124" text-anchor="middle" class="n-sub" fill="var(--ink)">mcp</text>
+            <rect x="278" y="108" width="62" height="24" rx="6" fill="var(--card)" stroke="var(--line)"/><text x="309" y="124" text-anchor="middle" class="n-sub" fill="var(--ink)">realtime</text>
+          </g>
+          <circle cx="190" cy="228" r="24" fill="var(--green-bg)" stroke="var(--green)" stroke-width="2"/>
+          <text x="190" y="232" text-anchor="middle" class="n-label" fill="var(--green)">auth</text>
+          <text x="190" y="274" text-anchor="middle" class="n-sub" fill="var(--muted)">fan-in 6 of 6 — the highest</text>
+        </svg>
+        <figcaption>Every gated request in every worker starts at <code>auth</code>.</figcaption>
+      </figure>
+
+      <figure>
+        <svg viewBox="0 0 380 300" role="img" aria-label="Auth down: six of seven workers stop serving gated requests">
+          <text x="190" y="18" text-anchor="middle" class="n-label" fill="var(--red)">auth is down</text>
+          <rect x="24" y="96" width="332" height="48" rx="9" fill="var(--shade)" stroke="none"/>
+          <g stroke="var(--dead)" stroke-width="1.5" fill="none" stroke-dasharray="3 3">
+            <path d="M190 48 L70 108 M190 48 L130 108 M190 48 L190 108 M190 48 L250 108 M190 48 L310 108"/>
+            <path d="M70 132 L190 205 M130 132 L190 205 M250 132 L190 205 M310 132 L190 205"/>
+          </g>
+          <rect x="140" y="30" width="100" height="26" rx="7" fill="var(--card)" stroke="var(--accent)"/>
+          <text x="190" y="47" text-anchor="middle" class="n-label" fill="var(--accent)">gateway</text>
+          <g fill="var(--card)" stroke="var(--dead)">
+            <rect x="40" y="108" width="60" height="24" rx="6"/><rect x="104" y="108" width="56" height="24" rx="6"/>
+            <rect x="164" y="108" width="60" height="24" rx="6"/><rect x="228" y="108" width="46" height="24" rx="6"/>
+            <rect x="278" y="108" width="62" height="24" rx="6"/>
+          </g>
+          <g class="n-sub" fill="var(--muted)" text-anchor="middle">
+            <text x="70" y="124">tenancy</text><text x="132" y="124">content</text><text x="194" y="124">data-ops</text>
+            <text x="251" y="124">mcp</text><text x="309" y="124">realtime</text>
+          </g>
+          <circle cx="190" cy="228" r="24" fill="var(--red-bg)" stroke="var(--red)" stroke-width="2" stroke-dasharray="4 3"/>
+          <text x="190" y="232" text-anchor="middle" class="n-label" fill="var(--red)">auth</text>
+          <text x="190" y="274" text-anchor="middle" class="n-sub" fill="var(--red)">6 of 7 workers stop · 503, not a lie</text>
+        </svg>
+        <figcaption>Static pages, <code>/media/*</code> and already-open live sockets keep working.</figcaption>
+      </figure>
+    </div>
+    <p class="note">
+      <strong>No fallback, on purpose.</strong> A short cache of “this session is valid” would
+      survive a wobble and earn the last 15 points of criterion 2. It would also let a
+      revoked session — a departing employee, a stolen laptop — keep working for the length
+      of that cache. Revocation is instant today; the owner chose on 12 August 2026 to keep
+      it that way. Recorded in ARCHITECTURE §2b so the trade stays visible.
+    </p>
+  </div>
+
+  <h2>What the probe got wrong</h2>
+  <div class="card scroll">
+    <p class="note" style="margin-top:0">Eight mechanical candidates. Five were false — and one of the false ones was mine.</p>
+    <table>
+      <thead><tr><th>The probe said</th><th>The truth</th><th>How it was settled</th></tr></thead>
+      <tbody>
+        <tr><td>33% of cross-service calls guarded</td><td><strong>100%</strong></td><td>53 of 69 hits were one seam used 53 times</td></tr>
+        <tr><td><code>realtime</code> writes <code>teams</code></td><td>never does</td><td>zero write statements in that worker</td></tr>
+        <tr><td><code>web</code> writes <code>help</code></td><td>never does</td><td><code>web/</code> calls the endpoint; it holds no SQL</td></tr>
+        <tr><td><code>activity</code> has two writers</td><td>one writer</td><td>the second was a regex inside a test file written an hour earlier</td></tr>
+        <tr><td>request id not propagated</td><td>it is</td><td>the probe greps a literal; the code uses a named constant</td></tr>
+      </tbody>
+    </table>
+    <p class="note">A scan mistakes one seam used 53 times for 53 risks, and cannot tell a test fixture from production code.</p>
+  </div>
+
+  <h2>Who owns what</h2>
+  <div class="card scroll">
+    <table>
+      <thead><tr><th>Table</th><th>Owner</th><th>The other writer</th><th>Verdict</th></tr></thead>
+      <tbody>
+        <tr><td><code>users</code></td><td><strong>auth</strong> — the row, email, names, onboarding</td><td>tenancy writes <code>current_team_id</code> only</td><td><span class="chip c-ok">disjoint columns</span></td></tr>
+        <tr><td><code>selectable_data</code></td><td><strong>tenancy</strong> — every deliberate write</td><td>content appends one auto-created category</td><td><span class="chip c-ok">append only</span></td></tr>
+      </tbody>
+    </table>
+    <p class="note">Both stated in DATA-MODEL.md, with the rule for what comes next: <em>auth owns who you are, tenancy owns where you are.</em></p>
+  </div>
+
+  <h2>The restore drill — proven, not documented</h2>
+  <div class="card">
+    <p style="margin-top:0">Criterion 6 was capped at 55 because nothing recorded an actual restore
+    test. One was run on a throwaway database: two rows written, a bookmark taken,
+    <code>DELETE FROM invoices</code> confirming zero rows, then a restore. <strong>Both rows came
+    back with identical values.</strong> The drill database was deleted afterwards; no real data was touched.</p>
+    <p><strong>It found two faults in the runbook, which is the entire reason for running one:</strong></p>
+    <ul>
+      <li>The documented <code>time-travel info --remote</code> <strong>is not a valid command</strong> — that flag does not exist on that subcommand. The runbook would have failed in the one moment it mattered.</li>
+      <li>Only <code>--timestamp</code> was documented. The <strong>bookmark</strong> form is the precise one, and it is what the tool actually hands you.</li>
+    </ul>
+    <p class="note">Now also stated: the window is 30 days on Workers Paid, 7 on Free — and anything older is not recoverable by any means, which nothing said before.</p>
+  </div>
+
+  <h2>Still open</h2>
+  <div class="card scroll">
+    <table>
+      <thead><tr><th>Finding</th><th>Severity</th><th>Tier</th></tr></thead>
+      <tbody>
+        <tr><td><strong>auth has no fallback.</strong> Owner declined the cache, knowingly.</td><td><span class="chip c-med">medium</span></td><td>3 — decision</td></tr>
+        <tr><td><strong>Nine pass-through paths are unbounded.</strong> Deliberate: they carry streamed and long-running responses.</td><td><span class="chip c-low">low</span></td><td>3 — design</td></tr>
+        <tr><td><strong><code>users</code> is separated by documentation, not machinery.</strong> Disjoint today; nothing enforces it.</td><td><span class="chip c-low">low</span></td><td>2 — when a third writer appears</td></tr>
+        <tr><td><strong>The WebSocket hop carries no request id.</strong> Rebuilding the Request breaks the upgrade.</td><td><span class="chip c-low">low</span></td><td>won’t fix — reasoned</td></tr>
+      </tbody>
+    </table>
+    <p class="note">Nothing here blocks a ship.</p>
+  </div>
+
+  <h2>The six reviews</h2>
+  <div class="card scroll">
+    <table>
+      <thead><tr><th>Review</th><th>Asks</th><th class="num">Score</th></tr></thead>
+      <tbody>
+        <tr><td>architecture</td><td>does the shape hold when something goes wrong?</td><td class="num">96</td></tr>
+        <tr><td>scaling</td><td>does it hold under load?</td><td class="num">94</td></tr>
+        <tr><td>security_sentry</td><td>does it hold under attack?</td><td class="num">99</td></tr>
+        <tr><td>story_checks_out</td><td>is it as described?</td><td class="num">98</td></tr>
+        <tr><td>lean_mean</td><td>is it as written?</td><td class="num">97</td></tr>
+        <tr><td>mac_fell_in_the_ocean</td><td>could a stranger rebuild it?</td><td class="num">95</td></tr>
+        <tr><td>interface_lessness</td><td>does the machine surface match the UI?</td><td class="num">98</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p class="note" style="margin-top:28px">
+    <strong>The single worst structural risk:</strong> <code>brimba-auth</code> is a hard dependency
+    for six of seven workers with no fallback, so its outage is a total outage — a trade the
+    owner has now made knowingly rather than discovered at 3am.
+  </p>
+
+</div>
+</body>
+</html>

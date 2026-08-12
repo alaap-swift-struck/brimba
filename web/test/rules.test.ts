@@ -250,6 +250,49 @@ describe("RULES — the laws of the base", () => {
     expect(offenders, `external fetch without an AbortSignal timeout (R11): ${offenders.join(", ")}`).toEqual([])
   })
 
+  // R11, second half — the INTERNAL hop. R11 used to EXEMPT service bindings, on the
+  // grounds that they are "Cloudflare-bounded". The architecture review (2026-08-12)
+  // disproved that in the way that matters: the platform bounds the WORKER, but nothing
+  // bounds the CALL — so a slow auth held every request in every worker open, and worse,
+  // a caller could not tell "auth says no" from "auth said nothing" and an outage logged
+  // everyone out. Both now go through `shared/workers/trace.ts`.
+  //
+  // WHAT THIS CHECKS, said plainly, because a check that overclaims is worse than none:
+  // that no worker calls a service binding DIRECTLY. It canNOT check that a caller then
+  // treats null (no answer) differently from a refusal — that needs the meaning of the
+  // code, not its shape. The honest cover for that is the behavioural test in
+  // `workers/gateway/test/trace.test.ts`.
+  it("service-calls-bounded: no worker calls a service binding directly (R11)", () => {
+    // The one seam allowed to touch a binding — it IS the bound.
+    const SEAM = "shared/workers/trace.ts"
+    // Reviewed exceptions, each named with its reason, so adding one is a decision.
+    const EXEMPT: Record<string, string> = {
+      "shared/workers/http.ts":
+        "forwardToDoor — the act-as-user seam. Deliberately unbounded: the doors it forwards to do real work of unbounded duration (an import batch), and a bound that cuts a working import off is worse than none. It DOES carry the trace id.",
+    }
+    // The seven WORKERS. `ASSETS` is deliberately absent: it is Cloudflare's static
+    // asset serving, not a separately-deployed worker that can be missing, wedged or
+    // mid-rollout — it is not a node in the blast-radius map at all. And the guard's
+    // fallback is a JSON 503, which for a page load would be worse than the platform's
+    // own error page: the browser is asking for HTML.
+    const BINDINGS = ["AUTH", "TENANCY", "CONTENT", "DATAOPS", "MCP", "REALTIME"]
+    const offenders: string[] = []
+    for (const [path, src] of workerSources()) {
+      const rel = path.replace(/^\//, "")
+      if (rel.endsWith(SEAM) || EXEMPT[rel]) continue
+      for (const b of BINDINGS) {
+        // `env.AUTH.fetch(` is the direct shape. A binding handed to a helper as an
+        // ARGUMENT is fine — that helper is where the bound lives, which is the whole
+        // point of having a seam.
+        if (new RegExp(`env\\.${b}\\.fetch\\(`).test(src)) offenders.push(`${rel} -> env.${b}.fetch`)
+      }
+    }
+    expect(
+      offenders,
+      `service binding called directly instead of through callService/proxyService (R11): ${offenders.join(", ")}`
+    ).toEqual([])
+  })
+
   // R12 — every cron / scheduled handler records its failures to the error store.
   // Unattended work has no user watching, so a swallowed background failure would be
   // invisible in the 90-day error_logs. (The request dispatcher already records; this
@@ -710,9 +753,18 @@ describe("RULES — the laws of the base", () => {
       ["workers/content/src/lib/help.ts", "setStatus"],
     ] as const) {
       const src = read(join(ROOT, ...file.split("/")))
-      const body = src.slice(src.indexOf(`export async function ${fn}`))
+      // `declarationBody`, NOT slice-to-end-of-file. The old form sliced from the
+      // function to the END OF THE FILE and grepped for `return false` in all of
+      // it — so ANY later function's `return false` satisfied it. Proven blind on
+      // 2026-08-12: the row-count check was deleted from setLearningActive, an
+      // unrelated `return false` was added forty lines below, and this check went
+      // GREEN with the exact bug R17 exists to prevent sitting in the file.
+      const body = declarationBody(src, src.indexOf(`export async function ${fn}`))
       expect(/RETURNING id/.test(body), `${fn} must read the changed-row count (RETURNING id)`).toBe(true)
-      expect(/return false/.test(body), `${fn} must skip activity/publish when zero rows moved`).toBe(true)
+      expect(
+        /return false/.test(body),
+        `${fn} must skip activity/publish when zero rows moved — and the check now reads ONLY this function's body`
+      ).toBe(true)
     }
   })
 
@@ -843,7 +895,11 @@ describe("RULES — the laws of the base", () => {
     const known = new Set([
       "publish-seam", // the 3 per-worker publish-seam.test.ts suites
       "gating-seam", // R10: the 3 per-worker gating-seam suites + the mcp identity-gate suite
-      "fetch-timeout", // R11: the source-scan below
+      "fetch-timeout", // R11 external half: the global-fetch scan above
+      // R11 internal half — the same law, two checks, because the two halves fail
+      // differently: a source scan finds a direct binding call, and only a
+      // behavioural test can prove a no-answer is not treated as a refusal.
+      "service-calls-bounded", // + workers/gateway/test/trace.test.ts
       "cron-records", // R12: the scheduled-handler scan below
       "record-detail-tabs",
       "no-handrolled-toggles",

@@ -171,13 +171,17 @@ export async function forwardTool(
    * this through is all it takes for the machine surface to inherit the same
    * retry protection the web app has — no new concept for a tool author, and
    * nothing to remember per tool. */
-  idempotencyKey?: string | null
+  idempotencyKey?: string | null,
+  /** The trace id of the /mcp request this tool call arrived on, so one machine
+   * call and the doors it fans out to share an id in the logs. */
+  requestId?: string | null
 ): Promise<{ ok: boolean; text: string }> {
   const res = await forwardToDoor(env[tool.binding], {
     path: tool.path,
     method: tool.method,
     cookie,
     idempotencyKey,
+    requestId,
     query: tool.method === "GET" && tool.buildQuery ? tool.buildQuery(input) : "",
     body: tool.buildBody ? tool.buildBody(input) : {},
   })

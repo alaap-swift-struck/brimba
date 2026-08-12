@@ -57,6 +57,21 @@ Dropped: all transformer/onboarding-JSON/tab-view/device columns.
 that case; with no `image_url`, show initials (or a placeholder avatar when even
 initials aren't derivable).
 
+**Who owns this row (2026-08-12).** Two workers write here, which is normally the
+start of a bug — so the split is stated rather than left to be discovered:
+
+| column(s) | written by | why |
+|---|---|---|
+| `email`, `first_name`, `last_name`, `image_url`, `onboarding_completed_at`, and the INSERT | **auth** | auth owns identity. It is the only worker that creates a user or changes who they are. |
+| `current_team_id` | **tenancy** | a POINTER to a team, not a fact about the person. Tenancy owns teams and membership, so it owns which one is active — writing it from auth would mean auth reasoning about membership. |
+
+They write **disjoint columns**, so this is a split, not a contest: no field has
+two authors and no write can be lost to the other. The rule for anything added
+later: **auth owns who you are, tenancy owns where you are.** A new column that
+describes the person goes to auth; one that points at a team goes to tenancy. If
+a column ever needs both, that is the moment to route one through the other
+rather than add a second writer.
+
 ### teams — KEEP (built)
 Real data: `id`, `name` (`Identity/Team name`), `logo_url`. Brimba adds
 `database_id`, `db_status`, `schema_version` (the per-team-DB architecture).
@@ -218,6 +233,14 @@ locked; Viewer is a normal editable role.
 ### selectable_data — KEEP (built, per-team)
 Real data: audit block + `type`, `value`, `is_default`. Per-team dropdown
 values, seeded from Base v3 defaults on team creation.
+
+**Owner: tenancy** (2026-08-12). It holds every deliberate write — create, edit,
+retire, the bulk twin, and the seed on team creation — and the dropdown
+management screens are its doors. **content** appends here too, in exactly one
+place: `learning.ts` auto-creates a `Learning category` value when an author types
+a new one into pick-or-create. That is an append of a value the user just named,
+never an edit of an existing row, so it cannot contradict tenancy. Anything
+beyond appending a new value belongs behind tenancy's doors.
 
 ### learning + learning_progress — KEEP (BUILT 2026-06-23, team migration `0004_modules`)
 Purpose: a team's own how-to content. `learning`: audit + `category` (a

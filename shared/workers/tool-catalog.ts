@@ -42,7 +42,7 @@ export const roleLabel = (input: Record<string, unknown>, names?: Record<string,
   return title ? `the ${title} role` : `role ${id}`
 }
 /** A member reference for a summary: the resolved name/email, else "member <id>". */
-export const memberLabel = (input: Record<string, unknown>, names?: Record<string, string>): string => {
+const memberLabel = (input: Record<string, unknown>, names?: Record<string, string>): string => {
   const id = str(input, "userId")
   return names?.[id] ?? `member ${id}`
 }
@@ -392,7 +392,7 @@ export const TOOL_GATES: Record<string, string> = {
 
 /** Lookup by canonical name (the agent's name). */
 /** The tables whose rows decide WHO CAN DO WHAT. */
-export const PRIVILEGE_MODULES = ["member_roles", "team_members"]
+const PRIVILEGE_MODULES = ["member_roles", "team_members"]
 
 /** Is this a PRIVILEGE write — one that changes who can do what? DERIVED from the
  * tool's own declared gate (falling back to the door it posts to, so an agent-only

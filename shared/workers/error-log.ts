@@ -9,6 +9,7 @@
 // logged; this table is for the unexpected only.
 
 import { ulid } from "./id"
+import { REQUEST_ID_HEADER, traceError } from "./trace"
 
 /** The slice of a D1 binding this seam uses — structural, so shared/ compiles in
  * every workspace (the web tsconfig has no Workers types). The real `env.DB`
@@ -25,14 +26,19 @@ export type ErrorReport = {
   teamId?: string
   userId?: string
   url?: string
+  /** The id minted at the gateway (shared/workers/trace.ts). Every worker that
+   * touched the same request records the same value, so one failed click can be
+   * pulled back together from seven separate crashes. Optional: a worker reached
+   * outside a traced request, or an older gateway mid-rollout, has none. */
+  requestId?: string
 }
 
 export async function logError(db: CoreDb, r: ErrorReport): Promise<void> {
   try {
     await db
       .prepare(
-        `INSERT INTO error_logs (id, at, source, place, message, stack, team_id, user_id, url)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO error_logs (id, at, source, place, message, stack, team_id, user_id, url, request_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .bind(
         ulid(),
@@ -43,7 +49,8 @@ export async function logError(db: CoreDb, r: ErrorReport): Promise<void> {
         r.stack ? String(r.stack).slice(0, 2000) : null,
         r.teamId ?? null,
         r.userId ?? null,
-        r.url ? String(r.url).slice(0, 300) : null
+        r.url ? String(r.url).slice(0, 300) : null,
+        r.requestId ? String(r.requestId).slice(0, 64) : null
       )
       .run()
   } catch {
@@ -52,13 +59,22 @@ export async function logError(db: CoreDb, r: ErrorReport): Promise<void> {
 }
 
 /** The central-catch one-liner: console (for live tails) + the table (for history).
- * `e` is whatever was thrown; `place` is "<METHOD> <pathname>". */
+ * `e` is whatever was thrown; `place` is "<METHOD> <pathname>".
+ *
+ * `request` is the incoming Request, read only for its trace id — passing the
+ * request rather than the id keeps every call site a one-liner and means a worker
+ * cannot forget to thread the id through. */
 export async function recordWorkerError(
   db: CoreDb,
   source: string,
   place: string,
-  e: unknown
+  e: unknown,
+  request?: { headers: { get(name: string): string | null } }
 ): Promise<void> {
   const err = e instanceof Error ? e : new Error(String(e))
-  await logError(db, { source, place, message: err.message, stack: err.stack })
+  const requestId = request?.headers.get(REQUEST_ID_HEADER) ?? undefined
+  // One structured line beside the row: the table is the owned history, the line
+  // is what a live tail can filter by `req` while an incident is happening.
+  traceError({ req: requestId, worker: source, place, event: "worker_error", detail: err })
+  await logError(db, { source, place, message: err.message, stack: err.stack, requestId })
 }

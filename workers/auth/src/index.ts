@@ -87,7 +87,7 @@ export default {
       console.error("auth worker error:", e)
       // Record the crash in the central error log (core DB) — best-effort,
       // never blocks the response. Clean GuardError refusals never reach here.
-      await recordWorkerError(opsDatabase(env), "auth", `${request.method} ${new URL(request.url).pathname}`, e)
+      await recordWorkerError(opsDatabase(env), "auth", `${request.method} ${new URL(request.url).pathname}`, e, request)
       return fail(500, "internal", "Something went wrong on our side. Try again.")
     }
   },

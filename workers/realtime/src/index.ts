@@ -19,6 +19,7 @@ import type { SessionUser } from "../../../shared/types"
 import { fail, json } from "../../../shared/workers/http"
 import { isActiveMember } from "../../../shared/workers/membership"
 import { MAX_SHARDS, shardChannel, shardFor } from "../../../shared/workers/realtime"
+import { callService, REQUEST_ID_HEADER } from "../../../shared/workers/trace"
 
 export type Env = {
   /** The per-team live channels (one Durable Object instance per team). */
@@ -96,12 +97,21 @@ async function shardsFor(env: Env, teamId: string): Promise<number> {
   return n
 }
 
-/** Ask the auth worker (one session system, one master) who this is. */
+/** Ask the auth worker (one session system, one master) who this is.
+ *
+ * Bounded and guarded like the shared gating seam's twin. The difference is what
+ * a no-answer means HERE: this is a WebSocket connect, not an API call, so there
+ * is no 503 to return usefully — the socket is simply refused and the client's
+ * existing reconnect loop tries again. Already-open sockets are untouched, so an
+ * auth wobble costs new connections, not live ones. */
 async function whoAmI(request: Request, env: Env): Promise<SessionUser | null> {
-  const res = await env.AUTH.fetch("https://auth/api/auth/me", {
-    headers: { Cookie: request.headers.get("Cookie") ?? "" },
-  })
-  if (!res.ok) return null
+  const res = await callService(
+    env.AUTH,
+    "https://auth/api/auth/me",
+    { headers: { Cookie: request.headers.get("Cookie") ?? "" } },
+    { req: request.headers.get(REQUEST_ID_HEADER) ?? undefined, worker: "realtime", place: "whoAmI" }
+  )
+  if (!res || !res.ok) return null
   return ((await res.json()) as { user: SessionUser }).user
 }
 

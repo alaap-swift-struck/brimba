@@ -207,7 +207,12 @@ describe("the machine surface inherits the retry protection", () => {
     // surface becomes the one place the protection does not reach.
     const mcp = readFileSync(join(root, "workers", "mcp", "src", "index.ts"), "utf8")
     expect(mcp).toMatch(/const idempotencyKey = request\.headers\.get\(IDEMPOTENCY_HEADER\)/)
-    expect(mcp).toMatch(/forwardTool\(env, tool, input, cookie, idempotencyKey\)/)
+    // `[,)]` rather than a closing paren: the key must be READ and PASSED in its
+      // place, which is the invariant. Pinning the exact argument COUNT made this
+      // fail when the trace id was added alongside it — a true assertion breaking
+      // on an unrelated change is a test that eventually gets edited to shut it up,
+      // which is how a real lock quietly stops locking.
+      expect(mcp).toMatch(/forwardTool\(env, tool, input, cookie, idempotencyKey[,)]/)
 
     const door = readFileSync(join(root, "shared", "workers", "http.ts"), "utf8")
     expect(
