@@ -126,7 +126,7 @@ export function RoleDetailScreen({ teamId, roleId }: { teamId: string; roleId: s
   }
 
   async function updateDetails(title: string, description: string) {
-    const { updated } = await tenancy.updateRole(roleId, title, description, role?.updatedAt ?? null)
+    const { updated } = await tenancy.updateRole(roleId, title, description, role?.updatedAt ?? role?.createdAt ?? null)
     await applyUpdated({ listKey: `member_roles:${teamId}`, id: roleId, row: updated })
     toast.success("Role updated.")
   }

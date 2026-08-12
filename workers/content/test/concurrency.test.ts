@@ -45,9 +45,12 @@ describe("the version predicate", () => {
     expect(evil).toContain("''")
   })
 
-  it("compares against updated_at, the version every record already has", () => {
+  it("COALESCES, so a never-edited row still has a version to guard on", () => {
+    // A fresh row has a NULL updated_at. Without the fallback the FIRST
+    // concurrent edit of a new record — exactly when two people are most likely
+    // to be looking at the same new thing — is the one edit that is unprotected.
     expect(versionPredicate("2026-08-11T00:00:00.000Z")).toBe(
-      " AND updated_at = '2026-08-11T00:00:00.000Z'"
+      " AND COALESCE(updated_at, created_at) = '2026-08-11T00:00:00.000Z'"
     )
   })
 })
@@ -218,7 +221,7 @@ describe("the machine surface inherits the retry protection", () => {
     // instead of RETURNING — same guarantee, different dialect.
     const teams = readFileSync(join(root, "workers", "tenancy", "src", "lib", "teams.ts"), "utf8")
     const fn = teams.slice(teams.indexOf("export async function updateTeamDetails"))
-    expect(fn).toMatch(/expectedVersion \? " AND updated_at = \?" : ""/)
+    expect(fn).toMatch(/expectedVersion \? " AND COALESCE\(updated_at, created_at\) = \?" : ""/)
     expect(
       /assertNotConflicted\(res\.meta\.changes, expectedVersion\)/.test(fn),
       "the predicate's outcome must be acted on, or two admins renaming at once still overwrite each other"

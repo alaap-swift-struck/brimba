@@ -164,7 +164,14 @@ export async function withIdempotency(
  */
 export function versionPredicate(expected: string | undefined | null): string {
   if (!expected) return ""
-  return ` AND updated_at = ${sqlString(expected)}`
+  // COALESCE, because a row that has never been edited has a NULL `updated_at`.
+  // Found on staging: a freshly created record therefore had no version to guard
+  // on, so the FIRST concurrent edit of a new record — the very moment two people
+  // are most likely to be looking at the same new thing — was the one edit the
+  // guard could not protect. Falling back to `created_at` gives every row a
+  // version from birth, with no column to backfill and no audit block claiming
+  // the row was "updated" by nobody.
+  return ` AND COALESCE(updated_at, created_at) = ${sqlString(expected)}`
 }
 
 /**

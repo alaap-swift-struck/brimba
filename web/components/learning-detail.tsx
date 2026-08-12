@@ -119,7 +119,7 @@ export function LearningDetailScreen({ teamId, learningId }: { teamId: string; l
       contentType: values.contentType || null,
       contentLink: values.contentLink || null,
       body: values.body || null,
-      expectedVersion: item?.updatedAt ?? null,
+      expectedVersion: item?.updatedAt ?? item?.createdAt ?? null,
     })
     // R23: the door hands back ONE row — patch it in (CACHING rule 3).
     await applyUpdated({ listKey: `learning:${teamId}`, id: learningId, row: updated })

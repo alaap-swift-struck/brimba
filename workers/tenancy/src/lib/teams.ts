@@ -184,7 +184,7 @@ export async function updateTeamDetails(
   // REST door, so the count comes back as meta.changes instead of RETURNING —
   // same guarantee, different dialect. An absent expectation appends nothing,
   // so an internal caller behaves exactly as before.
-  const guardClause = expectedVersion ? " AND updated_at = ?" : ""
+  const guardClause = expectedVersion ? " AND COALESCE(updated_at, created_at) = ?" : ""
   const versionArg = expectedVersion ? [expectedVersion] : []
   const res = logoUrl !== undefined
     ? await env.DB.prepare(`UPDATE teams SET name = ?, logo_url = ?, updated_at = ? WHERE id = ?${guardClause}`)

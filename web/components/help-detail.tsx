@@ -135,7 +135,7 @@ export function HelpDetailScreen({
       id: helpId,
       description: input.description,
       helpType: input.helpType,
-      expectedVersion: ticket?.updatedAt ?? null,
+      expectedVersion: ticket?.updatedAt ?? ticket?.createdAt ?? null,
     })
     // R23: one row back, patched in (CACHING rule 3) — not the whole page.
     await applyUpdated({ listKey: `help:${teamId}`, id: helpId, row: updated })
