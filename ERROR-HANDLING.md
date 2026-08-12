@@ -36,10 +36,15 @@ trick as the swappable AI-import interface).
   logged (an expected refusal is not an error); unexpected errors become a
   generic 500 (never leak internals to the user).
 
-## The central error store (BUILT 2026-07-03 — core migration `0012_error_logs`)
+## The central error store (BUILT 2026-07-03; MOVED to the operations db 2026-08-12)
 
 Beyond the console lines (which Cloudflare keeps only ~a week), every unexpected
-failure is RECORDED in **`error_logs`** in the global core DB — one table per
+failure is RECORDED in **`error_logs`** in the OPERATIONS database (`db/ops/0001`;
+it began life in the core database and moved out, because nothing joins to it and
+it grows faster than almost anything else — SCALING.md §4.9). Workers reach it
+through `opsDatabase(env)`, which falls back to the core database when no `OPS`
+binding exists, so a fork that has not created one behaves exactly as before.
+One table per
 environment (staging and production errors never mix), cross-team by design
 (system health is global; `team_id`/`user_id` are optional context).
 

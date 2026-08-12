@@ -147,11 +147,7 @@ export async function postUpdateRole(request: Request, env: Env): Promise<Respon
   const title = requireText(body.title, "Name", TEXT_LIMITS.short)
   await updateRole(cfg, guard, actor, body.roleId, title, (optionalText(body.description, "Description", TEXT_LIMITS.long) ?? ""), body.expectedVersion)
   await publishChange(env.REALTIME, guard.teamId, "member_roles", body.roleId)
-  // R23 + R16: the affected ROW only. No count — an edit cannot change how many
-  // rows a collection HAS (these counts are unfiltered, and deactivate-not-delete
-  // means even a deactivate leaves the row there). Paying for a full-table
-  // COUNT(*) to return a number that provably did not move is the most avoidable
-  // query in the app: it is on the hot path of every single edit.
+  // R23: the affected ROW, and no count — an edit cannot move a total. See RULES.md.
   return json({ updated: await oneRole(env, cfg, guard, body.roleId) })
 }
 
@@ -170,10 +166,6 @@ export async function postSetRoleActive(request: Request, env: Env): Promise<Res
   // published and no duplicate history exists; the response is still the list.
   const changed = await setRoleActive(cfg, guard, actor, body.roleId, body.active)
   if (changed) await publishChange(env.REALTIME, guard.teamId, "member_roles", body.roleId)
-  // R23 + R16: the affected ROW only. No count — an edit cannot change how many
-  // rows a collection HAS (these counts are unfiltered, and deactivate-not-delete
-  // means even a deactivate leaves the row there). Paying for a full-table
-  // COUNT(*) to return a number that provably did not move is the most avoidable
-  // query in the app: it is on the hot path of every single edit.
+  // R23: the affected ROW, and no count — an edit cannot move a total. See RULES.md.
   return json({ updated: await oneRole(env, cfg, guard, body.roleId) })
 }

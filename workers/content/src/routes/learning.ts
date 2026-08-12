@@ -83,11 +83,7 @@ export async function postUpdateLearning(request: Request, env: Env): Promise<Re
   requireText(body.title, "Title", TEXT_LIMITS.short)
   await updateLearning(cfg, guard, actor, body.id, body, body.expectedVersion)
   await publishChange(env.REALTIME, guard.teamId, "learning", body.id)
-  // R23 + R16: the affected ROW only. No count — an edit cannot change how many
-  // rows a collection HAS (these counts are unfiltered, and deactivate-not-delete
-  // means even a deactivate leaves the row there). Paying for a full-table
-  // COUNT(*) to return a number that provably did not move is the most avoidable
-  // query in the app: it is on the hot path of every single edit.
+  // R23: the affected ROW, and no count — an edit cannot move a total. See RULES.md.
   return json({ updated: await oneLearning(cfg, guard, body.id) })
 }
 
@@ -100,11 +96,7 @@ export async function postSetLearningActive(request: Request, env: Env): Promise
   // R17: no-op repeat → no ping, no duplicate history (see setLearningActive).
   const changed = await setLearningActive(cfg, guard, actor, body.id, body.active)
   if (changed) await publishChange(env.REALTIME, guard.teamId, "learning", body.id)
-  // R23 + R16: the affected ROW only. No count — an edit cannot change how many
-  // rows a collection HAS (these counts are unfiltered, and deactivate-not-delete
-  // means even a deactivate leaves the row there). Paying for a full-table
-  // COUNT(*) to return a number that provably did not move is the most avoidable
-  // query in the app: it is on the hot path of every single edit.
+  // R23: the affected ROW, and no count — an edit cannot move a total. See RULES.md.
   return json({ updated: await oneLearning(cfg, guard, body.id) })
 }
 

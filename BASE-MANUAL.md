@@ -52,7 +52,7 @@ internal by physics — see `workers/gateway/src/index.ts`, which simply forward
 
 ### The two-tier database, and why it's split
 
-There are two kinds of database, and the split is deliberate.
+There are three kinds of database, and each split is deliberate.
 
 **One global core DB (`brimba-core`), reached natively via `env.DB`.** It holds
 everything that is about *identity and billing across teams*:
@@ -67,7 +67,15 @@ everything that is about *identity and billing across teams*:
 | `importable_databases` | the owner-maintained import target catalogue | `db/core/0008` |
 | `agent_usage` | per-team free daily AI counter | `db/core/0009` |
 | `agent_credits` | per-team purchasable AI balance | `db/core/0010` |
-| `agent_usage_log` | per-command usage trail (when · who · credits · why; confirm folds in) | `db/core/0011` |
+| `agent_usage_log` | per-command usage trail (when · who · credits · why; confirm folds in) | **moved** → `db/ops/0001` |
+
+**One OPERATIONS DB (`brimba-ops`), reached natively via `env.OPS`.** It holds the
+two tables that are pure exhaust — `error_logs` and `agent_usage_log`. Nothing
+joins to either, and both grow faster than anything else in the system, so they
+left the shared core database rather than crowd out identity and membership
+against D1's 10 GB cap. Every worker reaches them through `opsDatabase(env)`,
+which returns `env.OPS ?? env.DB` — so a fork that has not created this database
+keeps writing to the core one and nothing breaks. SCALING.md §4.9.
 
 **One isolated D1 database per team, reached over the D1 REST door.** Each team
 gets its *own* database holding all of that team's content: `member_roles` +
@@ -231,6 +239,64 @@ Four more structural guards layer on top (all in `agent.ts` / `tools.ts`):
   one row (`foldUsageIntoLatest`), so the history reconciles with the balance.
 
 ---
+
+## 2.5 · The seams, by name
+
+Every document in this repo name-drops these. None of them defined any, which
+made the whole corpus readable only if you already knew the codebase — the exact
+opposite of what a fork needs. **This is the one place each is defined.** One
+sentence, one file. Follow the file when you need the detail.
+
+### Live sync
+
+| Seam | Where | What it is |
+|---|---|---|
+| `publishChange` | `shared/workers/realtime.ts` | tells a TEAM's open screens that one row changed. Carries `{resource, id, op}` and **never row data** — the client re-pulls that one row through the permission-checked endpoint, so a ping cannot leak a field the viewer may not see. LAW R1: every mutation calls it. |
+| `publishUserChange` | `shared/workers/realtime.ts` | the same, aimed at ONE PERSON's channel across all their devices — their profile, their team list, their account activity. Reaches them even before they belong to a team. |
+| `publishSignOut` | `shared/workers/realtime.ts` | the one ping that carries no id: "your session is dead, re-check". Sent to a person's OTHER devices after they change their own email. |
+| `useLiveRefetch` | `web/lib/use-live-refetch.ts` | the client half — subscribes a PAGED screen to its resource so an incoming ping refreshes it. LAW R15: a published resource must have a listener. |
+| `applyCreated` / `applyUpdated` | `web/lib/live-resources.ts` | fold the ONE row a create (R21) or a mutation (R23) handed back into the list already on screen — the same patch a ping would make. A null row means the record left the list, so drop it. |
+
+### Doors and gating
+
+| Seam | Where | What it is |
+|---|---|---|
+| `whoAmI` | `shared/workers/gating.ts` | asks the auth worker who is calling. ONE session master — no worker reads a session itself. |
+| `teamContext` | `shared/workers/gating.ts` | the standard opening of every team-scoped handler: who, which team, which role, which database. Also where the per-tenant rate ceiling is charged. |
+| `requireRight` | `shared/workers/gating.ts` | "may this role do this to this module?" LAW R10: every non-GET route opens with it. |
+| `OPS` | a binding | the operations database, when a worker has one. Optional everywhere by design — absent means the core database, and nothing breaks. |
+| `opsDatabase` | `shared/workers/ops-db.ts` | returns `env.OPS ?? env.DB` — the operations database if this worker has one, the core database if not. Use it for `error_logs` and `agent_usage_log`, never `env.DB` directly. |
+| `d1Query` / `d1ExecScript` | `shared/workers/d1-rest.ts` | the ONE door to a team's database, over Cloudflare's D1 REST API. `d1Query` takes parameters; `d1ExecScript` runs multi-statement scripts where the API forbids them, which is why `sqlString` exists. |
+| `requireText` / `optionalText` | `shared/workers/validate.ts` | the boundary. Type-check, strip NUL bytes, cap length, throw a clean 400. A TypeScript type is erased at runtime; these are not. |
+| `pagedJson` | `shared/workers/http.ts` | the shape every paged door returns. LAW R14. |
+| `hasMore` | part of `pagedJson` | the boolean in that shape meaning "there is another page". Read it rather than comparing counts — a page can be full and still be the last one. |
+| `nextCursor` | part of `pagedJson` | the OPAQUE position marker for the next page. Hand it back untouched; never build one, never parse one. It encodes a sort value and an id, and its format is free to change. |
+| `formatCount` | `web/lib/format-count.ts` | the single place a collection count is rendered, so a screen shows it exactly once. LAW R16. |
+| `softNavigate` | `web/lib/nav.ts` | moves between screens without a page reload. This is a static export, so a real navigation would re-download the shell — LAW R20 is about the URLs that must survive one anyway. |
+
+### The tables you will meet
+
+| Table | Where | What it holds |
+|---|---|---|
+| `users` | core (`0001_core_auth`) | one row per PERSON, across every team. Identity only — what someone may DO lives in their team membership, never here. |
+| `role_permissions` | team db (`team-schema.ts`) | the tall sheet: one row per role × module, four rights each. What `requireRight` reads. |
+| `selectable_data` | team db (`team-schema.ts`) | every dropdown value the team has, one table for all of them — pick-or-create, deactivate-not-delete. |
+| `invite_index` | core (`0002_teams`) | the GLOBAL routing index for invites, so onboarding can answer "any invites for this email?" without opening every team's database. The full audit trail lives in the team's own `invite_logs`. |
+| `importable_databases` | core (`0008`) | the owner-maintained catalogue of what CSV import may write to. Self-heals against the code, so a fresh environment is never empty (LAW R13). |
+| `agent_usage` / `agent_credits` | core (`0009` / `0010`) | the daily free AI counter, and the purchasable balance. Both per TEAM, both read on the request path — which is why neither moved to the operations database. |
+| `agent_usage_log` | **operations** (`db/ops/0001`) | one row per AI command: who, when, how many units, why. History, not balance. |
+| `error_logs` | **operations** (`db/ops/0001`) | one row per UNEXPECTED failure — a worker crash or a client-side error, never a clean refusal. Carries the resolve workflow. |
+| `sessions.team_pin` | core (`0013`) | how an MCP token is confined to ONE team: the bridged session is pinned, so `/me` answers with that team and the whole gating chain follows. |
+
+### The three law ids you will see quoted
+
+`registry-integrity` is the keystone — a law cannot exist without both a row in
+`RULES.md` and an entry in `shared/rules/registry.ts`, and this check fails if
+they ever disagree. `record-detail-tabs` (R2) is why every record screen has
+Overview and Activity. `glossary-wellformed` (R6) is why `shared/glossary.ts` is
+the only place a product word is defined. All of them, with their reasons, are in
+[RULES.md](RULES.md).
+
 
 ## 3 · How a module and the base influence each other
 

@@ -32,6 +32,52 @@ Do not relitigate any "LOCKED" item without the user.
 - Every row: globally-unique, team-stamped IDs (rows can move homes without
   collisions). Every worker reads/writes through ONE data-access layer.
 
+### 1a · The operations database (2026-08-12)
+
+A THIRD kind of database, alongside the global core and the per-team ones.
+
+`error_logs` and `agent_usage_log` are pure exhaust — one row every time
+something fails, one row every time anyone uses the AI. Nothing joins to either,
+and every read of either is by a single tagged column. They were also the two
+fastest-growing tables in the system, sitting in the one database that carries
+the SUM of every tenant against D1's 10 GB cap. So they live in `brimba-ops`
+now, and the shared database keeps its space for identity, membership and
+sessions — the rows every request depends on.
+
+**What did NOT move, deliberately.** Per-team databases are untouched; the
+tenancy model is unchanged. `agent_credits` — the BALANCE the quota gate reads on
+the request path — stays in the core database with the team record. Only the
+spend history moved.
+
+**Every worker reaches it through one seam**, `opsDatabase(env)` in
+`shared/workers/ops-db.ts`, which returns `env.OPS ?? env.DB`. A worker with no
+`OPS` binding — a fork that has not created the database, `wrangler dev`, a
+deploy that missed a config — writes to the core database exactly as before. A
+partition that broke the app when its extra database was absent would be a worse
+problem than the one it solves.
+
+Runbook and the copy-verify-delete mover: OPERATIONS.md. Reasoning: SCALING.md §4.9.
+
+### 1b · The live channel may be split (2026-08-11)
+
+The realtime decision below still holds — one `TeamChannel` Durable Object per
+CHANNEL — but a team is no longer always one channel. Past ~10,000 members the
+nightly cron raises `teams.shard_count`, and the team's sockets spread across up
+to 32 objects addressed `team:<id>#<n>`.
+
+This is invisible from every direction. A publisher still names `team:<id>`; the
+realtime worker is the one place that expands it. A subscriber still asks for a
+team; its shard is chosen server-side from the session's user id, so a person's
+devices stay together. Shard 0 keeps the BARE channel name, so a team that has
+never been split addresses exactly the object it always did.
+
+**The count only ever rises, and that is a safety property.** A socket that
+connected when the count was N' sits on a shard below N'; every later count is
+≥ N'; a publisher fanning to the current N therefore always covers it. No
+connected listener can be stranded. Lowering it would strand every socket above
+the new value, so lowering is a deliberate manual act. SCALING.md §3.
+
+
 ## 2 · The machine — workers (LOCKED)
 
 Domain workers, each small enough for an AI agent to hold fully in its head.
@@ -163,6 +209,39 @@ on top follows [CACHING.md](CACHING.md).
 | GET /media/* | gateway | serve uploaded files from R2 |
 | (WebSocket) /api/realtime?team= | realtime | join a team's live channel; receive row-level `{resource,id,op}` pings (gated by active membership of THAT team) |
 | (WebSocket) /api/realtime?user= | realtime | join your OWN identity channel (account/membership events + forced sign-out); gated to your own id, open even when teamless |
+
+### 2a · publishChange — the seam LAW R1 is about
+
+Ten documents invoke this and none of them defines it, so: **`publishChange` is
+how a write tells every open screen that one row changed.**
+
+```ts
+await publishChange(env.REALTIME, guard.teamId, "learning", id, "edit")
+//                  the binding    which team   which        which  what
+//                                              collection   row    happened
+```
+
+It sends a tiny message — `{resource, id, op}` — to the team's live channel. It
+**never carries row data**: the client takes the id, re-pulls that ONE row
+through the permission-checked endpoint, and patches it into what it is already
+showing. That is what makes the live layer safe by construction — a ping cannot
+leak a field the viewer is not allowed to see, because it contains no fields.
+
+`publishUserChange` is the same call aimed at ONE PERSON's channel rather than a
+team's: their account activity, their profile, their membership list, and the
+forced sign-out signal. It is what keeps a person's other devices honest when
+they change their own email, and it reaches them even before they belong to any
+team.
+
+Both are **best-effort by design**. A failure is logged and swallowed — a hiccup
+in the live layer must never fail the write it was describing. The database is
+the source of truth; the ping is only an invitation to re-read.
+
+Why it is a LAW: without it a screen goes stale silently, which is the one
+failure a user cannot detect. So every non-GET route must publish, and a test
+reads every handler's source to prove it (`workers/*/test/publish-seam.test.ts`).
+The two reviewed exceptions are named in CACHING rule 5.
+
 
 ## 3 · Tenancy & security rules (LOCKED)
 

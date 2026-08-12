@@ -138,7 +138,9 @@ empty the agent is blocked. Top-ups are an owner action today
 later against this same balance (the grant action is the seam). Lives in the
 global core DB so the gate can spend a unit without opening a team database.
 
-### agent_usage_log — KEEP (BUILT 2026-07-01, GLOBAL — `db/core/0011`)
+### agent_usage_log — KEEP (BUILT 2026-07-01; now in the OPERATIONS db — `db/ops/0001`)
+> MOVED to the OPERATIONS database 2026-08-12 — `db/ops/0001_operations.sql`. Nothing joins to it, so it left the shared core database to stop crowding out identity and membership against D1's 10 GB cap. Reached through `opsDatabase(env)`, which falls back to the core database when no `OPS` binding is present. See SCALING.md §4.9.
+
 Purpose: the usage TRAIL behind the panel's "where did my credits go" view.
 Real data: `id`, `team_id`, `actor_id`, `actor_name`, `created_at`, `credits`
 (units this command consumed), `source` (`free` / `credit` / `mixed`), `summary`,
@@ -180,7 +182,9 @@ a token is PINNED to the token's team (auth answers /me with the pinned team;
 short-lived, never slid), so a token can never act outside the team it was
 created for.
 
-### error_logs — KEEP (BUILT 2026-07-03, GLOBAL — `db/core/0012`)
+### error_logs — KEEP (BUILT 2026-07-03; now in the OPERATIONS db — `db/ops/0001`)
+> MOVED to the OPERATIONS database 2026-08-12 — `db/ops/0001_operations.sql`. Nothing joins to it, so it left the shared core database to stop crowding out identity and membership against D1's 10 GB cap. Reached through `opsDatabase(env)`, which falls back to the core database when no `OPS` binding is present. See SCALING.md §4.9.
+
 Purpose: the central error store (ERROR-HANDLING.md) — one row per UNEXPECTED
 failure (worker crash or client-side error), never a clean GuardError refusal.
 Real data: `id`, `at`, `source`, `place`, `message`, `stack` (capped), optional
@@ -306,8 +310,9 @@ these rows are a record of intent, never a separate set of powers.
   2026-06-23)**: importable_databases, agent_usage, agent_credits, mcp_tokens (GLOBAL core
   0008/0009/0010); learning, learning_progress, help, help_threads,
   data_import_sessions, agent_threads, agent_messages (per-team `0004_modules`).
-  **Since:** agent_usage_log (GLOBAL core `0011`, BUILT 2026-07-01), error_logs
-  (GLOBAL core `0012`, the central error store, BUILT 2026-07-03),
+  **Since:** agent_usage_log (BUILT 2026-07-01) and error_logs (the central error
+  store, BUILT 2026-07-03) — both created in core, both MOVED to the operations
+  database 2026-08-12 (`db/ops/0001`),
   data_import_batches (per-team `0006_import_batches`, the agentic multi-file
   import, BUILT 2026-07-04).
 - **To build (tables)**: selectable_data_types (the only remaining one) — the

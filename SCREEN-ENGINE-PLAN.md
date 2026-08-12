@@ -51,7 +51,7 @@ agent-editable screens. Lean *within* a robust design.
 
 | Piece | Where | What it does |
 |---|---|---|
-| **Recipe schema** | library `@swift-struck/ui` `lib/recipe.ts` (`ScreenRecipe`) | Typed, serializable shapes for a screen: type, presentation, data binding, fields, layout, actions, permission gates. The contract both the worker and the engine speak. The LIBRARY owns it (see §10), so the app + engine import the same type. |
+| **Recipe schema** | library `@swift-struck/ui` `web/lib/screens.ts` (`ScreenRecipe`) | Typed, serializable shapes for a screen: type, presentation, data binding, fields, layout, actions, permission gates. The contract both the worker and the engine speak. The LIBRARY owns it (see §10), so the app + engine import the same type. |
 | **Config / recipe store** | ~~`workers/config` (new)~~ → **UPDATED 2026-06-21: the TENANCY worker**, `GET/POST /api/tenancy/config/screens` (there is NO separate `workers/config`; it was folded into tenancy) | Stores + serves recipes. Merges GLOBAL base recipes (the shipped defaults) with a team's own custom screens/overrides. CRUD actions are agent-callable (an agent can author a screen). |
 | **Screen engine** | library `registry/collections/screen-*` | React components that fetch a recipe + data and render the right library pieces, permission-aware. |
 | **Tenancy actions** | `workers/tenancy` | Members / roles / invites read+write + the guard rules. |
@@ -59,7 +59,7 @@ agent-editable screens. Lean *within* a robust design.
 
 ## 3 · The recipe schema (the heart)
 
-A screen recipe is serializable JSON, typed in the library (`@swift-struck/ui` `lib/recipe.ts`, `ScreenRecipe` — see §10):
+A screen recipe is serializable JSON, typed in the library (`@swift-struck/ui` `web/lib/screens.ts`, `ScreenRecipe` — see §10):
 
 - **type**: `list` | `detail` | `edit` | `add` | `confirm` | `custom`
 - **presentation**: `responsive` (default — overlay on desktop, full-screen/
@@ -169,7 +169,7 @@ Decided with the user; do not relitigate without them.
 - **Build the FULL config-driven engine** (not a thin route-convention first).
 - **The library OWNS the engine + the recipe contract.** `ScreenRecipe` (the
   recipe schema) and the `screen-renderer` collection live in `@swift-struck/ui`
-  (`lib/recipe.ts` + `registry/collections/screen-renderer`), so EVERY app on
+  (`web/lib/screens.ts` + `registry/collections/screen-renderer`), so EVERY app on
   the base inherits them. The engine **renders** a recipe + speaks the URL
   grammar; it does NOT fetch data, call APIs, store recipes, or own the router —
   those are the host app's job (a recipe store + the app's

@@ -26,7 +26,7 @@ export async function postMemberRole(request: Request, env: Env): Promise<Respon
   // Carry the affected userId so other clients can refresh that member's
   // activity feed (activity:user:<id>) in addition to the member + role lists.
   await publishChange(env.REALTIME, guard.teamId, "members", body.userId, "edit")
-  // R23: the AFFECTED ROW, never the collection — see RULES.md.
+  // R23: the affected ROW, never the collection. See RULES.md.
   return json({ updated: await oneMember(env, cfg, guard, body.userId) })
 }
 
@@ -41,6 +41,6 @@ export async function postMemberRemove(request: Request, env: Env): Promise<Resp
   // Cross-team: the REMOVED person rides their own user channel — their other
   // devices update the team switcher and leave this team's screens (decision #8).
   await publishUserChange(env.REALTIME, body.userId, "teams", guard.teamId, "remove")
-  // R23: the AFFECTED ROW, never the collection — see RULES.md.
+  // R23: the affected ROW, never the collection. See RULES.md.
   return json({ updated: await oneMember(env, cfg, guard, body.userId) })
 }

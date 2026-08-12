@@ -100,7 +100,7 @@ export async function postUpdateHelp(request: Request, env: Env): Promise<Respon
   requireText(body.description, "Description", TEXT_LIMITS.long)
   await updateTicket(cfg, guard, actor, body.id, body, body.expectedVersion)
   await publishChange(env.REALTIME, guard.teamId, "help", body.id)
-  // R23: the AFFECTED ROW, never the collection — see RULES.md.
+  // R23: the affected ROW, never the collection. See RULES.md.
   return json({ updated: await getTicket(cfg, guard, body.id) })
 }
 
@@ -118,7 +118,7 @@ export async function postHelpStatus(request: Request, env: Env): Promise<Respon
   // R17: already at that status → zero rows moved → no ping, no duplicate history.
   const changed = await setStatus(cfg, guard, actor, body.id, status)
   if (changed) await publishChange(env.REALTIME, guard.teamId, "help", body.id)
-  // R23: the AFFECTED ROW, never the collection — see RULES.md.
+  // R23: the affected ROW, never the collection. See RULES.md.
   return json({ updated: await getTicket(cfg, guard, body.id) })
 }
 

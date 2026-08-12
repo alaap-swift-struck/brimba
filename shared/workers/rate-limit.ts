@@ -14,9 +14,11 @@
 //   capacity. Keyed to the signed-in user, or to the caller's IP before they
 //   are (a sign-in door has no user yet, and is exactly what gets guessed at).
 //
-//   PER TENANT — one busy tenant must not be able to spend everyone else's. The
-//   yardstick is dozens of large tenants on one app, so an unbounded tenant is
-//   a noisy-neighbour problem for every other customer on the account.
+//   PER TENANT — one busy tenant must not be able to spend everyone else's. That
+//   ceiling is NOT here: a team-scoped request carries no team in its URL (it is
+//   resolved from the session), so the public door cannot key on one without a
+//   session lookup of its own on every request. It lives in `teamContext`
+//   (shared/workers/gating.ts), the first point the team is actually known.
 //
 // Cloudflare's own rate limiter does the counting: it is per-colocation rather
 // than globally exact, which is the right trade here. This is a surge ceiling,
@@ -31,8 +33,6 @@ export type RateLimiter = { limit(opts: { key: string }): Promise<{ success: boo
 export type RateLimitEnv = {
   /** Per signed-in user (or per IP before sign-in). */
   USER_LIMITER?: RateLimiter
-  /** Per team, so one tenant cannot spend another's capacity. */
-  TEAM_LIMITER?: RateLimiter
   /** The tighter ceiling for the EXPENSIVE doors — see HEAVY_PATHS. */
   HEAVY_LIMITER?: RateLimiter
 }
@@ -73,12 +73,6 @@ export function callerKey(request: Request): string {
   return `ip:${request.headers.get("CF-Connecting-IP") ?? "unknown"}`
 }
 
-/** The team the caller is acting in, if the request says so. */
-export function teamKey(request: Request): string | null {
-  const team = new URL(request.url).searchParams.get("team")
-  return team ? `t:${team.slice(0, 64)}` : null
-}
-
 /** The 429 body. Says what happened and what to do, in the app's own voice —
  * a rate limit a person meets by accident should not read like a security
  * incident. */
@@ -105,11 +99,6 @@ export async function rateLimit(request: Request, env: RateLimitEnv): Promise<Re
   try {
     if (env.USER_LIMITER) {
       const { success } = await env.USER_LIMITER.limit({ key: callerKey(request) })
-      if (!success) return tooManyRequests()
-    }
-    const team = teamKey(request)
-    if (env.TEAM_LIMITER && team) {
-      const { success } = await env.TEAM_LIMITER.limit({ key: team })
       if (!success) return tooManyRequests()
     }
     // The expensive doors carry a second, tighter ceiling. A caller must pass

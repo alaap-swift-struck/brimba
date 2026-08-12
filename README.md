@@ -39,6 +39,10 @@ and screens are written) → the reference docs below as you need them →
 [EDGE-CASES.md](EDGE-CASES.md) before touching anything subtle →
 [OPERATIONS.md](OPERATIONS.md) to ship.
 - **[SCALING.md](SCALING.md)** — the two axes (how much data, how many requests), the live platform ceilings, what breaks first, and the plans for the two that need a human decision.
+- **[BASE-IMPROVEMENTS.md](BASE-IMPROVEMENTS.md)** — the running record of what each review found and changed, including what BREAKS for a fork already on the base.
+- **[mcp-quickstart.md](mcp-quickstart.md)** — the short version of MCP.md: connect an outside tool in a few steps.
+- **[AGENTS.md](AGENTS.md)** — the pointer file agents read on entry.
+- **[AGENT-MODULES-PLAN.md](AGENT-MODULES-PLAN.md)** — the design record for the agent + modules build (SHIPPED; kept because live docs cite it).
 - **[SECRETS.md](SECRETS.md)** — the encrypted vault: how the one thing GitHub cannot hold in plain text is held anyway, and the runbook for a total loss.
 
 **Rebuilding the whole base from nothing?** Follow

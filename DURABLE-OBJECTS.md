@@ -26,7 +26,7 @@ are different again.
 |---|---|---|---|
 | **Worker** | Deployed code (auth, tenancy, realtime, gateway, content, data-ops) | 6 built | No |
 | **DO class** | A class *inside* a worker (`TeamChannel` in realtime) | 1 today | No |
-| **DO instance** | A *runtime* entity addressed by name (`team:<id>`, `user:<id>`) | Unlimited | Yes — one per team **and** one per signed-in user |
+| **DO instance** | A *runtime* entity addressed by name (`team:<id>`, `team:<id>#<n>`, `user:<id>`) | Unlimited | Yes — one per CHANNEL and one per signed-in user. A team is one channel until it outgrows a single object, then up to 32 (SCALING.md §3) |
 
 An instance is **not** a worker. Addressing one by name conjures it; idle ones
 hibernate and cost ~nothing. Exactly like OOP: one `class` (code), millions of
@@ -94,7 +94,8 @@ plain `server.accept()`. The difference is the whole cost model:
   DO never has to hold a live JS closure per socket just to receive events.
 
 So 10,000 teams with quiet channels use ~no memory. That is the property that
-makes "one instance per team **and** per user" affordable.
+makes "one instance per channel **and** per user" affordable — including the
+extra shards a very large team is split across.
 
 ### The three entry points
 
