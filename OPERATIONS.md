@@ -219,3 +219,46 @@ every protected mutation writes a row.
 **The nightly cron does one more thing.** After sizing databases and sweeping
 retention it now raises `teams.shard_count` for any team past 10,000 members.
 The raise is one-way; see SCALING.md §3.
+
+---
+
+## Scaling round 3 (2026-08-12) — the operations database
+
+**A new D1 per environment**, already created:
+
+| Environment | Database | id |
+|---|---|---|
+| staging | `brimba-ops-staging` | `b622a822-587e-4a67-b75e-922839616e94` |
+| production | `brimba-ops` | `b1389453-fe77-48de-bab1-1dd868e02537` |
+
+**Standing one up from scratch** (a fork, or a rebuild):
+
+```
+npx wrangler d1 create <project>-ops
+npx wrangler d1 execute <project>-ops --remote --file ../../db/ops/0001_operations.sql
+```
+
+Then put the returned id in the `OPS` binding of auth / tenancy / content /
+data-ops / mcp, in BOTH the top-level and `env.staging` blocks.
+
+**Moving the existing rows** — copy, verify, then delete, in that order:
+
+```
+node scripts/move-to-ops.mjs staging --delete-source
+node scripts/move-to-ops.mjs production --delete-source
+```
+
+Without `--delete-source` the rows are copied and left, which is the fully
+reversible state. The script REFUSES to delete unless both sides report the same
+count, and there is no flag to override that.
+
+**If you skip all of this**, nothing breaks. `opsDatabase(env)` falls back to the
+core database when `OPS` is absent, so the app behaves exactly as it did — the
+two tables are simply back where they started.
+
+**A third rate-limit binding.** `HEAVY_LIMITER` (60/60s) on the gateway, for the
+expensive doors — agent, import, export, upload. A caller must pass BOTH it and
+the ordinary 600/60s ceiling.
+
+**The nightly cron does a fourth job**: sweeping uploaded files that no record
+points at, after a seven-day grace period.

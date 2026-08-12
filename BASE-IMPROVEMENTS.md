@@ -467,3 +467,35 @@ coverage. If your fork added a worker, check it is in the root `test` script.
 over-cap upload test used an endless source stream: with the cap working it
 threw immediately, and with the cap BROKEN it looped for ever instead of
 failing. Bound the fixtures you sabotage against.
+
+---
+
+## Scaling round 3 — 2026-08-12 (mostly ADDITIVE for a fork)
+
+**1 · A new database, and it is optional.** `error_logs` and `agent_usage_log`
+moved to an operations database. If your fork does nothing, `opsDatabase(env)`
+falls back to the core database and everything works exactly as before. To adopt
+it, follow OPERATIONS.md — create the D1, apply `db/ops/0001_operations.sql`, add
+the `OPS` binding, run `scripts/move-to-ops.mjs`.
+
+**2 · Mutation responses lost their `total`.** Edit / status / deactivate doors
+return `{ updated }` alone now. An edit cannot change how many rows a collection
+HAS — these counts are unfiltered and the base is deactivate-not-delete — so the
+count was a full-table scan returning a number that had not moved. If your fork
+read `total` off an edit response, read it from the list response instead.
+
+**3 · `forwardToDoor` takes an optional `idempotencyKey`.** Additive; existing
+calls are unchanged.
+
+**4 · `updateTeamDetails` takes an optional `expectedVersion`.** Additive, last
+parameter.
+
+**5 · A third rate-limit binding**, `HEAVY_LIMITER`. Optional and fail-open like
+the other two.
+
+### The lesson from this round
+
+**A sabotage that does nothing looks exactly like a check that works.** One of
+mine grabbed the wrong bracket and inserted no code at all — the suite stayed
+green and I nearly recorded it as "the check holds". Always confirm the sabotage
+actually landed before believing the result.
