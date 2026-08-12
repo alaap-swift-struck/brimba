@@ -6,6 +6,7 @@
 
 import type { ImportColumn, ImportPlan, ImportPlanStep, ImportRejection, TransformKey } from "../../../../shared/types"
 import { BULK_MAX_ROWS } from "../../../../shared/workers/limits"
+import { isInteger, isNegative, isZero, normaliseNumber } from "../../../../shared/workers/numbers"
 import { autoMap, norm, TARGETS, type ReferenceDef, type TargetDef } from "./targets"
 
 /** One parsed file the planner reasons over. `rows` is optional (header-only
@@ -260,6 +261,11 @@ export function scanRows(
       if (out.reject && !vocabReject) vocabReject = out.reject
     }
     if (vocabReject) return { mapped, reject: vocabReject }
+    // NUMBERS. Declared rules only — a target that says nothing pays nothing.
+    // This runs in the SAME pass the execution uses, which is the whole reason a
+    // plan can promise these honestly instead of the run discovering them.
+    const numReject = checkNumbers(def, mapped)
+    if (numReject) return { mapped, reject: numReject }
     const missing = required.find((c) => !mapped[c.key])
     if (missing) return { mapped, reject: `Missing required "${missing.label}".` }
     if (required.length) {
@@ -270,6 +276,57 @@ export function scanRows(
     }
     return { mapped }
   })
+}
+
+/**
+ * Every declared numeric rule on one mapped row, or the first reason it fails.
+ *
+ * All three of these are knowable from the TARGET'S OWN DECLARATIONS plus the
+ * row in front of you — no database, no current state, no other row. That is
+ * precisely why they belong at plan time: a plan that says "23 will import" and
+ * delivers 18 has not mispredicted an unknowable, it has failed to read its own
+ * declarations.
+ *
+ * THE ONE THING THAT CANNOT MOVE HERE is "this would take stock below zero".
+ * Predicting that needs the CURRENT balance of every affected record before any
+ * row is written — and that balance changes as earlier rows land, so a plan-time
+ * answer would be wrong for every row after the first. It stays at write time,
+ * and AGENTIC-IMPORT.md says how a plan presents a number it cannot make exact.
+ */
+function checkNumbers(def: TargetDef, mapped: Record<string, string>): string | undefined {
+  for (const col of def.columns) {
+    const rule = col.numeric
+    if (!rule) continue
+    const raw = mapped[col.key]
+    if (!raw) continue // absence is the required-column check's job, not this one
+
+    const parsed = normaliseNumber(raw)
+    if (!parsed.ok) return `"${raw}" isn't a valid ${col.label.toLowerCase()} — ${parsed.reason}.`
+    const value = parsed.value
+    mapped[col.key] = value // the row carries the CANONICAL string onward
+
+    if (rule.integer && !isInteger(value))
+      return `${col.label} must be a whole number, but this row says "${raw}".`
+    if (rule.nonZero && isZero(value))
+      return `${col.label} can't be zero — a movement of nothing isn't a movement.`
+
+    const negative = isNegative(value)
+    if (rule.sign === "positive" && negative)
+      return `${col.label} must be positive, but this row says "${raw}".`
+    if (rule.sign === "negative" && !negative && !isZero(value))
+      return `${col.label} must be negative, but this row says "${raw}".`
+
+    if (rule.signFrom) {
+      const kind = (mapped[rule.signFrom.column] ?? "").trim()
+      const wantsPositive = rule.signFrom.positive.some((k) => norm(k) === norm(kind))
+      const wantsNegative = rule.signFrom.negative.some((k) => norm(k) === norm(kind))
+      if (wantsPositive && negative)
+        return `A "${kind}" needs a positive ${col.label.toLowerCase()}, but this row says "${raw}".`
+      if (wantsNegative && !negative)
+        return `A "${kind}" needs a negative ${col.label.toLowerCase()}, but this row says "${raw}".`
+    }
+  }
+  return undefined
 }
 
 /** Keep a plan's stored rejection list bounded (the COUNT stays exact). */

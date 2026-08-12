@@ -64,6 +64,42 @@ export async function oneSelectable(
   return (await listSelectable(cfg, guard)).find((v) => v.id === id) ?? null
 }
 
+/**
+ * LAW R24: the bulk twin of setSelectableActive. Declared `together` in
+ * `shared/workers/bulk-doors.ts` — each dropdown value's active flag is
+ * independent of every other's, so nothing here reads a previous row's result
+ * and the rows could legitimately run at once.
+ *
+ * It still iterates sequentially, because forty rows through the REST door is
+ * already fast and a bounded loop is easier to reason about than a fan-out. The
+ * DECLARATION is the contract; this is an implementation detail that may change.
+ *
+ * R17 rides each row: the current-status predicate is inside the UPDATE, so a
+ * value already in the requested state moves zero rows, publishes nothing, and
+ * writes no history — which is what makes a re-run of the same bulk harmless.
+ */
+export async function bulkSetSelectableActive(
+  cfg: D1Rest,
+  guard: MemberGuard,
+  actor: Actor,
+  ids: string[],
+  active: boolean
+): Promise<{ changed: string[]; skipped: number }> {
+  const changed: string[] = []
+  let skipped = 0
+  for (const id of ids) {
+    try {
+      if (await setSelectableActive(cfg, guard, actor, id, active)) changed.push(id)
+      else skipped++
+    } catch {
+      // One bad id must not abandon the other thirty-nine. It is counted as
+      // skipped and the caller is told how many.
+      skipped++
+    }
+  }
+  return { changed, skipped }
+}
+
 /** R16: exact server COUNT(*) for the badge — never rows.length. */
 export async function countSelectable(cfg: D1Rest, guard: MemberGuard): Promise<number> {
   const rows = await d1Query<{ n: number }>(cfg, guard.databaseId, "SELECT COUNT(*) AS n FROM selectable_data")

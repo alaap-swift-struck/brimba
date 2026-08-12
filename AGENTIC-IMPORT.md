@@ -391,3 +391,72 @@ through the importer.
 2. **Next:** update-on-import (match-and-update existing rows by natural key),
    scheduled/recurring imports, and the MCP `import` tool so an external system can
    push a batch programmatically (rides the same plan/confirm contract).
+
+---
+
+## Numbers, and what a plan can and cannot promise
+
+### Reading a number the way a person wrote it
+
+`shared/workers/numbers.ts` is the one place a value becomes a number, and it
+never guesses.
+
+| written | read as | why |
+|---|---|---|
+| `1,000` · `1 000` · `12,345,678` | 1000 · 1000 · 12345678 | groups of exactly three digits cannot mean anything else |
+| `1,234.50` | 1234.50 | a grouped thousand with a decimal is unambiguous |
+| `007` | `7` | canonical, so two spellings of one quantity compare equal |
+| **`1,5`** | **refused** | one and a half in most of Europe, fifteen elsewhere — and a CSV cell carries nothing that settles it |
+| `1,23` · `12,3456` | refused | same ambiguity, same answer |
+| `1e3` | refused | unambiguous to a machine, opaque to a person checking stock — and expanding it needs a float |
+
+Refusing ambiguity is a correct answer a person can act on in five seconds; the
+message says what to write instead. **Guessing is a silent, compounding,
+unauditable error in someone's ledger.**
+
+**Every value stays a STRING.** Nothing in this path calls `parseFloat`,
+`parseInt` or `Number()` — a test asserts it, word-bounded. A quantity that
+round-trips through a JavaScript double can arrive as `0.30000000000000004`, and
+an inventory built on that is wrong in a way that gets worse with every movement.
+
+### What a target declares, so the plan can predict
+
+Add `numeric` to any column that holds a number:
+
+```ts
+{ key: "quantity", label: "Quantity", required: true,
+  numeric: {
+    integer: true,                       // 2.5 boxes is a typo
+    nonZero: true,                       // a movement of nothing is not a movement
+    signFrom: { column: "kind",          // the sign follows another column
+                positive: ["receipt"],
+                negative: ["issue"] },
+  } }
+```
+
+Those rules are checked inside `scanRows` — **the same single pass the execution
+uses**. That is what makes the plan honest by construction rather than by a
+second implementation somebody has to keep in step. A plan cannot promise a row
+the run will refuse, because it is asking the identical question.
+
+Declaring nothing costs nothing: a column with no `numeric` block is untouched.
+
+### The one thing a plan cannot make exact
+
+**"This would take stock below zero" stays at write time, deliberately.**
+
+Predicting it would need the current balance of every affected record *before any
+row is written* — and that balance changes as earlier rows land. An answer
+computed at plan time is right for the first row and wrong for every row after
+it, which is worse than no answer because it looks precise.
+
+So a plan must present that number as a **floor, never a figure**:
+
+> 23 rows will import. 5 will be skipped for the reasons listed.
+> **At least 18 will be created** — a few more may be refused at write time if
+> stock has moved since this plan was made.
+
+The count of *predicted* rejections stays exact. The word that changes is the one
+in front of the total: "at least", not "will be". A plan that says "18" and
+delivers 16 has lied; a plan that says "at least 18" and delivers 16 has told the
+truth about what it could know.

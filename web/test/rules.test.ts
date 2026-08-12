@@ -23,6 +23,7 @@ import {
   RULES_REGISTRY,
   TAB_COUNT_EXCEPTIONS,
 } from "@shared/rules/registry"
+import { BULK_DOORS, ORDERED_TWINS } from "@shared/workers/bulk-doors"
 import { SIMPLE_INVALIDATIONS, TEAM_RESOURCES } from "../lib/live-resources"
 import { NAV, TEAM_SECTIONS } from "../lib/pages"
 import { BASE_RECIPES } from "../lib/screens"
@@ -417,6 +418,69 @@ describe("RULES — the laws of the base", () => {
     expect(offenders, `a create door returned a collection (R21): ${offenders.join("; ")}`).toEqual([])
   })
 
+  // R24 — a single-record write door either HAS a bulk twin or a written reason
+  // why it cannot, and every twin declares whether its rows may run TOGETHER or
+  // must run IN ORDER.
+  //
+  // The ordering half is the point. A stock movement computes its balance from
+  // what the previous line left behind; ten run together give ten
+  // individually-plausible lines and a ledger nobody can untangle. Most writes
+  // have no such dependency and are needlessly slow if forced sequential.
+  //
+  // WHAT THIS CHECK CAN AND CANNOT SEE — stated here because a check that
+  // overclaims is worse than none. It CAN prove every door decided, and that an
+  // `in-order` twin does not parallelise. It CANNOT prove a `together` door is
+  // really order-independent; that needs meaning, not shape, so each ordered
+  // twin owes a behavioural test instead.
+  it("bulk-twin-declared: every write door decides about bulk, and ordered twins stay ordered", () => {
+    const missing: string[] = []
+    const parallelised: string[] = []
+    const seen = new Set<string>()
+
+    for (const [path, src] of workerSources()) {
+      if (!path.includes("/src/routes/")) continue
+      const re = /export async function (\w+)\s*\(/g
+      let m: RegExpExecArray | null
+      while ((m = re.exec(src))) {
+        const name = m[1]
+        const body = stripComments(declarationBody(src, m.index))
+        if (!/(?:gatedBody|gated|requireRight)(?:<[^(<>]*>)?\([^)]*"(?:edit|delete)"\s*\)/.test(body)) continue
+        if (/(?:gatedBody|gated|requireRight)(?:<[^(<>]*>)?\([^)]*"create"\s*\)/.test(body)) continue
+        if (/^postBulk/.test(name)) continue // a twin is not itself a single door
+        seen.add(name)
+        if (!BULK_DOORS[name])
+          missing.push(`${path} → ${name} has not decided about bulk (add a twin or a reason to shared/workers/bulk-doors.ts)`)
+      }
+
+      // An ORDERED twin must not fan its rows out. This is the fault the law is
+      // for, and it IS visible in the shape of the code.
+      for (const twin of ORDERED_TWINS) {
+        const at = src.indexOf(`export async function ${twin}`)
+        if (at === -1) continue
+        const body = stripComments(declarationBody(src, at))
+        if (/Promise\.all\(|\.map\(\s*async/.test(body))
+          parallelised.push(`${path} → ${twin} is declared in-order but hands its rows to Promise.all`)
+      }
+    }
+
+    // The tripwire: if the gate scan stops matching, `seen` empties and the
+    // whole check passes vacuously while enforcing nothing.
+    expect(seen.size, "no edit/delete-gated doors found at all — the scan has gone blind").toBeGreaterThan(5)
+    expect(missing, missing.join("; ")).toEqual([])
+    expect(parallelised, parallelised.join("; ")).toEqual([])
+
+    // A declared twin must actually exist. A registry naming a handler nobody
+    // wrote is a law that reads as satisfied and protects nothing.
+    const handlers = new Set<string>()
+    for (const [p2, src] of workerSources())
+      if (p2.includes("/src/routes/"))
+        for (const n of src.matchAll(/export async function (\w+)/g)) handlers.add(n[1])
+    const phantom = Object.values(BULK_DOORS)
+      .flatMap((d) => ("twin" in d ? [d.twin] : []))
+      .filter((t) => !handlers.has(t))
+    expect(phantom, `declared twins that do not exist: ${phantom.join(", ")}`).toEqual([])
+  })
+
   // R23 — a MUTATION door returns the affected row, never the collection.
   //
   // R21 established this for creates and stopped there. Every edit, status and
@@ -800,6 +864,7 @@ describe("RULES — the laws of the base", () => {
       "create-returns-row", // R21: the create-door response scan above
       "create-opens-record", // R22: the form-seam scan above
       "mutation-returns-row", // R23: the mutation-door response scan above
+      "bulk-twin-declared", // R24: the bulk-door scan above
     ])
     for (const r of RULES_REGISTRY) {
       if (r.status === "enforced")

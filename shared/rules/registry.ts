@@ -178,6 +178,13 @@ export const RULES_REGISTRY: Rule[] = [
     checkId: "mutation-returns-row",
     status: "enforced",
   },
+  {
+    id: "R24",
+    dimension: "arch",
+    law: "A single-record write door either HAS a bulk twin or carries a written reason why it cannot — and every twin DECLARES whether its rows may run TOGETHER or must run IN ORDER. The second half is the point. A stock movement computes its balance from the balance the previous line left behind, so running ten together yields ten individually-plausible lines, a ledger that does not add up, and no way to tell afterwards which one was wrong. Most writes have no such dependency and are needlessly slow if forced sequential. The declaration lives in `shared/workers/bulk-doors.ts` keyed by handler name; a door missing from it fails the check, because DECIDING is mandatory and choosing `no twin` is not a failure. MACHINE-CHECKED: every edit/delete-gated door is declared, and an `in-order` twin must not parallelise its rows. NOT machine-checked, stated openly: whether a door declared `together` secretly depends on order — that needs the meaning of the code, not its shape, so each ordered twin owes a BEHAVIOURAL test that runs it with order-dependent rows and asserts the final state. Earned by: a fork's stock ledger, where the parallel burst was the bug nobody could untangle.",
+    checkId: "bulk-twin-declared",
+    status: "enforced",
+  },
 ]
 
 /** R13 — reviewed exemptions: modules that are deliberately NOT import targets,

@@ -340,6 +340,22 @@ export type ImportColumn = {
   values?: string[]
   /** known synonyms → the legal value they mean */
   aliases?: Record<string, string>
+  /** This column holds a NUMBER, and these are the rules a value must satisfy.
+   * Declaring it is what lets the PLAN predict a rejection instead of the run
+   * discovering it — see AGENTIC-IMPORT.md "what a plan can and cannot promise". */
+  numeric?: {
+    /** whole numbers only (a quantity of 2.5 boxes is usually a typo) */
+    integer?: boolean
+    /** zero is not a legal value (a movement of nothing is not a movement) */
+    nonZero?: boolean
+    /** the sign every value must carry, regardless of any other column */
+    sign?: "positive" | "negative"
+    /** the sign is decided by ANOTHER column's value — the "a sign that
+     * contradicts its kind" case. `column` names it; a value listed in
+     * `positive` demands a positive number, one in `negative` demands a
+     * negative one, and anything else imposes no sign rule. */
+    signFrom?: { column: string; positive: string[]; negative: string[] }
+  }
 }
 
 /** The preview an import session produces — a capped sample of mapped rows + issues. */

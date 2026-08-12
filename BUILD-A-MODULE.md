@@ -597,6 +597,26 @@ AFTER SHIP
 
 ---
 
+## Bulk: what LAW R24 asks of you
+
+For every single-record write door you add, decide one thing and write it down in
+`shared/workers/bulk-doors.ts`, keyed by your handler's name: either it has a
+bulk twin, or it has a reason it cannot. Deciding is mandatory; choosing "no
+twin" is a perfectly good answer and the check accepts it, as long as the reason
+is real. If you add a twin you must also declare its ORDERING. `together` means
+the rows are independent and could run in any order — a flag flip, a status move,
+anything where row four does not care what row three did. `in-order` means each
+row's result is computed from what the previous row left behind: a running
+balance, a sequence number, a queue position. Get that wrong in the `together`
+direction and you get a ledger where every line is individually plausible and the
+total is wrong, which nobody can untangle afterwards. The check proves you
+decided, and proves an `in-order` twin never reaches `Promise.all` — but it
+cannot prove a `together` twin is really independent, because that needs the
+meaning of your code rather than its shape. So an `in-order` twin also owes a
+behavioural test in the shape of `workers/tenancy/test/bulk-ordering.test.ts`:
+run it with rows whose correct answer depends on sequence, and assert the final
+state.
+
 ## Anti-patterns (each breaks a Law or a locked decision)
 
 - **A `DELETE` statement.** There is no delete — deactivate. (ARCHITECTURE.md §4.)

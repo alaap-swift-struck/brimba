@@ -8,6 +8,7 @@ import { boundExport, csvResponse, toCsv } from "../../../../shared/workers/csv"
 import { EXPORT_HARD_CAP } from "../../../../shared/workers/limits"
 import { requireText, TEXT_LIMITS } from "../../../../shared/workers/validate"
 import { publishChange } from "../../../../shared/workers/realtime"
+import { requireIdList } from "../../../../shared/workers/bulk"
 import { gated, gatedBody } from "../../../../shared/workers/route"
 import {
   createSelectable,
@@ -16,6 +17,7 @@ import {
   setSelectableActive,
   updateSelectable,
   listSelectableForExport,
+  bulkSetSelectableActive,
   countSelectable,
 } from "../lib/selectable"
 import type { Env } from "../env"
@@ -71,4 +73,18 @@ export async function postSetSelectableActive(request: Request, env: Env): Promi
   if (changed) await publishChange(env.REALTIME, guard.teamId, "selectable_data", body.id)
   // R23: the affected ROW, and no count — an edit cannot move a total. See RULES.md.
   return json({ updated: await oneSelectable(cfg, guard, body.id) })
+}
+
+/** LAW R24 — the bulk twin. Gated ONCE by the SAME right the single door uses,
+ * validates its id list at the boundary, and publishes ONE row-level ping per
+ * CHANGED row (never a list refetch). Declared `together`: no row here depends
+ * on what another row left behind. */
+export async function postBulkSetSelectableActive(request: Request, env: Env): Promise<Response> {
+  const { actor, cfg, guard, body } = await gatedBody<{ ids?: unknown; active?: unknown }>(request, env, "selectable_data", "delete")
+  const ids = requireIdList(body.ids)
+  if (typeof body.active !== "boolean")
+    return fail(400, "invalid_input", "active must be true or false.")
+  const { changed, skipped } = await bulkSetSelectableActive(cfg, guard, actor, ids, body.active)
+  for (const id of changed) await publishChange(env.REALTIME, guard.teamId, "selectable_data", id)
+  return json({ updated: changed.length, skipped })
 }

@@ -79,6 +79,7 @@ import {
   getSelectable,
   getSelectableExport,
   postCreateSelectable,
+  postBulkSetSelectableActive,
   postSetSelectableActive,
   postUpdateSelectable,
 } from "./routes/selectable"
@@ -133,6 +134,7 @@ export const ROUTES: Record<string, { handler: Handler; kind: RouteKind }> = {
   "POST /api/tenancy/selectable": { handler: postCreateSelectable, kind: "mutation" },
   "POST /api/tenancy/selectable/update": { handler: postUpdateSelectable, kind: "mutation" },
   "POST /api/tenancy/selectable/active": { handler: postSetSelectableActive, kind: "mutation" },
+  "POST /api/tenancy/selectable/bulk-active": { handler: postBulkSetSelectableActive, kind: "mutation" },
   // admin/* are ops-only (roll migrations, relocate a module's DB) — they touch
   // no client-visible app row, so they broadcast nothing.
   "POST /api/tenancy/admin/migrate-teams": { handler: migrateTeams, kind: "housekeeping" },

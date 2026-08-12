@@ -14,7 +14,7 @@ import { publishChange } from "../../../../shared/workers/realtime"
 import { isInlineSafeUpload, uploadLengthProblem } from "../../../../shared/workers/image"
 import { ulid } from "../../../../shared/workers/id"
 import { gated, gatedBody } from "../../../../shared/workers/route"
-import { requireIdList } from "../lib/bulk"
+import { requireIdList } from "../../../../shared/workers/bulk"
 import {
   bulkSetLearningActive,
   createLearning,

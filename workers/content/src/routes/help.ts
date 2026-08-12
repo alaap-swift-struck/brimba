@@ -10,7 +10,7 @@ import { fail, json, pagedJson } from "../../../../shared/workers/http"
 import { optionalText, requireText, TEXT_LIMITS } from "../../../../shared/workers/validate"
 import { publishChange } from "../../../../shared/workers/realtime"
 import { gated, gatedBody } from "../../../../shared/workers/route"
-import { requireIdList } from "../lib/bulk"
+import { requireIdList } from "../../../../shared/workers/bulk"
 import {
   addReply,
   bulkSetStatus,
