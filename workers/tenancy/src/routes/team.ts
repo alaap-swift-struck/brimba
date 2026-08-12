@@ -113,11 +113,11 @@ export async function createNamedTeam(request: Request, env: Env): Promise<Respo
 }
 
 export async function postUpdateTeam(request: Request, env: Env): Promise<Response> {
-  const { actor, cfg, guard, body } = await gatedBody<{ name?: string; logoDataUrl?: string }>(
+  const { actor, cfg, guard, body } = await gatedBody<{ name?: string; logoDataUrl?: string; expectedVersion?: string }>(
     request, env, "teams", "edit"
   )
   const name = requireText(body.name, "Name", TEXT_LIMITS.short)
-  await updateTeamDetails(env, guard.teamId, name, body.logoDataUrl)
+  await updateTeamDetails(env, guard.teamId, name, body.logoDataUrl, body.expectedVersion)
   // Record the edit on the team's Activity feed (was missing — team-edit feedback).
   await logActivity(cfg, guard.databaseId, actor, {
     type: "Team details updated",

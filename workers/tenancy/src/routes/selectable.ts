@@ -58,8 +58,12 @@ export async function postUpdateSelectable(request: Request, env: Env): Promise<
   const value = requireText(body.value, "Option", TEXT_LIMITS.short)
   await updateSelectable(cfg, guard, actor, body.id, value, body.expectedVersion)
   await publishChange(env.REALTIME, guard.teamId, "selectable_data", body.id)
-  // R23: the AFFECTED ROW, never the collection — see RULES.md.
-  return json({ updated: await oneSelectable(cfg, guard, body.id), total: await countSelectable(cfg, guard) })
+  // R23 + R16: the affected ROW only. No count — an edit cannot change how many
+  // rows a collection HAS (these counts are unfiltered, and deactivate-not-delete
+  // means even a deactivate leaves the row there). Paying for a full-table
+  // COUNT(*) to return a number that provably did not move is the most avoidable
+  // query in the app: it is on the hot path of every single edit.
+  return json({ updated: await oneSelectable(cfg, guard, body.id) })
 }
 
 export async function postSetSelectableActive(request: Request, env: Env): Promise<Response> {
@@ -69,6 +73,10 @@ export async function postSetSelectableActive(request: Request, env: Env): Promi
   // R17: no-op repeat → no ping, no duplicate history (see setSelectableActive).
   const changed = await setSelectableActive(cfg, guard, actor, body.id, body.active)
   if (changed) await publishChange(env.REALTIME, guard.teamId, "selectable_data", body.id)
-  // R23: the AFFECTED ROW, never the collection — see RULES.md.
-  return json({ updated: await oneSelectable(cfg, guard, body.id), total: await countSelectable(cfg, guard) })
+  // R23 + R16: the affected ROW only. No count — an edit cannot change how many
+  // rows a collection HAS (these counts are unfiltered, and deactivate-not-delete
+  // means even a deactivate leaves the row there). Paying for a full-table
+  // COUNT(*) to return a number that provably did not move is the most avoidable
+  // query in the app: it is on the hot path of every single edit.
+  return json({ updated: await oneSelectable(cfg, guard, body.id) })
 }

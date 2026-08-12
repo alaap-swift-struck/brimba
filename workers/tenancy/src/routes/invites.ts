@@ -54,8 +54,12 @@ export async function postRevokeInvite(request: Request, env: Env): Promise<Resp
   // Revoke is an in-place edit (the row stays, status → 'revoked'), so re-pulling
   // this one id keeps the list live without a full refetch.
   await publishChange(env.REALTIME, guard.teamId, "invites", body.inviteId, "edit")
-  // R23: the AFFECTED ROW, never the collection — see RULES.md.
-  return json({ updated: await oneInvite(env, cfg, guard, body.inviteId), total: await countInvites(env, guard) })
+  // R23 + R16: the affected ROW only. No count — an edit cannot change how many
+  // rows a collection HAS (these counts are unfiltered, and deactivate-not-delete
+  // means even a deactivate leaves the row there). Paying for a full-table
+  // COUNT(*) to return a number that provably did not move is the most avoidable
+  // query in the app: it is on the hot path of every single edit.
+  return json({ updated: await oneInvite(env, cfg, guard, body.inviteId) })
 }
 
 /** The per-team invite_logs audit for one invite (M4): inviter snapshot +

@@ -59,8 +59,8 @@ export function useScreenActions(teamId: string | null) {
           return created?.id // R22: FormShell opens the new invite
         }
         case "invites.revoke": {
-          const { updated, total } = await tenancy.revokeInvite(payload.inviteId)
-          await applyUpdated({ listKey: `invites:${teamId}`, id: payload.inviteId, row: updated, total, totalCacheKey: totalKey("invites", teamId) })
+          const { updated } = await tenancy.revokeInvite(payload.inviteId)
+          await applyUpdated({ listKey: `invites:${teamId}`, id: payload.inviteId, row: updated })
           toast.success("Invite revoked.")
           break
         }
@@ -112,7 +112,7 @@ export function useScreenActions(teamId: string | null) {
       if (!teamId) return
       const { created, total, mineTotal } = await contentApi.createHelp(input)
       // Both scopes: you raised it, so it belongs in All AND in My tickets.
-      await applyCreated({ listKey: helpKey(teamId, "all"), created, total, totalCacheKey: totalKey("help", teamId) })
+      await applyCreated({ listKey: helpKey(teamId, "all"), created })
       await applyCreated({
         listKey: helpKey(teamId, "mine"),
         created,

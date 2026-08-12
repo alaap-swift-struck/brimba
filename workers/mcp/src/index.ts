@@ -18,6 +18,7 @@
 // see it), the same reviewed class as auth's session rows. Tool calls themselves
 // mutate nothing here — the REAL doors they forward to publish their own pings.
 
+import { IDEMPOTENCY_HEADER } from "../../../shared/workers/concurrency"
 import { fail, json } from "../../../shared/workers/http"
 import { GuardError, whoAmI } from "../../../shared/workers/gating"
 import { requireText, TEXT_LIMITS } from "../../../shared/workers/validate"
@@ -51,6 +52,10 @@ async function handleMcp(request: Request, env: Env): Promise<Response> {
   if (!rpc || rpc.jsonrpc !== "2.0" || typeof rpc.method !== "string")
     return rpcError(null, -32600, "Expected a JSON-RPC 2.0 request.")
   const id = rpc.id ?? null
+  // A machine client retrying a dropped POST /mcp re-sends the same headers, so
+  // this is all it takes for the MCP surface to inherit the web app's retry
+  // protection — the door already knows what to do with it.
+  const idempotencyKey = request.headers.get(IDEMPOTENCY_HEADER)
 
   switch (rpc.method) {
     case "initialize":
@@ -79,7 +84,7 @@ async function handleMcp(request: Request, env: Env): Promise<Response> {
       if (!tool) return rpcError(id, -32602, `No such tool: ${name}.`)
       const input = (rpc.params?.arguments ?? {}) as Record<string, unknown>
       const cookie = await sessionCookieFor(env, token)
-      const out = await forwardTool(env, tool, input, cookie)
+      const out = await forwardTool(env, tool, input, cookie, idempotencyKey)
       return rpcResult(id, {
         content: [{ type: "text", text: out.text }],
         isError: !out.ok,

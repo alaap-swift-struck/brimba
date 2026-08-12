@@ -34,7 +34,7 @@ import { auditItems } from "@/lib/audit-overview"
 import { formatActivityWhen } from "@/lib/format"
 import { RichText } from "@/components/rich-text"
 import { usePermissions } from "@/lib/perms"
-import { applyUpdated, totalKey } from "@/lib/live-resources"
+import { applyUpdated } from "@/lib/live-resources"
 import { primeCache, useCached } from "@/lib/store"
 
 // Show the linked resource IN-APP. We pick the player by the content-type keyword
@@ -112,7 +112,7 @@ export function LearningDetailScreen({ teamId, learningId }: { teamId: string; l
   }
 
   async function updateDetails(values: LearningFormValues) {
-    const { updated, total } = await content.updateLearning({
+    const { updated } = await content.updateLearning({
       id: learningId,
       title: values.title,
       category: values.category || null,
@@ -122,7 +122,7 @@ export function LearningDetailScreen({ teamId, learningId }: { teamId: string; l
       expectedVersion: item?.updatedAt ?? null,
     })
     // R23: the door hands back ONE row — patch it in (CACHING rule 3).
-    await applyUpdated({ listKey: `learning:${teamId}`, id: learningId, row: updated, total, totalCacheKey: totalKey("learning", teamId) })
+    await applyUpdated({ listKey: `learning:${teamId}`, id: learningId, row: updated })
     invalidateActivity()
     toast.success("Article updated.")
   }
@@ -137,8 +137,8 @@ export function LearningDetailScreen({ teamId, learningId }: { teamId: string; l
   async function setActive(activeNext: boolean) {
     setBusyActive(true)
     try {
-      const { updated, total } = await content.setLearningActive(learningId, activeNext)
-      await applyUpdated({ listKey: `learning:${teamId}`, id: learningId, row: updated, total, totalCacheKey: totalKey("learning", teamId) })
+      const { updated } = await content.setLearningActive(learningId, activeNext)
+      await applyUpdated({ listKey: `learning:${teamId}`, id: learningId, row: updated })
       invalidateActivity()
       toast.success(activeNext ? "Article activated." : "Article deactivated.")
     } catch (err) {

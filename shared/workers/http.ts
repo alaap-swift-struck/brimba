@@ -38,11 +38,25 @@ export const pagedJson = (
  * This is the ONE cookie-forward seam both act-as-user executors share. */
 export async function forwardToDoor(
   fetcher: { fetch(url: string, init?: RequestInit): Promise<Response> },
-  opts: { path: string; method: string; cookie: string; query?: string; body?: unknown }
+  opts: {
+    path: string
+    method: string
+    cookie: string
+    query?: string
+    body?: unknown
+    /** The caller's `Idempotency-Key`, when they sent one. A MACHINE caller is
+     * the likeliest retrier there is — an agent loop or an integration with
+     * automatic retries will re-send a failed POST without a person deciding
+     * to — so the key has to survive the hop to the door, or the machine
+     * surface is the one place the protection does not reach. */
+    idempotencyKey?: string | null
+  }
 ): Promise<Response> {
   const init: RequestInit = { method: opts.method, headers: { Cookie: opts.cookie } }
   if (opts.method === "POST") {
-    ;(init.headers as Record<string, string>)["Content-Type"] = "application/json"
+    const headers = init.headers as Record<string, string>
+    headers["Content-Type"] = "application/json"
+    if (opts.idempotencyKey) headers["Idempotency-Key"] = opts.idempotencyKey
     init.body = JSON.stringify(opts.body ?? {})
   }
   return fetcher.fetch(`https://internal${opts.path}${opts.query ?? ""}`, init)

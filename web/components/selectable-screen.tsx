@@ -88,8 +88,8 @@ export function SelectableScreen({
   async function saveRename(id: string) {
     if (!editValue.trim()) return
     try {
-      const { updated, total } = await tenancy.updateSelectable(id, editValue)
-      await applyUpdated({ listKey: `selectable:${teamId}`, id, row: updated, total, totalCacheKey: totalKey("selectable", teamId) })
+      const { updated } = await tenancy.updateSelectable(id, editValue)
+      await applyUpdated({ listKey: `selectable:${teamId}`, id, row: updated })
       setEditingId(null)
       toast.success("Renamed.")
     } catch (err) {
@@ -102,8 +102,8 @@ export function SelectableScreen({
   // and drops out of the form pickers. Same key the pickers read, so both refresh.
   async function setActive(v: SelectableValue, next: boolean) {
     try {
-      const { updated, total } = await tenancy.setSelectableActive(v.id, next)
-      await applyUpdated({ listKey: `selectable:${teamId}`, id: v.id, row: updated, total, totalCacheKey: totalKey("selectable", teamId) })
+      const { updated } = await tenancy.setSelectableActive(v.id, next)
+      await applyUpdated({ listKey: `selectable:${teamId}`, id: v.id, row: updated })
       toast.success(next ? `Activated "${v.value}".` : `Deactivated "${v.value}".`)
     } catch (err) {
       toast.error(err instanceof ApiFailure ? err.message : "Couldn't update that option.")

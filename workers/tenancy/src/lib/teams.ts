@@ -2,6 +2,7 @@
 // (locked architecture), seeded with default roles + dropdown values.
 
 import type { ActiveContext, ReceivedInvite, TeamMeta, TeamSummary } from "../../../../shared/types"
+import { assertNotConflicted } from "../../../../shared/workers/concurrency"
 import { logActivity } from "../../../../shared/workers/activity"
 import {
   d1CreateDatabase,
@@ -159,7 +160,9 @@ export async function updateTeamDetails(
   env: Env,
   teamId: string,
   name: string,
-  logoDataUrl?: string
+  logoDataUrl?: string,
+  /** The `updated_at` the editor was shown — see shared/workers/concurrency.ts. */
+  expectedVersion?: string | null
 ): Promise<void> {
   const clean = name.trim()
   if (!clean) throw new GuardError(400, "invalid_input", "A team needs a name.")
@@ -176,15 +179,21 @@ export async function updateTeamDetails(
   }
 
   const now = new Date().toISOString()
-  if (logoUrl !== undefined) {
-    await env.DB.prepare("UPDATE teams SET name = ?, logo_url = ?, updated_at = ? WHERE id = ?")
-      .bind(clean, logoUrl, now, teamId)
-      .run()
-  } else {
-    await env.DB.prepare("UPDATE teams SET name = ?, updated_at = ? WHERE id = ?")
-      .bind(clean, now, teamId)
-      .run()
-  }
+  // The version rides the WHERE here too, so two admins renaming the team at
+  // once cannot silently overwrite each other. Native binding rather than the
+  // REST door, so the count comes back as meta.changes instead of RETURNING —
+  // same guarantee, different dialect. An absent expectation appends nothing,
+  // so an internal caller behaves exactly as before.
+  const guardClause = expectedVersion ? " AND updated_at = ?" : ""
+  const versionArg = expectedVersion ? [expectedVersion] : []
+  const res = logoUrl !== undefined
+    ? await env.DB.prepare(`UPDATE teams SET name = ?, logo_url = ?, updated_at = ? WHERE id = ?${guardClause}`)
+        .bind(clean, logoUrl, now, teamId, ...versionArg)
+        .run()
+    : await env.DB.prepare(`UPDATE teams SET name = ?, updated_at = ? WHERE id = ?${guardClause}`)
+        .bind(clean, now, teamId, ...versionArg)
+        .run()
+  assertNotConflicted(res.meta.changes, expectedVersion)
 }
 
 /**

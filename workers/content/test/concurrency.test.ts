@@ -195,3 +195,33 @@ describe("the client side of the retry key", () => {
     expect(client).toMatch(/init\?\.method && init\.method !== "GET" \? currentSubmitKey\(\) : null/)
   })
 })
+
+describe("the machine surface inherits the retry protection", () => {
+  it("MCP passes an inbound Idempotency-Key through to the door", () => {
+    // An agent loop or an integration with automatic retries re-sends a failed
+    // POST without a person deciding to — so a MACHINE caller is the likeliest
+    // retrier there is. If the key stops at the MCP front desk, the machine
+    // surface becomes the one place the protection does not reach.
+    const mcp = readFileSync(join(root, "workers", "mcp", "src", "index.ts"), "utf8")
+    expect(mcp).toMatch(/const idempotencyKey = request\.headers\.get\(IDEMPOTENCY_HEADER\)/)
+    expect(mcp).toMatch(/forwardTool\(env, tool, input, cookie, idempotencyKey\)/)
+
+    const door = readFileSync(join(root, "shared", "workers", "http.ts"), "utf8")
+    expect(
+      /if \(opts\.idempotencyKey\) headers\["Idempotency-Key"\] = opts\.idempotencyKey/.test(door),
+      "the shared forward seam must actually SET the header, not just accept it"
+    ).toBe(true)
+  })
+
+  it("the team record carries the version guard too", () => {
+    // Native binding rather than the REST door, so the outcome is meta.changes
+    // instead of RETURNING — same guarantee, different dialect.
+    const teams = readFileSync(join(root, "workers", "tenancy", "src", "lib", "teams.ts"), "utf8")
+    const fn = teams.slice(teams.indexOf("export async function updateTeamDetails"))
+    expect(fn).toMatch(/expectedVersion \? " AND updated_at = \?" : ""/)
+    expect(
+      /assertNotConflicted\(res\.meta\.changes, expectedVersion\)/.test(fn),
+      "the predicate's outcome must be acted on, or two admins renaming at once still overwrite each other"
+    ).toBe(true)
+  })
+})

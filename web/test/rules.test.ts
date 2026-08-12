@@ -451,10 +451,25 @@ describe("RULES — the laws of the base", () => {
         // most call sites, and a scan blind to that skips nearly every door.
         if (!/(?:gatedBody|gated|requireRight)(?:<[^(<>]*>)?\([^)]*"(?:edit|delete)"\s*\)/.test(body))
           continue
+        // A door that ALSO gates on `create` is a CREATE door and belongs to
+        // R21, not here — `postCreateRole` demands edit as well, because
+        // creating a role WITH a permission matrix is create-plus-edit in one
+        // move. A create legitimately returns the new total, since a create is
+        // the only thing that can move it. Without this, the two derived rules
+        // overlap and R23 contradicts R21 on the same handler.
+        if (/(?:gatedBody|gated|requireRight)(?:<[^(<>]*>)?\([^)]*"create"\s*\)/.test(body)) continue
         if (MUTATION_RETURNS_EXEMPT[name]) continue
         seen.add(name)
         if (/:\s*await\s+(?:list|search)\w*\(/.test(body) || /return\s+\w*Page\(/.test(body))
           offenders.push(`${path} → ${name} hands back a COLLECTION (return the affected row + its exact total)`)
+        // …and it must not COUNT either. Every one of these counts is an
+        // unfiltered COUNT(*), and the base is deactivate-not-delete, so no
+        // edit — not even a deactivate — can change how many rows a collection
+        // HAS. Only a create can. A full-table count on the hot path of every
+        // edit, to return a number that provably did not move, is the most
+        // avoidable query in the app.
+        if (/:\s*await\s+count\w*\(/.test(body))
+          offenders.push(`${path} → ${name} runs a COUNT an edit cannot have changed (drop it — only a create moves the total)`)
       }
     }
     // The same two-signal tripwire R21 uses. A handler named postUpdate* or
