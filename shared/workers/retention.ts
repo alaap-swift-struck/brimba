@@ -59,20 +59,6 @@ export const CORE_RETENTION: RetentionRule[] = [
     why: "Same shape as a login code, same reason.",
   },
   {
-    table: "error_logs",
-    column: "at",
-    days: 90,
-    envVar: "RETAIN_ERROR_LOGS_DAYS",
-    why: "ERROR-HANDLING.md has always described this as a 90-day log. Nothing enforced it, so it was a forever log wearing a 90-day label — this makes the documented promise true.",
-  },
-  {
-    table: "agent_usage_log",
-    column: "created_at",
-    days: 400,
-    envVar: "RETAIN_AGENT_USAGE_DAYS",
-    why: "Long enough to answer 'what did we spend last year' with a margin, and it is per-turn exhaust that grows fastest of anything here.",
-  },
-  {
     table: "idempotency_keys",
     column: "created_at",
     days: 2,
@@ -85,6 +71,27 @@ export const CORE_RETENTION: RetentionRule[] = [
     days: KEEP_FOREVER,
     envVar: "RETAIN_ACCOUNT_ACTIVITY_DAYS",
     why: "AUDIT, not exhaust — a person's own security history (sign-ins, email changes). Off until an owner chooses a window.",
+  },
+]
+
+/** The OPERATIONS database — the two pure-exhaust tables that used to sit in the
+ * shared core database and crowd out the records. They moved (SCALING.md §5.2);
+ * their retention rules move with them, or the sweep would quietly prune an
+ * empty table in the old database while the real one grew unchecked. */
+export const OPS_RETENTION: RetentionRule[] = [
+  {
+    table: "error_logs",
+    column: "at",
+    days: 90,
+    envVar: "RETAIN_ERROR_LOGS_DAYS",
+    why: "ERROR-HANDLING.md has always described this as a 90-day log. Nothing enforced it, so it was a forever log wearing a 90-day label — this makes the documented promise true.",
+  },
+  {
+    table: "agent_usage_log",
+    column: "created_at",
+    days: 400,
+    envVar: "RETAIN_AGENT_USAGE_DAYS",
+    why: "Long enough to answer 'what did we spend last year' with a margin, and it is per-turn exhaust that grows fastest of anything here.",
   },
 ]
 

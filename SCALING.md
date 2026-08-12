@@ -34,8 +34,8 @@ number at all.
 
 ## 2 · What breaks first
 
-**Inside one tenant — the shared core database.** See below; it is now the first
-ceiling on both axes, because the one that used to be has been relieved.
+**Inside one tenant — the team's own database at 10 GB.** That has three valves
+(§3), so it is a managed ceiling rather than a wall.
 
 **The live channel — RELIEVED (2026-08-11).** One `TeamChannel` Durable Object
 held a team's sockets and `broadcast()` looped every one of them,
@@ -45,11 +45,16 @@ second. It was the first hard ceiling in the system and the only one with no
 valve at all. A team channel is now addressable as **N objects** — §3, valve 4.
 
 **Across tenants — the shared core database.** `users`, `team_members`,
-`sessions`, `invite_index`, `error_logs`, `account_activity`, `agent_usage_log`
-all live in ONE D1, so they hold the sum of every tenant. Per-team sharding does
-nothing for it and there is no mover for it. At dozens of large tenants it is the
-first shared thing to reach 10 GB. It is now watched nightly (it never used to
-be) and its exhaust is now swept (§4), which buys years — not for ever. Plan in §5.2.
+`sessions`, `invite_index` and `account_activity` live in ONE D1, so they hold
+the sum of every tenant. Per-team sharding does nothing for it. At dozens of
+large tenants it is the first shared thing to reach 10 GB.
+
+It is now watched nightly (it never used to be), its exhaust is swept (§4), and
+— the change that actually bought the years — **the two fastest-growing tables
+in the system have left it entirely**. `error_logs` and `agent_usage_log` now
+live in their own operations database (§4.9). Nothing joins to either, so the
+move cost nothing and the shared database keeps its 10 GB for the rows every
+request depends on.
 
 ---
 
@@ -255,6 +260,37 @@ export is a browser download: a response header reaches no human, and a warning
 row inside the CSV would corrupt the round-trip back through the importer that
 the format promises.
 
+## 4.9 · The operations database
+
+The shared core database is the one thing every tenant writes to, and it is
+capped at 10 GB however many customers there are. Two of its tables were pure
+exhaust and were growing faster than everything else combined:
+
+| Table | One row per |
+|---|---|
+| `error_logs` | anything that goes wrong, anywhere |
+| `agent_usage_log` | anyone using the AI, once per turn |
+
+Nothing joins to either. Every read of either is by one tagged column. So they
+moved to a database of their own, and the shared one keeps its space for
+identity, membership and sessions — the rows every single request depends on.
+
+**What did NOT move.** Per-team databases are untouched; the tenancy model is
+exactly as it was. And `agent_credits` — the BALANCE the quota gate reads on the
+request path — stays in the core database with the team record. Only the spend
+history moved.
+
+**The fallback is the safety.** `opsDatabase(env)` returns `env.OPS ?? env.DB`,
+so a worker with no `OPS` binding — a fork that has not created the database,
+`wrangler dev`, a deploy that missed a config — writes to the core database
+exactly as before. A partition that breaks the app when its extra database is
+absent would be a worse problem than the one it solves.
+
+**The move is `scripts/move-to-ops.mjs`**: copy → verify both sides report the
+same count → delete the source, and only then. There is deliberately no flag to
+skip the verification, because the one situation where you would want to skip it
+is exactly the situation where you must not.
+
 ## 5 · The plans that are NOT built
 
 Each of these is architectural: expensive to reverse, and a human decision. They
@@ -370,44 +406,54 @@ sorting the whole table.
 
 ---
 
-## 7 · The scorecard — 54 → 70 → 90
+## 7 · The scorecard — 54 → 70 → 90 → 94
 
 Recomputable by hand: `total = Σ(score × weight) ÷ 100`.
 
-| Dimension | Start | Pass 1 | Pass 2 | Weight |
-|---|---|---|---|---|
-| Query shape & indexing | 27 | 84 | **92** | 13 |
-| Bulk paths & lifecycle | 34 | 84 | **88** | 12 |
-| Sequential & atomic ops | 39 | 39 | **88** | 11 |
-| Client cache bounds | 88 | 100 | 100 | 9 |
-| Client data volume | 51 | 51 | **88** | 9 |
-| File & object storage | 22 | 39 | **84** | 8 |
-| Data partitioning | 51 | 76 | 76 | 8 |
-| Write fan-out & realtime | 30 | 30 | **90** | 7 |
-| Growth triggers & headroom | 76 | 92 | **94** | 7 |
-| Surge self-protection | 64 | 64 | **88** | 6 |
-| Endpoint contract stability | 96 | 96 | **90** | 5 |
-| Elastic response time | 100 | 100 | 100 | 5 |
+| Dimension | Start | Pass 1 | Pass 2 | Pass 3 | Weight |
+|---|---|---|---|---|---|
+| Query shape & indexing | 27 | 84 | 92 | **95** | 13 |
+| Bulk paths & lifecycle | 34 | 84 | 88 | **94** | 12 |
+| Sequential & atomic ops | 39 | 39 | 88 | **96** | 11 |
+| Client cache bounds | 88 | 100 | 100 | 100 | 9 |
+| Client data volume | 51 | 51 | 88 | **90** | 9 |
+| File & object storage | 22 | 39 | 84 | **92** | 8 |
+| Data partitioning | 51 | 76 | 76 | **94** | 8 |
+| Write fan-out & realtime | 30 | 30 | 90 | 90 | 7 |
+| Growth triggers & headroom | 76 | 92 | 94 | 94 | 7 |
+| Surge self-protection | 64 | 64 | 88 | **94** | 6 |
+| Endpoint contract stability | 96 | 96 | 90 | 90 | 5 |
+| Elastic response time | 100 | 100 | 100 | 100 | 5 |
 
 ```
-1196 + 1056 + 968 + 900 + 792 + 672 + 608 + 630 + 658 + 528 + 450 + 500 = 8958
-8958 ÷ 100 = 90
+1235 + 1128 + 1056 + 900 + 810 + 736 + 752 + 630 + 658 + 564 + 450 + 500 = 9419
+9419 ÷ 100 = 94
 ```
 
-Endpoint stability FELL, deliberately: R21/R23 changed eleven response shapes and
-the upload changed its wire format. Both are recorded in BASE-IMPROVEMENTS.md as
+Endpoint stability FELL, deliberately: R21/R23 changed response shapes and the
+upload changed its wire format. Both are recorded in BASE-IMPROVEMENTS.md as
 breaking for a fork already on the base.
 
-## 8 · What is still open, and what it is worth
+### What pass 3 changed
 
-Measured honestly rather than rounded up. Every remaining point is an
-architectural item — the safe and the semi-safe work is done.
+| Fix | Dimension | Verified |
+|---|---|---|
+| `error_logs` + `agent_usage_log` moved to their own operations database | partitioning | the owner dashboard reads them from `brimba-ops-staging`, live |
+| Edit doors stop running a `COUNT(*)` an edit cannot have changed | queries | R23 check enforces it |
+| The retry key reaches the MACHINE surface (MCP → door) | atomic | sabotage-proven |
+| The team record gains the version guard | atomic | sabotage-proven |
+| Nightly sweep of uploaded files no record points at | lifecycle + storage | grace period + fail-closed, sabotage-proven |
+| A tighter ceiling on the expensive doors (agent, import, export, upload) | surge | a caller must pass BOTH ceilings |
 
-| Dimension | Score | Weight | What would move it |
-|---|---|---|---|
-| Data partitioning | 76 | 8 | §5.2 step 2 — move `error_logs` + `agent_usage_log` to their own operations database |
-| File & object storage | 84 | 8 | presigned direct-to-bucket uploads (the worker still relays, though it no longer buffers) + an orphan lifecycle rule |
-| Client data volume | 88 | 9 | list virtualisation — the collection components live in the UI library, so this is surfaced there, never forked here |
-| Query shape | 92 | 13 | the exact `COUNT(*)` R16 requires on every list read is O(n); a maintained counter would fix it and would put R16's exactness at risk |
-| Sequential & atomic | 88 | 11 | the version guard on every update rather than the four record ones |
-| Endpoint stability | 90 | 5 | nothing — this fell deliberately (R21/R23 and the upload wire format changed), and is documented in BASE-IMPROVEMENTS.md |
+## 8 · What is still open
+
+Every remaining point is architectural, and each is a deliberate choice rather
+than an oversight.
+
+| Item | Dimension | Why it is not built |
+|---|---|---|
+| Presigned direct-to-bucket uploads | storage | needs an R2 API token to manage. Uploads already stream, so the worker relays rather than buffers — the remaining gain is one hop, not a ceiling. Owner declined the extra secret, 2026-08-12. |
+| List virtualisation | client volume | the collection components live in the UI library. Surfaced there, never forked into the host (CLAUDE.md). |
+| An exact `COUNT(*)` on every LIST read (R16) | queries | O(n) by nature. A maintained counter would fix it and would put R16's exactness at risk — that trade needs its own design pass. |
+| Partitioning `users` / `team_members` | partitioning | §5.2 step 4. Genuinely hard: every membership check joins them. Not needed until far past the current yardstick. |
+| Import resumability | lifecycle | an import that fails restarts. The claim-flip makes that safe, just not cheap. |

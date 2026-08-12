@@ -5,6 +5,10 @@ export type Env = {
   /** The global core database (users, teams, importable_databases) — read by
    *  gating + the import catalog. */
   DB: D1Database
+  /** The OPERATIONS database — error_logs + agent_usage_log. Optional: absent
+   * in a fork that has not created it, and in `wrangler dev`. When absent the
+   * ops seam falls back to DB, so everything works exactly as it did. */
+  OPS?: D1Database
   /** The auth worker — answers "who is making this request?". */
   AUTH: Fetcher
   /** The realtime worker — pinged after the final write so open lists refresh. */

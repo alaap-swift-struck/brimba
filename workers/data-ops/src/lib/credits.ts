@@ -6,6 +6,7 @@
 // balance) so it works without opening a team database.
 
 import type { AgentQuota, UsageLogRow } from "../../../../shared/types"
+import { opsDatabase } from "../../../../shared/workers/ops-db"
 import type { Actor } from "../../../../shared/workers/gating"
 import { ulid } from "../../../../shared/workers/id"
 import { numberVar } from "../../../../shared/workers/limits"
@@ -156,7 +157,7 @@ export async function logUsage(
   kind: UsageKind
 ): Promise<void> {
   try {
-    await env.DB.prepare(
+    await opsDatabase(env).prepare(
       `INSERT INTO agent_usage_log (id, team_id, actor_id, actor_name, created_at, credits, source, summary, kind)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
@@ -191,7 +192,7 @@ export async function foldUsageIntoLatest(
     // replacing left a 10-credit turn titled by its last step alone (the actions
     // taken before the pause vanished from the log). Appending actions also makes
     // the row an 'action' row (team-visible): the folded turn DID something.
-    const res = await env.DB.prepare(
+    const res = await opsDatabase(env).prepare(
       `UPDATE agent_usage_log
          SET credits = credits + ?,
              source = CASE WHEN source = ? THEN source ELSE 'mixed' END,
@@ -227,7 +228,7 @@ export async function readUsageLog(
   viewerId: string,
   limit: number
 ): Promise<UsageLogRow[]> {
-  const res = await env.DB.prepare(
+  const res = await opsDatabase(env).prepare(
     `SELECT id, created_at AS createdAt, actor_name AS actorName, credits, source, kind,
             CASE WHEN kind = 'action' OR actor_id = ? THEN summary ELSE NULL END AS summary
      FROM agent_usage_log WHERE team_id = ? ORDER BY created_at DESC LIMIT ?`

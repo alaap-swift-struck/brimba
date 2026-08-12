@@ -1,6 +1,10 @@
 // Everything the auth worker is given from outside (bindings, vars, secrets).
 export type Env = {
   DB: D1Database
+  /** The OPERATIONS database — error_logs + agent_usage_log. Optional: absent
+   * in a fork that has not created it, and in `wrangler dev`. When absent the
+   * ops seam falls back to DB, so everything works exactly as it did. */
+  OPS?: D1Database
   /** Profile photos (and other uploads) — served by the gateway at /media/*. */
   MEDIA: R2Bucket
   /** The live switchboard — auth publishes identity events (account activity,

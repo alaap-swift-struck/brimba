@@ -15,7 +15,7 @@ import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 
-import { callerKey, rateLimit, tooManyRequests } from "../../../shared/workers/rate-limit"
+import { callerKey, isHeavyPath, rateLimit, tooManyRequests } from "../../../shared/workers/rate-limit"
 
 const root = join(__dirname, "..", "..", "..")
 const gateway = readFileSync(join(__dirname, "..", "src", "index.ts"), "utf8")
@@ -166,5 +166,53 @@ describe("the bindings are actually declared", () => {
         expect([10, 60], `${w}: period ${r.simple.period}`).toContain(r.simple.period)
       }
     }
+  })
+})
+
+// THE EXPENSIVE DOORS get a ceiling of their own.
+//
+// One ceiling treats a cheap list read and an AI turn as the same event, which
+// is the wrong shape: 600 list reads a minute is ordinary use, 600 agent turns
+// is a bill. These paths fan out into model calls, multi-table writes or a
+// full-table read, so they carry a second ceiling ON TOP of the per-caller one.
+describe("the expensive doors", () => {
+  it("recognises what actually costs something", () => {
+    expect(isHeavyPath("/api/data-ops/agent")).toBe(true)
+    expect(isHeavyPath("/api/data-ops/agent/confirm")).toBe(true)
+    expect(isHeavyPath("/api/data-ops/import/plan")).toBe(true)
+    expect(isHeavyPath("/api/content/learning/upload")).toBe(true)
+    expect(isHeavyPath("/api/content/learning/export"), "an export reads the table").toBe(true)
+  })
+
+  it("leaves ordinary reads on the ordinary ceiling", () => {
+    expect(isHeavyPath("/api/tenancy/members")).toBe(false)
+    expect(isHeavyPath("/api/content/learning")).toBe(false)
+    expect(isHeavyPath("/api/auth/me")).toBe(false)
+  })
+
+  it("charges a heavy call against BOTH ceilings, not instead of one", () => {
+    const src = readFileSync(join(root, "shared", "workers", "rate-limit.ts"), "utf8")
+    const fn = src.slice(src.indexOf("export async function rateLimit"))
+    expect(fn.indexOf("USER_LIMITER"), "the ordinary ceiling still applies").toBeGreaterThan(-1)
+    expect(
+      fn.indexOf("HEAVY_LIMITER") > fn.indexOf("USER_LIMITER"),
+      "the heavy ceiling is an ADDITION — a caller must pass both, not one or the other"
+    ).toBe(true)
+  })
+
+  it("is tighter than the ordinary one, or it does nothing", () => {
+    const cfg = JSON.parse(
+      readFileSync(join(root, "workers", "gateway", "wrangler.jsonc"), "utf8").replace(/^\s*\/\/.*$/gm, "")
+    ) as { ratelimits: { name: string; simple: { limit: number } }[] }
+    const ordinary = cfg.ratelimits.find((r) => r.name === "USER_LIMITER")!.simple.limit
+    const heavy = cfg.ratelimits.find((r) => r.name === "HEAVY_LIMITER")!.simple.limit
+    expect(heavy, `heavy ${heavy} must be below ordinary ${ordinary}`).toBeLessThan(ordinary)
+  })
+
+  it("is not a substitute for the AI credit quota", () => {
+    // The quota bounds SPEND over a day; this bounds RATE over a minute. A retry
+    // loop can exhaust a day's quota in seconds, which is what this stops.
+    const src = readFileSync(join(root, "shared", "workers", "rate-limit.ts"), "utf8")
+    expect(src).toMatch(/not a substitute for it/)
   })
 })

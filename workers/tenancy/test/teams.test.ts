@@ -62,6 +62,7 @@ function envWith(db: Env["DB"]): Env {
     AUTH: {} as Fetcher,
     REALTIME: {} as Fetcher,
     MEDIA: {} as R2Bucket,
+    LEARNING_MEDIA: {} as R2Bucket,
     CF_ACCOUNT_ID: "acct",
     CF_D1_TOKEN: "token",
   }

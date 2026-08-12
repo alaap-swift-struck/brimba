@@ -2,12 +2,18 @@
 export type Env = {
   /** The global core database (users, teams, team_members, invite_index). */
   DB: D1Database
+  /** The OPERATIONS database — error_logs + agent_usage_log. Optional: absent
+   * in a fork that has not created it, and in `wrangler dev`. When absent the
+   * ops seam falls back to DB, so everything works exactly as it did. */
+  OPS?: D1Database
   /** The auth worker — used to answer "who is making this request?". */
   AUTH: Fetcher
   /** The realtime worker — pinged after a write so open screens refresh live. */
   REALTIME: Fetcher
   /** Team logos (uploaded), served by the gateway at /media/teams/<id>. */
   MEDIA: R2Bucket
+  /** The learning attachments bucket — read only by the nightly orphan sweep. */
+  LEARNING_MEDIA: R2Bucket
 
   /** Cloudflare account id (plain var) — for creating/querying team DBs. */
   CF_ACCOUNT_ID: string

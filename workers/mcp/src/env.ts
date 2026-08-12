@@ -1,6 +1,10 @@
 export interface Env {
   /** the global core DB (native binding) — mcp_tokens live here */
   DB: D1Database
+  /** The OPERATIONS database — error_logs + agent_usage_log. Optional: absent
+   * in a fork that has not created it, and in `wrangler dev`. When absent the
+   * ops seam falls back to DB, so everything works exactly as it did. */
+  OPS?: D1Database
   /** account id (GatingEnv shape — whoAmI/team gating helpers expect it) */
   CF_ACCOUNT_ID: string
   AUTH: Fetcher

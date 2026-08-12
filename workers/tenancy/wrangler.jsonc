@@ -12,6 +12,7 @@
   "preview_urls": false,
   "observability": { "enabled": true },
   "d1_databases": [
+    { "binding": "OPS", "database_name": "brimba-ops", "database_id": "b1389453-fe77-48de-bab1-1dd868e02537" },
     {
       "binding": "DB",
       "database_name": "brimba-core",
@@ -23,7 +24,7 @@
     { "binding": "AUTH", "service": "brimba-auth" },
     { "binding": "REALTIME", "service": "brimba-realtime" }
   ],
-  "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "brimba-media" }],
+  "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "brimba-media" }, { "binding": "LEARNING_MEDIA", "bucket_name": "brimba-learning-media" }],
   "vars": {
     "CF_ACCOUNT_ID": "af3f1bf82aa34512f4f6630091358439",
     // The public web origin the SPA is served on — used for links in outbound
@@ -40,6 +41,7 @@
       "preview_urls": false,
       "observability": { "enabled": true },
       "d1_databases": [
+        { "binding": "OPS", "database_name": "brimba-ops-staging", "database_id": "b622a822-587e-4a67-b75e-922839616e94" },
         {
           "binding": "DB",
           "database_name": "brimba-core-staging",
@@ -51,7 +53,7 @@
         { "binding": "AUTH", "service": "brimba-auth-staging" },
         { "binding": "REALTIME", "service": "brimba-realtime-staging" }
       ],
-      "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "brimba-media-staging" }],
+      "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "brimba-media-staging" }, { "binding": "LEARNING_MEDIA", "bucket_name": "brimba-learning-media-staging" }],
       "vars": {
         "CF_ACCOUNT_ID": "af3f1bf82aa34512f4f6630091358439",
         // The public staging web origin — used for invite-email links.

@@ -4,6 +4,7 @@
 // (read = view history; create = use it). The agent's ACTIONS are gated again at the
 // real endpoint it calls (act-as-user), so it can never exceed the caller's rights.
 
+import { opsDatabase } from "../../../../shared/workers/ops-db"
 import { fail, json } from "../../../../shared/workers/http"
 import { optionalText, requireText, TEXT_LIMITS } from "../../../../shared/workers/validate"
 import { publishChange } from "../../../../shared/workers/realtime"
@@ -62,7 +63,7 @@ function streamRun(env: Env, run: (emit: Emit) => Promise<ChatOutcome>): Respons
         await write({ t: "error", message: e.message })
       } else {
         console.error("agent stream error:", e)
-        await recordWorkerError(env.DB, "data-ops", "POST /api/data-ops/agent (stream)", e)
+        await recordWorkerError(opsDatabase(env), "data-ops", "POST /api/data-ops/agent (stream)", e)
         await write({ t: "error", message: "The assistant had trouble just now. Please try again in a moment." })
       }
     } finally {

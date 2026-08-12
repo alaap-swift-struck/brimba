@@ -15,7 +15,12 @@ describe("error seam: every core-bound worker records crashes centrally", () => 
     it(`${w}'s central catch calls recordWorkerError`, () => {
       const src = readFileSync(join(__dirname, `../../${w}/src/index.ts`), "utf8")
       expect(src, `${w} must import the seam`).toMatch(/from "\.\.\/\.\.\/\.\.\/shared\/workers\/error-log"/)
-      expect(src, `${w} must record in its catch`).toMatch(/recordWorkerError\(env\.DB/)
+      // Through the OPS SEAM, not a named binding. error_logs moved to the
+      // operations database, and the seam falls back to the core one when a
+      // worker has no OPS binding — so pinning `env.DB` here would fail the
+      // moment a worker did the right thing.
+      expect(src, `${w} must record in its catch`).toMatch(/recordWorkerError\(opsDatabase\(env\)/)
+      expect(src, `${w} must reach the log through the ops seam`).toMatch(/from "[./]*shared\/workers\/ops-db"/)
     })
   }
 })

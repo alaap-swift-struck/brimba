@@ -10,6 +10,7 @@
 //   POST /api/auth/logout                                -> forget me
 //   GET  /api/auth/health                                -> is this worker alive?
 
+import { opsDatabase } from "../../../shared/workers/ops-db"
 import { fail, json } from "../../../shared/workers/http"
 import { logError, recordWorkerError } from "../../../shared/workers/error-log"
 import type { Env } from "./env"
@@ -86,7 +87,7 @@ export default {
       console.error("auth worker error:", e)
       // Record the crash in the central error log (core DB) — best-effort,
       // never blocks the response. Clean GuardError refusals never reach here.
-      await recordWorkerError(env.DB, "auth", `${request.method} ${new URL(request.url).pathname}`, e)
+      await recordWorkerError(opsDatabase(env), "auth", `${request.method} ${new URL(request.url).pathname}`, e)
       return fail(500, "internal", "Something went wrong on our side. Try again.")
     }
   },
@@ -156,7 +157,7 @@ async function internalLogError(request: Request, env: Env): Promise<Response> {
     url?: string
   }
   if (b.message)
-    await logError(env.DB, {
+    await logError(opsDatabase(env), {
       source: b.source || "web",
       place: b.place || "unknown",
       message: b.message,

@@ -66,6 +66,7 @@ type Env = {
   /** Surge ceilings — per caller and per team. Optional: absent in a fork that
    * has not enabled them, in `wrangler dev`, and in tests. */
   USER_LIMITER?: RateLimiter
+  HEAVY_LIMITER?: RateLimiter
   TEAM_LIMITER?: RateLimiter
 }
 

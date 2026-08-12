@@ -33,6 +33,32 @@ export type RateLimitEnv = {
   USER_LIMITER?: RateLimiter
   /** Per team, so one tenant cannot spend another's capacity. */
   TEAM_LIMITER?: RateLimiter
+  /** The tighter ceiling for the EXPENSIVE doors — see HEAVY_PATHS. */
+  HEAVY_LIMITER?: RateLimiter
+}
+
+/**
+ * The doors where one request costs far more than one request.
+ *
+ * A single ceiling treats a cheap `GET /members` and an AI turn as the same
+ * event, which is the wrong shape: 600 list reads a minute is ordinary use,
+ * 600 agent turns is a bill. These paths each fan out into model calls,
+ * multi-table writes or a full-table read, so they get a ceiling of their own
+ * ON TOP of the per-caller one — a caller must pass both.
+ *
+ * The agent already has a credit quota, and this is not a substitute for it:
+ * the quota bounds SPEND over a day, this bounds RATE over a minute. A retry
+ * loop can exhaust a day's quota in seconds without something like this.
+ */
+export const HEAVY_PATHS = [
+  "/api/data-ops/agent",
+  "/api/data-ops/import",
+  "/api/content/learning/upload",
+]
+
+/** Is this one of the expensive doors? */
+export function isHeavyPath(pathname: string): boolean {
+  return HEAVY_PATHS.some((p) => pathname.startsWith(p)) || pathname.endsWith("/export")
 }
 
 /** The signed-in user's session, or the caller's address. Never both, and never
@@ -84,6 +110,13 @@ export async function rateLimit(request: Request, env: RateLimitEnv): Promise<Re
     const team = teamKey(request)
     if (env.TEAM_LIMITER && team) {
       const { success } = await env.TEAM_LIMITER.limit({ key: team })
+      if (!success) return tooManyRequests()
+    }
+    // The expensive doors carry a second, tighter ceiling. A caller must pass
+    // BOTH: the ordinary one bounds how often they knock at all, this bounds how
+    // often they knock somewhere costly.
+    if (env.HEAVY_LIMITER && isHeavyPath(new URL(request.url).pathname)) {
+      const { success } = await env.HEAVY_LIMITER.limit({ key: `h:${callerKey(request)}` })
       if (!success) return tooManyRequests()
     }
   } catch (e) {

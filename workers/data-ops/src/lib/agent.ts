@@ -12,6 +12,7 @@ import type { AgentQuota, ChatOutcome, PendingCall, StreamEvent } from "../../..
 import { capabilityBrief } from "./app-brief"
 import { GLOSSARY } from "../../../../shared/glossary"
 import { consumeAiUnit, foldUsageIntoLatest, getQuota, logUsage, refundAiUnits, type UsageSource } from "./credits"
+import { opsDatabase } from "../../../../shared/workers/ops-db"
 import type { Actor, MemberGuard } from "../../../../shared/workers/gating"
 import type { D1Rest } from "../../../../shared/workers/d1-rest"
 import type { Env } from "../env"
@@ -398,7 +399,7 @@ async function runPlanLoop(
       // A model/runtime hiccup becomes a friendly, saved turn — never an uncaught 500.
       // But the USER only sees "try again"; the OWNER must be able to see WHY, so record
       // the swallowed error to the store (best-effort; never blocks the friendly reply).
-      await recordWorkerError(env.DB, "data-ops", "agent/model-call", e)
+      await recordWorkerError(opsDatabase(env), "data-ops", "agent/model-call", e)
       const msg = "The assistant had trouble just now and couldn't reply. Please try again in a moment."
       say(msg)
       await appendMessage(cfg, guard, actor, threadId, { role: "assistant", content: msg, source: opts.source })

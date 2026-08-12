@@ -37,11 +37,12 @@
 //   cron (nightly)                         -> the 80% size alarms
 
 import { brand } from "../../../shared/brand"
+import { opsDatabase } from "../../../shared/workers/ops-db"
 import { withIdempotency } from "../../../shared/workers/concurrency"
 import { fail, json } from "../../../shared/workers/http"
 import { recordWorkerError } from "../../../shared/workers/error-log"
 import { GuardError } from "./lib/permissions"
-import { checkDatabaseSizes, recomputeShardCounts, runRetention } from "./lib/sharding"
+import { checkDatabaseSizes, recomputeShardCounts, runRetention, sweepOrphanedUploads } from "./lib/sharding"
 import { d1Config } from "./lib/teams"
 import type { Env } from "./env"
 import {
@@ -159,7 +160,7 @@ export default {
       console.error("tenancy worker error:", e)
       // Record the crash in the central error log (core DB) — best-effort,
       // never blocks the response. Clean GuardError refusals never reach here.
-      await recordWorkerError(env.DB, "tenancy", `${request.method} ${new URL(request.url).pathname}`, e)
+      await recordWorkerError(opsDatabase(env), "tenancy", `${request.method} ${new URL(request.url).pathname}`, e)
       const message = e instanceof Error ? e.message : ""
       if (message.startsWith("cloud_key_missing:"))
         return fail(503, "cloud_key_missing", `${brand.name}'s cloud key isn't set up yet — team creation is paused.`)
@@ -182,11 +183,16 @@ export default {
       // the request-side valve, alongside the two storage-side ones above.
       const shards = await recomputeShardCounts(env)
       console.log(`live channels: ${shards.raised.length} team(s) split further`)
+      // Object storage was the last thing here growing with nothing watching it:
+      // a file picked, then replaced, stays in the bucket for ever with nothing
+      // linking to it and no screen that would ever show it to you.
+      const orphans = await sweepOrphanedUploads(env, d1Config(env))
+      console.log(`uploads: ${orphans.deleted} orphan(s) removed of ${orphans.scanned} scanned`)
     } catch (e) {
       // LAW R12: unattended work has no user watching, so a swallowed failure would be
       // invisible — record it to the error store, not just the console.
       console.error("nightly size check failed:", e)
-      await recordWorkerError(env.DB, "tenancy", "cron/size-check", e)
+      await recordWorkerError(opsDatabase(env), "tenancy", "cron/size-check", e)
     }
   },
 } satisfies ExportedHandler<Env>

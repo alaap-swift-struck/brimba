@@ -21,8 +21,10 @@ import {
 import { ulid } from "../../../../shared/workers/id"
 import { numberVar } from "../../../../shared/workers/limits"
 import { shardCount } from "../../../../shared/workers/realtime"
+import { opsDatabase } from "../../../../shared/workers/ops-db"
 import {
   CORE_RETENTION,
+  OPS_RETENTION,
   EXPIRED_SESSIONS_SQL,
   TEAM_RETENTION,
   cutoffFor,
@@ -344,6 +346,17 @@ export async function runRetention(
     vars
   )
 
+  // The two exhaust tables moved to the operations database, so their sweep has
+  // to follow them. Without this the job would prune an empty table in the old
+  // database every night, report success, and let the real one grow unchecked —
+  // the worst shape a housekeeping bug can take.
+  const opsDb = opsDatabase(env)
+  const ops = await sweep(
+    async (sql, params) => opsDb.prepare(sql).bind(...(params as string[])).run(),
+    OPS_RETENTION,
+    vars
+  )
+
   let teams = 0
   if (TEAM_RETENTION.some((r) => numberVar(vars[r.envVar], r.days) > 0)) {
     // Only walk the team databases when a team rule is actually switched ON —
@@ -355,5 +368,79 @@ export async function runRetention(
       teams++
     }
   }
-  return { core: core.length, teams }
+  return { core: core.length + ops.length, teams }
+}
+
+/** How long an uploaded file may sit unreferenced before it is considered
+ * abandoned. This is the whole safety of the sweep: someone who picks a file and
+ * then takes an hour writing the article has an object in the bucket that no row
+ * points at YET. A grace period measured in days makes that impossible to get
+ * wrong; measured in minutes it would delete their attachment while they typed. */
+export const ORPHAN_GRACE_DAYS = 7
+
+/** Never walk more than this many objects for one team in one night. A sweep
+ * that tries to list an unbounded bucket is the same mistake as an unbounded
+ * list endpoint (R14) — it just fails at 3am instead of in front of someone. */
+const ORPHAN_SCAN_CAP = 10_000
+
+/**
+ * Nightly: delete uploaded files that no record points at.
+ *
+ * THE GAP THIS CLOSES. Every other kind of growth in this system is now bounded
+ * — logs are swept, lists are capped, uploads are size-limited. Object storage
+ * was not, and it grows in a way nobody sees: pick a file, change your mind,
+ * pick another, and the first one stays in the bucket for ever. Nothing links to
+ * it, nothing lists it, and no screen would ever show it to you. It is charged
+ * for anyway.
+ *
+ * The reference set comes from the team's OWN database — an object survives if
+ * any learning row's `content_link` names it. Deactivated rows count: the base
+ * is deactivate-not-delete, so a retired article still has its attachment, and
+ * reactivating it must not find a hole where the file was.
+ */
+export async function sweepOrphanedUploads(
+  env: Env,
+  cfg: D1Rest
+): Promise<{ scanned: number; deleted: number }> {
+  const cutoff = Date.now() - ORPHAN_GRACE_DAYS * 86_400_000
+  let scanned = 0
+  let deleted = 0
+
+  const teams = await env.DB.prepare(
+    "SELECT id, database_id FROM teams WHERE db_status = 'ready' AND database_id IS NOT NULL"
+  ).all<{ id: string; database_id: string }>()
+
+  for (const team of teams.results ?? []) {
+    // What this team's records actually point at. Read FIRST: if this read
+    // fails, the sweep for this team is skipped entirely rather than running
+    // with an empty reference set and deleting everything it can see.
+    let referenced: Set<string>
+    try {
+      const rows = await d1Query<{ content_link: string | null }>(
+        cfg,
+        team.database_id,
+        `SELECT content_link FROM learning WHERE content_link LIKE '/media/learning/%' LIMIT ${ORPHAN_SCAN_CAP}`
+      )
+      referenced = new Set(
+        rows
+          .map((r) => r.content_link?.split("?")[0].replace("/media/learning/", "") ?? "")
+          .filter(Boolean)
+      )
+    } catch (e) {
+      console.error(`orphan sweep: skipping team ${team.id}, could not read its references:`, e)
+      continue
+    }
+
+    const listed = await env.LEARNING_MEDIA.list({ prefix: `${team.id}/`, limit: ORPHAN_SCAN_CAP })
+    for (const object of listed.objects) {
+      scanned++
+      if (referenced.has(object.key)) continue
+      if (object.uploaded.getTime() > cutoff) continue // inside the grace period
+      await env.LEARNING_MEDIA.delete(object.key)
+      deleted++
+    }
+    if (listed.truncated)
+      console.warn(`orphan sweep: team ${team.id} has more than ${ORPHAN_SCAN_CAP} objects — the rest wait for tomorrow`)
+  }
+  return { scanned, deleted }
 }
