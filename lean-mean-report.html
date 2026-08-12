@@ -103,142 +103,143 @@
 /* DATA:START */
 window.LEAN_MEAN_DATA = {
   "project": "brimba",
-  "scannedAt": "2026-08-04",
-  "overall": 95,
+  "scannedAt": "2026-08-12",
+  "overall": 96,
   "grade": "A",
-  "verdict": "Lean, self-checking down to the checks themselves, and clean end to end: security 100/100 at full sweep coverage, zero dependency advisories at any severity.",
+  "verdict": "Lean, and now honest about itself: three days of scaling work had left a rate-limit branch that could never fire and four documents describing a database layout that had already moved.",
   "stats": {
-    "codeFiles": 297,
-    "codeLoc": 30353,
-    "docFiles": 33,
-    "docLoc": 6471,
-    "testFiles": 64,
+    "codeFiles": 312,
+    "codeLoc": 34271,
+    "docFiles": 30,
+    "docLoc": 7557,
+    "testFiles": 67,
     "testRatioPct": 21.5,
-    "todos": 0,
-    "duplicationPct": 6.6
+    "todos": 2,
+    "duplicationPct": 6.1,
+    "commentPct": 20.1
+  },
+  "callouts": {
+    "strong": [
+      "518 tests, and every law added this round was sabotage-proven \u2014 broken on purpose, watched go red, restored.",
+      "25 seams that ten documents name-dropped are now defined in one place, with their files."
+    ],
+    "watch": [
+      "Four per-worker gating-seam suites are near-identical; it grew from three when mcp landed."
+    ],
+    "fix": [
+      "idempotent-transitions still asserts on source text rather than behaviour \u2014 a rename can blind it."
+    ]
   },
   "dimensions": [
     {
       "key": "size",
       "label": "Size & Scope",
-      "score": 95,
+      "score": 94,
       "status": "green",
       "headline": "Compact for what it does",
       "strengths": [
-        "29.7k lines carries seven workers, per-tenant databases, an AI assistant, an external machine surface and a CSV importer.",
-        "Zero TODO/FIXME markers — nothing is parked in a comment.",
-        "This round added ~1.2k lines and removed a whole class of refusal (capped lists)."
+        "34.2k lines carries seven workers, per-tenant databases, an operations database, an AI assistant, an external machine surface and a CSV importer.",
+        "Two parked TODOs in 312 files.",
+        "This round removed more than it added: 28 lines of pasted comment and a dead code branch."
       ],
       "improvements": [
         {
-          "what": "Three test files are near-identical triplets.",
-          "why": "The per-worker gating-seam suites mirror publish-seam by design (each imports its own worker's route table), but roughly 150 lines are the same scanner three times. A shared test helper would cut it, at the cost of a cross-workspace import the house style has so far avoided."
+          "what": "Twelve files pass 400 lines.",
+          "why": "Each is one cohesive unit (the rules suite, the agent loop, the API client), so splitting would scatter related logic. Worth re-checking if any passes 700."
         }
       ]
     },
     {
       "key": "robustness",
       "label": "Robustness",
-      "score": 98,
+      "score": 97,
       "status": "green",
       "headline": "The checks can fail",
       "strengths": [
-        "390 tests, 64 files, 21.5% test-to-code. A measured security sweep put every control at full coverage except dependency health.",
-        "All source-scanning checks were swept for THREE flaw classes; each fix was sabotage-proven, and two NEW locks landed this run (live pings carry no row content; no request field reaches SQL without the validation seam).",
-        "Every security invariant identified in the sweep — 18 of them — now has an automated test.",
-        "Zero npm advisories at every severity after moving to next@16 + wrangler@4.120 — verified by rebuilding the static export and diffing it against the Next-15 baseline."
+        "518 tests across 67 files, 21.5% test-to-code.",
+        "Every law added in the scaling rounds was sabotage-proven, and one sabotage that silently did nothing was caught and redone.",
+        "Three faults this month were found by USING the app, not by the suite \u2014 and each became a test."
       ],
       "improvements": [
         {
-          "what": "Two source-scan checks still assert on text rather than behaviour.",
-          "why": "bounded-lists and idempotent-transitions read source strings. Comment-stripped and boundary-matched now, but activity-scope.test.ts shows the stronger shape — mock the door, run the function, assert the SQL that comes out."
+          "what": "One check still reads source text instead of behaviour.",
+          "why": "idempotent-transitions greps for a SQL predicate, so renaming the function blinds it. activity-scope.test.ts shows the stronger shape: mock the data door, run the function, assert the SQL that comes out."
         }
       ]
     },
     {
       "key": "documentation",
       "label": "Documentation",
-      "score": 95,
+      "score": 97,
       "status": "green",
-      "headline": "Canon stayed in step",
+      "headline": "Every seam now has a name",
       "strengths": [
-        "6,164 lines across 33 docs; every law is pinned doc → registry → check, so drift turns the build red.",
-        "Comments say WHY, with the failure that earned each rule — the paging seam explains why keyset and not offset.",
-        "A reversed owner decision (the agent's confirm rule) is recorded WITH its date, its evidence and how to reverse it again."
+        "30 docs, 7,557 lines, 20.1% comment ratio; every law pinned doc \u2192 registry \u2192 check.",
+        "BASE-MANUAL 2.5 defines all 25 seams the corpus leans on, each with its file.",
+        "Comments carry the failure that earned the rule, not just the rule."
       ],
       "improvements": [
         {
-          "what": "The doc set keeps growing.",
-          "why": "33 files means a reader must know which one owns a topic. The README doc-map carries this today; merging the two older plan docs into ROADMAP would keep it navigable as modules land."
+          "what": "Two shipped plan documents are still separate from the roadmap.",
+          "why": "SCREEN-ENGINE-PLAN and AGENT-MODULES-PLAN describe finished work; five live docs cite them, so folding them into ROADMAP means editing those five, not deleting two."
         }
       ]
     },
     {
       "key": "understandability",
       "label": "Understandability",
-      "score": 92,
+      "score": 95,
       "status": "green",
-      "headline": "Predictable shapes, a few big files",
+      "headline": "No more phantom controls",
       "strengths": [
-        "Every worker handler reads the same way: route table → gate → validate → write → publish.",
-        "New seams are one file with one job (paging, format-count, load-more).",
-        "Failure paths are named in comments, so the next reader learns the trap, not just the rule."
+        "The gateway no longer appears to enforce a team ceiling it cannot reach.",
+        "Naming and handler shape are uniform across all seven workers.",
+        "A newcomer can find any seam by name from one table."
       ],
       "improvements": [
         {
-          "what": "agent.ts (616 lines) and deep-link-screen.tsx (508) are still the two files a newcomer must read whole.",
-          "why": "Both are cohesive — one agent turn, one screen host — so splitting them would move a number rather than reduce load. Worth revisiting only when a third responsibility lands in either."
+          "what": "Three symbols are exported with no outside consumer.",
+          "why": "HEAVY_PATHS, memberLabel and PRIVILEGE_MODULES are public surface nothing imports, which invites a future caller to depend on an internal."
         }
       ]
     },
     {
       "key": "leanness",
       "label": "Leanness & Optimization",
-      "score": 91,
+      "score": 93,
       "status": "green",
-      "headline": "One seam per job, some deliberate repetition",
+      "headline": "Dead weight removed",
       "strengths": [
-        "pagedJson collapsed four hand-built ticket responses into one; the bulk id cap is now derived rather than a second hand-picked number.",
-        "Deny-lists and the growing-collection list are DATA in one registry, not hand-lists inside tests.",
-        "No dead code: the collection frame's own count was switched OFF rather than a second count being added."
+        "Duplication 6.1%, down from 6.6%.",
+        "A rate-limit branch that could never execute, and the helper feeding it, are gone.",
+        "The five-line R23 comment pasted into seven doors is one line each, pointing at RULES.md."
       ],
       "improvements": [
         {
-          "what": "Duplication sits at 6.6% (1,969 lines).",
-          "why": "Most is the deliberate per-worker seam-test triplication plus repeated route-handler openings. The handler openings are already one-liners; the seam tests are the honest target if this climbs."
+          "what": "Four gating-seam test suites repeat ~360 lines.",
+          "why": "Each imports its own worker's ROUTES, so the fix is one shared scanner plus four thin files. It grew from three to four when mcp landed \u2014 the shape of a pattern that keeps growing."
         }
       ]
     },
     {
       "key": "scalability",
       "label": "Scalability & Structure",
-      "score": 96,
+      "score": 97,
       "status": "green",
-      "headline": "Paging, not a bigger ceiling",
+      "headline": "Measured, not assumed",
       "strengths": [
-        "Growing collections page by KEY — constant cost per page, stable under concurrent writes, proven end to end and bounded by a registry list.",
-        "Caps derive from one place: the model's bulk cap is what it can physically emit at its reply ceiling.",
-        "Per-team databases, a shard runbook, and an 80%-of-cap alarm mean the ceiling is visible months out."
+        "Scored 94 on a dedicated scaling review after three repair passes, with published arithmetic.",
+        "The operations database, channel sharding and the ops seam all fall back safely when absent.",
+        "Every relief valve is documented with the failure that earned it."
       ],
       "improvements": [
         {
-          "what": "Only two collections page today.",
-          "why": "Tickets and the activity feed are the base's own growing pair. A downstream catalogue of 24,000 rows would need the same treatment — R14 now forces that choice at build time rather than leaving it to be found under load."
+          "what": "An exact COUNT(*) still runs on every list read.",
+          "why": "R16 requires exactness and a maintained counter would put that at risk, so the trade needs its own design pass rather than a quick fix."
         }
       ]
     }
-  ],
-  "callouts": {
-    "strong": [
-      "Security posture 100/100 at 100% sweep coverage — every control measured, not judged.",
-      "Two new invariant locks, both sabotage-proven.",
-      "The one real finding this run (a stored filename skipping the validation seam) was found, fixed and locked in the same pass."
-    ],
-    "watch": [
-      "Duplication 6.6%, mostly deliberate per-worker seam tests."
-    ],
-    "fix": []
-  }
+  ]
 };
 /* DATA:END */
 </script>
