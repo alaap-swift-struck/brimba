@@ -1,0 +1,10 @@
+# Every path in this repository is owned by Swift Struck.
+# Contact for repository access, the Cloudflare account, and the domain:
+#   Swift Struck — alaap@swiftstruck.com
+#
+# There is currently one maintainer. That is the normal state of a solo project
+# and it is the risk this file exists to name: if that person is unavailable,
+# BOOTSTRAP.md rebuilds the infrastructure, SECRETS.md recovers the credentials,
+# and INVENTORY.md lists every account and service you would need access to.
+
+*       @alaap-swift-struck

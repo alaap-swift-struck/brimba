@@ -262,3 +262,77 @@ the ordinary 600/60s ceiling.
 
 **The nightly cron does a fourth job**: sweeping uploaded files that no record
 points at, after a seven-day grace period.
+
+---
+
+## Rollback — it is live and it is broken
+
+**The trigger.** Roll back when any of these is true after a deploy, without
+waiting to find the cause:
+
+- the staging smoke fails on a step that passed before the deploy
+- a health endpoint (`/api/tenancy/health`, `/api/realtime/health`,
+  `/api/mcp/health`) returns anything but 200
+- `error_logs` shows a new cluster of the same message appearing since the deploy
+  (`GET /api/data-ops/admin/errors?status=open`)
+- sign-in fails for anyone
+
+Diagnose afterwards. A worker rollback takes seconds and costs nothing.
+
+### Rolling a worker back
+
+Cloudflare keeps previous versions of every worker. Roll back the one that
+broke — not all seven — unless the fault is in a shared seam:
+
+```bash
+cd workers/<worker>
+npx wrangler deployments list
+npx wrangler rollback [<version-id>]
+```
+
+Omit the version id to go back one deployment. Repeat per worker if a shared
+change (anything in `shared/`) is at fault, and **reverse the deploy order**:
+gateway first, realtime last. The deploy order exists so a worker never comes up
+expecting a peer that is not there yet; rolling back the same way round would
+recreate exactly that gap.
+
+### What does NOT roll back
+
+**Database migrations do not.** `wrangler d1 migrations apply` has no undo, so a
+migration must be additive — a new column with a default, a new table, a new
+index. Every migration in `db/core` and `db/ops` follows that rule, which is why
+rolling a worker back to yesterday's code still runs against today's schema.
+
+If a migration ever must be reversed, it is a hand-written forward migration that
+undoes it, applied the same way. Never edit an applied migration file: the
+ledger records it as applied and it will not run again.
+
+**Data written since the deploy does not.** A rollback restores code, not rows.
+
+### After rolling back
+
+1. Re-run the smoke: `npm run smoke:staging`.
+2. Check `error_logs` stops growing.
+3. Fix forward on a branch, with a test that reproduces the failure first.
+
+## Backup and restore
+
+**Code, docs and history** — GitHub, plus whatever second remote is configured.
+
+**Secrets** — `secrets.vault`, committed and encrypted. `npm run vault:open`
+restores every `.dev.vars` after a fresh clone. See SECRETS.md.
+
+**Databases** — Cloudflare D1 keeps point-in-time recovery on the paid plan. To
+restore a database to an earlier moment:
+
+```bash
+npx wrangler d1 time-travel info <database-name> --remote
+npx wrangler d1 time-travel restore <database-name> --timestamp <iso-8601> --remote
+```
+
+Per-team databases are separate, so one team can be restored without touching
+anyone else — which is the whole point of the per-team split.
+
+**R2 objects** — not versioned. An overwritten or swept object is gone. The
+nightly orphan sweep only removes objects no record references and only after a
+seven-day grace period (SCALING.md §4.7), so the exposure is bounded.

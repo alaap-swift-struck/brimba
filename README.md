@@ -1,7 +1,7 @@
 # Brimba
 
-**The multi-tenant SaaS base by Swift Struck.** Not an app for one industry —
-the reusable foundation every future app (ERP, CRM, portal…) is built on:
+Brimba **is a multi-tenant SaaS base** — not an app for one industry, but the
+reusable foundation every future Swift Struck app (ERP, CRM, portal…) is built on:
 login (strict email codes), teams, Member roles (module key `member_roles`;
 UPDATED 2026-06-21: was "roles & permissions"), invites, learning,
 help desk, dropdown management, CSV data import, and an in-app **AI agent** that
@@ -26,6 +26,21 @@ not under Settings; top-level `/members` and `/roles` are thin redirects there.
 
 - **Production:** https://brimba.swift-struck.workers.dev
 - **Staging:** https://brimba-staging.swift-struck.workers.dev
+
+## Start here
+
+| If you want to… | Read |
+|---|---|
+| understand what this is and why it is shaped this way | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| **contribute** — make your first change safely | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| stand the whole thing up on a fresh Cloudflare account | [BOOTSTRAP.md](BOOTSTRAP.md) |
+| add a module | [BUILD-A-MODULE.md](BUILD-A-MODULE.md) |
+| deploy, roll back, or fix it at 2am | [OPERATIONS.md](OPERATIONS.md) |
+| know what exists outside this repo (accounts, domains, cron) | [INVENTORY.md](INVENTORY.md) |
+| recover the secrets after losing the machine | [SECRETS.md](SECRETS.md) |
+
+**Licence:** proprietary, all rights reserved — [LICENSE](LICENSE).
+**Maintainer:** Swift Struck — alaap@swiftstruck.com
 
 ## The documents
 
@@ -151,11 +166,46 @@ If a rule isn't machine-checked (e.g. a responsive-CSS convention), the doc says
 
 ## Develop
 
+### Prerequisites, install, run and test
+
+**Prerequisites:** Node 24+ (see `.nvmrc`) and npm 11+. Nothing else — the
+workers run on Cloudflare, and `npm run check` needs no account and no secrets.
+
 ```bash
 npm install        # also pulls the UI library from GitHub
+npm run check      # typecheck every workspace + the full test suite
 npm run dev        # http://localhost:3000
-npx tsc --noEmit   # type-check (run before any commit)
 ```
+
+**`npm run check` is the gate**, and it is the one command to run before any
+commit. Green looks like eight suites passing and no TypeScript output — 518
+tests today, in about 13 seconds. From a bare `git clone`, install plus check is
+roughly 25 seconds.
+
+> Do **not** use `npx tsc --noEmit` on its own. There is no root `tsconfig.json`
+> — each workspace has its own — so that command finds no inputs, prints the
+> compiler's help text, and **exits 0 having checked nothing.** It looks like it
+> passed. `npm run check` runs `tsc` against all eight projects in turn.
+
+Running the app locally against real data needs Cloudflare credentials — see
+`.dev.vars.example` for which secrets exist and [SECRETS.md](SECRETS.md) for how
+to recover them. Standing the whole thing up on a fresh Cloudflare account is
+[BOOTSTRAP.md](BOOTSTRAP.md).
 
 Ship by saying **"ship to staging"** / **"ship to production"** — the skills
 read OPERATIONS.md and handle GitHub + Cloudflare.
+
+---
+
+## Licence and ownership
+
+**Proprietary — all rights reserved, © 2026 Swift Struck.** See [LICENSE](LICENSE).
+Nobody may copy, modify or redistribute this without written permission.
+
+**Maintainer:** Swift Struck — alaap@swiftstruck.com. Also the contact for access
+to the Cloudflare account, the repository and the domain.
+
+Everything the app depends on that is *not* in this repository — services,
+accounts, databases, cron jobs, and the single points of failure — is inventoried
+in [INVENTORY.md](INVENTORY.md). How to make your first change safely is
+[CONTRIBUTING.md](CONTRIBUTING.md).

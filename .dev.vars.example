@@ -1,0 +1,43 @@
+# .dev.vars.example — the secrets each worker needs, BY NAME ONLY.
+#
+# Copy this into the worker directories that need it (workers/auth/.dev.vars,
+# workers/tenancy/.dev.vars, and so on) and fill in the values. `.dev.vars` is
+# gitignored on purpose — these values must never be committed.
+#
+# If you have the vault passphrase, do NOT fill this in by hand:
+#     npm run vault:open      # decrypts secrets.vault → every .dev.vars
+#
+# Full explanation of each, and what to do if the vault is lost too: SECRETS.md
+# Standing a fresh Cloudflare account up from nothing: BOOTSTRAP.md
+
+# Shared secret the workers authenticate to each other with. MUST be IDENTICAL
+# across auth, tenancy, content, gateway and mcp — between setting the first and
+# the last, calls between them fail. Any random string: openssl rand -hex 16
+INTERNAL_KEY=
+
+# Cloudflare API token with D1 edit permission. Team databases are reached over
+# the D1 REST API, so tenancy, content and data-ops all need it.
+# NOTE: this token can delete every database on the account.
+CF_D1_TOKEN=
+CF_ACCOUNT_ID=
+
+# Guards the owner-only endpoints (migrations, database sizes, the error
+# dashboard, the import-catalog seed). Any random string.
+ADMIN_KEY=
+
+# STAGING ONLY — NEVER SET THIS ON PRODUCTION.
+# Whoever holds it can sign in as any account on that environment. It exists so
+# the smoke test can log in without an inbox.
+TEST_LOGIN_KEY=
+
+# Optional. Without it the AI agent falls back to the keyless Workers AI model.
+ANTHROPIC_API_KEY=
+
+# Outbound email (login codes, invites). Without it, codes are logged rather
+# than sent, which is fine locally and not fine in production.
+RESEND_API_KEY=
+EMAIL_FROM=
+
+# Not secret, but environment-specific: the absolute origin used in email links.
+# Without it an invite email points at the internal binding host.
+PUBLIC_APP_URL=
