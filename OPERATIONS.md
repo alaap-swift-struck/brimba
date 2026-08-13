@@ -167,6 +167,25 @@ deploy needed to change one.
 - CI runs the same on every push (.github/workflows/ci.yml)
 - deploy:staging ends with scripts/smoke-staging.mjs — the LIVE login→team journey must pass or the deploy is considered failed
 
+## The architecture blueprint
+
+`architecture-blueprint.html` is the interactive map — three views and a
+plain-English walkthrough. It is **gitignored on purpose**: it is generated, not
+source. What makes that safe is that the generator IS committed:
+
+```bash
+npm run blueprint
+```
+
+It re-reads the repo every run — the workers and their bindings, the migration
+counts, the per-team tables, the buckets, the seams — so the map cannot drift
+from the code. The plain-English sentences live in `scripts/build-blueprint.mjs`
+beside it, and **a worker on disk with no sentence fails the build by name**
+rather than quietly vanishing from the map.
+
+It needs the `architecture_blueprint` skill's template
+(`~/.claude/skills/architecture_blueprint/assets/`), and says so if it is absent.
+
 ## Local dev
 
 - `npm run dev:auth` (auth worker on :8787, local DB; first time: apply migrations with `--local`)
