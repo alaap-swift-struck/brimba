@@ -32,7 +32,7 @@ Do not relitigate any "LOCKED" item without the user.
 - Every row: globally-unique, team-stamped IDs (rows can move homes without
   collisions). Every worker reads/writes through ONE data-access layer.
 
-### 1a · The operations database (2026-08-12)
+### 1a · The operations database (2026-08-18)
 
 A THIRD kind of database, alongside the global core and the per-team ones.
 
@@ -242,7 +242,7 @@ failure a user cannot detect. So every non-GET route must publish, and a test
 reads every handler's source to prove it (`workers/*/test/publish-seam.test.ts`).
 The two reviewed exceptions are named in CACHING rule 5.
 
-### 2b · The single point of failure is `auth` — stated, not discovered (2026-08-12)
+### 2b · The single point of failure is `auth` — stated, not discovered (2026-08-18)
 
 Every architecture has one component whose loss is not survivable. Pretending
 otherwise is how a 3am incident becomes a two-hour incident, so this says which
@@ -274,10 +274,10 @@ Already-open live sockets keep running; new ones are refused. Static pages and
 valid", which would let a brief auth wobble pass unnoticed. It is not built
 because it buys resilience with revocation: a session you revoked — a departing
 employee, a stolen laptop — would keep working for the length of the cache.
-Revocation is instant today, and the owner's decision (2026-08-12) is to keep it
+Revocation is instant today, and the owner's decision (2026-08-18) is to keep it
 that way. This is a trade that can be revisited; it must not be made by accident.
 
-**Why the failure is at least honest now.** Until 2026-08-12 `whoAmI` could not
+**Why the failure is at least honest now.** Until 2026-08-18 `whoAmI` could not
 tell "auth says this person is not signed in" from "auth did not answer" — both
 returned null, so an auth outage silently signed every working user out and sent
 them to a login screen that could not help either. LAW R11's internal half
@@ -342,11 +342,14 @@ cold-start deploy on a fresh account, which OPERATIONS.md documents (error 10143
 - **Master records are NEVER hard-deleted** — deactivate/activate only
   (the words are "deactivate"/"activate", not archive). The delete right stays
   in the grid for future child-table cases; base modules don't expose it.
-- **Activity log records meaningful changes** — created, edited, role changed,
-  invite sent/revoked, member removed (deletes don't happen). One reusable writer
-  (`shared/workers/activity.ts`) writes to each team's own `activity` table; each
-  row carries a relation (`related_table`/`related_row_id`) so the SAME feed
-  surfaces four ways — the whole team, one user, one role, or one invite.
+- **Activity log records a record's WHOLE LIFE** — created, edited, deactivated,
+  reactivated (master records are never hard-deleted, so deactivation is death).
+  **The rule is stated ONCE**, in `shared/workers/activity.ts` — LAW R25. This
+  line deliberately points at it rather than restating it: when the rule was
+  written out in three places, the three drifted into three different rules, and
+  the team schema's version excluded creations that the code had logged all
+  along. Every row also carries WHICH DOOR the change came through (`origin`:
+  ui/api/mcp/agent/import/job) and the field diff as data.
 - **Every record screen has an Overview tab + an Activity tab** (LOCKED
   2026-06-17): Overview = the audit block (created/edited/deactivated + who);
   Activity = that record's slice of the log. Both tabs render from LIBRARY

@@ -54,8 +54,12 @@ CREATE TABLE selectable_data (
   deactivated_at TEXT, deactivator_id TEXT, deactivator_email TEXT, deactivator_name TEXT
 );
 
--- Activity log (locked rule: edits, deactivations, activations ONLY —
--- creations live on each row's own audit columns, deletes don't happen).
+-- Activity log — a record's WHOLE LIFE in one table: created, edited,
+-- deactivated, reactivated. The rule is stated ONCE, in
+-- shared/workers/activity.ts; this comment deliberately does not restate it.
+-- (Until 2026-08-18 this said "edits, deactivations, activations ONLY", which
+-- contradicted ARCHITECTURE.md AND the code, which had logged creations all
+-- along. LAW R25.)
 CREATE TABLE activity (
   id TEXT PRIMARY KEY,
   type TEXT NOT NULL,
@@ -309,6 +313,53 @@ CREATE INDEX IF NOT EXISTS idx_agent_threads_recent
 -- Bounded collections, but the sort is free to serve and the write cost is trivial.
 CREATE INDEX IF NOT EXISTS idx_learning_order ON learning (sequence, created_at);
 CREATE INDEX IF NOT EXISTS idx_selectable_order ON selectable_data (type, value);
+`,
+  },
+  {
+    // BIRTH TO DEATH, AND WHICH DOOR IT CAME THROUGH (LAW R25, 2026-08-18).
+    //
+    // The activity log answered "what happened" and "who did it". It could not
+    // answer two questions an audit trail is actually opened for:
+    //
+    //   "WHICH SURFACE changed this?" — a change made by the assistant, by an
+    //   outside tool over MCP, or by a nightly job looked identical to one a
+    //   person made by hand. It was answerable only by READING SOURCE, which is
+    //   not something anyone can do mid-incident, and "did the agent do this?" is
+    //   the first question an owner asks.
+    //
+    //   "What has THIS PERSON done?" — there was an index for a RECORD's history
+    //   and none for an ACTOR's, so the single query an audit trail exists for
+    //   was a full scan of the largest table in the database.
+    //
+    // before_after carries the field-level diff as JSON beside the human
+    // sentence, so a change can be reconstructed as data rather than only read as
+    // prose. Both columns are NULLABLE: every existing row stays valid, and a
+    // worker mid-rollout that does not send them still writes a good row.
+    version: "0008_activity_origin",
+    sql: `
+ALTER TABLE activity ADD COLUMN origin TEXT;
+ALTER TABLE activity ADD COLUMN before_after TEXT;
+-- The STABLE half of the type label. Every module invented its own readable one
+-- ("Learning created", "Help ticket raised", "Role created") — consistent enough
+-- to read, impossible to filter on, because "show me every creation last week"
+-- needed a list of every spelling any module had ever used. The type stays as the
+-- sentence a person sees; the verb is the closed set a query groups by.
+ALTER TABLE activity ADD COLUMN verb TEXT;
+
+-- "What has this person done?" — filter by actor, sort newest-first, read
+-- straight off the b-tree. DESC to match the keyset page order (see 0007).
+CREATE INDEX IF NOT EXISTS idx_activity_actor
+  ON activity (creator_id, created_at DESC, id DESC);
+
+-- "Show me everything the assistant changed" — the question the origin column
+-- exists to make answerable without reading source.
+CREATE INDEX IF NOT EXISTS idx_activity_origin
+  ON activity (origin, created_at DESC, id DESC);
+
+-- "Every deactivation this month" — filtering the feed by what KIND of event it
+-- was, which is what the verb exists for.
+CREATE INDEX IF NOT EXISTS idx_activity_verb
+  ON activity (verb, created_at DESC, id DESC);
 `,
   },
 ]

@@ -3,6 +3,7 @@
 
 import type { ApiError } from "../types"
 import { REQUEST_ID_HEADER } from "./trace"
+import { ORIGIN_HEADER } from "./activity"
 
 export const json = (
   data: unknown,
@@ -58,11 +59,17 @@ export async function forwardToDoor(
      * path does real work of unbounded duration (an import batch), and a bound
      * that cuts a working import off is worse than no bound. */
     requestId?: string | null
+    /** Which door the ORIGINAL caller came through, so the gated door it forwards
+     * to records "mcp" or "agent" rather than "ui". Without it, a change made by
+     * an outside tool is indistinguishable in the trail from one a person typed —
+     * which is the first question asked when something unexpected has happened. */
+    origin?: string | null
   }
 ): Promise<Response> {
   const init: RequestInit = { method: opts.method, headers: { Cookie: opts.cookie } }
   const headers = init.headers as Record<string, string>
   if (opts.requestId) headers[REQUEST_ID_HEADER] = opts.requestId
+  if (opts.origin) headers[ORIGIN_HEADER] = opts.origin
   if (opts.method === "POST") {
     headers["Content-Type"] = "application/json"
     if (opts.idempotencyKey) headers["Idempotency-Key"] = opts.idempotencyKey

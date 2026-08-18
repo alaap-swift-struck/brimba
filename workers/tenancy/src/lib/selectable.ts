@@ -135,6 +135,7 @@ export async function createSelectable(
   )
   await logActivity(cfg, guard.databaseId, actor, {
     type: "Dropdown value created",
+      verb: "created",
     description: `${actor.name} added "${v}" to ${t}`,
     relatedTable: "selectable_data",
     relatedRowId: id,
@@ -176,6 +177,7 @@ export async function updateSelectable(
   assertNotConflicted(landed.length, expectedVersion)
   await logActivity(cfg, guard.databaseId, actor, {
     type: "Dropdown value edited",
+      verb: "edited",
     description: `${actor.name} renamed a ${row.type} value: "${row.value}" → "${v}"`,
     relatedTable: "selectable_data",
     relatedRowId: id,

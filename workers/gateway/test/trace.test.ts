@@ -5,7 +5,7 @@
 // cannot prove what a caller DOES with the answer, because that needs the meaning
 // of the code and not its shape. This file covers exactly that gap.
 //
-// The fault it exists to prevent was live in the base until 2026-08-12:
+// The fault it exists to prevent was live in the base until 2026-08-18:
 //
 //     const res = await env.AUTH.fetch("https://auth/api/auth/me", …)
 //     if (!res.ok) return null          // ← and a THROW took the same branch
@@ -83,7 +83,7 @@ describe("the request id", () => {
     // produced "theirs, ours". That value fails the shape check above, so every
     // downstream worker minted its own id and correlation broke silently — in
     // exactly the case honouring an inbound id exists for. Caught pre-deploy
-    // 2026-08-12; the fix is `.set()`.
+    // 2026-08-18; the fix is `.set()`.
     const incoming = new Request("https://app/x", { headers: { [REQUEST_ID_HEADER]: "client-sent-this" } })
     const headers = new Headers(incoming.headers)
     headers.set(REQUEST_ID_HEADER, "MINTED01234567890123456789")
@@ -104,6 +104,18 @@ describe("the request id", () => {
       /new Headers\(\[\.\.\.request\.headers/.test(src),
       "the combining array form appends instead of replacing — it broke inbound ids"
     ).toBe(false)
+  })
+
+  it("the gateway STRIPS a caller-supplied origin header", () => {
+    // The origin column is trusted by the audit trail. If a browser could set it,
+    // anyone could stamp their own edit as "job" or "agent" and the provenance
+    // would be worthless. Internal callers set it worker-to-worker via
+    // forwardToDoor, which never passes through the gateway — so deleting it on
+    // the way in costs the real paths nothing.
+    const src = readFileSync(join(__dirname, "..", "src", "index.ts"), "utf8")
+    expect(src, "the public door must delete the origin header from inbound requests").toMatch(
+      /tracedHeaders\.delete\(ORIGIN_HEADER\)/
+    )
   })
 
   it("merges into outbound headers, and leaves them alone when there is no id", () => {

@@ -8,7 +8,7 @@ import type { ActiveTeam } from "@/lib/use-active-team"
 
 export function InvitationsScreen({ active }: { active: ActiveTeam }) {
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-col gap-3">
+    <div className="mx-auto flex w-full flex-col gap-3">
       <h2 className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
         Invitations
       </h2>

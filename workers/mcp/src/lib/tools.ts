@@ -182,6 +182,7 @@ export async function forwardTool(
     cookie,
     idempotencyKey,
     requestId,
+    origin: "mcp",
     query: tool.method === "GET" && tool.buildQuery ? tool.buildQuery(input) : "",
     body: tool.buildBody ? tool.buildBody(input) : {},
   })

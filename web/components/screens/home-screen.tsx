@@ -27,7 +27,7 @@ export function HomeScreen({ active }: { active: ActiveTeam }) {
   ]
 
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-col gap-6">
+    <div className="mx-auto flex w-full flex-col gap-6">
       <div className="animate-rise flex items-center gap-4">
         <Avatar className="size-14">
           {ctx.team?.logoUrl && <AvatarImage src={ctx.team.logoUrl} alt={ctx.team.name} />}

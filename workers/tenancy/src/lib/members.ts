@@ -245,6 +245,7 @@ export async function changeMemberRole(
   const t = targetDisplayName(target)
   await logActivity(cfg, guard.databaseId, actor, {
     type: "Member role changed",
+      verb: "edited",
     // Point-in-time snapshot. When there's no name yet, the email IS the name —
     // drop the parenthetical duplicate.
     description: t.hasName
@@ -296,6 +297,7 @@ export async function removeMember(
   const t = targetDisplayName(target)
   await logActivity(cfg, guard.databaseId, actor, {
     type: "Member removed",
+      verb: "removed",
     description: t.hasName
       ? `${actor.name} removed ${t.name} (${t.email}) from the team`
       : `${actor.name} removed ${t.name} from the team`,

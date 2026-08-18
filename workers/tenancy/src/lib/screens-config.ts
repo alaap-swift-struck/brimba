@@ -57,6 +57,7 @@ ON CONFLICT(module) DO UPDATE SET
   )
   await logActivity(cfg, guard.databaseId, actor, {
     type: "Screen configured",
+      verb: "edited",
     description: `${actor.name} customized the ${key} screen`,
     relatedTable: "screens",
     relatedRowId: key,

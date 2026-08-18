@@ -90,7 +90,7 @@ export const RULES_REGISTRY: Rule[] = [
   {
     id: "R11",
     dimension: "arch",
-    law: "Every call that leaves a worker is bounded and guarded. EXTERNAL (a bare global fetch() to the internet — the D1 REST door, the email sender, the AI model call): an AbortSignal timeout, so a hung socket can never stall a worker. INTERNAL (a service binding): through the one seam, shared/workers/trace.ts — callService bounds it, never throws, returns NULL for \"did not answer\" as distinct from a Response that says no, and carries the request id. The internal half was added 2026-08-12; the law previously EXEMPTED service bindings as \"Cloudflare-bounded\", which the architecture review disproved — the platform bounds the worker, nothing bounds the call, and a caller could not tell an outage from a refusal. Two exceptions, each with a written reason: the gateway proxy and forwardToDoor are guarded but deliberately NOT bounded, because both carry responses of unbounded legitimate duration (the agent's streamed reply, an import batch) and a bound that truncates working output is worse than none.",
+    law: "Every call that leaves a worker is bounded and guarded. EXTERNAL (a bare global fetch() to the internet — the D1 REST door, the email sender, the AI model call): an AbortSignal timeout, so a hung socket can never stall a worker. INTERNAL (a service binding): through the one seam, shared/workers/trace.ts — callService bounds it, never throws, returns NULL for \"did not answer\" as distinct from a Response that says no, and carries the request id. The internal half was added 2026-08-18; the law previously EXEMPTED service bindings as \"Cloudflare-bounded\", which the architecture review disproved — the platform bounds the worker, nothing bounds the call, and a caller could not tell an outage from a refusal. Two exceptions, each with a written reason: the gateway proxy and forwardToDoor are guarded but deliberately NOT bounded, because both carry responses of unbounded legitimate duration (the agent's streamed reply, an import batch) and a bound that truncates working output is worse than none.",
     checkId: "fetch-timeout",
     status: "enforced",
   },
@@ -185,6 +185,13 @@ export const RULES_REGISTRY: Rule[] = [
     checkId: "bulk-twin-declared",
     status: "enforced",
   },
+  {
+    id: "R25",
+    dimension: "arch",
+    law: "A record's WHOLE LIFE lands in the one activity table — created, edited, deactivated, reactivated (master records are never hard-deleted, so deactivation IS death). The rule is stated in exactly ONE place, shared/workers/activity.ts; ARCHITECTURE.md and the team schema POINT at it rather than restate it, because when it was said in three places it drifted into three different rules and the schema's version was simply wrong. The table is APPEND-ONLY: nothing in the request path updates or deletes an activity row, so ageing is a documented retention policy, never code rewriting history. Every row carries WHO (a frozen actor snapshot), WHAT (related_table + related_row_id), WHEN, and WHICH DOOR (origin: ui/api/mcp/agent/import/job) plus the field diff as data. Earned by: an audit that could only answer 'did the assistant change this?' by reading source, and a team feed that recorded people being removed and demoted but never arriving.",
+    checkId: "activity-birth-to-death",
+    status: "enforced",
+  },
 ]
 
 /** R13 — reviewed exemptions: modules that are deliberately NOT import targets,
@@ -209,6 +216,11 @@ export const ACTIVITY_GATE_MAP: Record<string, string> = {
   member_roles: "member_roles",
   users: "team_members",
   invite_logs: "team_members",
+  // A member ARRIVING is visible to exactly whoever may read the member list —
+  // the same gate as the removal and role-change rows that sat beside it. Added
+  // 2026-08-18 with the join event itself: the feed recorded people leaving and
+  // being demoted, and never recorded them joining (R25).
+  team_members: "team_members",
 }
 
 /** R15 — reviewed DEAF exemptions: resources a worker publishes that reach NO
@@ -257,6 +269,8 @@ export const ACTIVITY_TABLE_EXEMPT: Record<string, string> = {
   teams: "team metadata (name/logo) is member-wide — the team screen itself has no module gate",
   screens: "screen-recipe changes are app furniture every member renders; the rows carry no record content",
   import: "an import summary names only counts + the target module; the imported rows' own activity is gated by their module",
+  team_module_databases:
+    "the module MOVER relocating a module to its own database — owner-only maintenance about where data lives, never about what any record says. It names a module and a row count, both of which every member already sees in the nav. Written by the SYSTEM actor (R25), so there is no person's rights to subtract.",
 }
 
 /** Worker test suites that enforce R1. A new mutating worker without a

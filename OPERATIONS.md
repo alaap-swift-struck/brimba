@@ -241,7 +241,7 @@ The raise is one-way; see SCALING.md §3.
 
 ---
 
-## Scaling round 3 (2026-08-12) — the operations database
+## Scaling round 3 (2026-08-18) — the operations database
 
 **A new D1 per environment**, already created:
 
@@ -342,7 +342,7 @@ ledger records it as applied and it will not run again.
 restores every `.dev.vars` after a fresh clone. See SECRETS.md.
 
 **Databases** — Cloudflare D1 Time Travel. **The window is 30 days** on the
-Workers Paid plan (7 on Free — checked against Cloudflare's docs 2026-08-12).
+Workers Paid plan (7 on Free — checked against Cloudflare's docs 2026-08-18).
 Bookmarks are automatic: there is no backup to remember to take, and restoring
 costs nothing. Everything older than 30 days is **not recoverable** — if a
 retention rule or a support answer ever needs data beyond that, it must be
@@ -361,7 +361,7 @@ restore can itself be undone — write that bookmark down before you proceed.
 Per-team databases are separate, so one team can be restored without touching
 anyone else — which is the whole point of the per-team split.
 
-### The restore drill — last proven 2026-08-12
+### The restore drill — last proven 2026-08-18
 
 An untested restore is not a restore, so this one was actually run, end to end,
 on a throwaway database (`brimba-restore-drill`, created and deleted for the

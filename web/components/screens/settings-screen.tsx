@@ -49,7 +49,7 @@ export function SettingsScreen({ active }: { active: ActiveTeam }) {
 
   return (
     <>
-      <div className="mx-auto flex w-full max-w-2xl flex-col gap-8">
+      <div className="mx-auto flex w-full flex-col gap-8">
         {pendingInvites.length > 0 && (
           <section className="animate-rise flex flex-col gap-3">
             <h2 className="text-muted-foreground text-xs font-medium uppercase tracking-wide">Invitations</h2>

@@ -6,7 +6,7 @@
 //     Read on (you can't have write without read).
 
 import { assertNotConflicted, versionPredicate } from "../../../../shared/workers/concurrency"
-import { describeChanges, logActivity, type Actor } from "../../../../shared/workers/activity"
+import { changedFields, describeChanges, logActivity, type Actor } from "../../../../shared/workers/activity"
 import {
   d1ExecScript,
   d1Query,
@@ -220,6 +220,7 @@ ON CONFLICT(role_id, module) DO UPDATE SET
 
   await logActivity(cfg, guard.databaseId, actor, {
     type: "Role permissions changed",
+      verb: "edited",
     description: `${actor.name} updated permissions for the ${role.title} role`,
     relatedTable: "member_roles",
     relatedRowId: roleId,
@@ -257,13 +258,16 @@ export async function updateRole(
 
   // Name exactly what changed, old -> new (the activity ruleset: edits carry
   // their field diffs, not just "edited").
-  const changes = describeChanges([
+  const diff = [
     { label: "Name", from: role.title, to: cleanTitle },
     { label: "Description", from: role.description, to: description.trim() || null },
-  ])
+  ]
+  const changes = describeChanges(diff)
   await logActivity(cfg, guard.databaseId, actor, {
     type: "Role edited",
+      verb: "edited",
     description: `${actor.name} edited the ${cleanTitle} role${changes ? ` — ${changes}` : ""}`,
+      changes: changedFields(diff),
     relatedTable: "member_roles",
     relatedRowId: roleId,
   })
@@ -346,6 +350,7 @@ VALUES (${sqlString(roleId)}, ${sqlString(cleanTitle)}, ${sqlString(desc)}, 0, $
 
   await logActivity(cfg, guard.databaseId, actor, {
     type: "Role created",
+      verb: "created",
     description: `${actor.name} created the ${cleanTitle} role`,
     relatedTable: "member_roles",
     relatedRowId: roleId,

@@ -65,14 +65,21 @@ export async function listTokens(env: Env, userId: string): Promise<McpTokenRow[
 }
 
 /** Revoke ONE of the caller's own tokens (idempotent). */
-export async function revokeToken(env: Env, userId: string, tokenId: string): Promise<void> {
+export async function revokeToken(
+  env: Env,
+  userId: string,
+  tokenId: string
+): Promise<{ label: string }> {
+  // RETURNING the label, so the caller can say WHICH token was revoked in the
+  // identity log. A trail that reads "a token was revoked" is barely a trail —
+  // the whole question is which one.
   const res = await env.DB.prepare(
-    "UPDATE mcp_tokens SET revoked_at = ? WHERE id = ? AND user_id = ? AND revoked_at IS NULL"
+    "UPDATE mcp_tokens SET revoked_at = ? WHERE id = ? AND user_id = ? AND revoked_at IS NULL RETURNING label"
   )
     .bind(new Date().toISOString(), tokenId, userId)
-    .run()
-  if (!res.meta.changes)
-    throw new GuardError(404, "token_not_found", "That token doesn't exist or is already revoked.")
+    .first<{ label: string }>()
+  if (!res) throw new GuardError(404, "token_not_found", "That token doesn't exist or is already revoked.")
+  return res
 }
 
 /** Verify a bearer secret → the live token row (or a clean 401). Stamps

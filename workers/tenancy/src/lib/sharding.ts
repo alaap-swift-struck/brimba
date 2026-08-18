@@ -31,6 +31,7 @@ import {
   type RetentionRule,
 } from "../../../../shared/workers/retention"
 import type { Env } from "../env"
+import { logActivity, SYSTEM_ACTOR } from "../../../../shared/workers/activity"
 
 /** 65% of D1's 10 GB per-database cap.
  *
@@ -292,6 +293,19 @@ export async function moveModuleToOwnDatabase(
   )
     .bind(new Date().toISOString(), team.database_id)
     .run()
+
+  // A MOVE IS A CHANGE TO THIS TEAM'S DATA, so it leaves a trace like any other.
+  // Background work has no signed-in person behind it; rather than write a blank
+  // actor — which reads as "nobody knows who did this" — it signs its own row.
+  // (activity_log_review 2026-08-18, criterion 3: the weakest surface was
+  // scheduled work, which wrote and logged nothing.)
+  await logActivity(cfg, newDbId, SYSTEM_ACTOR, {
+    type: "Module relocated",
+    verb: "edited",
+    description: `The ${module} module was moved to its own database (${movedRows} rows)`,
+    relatedTable: "team_module_databases",
+    relatedRowId: teamId,
+  })
 
   return { databaseId: newDbId, movedRows }
 }

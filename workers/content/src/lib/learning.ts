@@ -8,7 +8,7 @@
 //   • per-user progress is an explicit, reversible "mark as done" upsert.
 
 import { assertNotConflicted, versionPredicate } from "../../../../shared/workers/concurrency"
-import { describeChanges, logActivity, type Actor } from "../../../../shared/workers/activity"
+import { changedFields, describeChanges, logActivity, type Actor } from "../../../../shared/workers/activity"
 import {
   d1ExecScript,
   d1Query,
@@ -160,11 +160,24 @@ async function ensureCategory(
   )
   if (existing[0]) return
   const now = new Date().toISOString()
+  const id = ulid()
   await d1ExecScript(
     cfg,
     guard.databaseId,
-    `INSERT INTO selectable_data (id, type, value, is_default, created_at, creator_id, creator_email, creator_name) VALUES (${sqlString(ulid())}, ${sqlString(CATEGORY_TYPE)}, ${sqlString(clean)}, 0, ${sqlString(now)}, ${sqlString(actor.id)}, ${sqlString(actor.email)}, ${sqlString(actor.name)});`
+    `INSERT INTO selectable_data (id, type, value, is_default, created_at, creator_id, creator_email, creator_name) VALUES (${sqlString(id)}, ${sqlString(CATEGORY_TYPE)}, ${sqlString(clean)}, 0, ${sqlString(now)}, ${sqlString(actor.id)}, ${sqlString(actor.email)}, ${sqlString(actor.name)});`
   )
+  // A dropdown value created SIDEWAYS still gets a birth row (R25). This one is
+  // easy to miss precisely because nobody visits a form to make it: typing a new
+  // category into pick-or-create on the learning form creates a real record in
+  // another module, and it used to appear in the dropdown list with no history
+  // at all — the only row in `selectable_data` whose life started silently.
+  await logActivity(cfg, guard.databaseId, actor, {
+    type: "Dropdown value created",
+    verb: "created",
+    description: `${actor.name} added the "${clean}" learning category while writing an article`,
+    relatedTable: "selectable_data",
+    relatedRowId: id,
+  })
 }
 
 /** Every learning item (active + inactive) for the team, in display order
@@ -278,6 +291,7 @@ VALUES (${sqlString(id)}, ${sqlString(category)}, ${sqlString(title)}, ${sqlStri
 
   await logActivity(cfg, guard.databaseId, actor, {
     type: "Learning created",
+      verb: "created",
     description: `${actor.name} added the "${title}" learning item`,
     relatedTable: "learning",
     relatedRowId: id,
@@ -321,17 +335,20 @@ export async function updateLearning(
   )
   assertNotConflicted(landed.length, expectedVersion)
 
-  const changes = describeChanges([
+  const diff = [
     { label: "Title", from: before.content_title, to: title },
     { label: "Category", from: before.category, to: category },
     { label: "Description", from: before.content_description, to: description },
     { label: "Type", from: before.content_type, to: contentType },
     { label: "Link", from: before.content_link, to: safeLink(input.contentLink) },
     { label: "Body", from: before.content_body, to: body, hideValues: true },
-  ])
+  ]
+  const changes = describeChanges(diff)
   await logActivity(cfg, guard.databaseId, actor, {
     type: "Learning edited",
+      verb: "edited",
     description: `${actor.name} edited the "${title}" learning item${changes ? ` — ${changes}` : ""}`,
+      changes: changedFields(diff),
     relatedTable: "learning",
     relatedRowId: id,
   })

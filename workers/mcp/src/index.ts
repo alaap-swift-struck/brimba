@@ -29,6 +29,7 @@ import { createToken, listTokens, revokeToken, verifyToken } from "./lib/tokens"
 import { dropCachedSession, sessionCookieFor } from "./lib/bridge"
 import { forwardTool, getMcpTool, MCP_TOOLS } from "./lib/tools"
 import { REQUEST_ID_HEADER } from "../../../shared/workers/trace"
+import { logAccountActivity } from "../../../shared/workers/account-activity"
 
 const PROTOCOL_VERSION = "2025-06-18"
 
@@ -129,6 +130,14 @@ async function postToken(request: Request, env: Env): Promise<Response> {
   const body = (await request.json().catch(() => ({}))) as { label?: unknown }
   const label = requireText(body.label, "Name", TEXT_LIMITS.short)
   const { row, secret } = await createToken(env, user.id, user.currentTeamId, label)
+  // MINTING ACCESS LEAVES A TRACE. A personal access token is the most
+  // access-granting object in the app, and until 2026-08-18 it could be created
+  // and revoked with no record anywhere (activity_log_review, finding 1). It
+  // lands in the IDENTITY log, not a team feed: a token belongs to the person.
+  await logAccountActivity(env, user.id, {
+    type: "mcp_token_created",
+    description: `Created the access token "${label}"`,
+  })
   // The ONE time the secret leaves the server.
   return json({
     token: { id: row.id, label: row.label, teamId: row.team_id, createdAt: row.created_at },
@@ -140,8 +149,14 @@ async function postRevoke(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env)
   const body = (await request.json().catch(() => ({}))) as { id?: string }
   if (!body.id) return fail(400, "invalid_input", "A token id is required.")
-  await revokeToken(env, user.id, body.id)
+  const revoked = await revokeToken(env, user.id, body.id)
   dropCachedSession(body.id)
+  // Revocation matters more than creation: it is the moment access is TAKEN
+  // AWAY, and the one an incident review asks about first.
+  await logAccountActivity(env, user.id, {
+    type: "mcp_token_revoked",
+    description: `Revoked the access token "${revoked.label}"`,
+  })
   return json({ ok: true })
 }
 

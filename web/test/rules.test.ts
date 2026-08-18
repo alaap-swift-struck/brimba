@@ -251,7 +251,7 @@ describe("RULES — the laws of the base", () => {
   })
 
   // R11, second half — the INTERNAL hop. R11 used to EXEMPT service bindings, on the
-  // grounds that they are "Cloudflare-bounded". The architecture review (2026-08-12)
+  // grounds that they are "Cloudflare-bounded". The architecture review (2026-08-18)
   // disproved that in the way that matters: the platform bounds the WORKER, but nothing
   // bounds the CALL — so a slow auth held every request in every worker open, and worse,
   // a caller could not tell "auth says no" from "auth said nothing" and an outage logged
@@ -756,7 +756,7 @@ describe("RULES — the laws of the base", () => {
       // `declarationBody`, NOT slice-to-end-of-file. The old form sliced from the
       // function to the END OF THE FILE and grepped for `return false` in all of
       // it — so ANY later function's `return false` satisfied it. Proven blind on
-      // 2026-08-12: the row-count check was deleted from setLearningActive, an
+      // 2026-08-18: the row-count check was deleted from setLearningActive, an
       // unrelated `return false` was added forty lines below, and this check went
       // GREEN with the exact bug R17 exists to prevent sitting in the file.
       const body = declarationBody(src, src.indexOf(`export async function ${fn}`))
@@ -889,6 +889,53 @@ describe("RULES — the laws of the base", () => {
     }
   })
 
+  // R25 — a record's whole life lands in the ONE activity table, the rule is
+  // stated in ONE place, and the table is APPEND-ONLY.
+  //
+  // WHAT THIS CHECKS, said plainly: that no code path updates or deletes an
+  // activity row, that the two other documents point at the seam rather than
+  // restating the rule, and that the seam names what is deliberately not logged.
+  // It canNOT check that every new module remembers to log — that needs the
+  // meaning of the code. The behavioural cover for the write itself is
+  // `workers/content/test/idempotent-transitions.test.ts`, which asserts a real
+  // transition writes exactly one row and a repeat writes none.
+  it("activity-birth-to-death: the log is append-only and the rule is stated once (R25)", () => {
+    // (a) APPEND-ONLY. An UPDATE or DELETE against the log in the request path
+    // turns a trail into a draft. The retention sweep is the ONE exception and
+    // is a documented policy, not request-path code.
+    const offenders: string[] = []
+    for (const [path, src] of workerSources()) {
+      if (path.endsWith("/retention.ts")) continue
+      const code = stripComments(src)
+      for (const re of [/UPDATE\s+activity\b/gi, /DELETE\s+FROM\s+activity\b/gi, /UPDATE\s+account_activity\b/gi]) {
+        if (re.test(code)) offenders.push(`${path} → ${re.source}`)
+      }
+    }
+    expect(
+      offenders,
+      `activity rows must never be rewritten in the request path (R25): ${offenders.join(", ")}`
+    ).toEqual([])
+
+    // (b) STATED ONCE. The seam owns the rule; the other two point at it. When
+    // this was stated in three places they drifted into three different rules,
+    // and the schema's version excluded creations the code had always logged.
+    const seam = read(join(ROOT, "shared", "workers", "activity.ts"))
+    expect(seam, "the seam must carry the law id").toContain("LAW R25")
+    expect(seam, "and name what is deliberately NOT logged, so the gaps are decisions").toMatch(
+      /DELIBERATELY NOT LOGGED/i
+    )
+    const schema = read(join(ROOT, "workers", "tenancy", "src", "team-schema.ts"))
+    expect(
+      /stated ONCE/i.test(schema),
+      "the team schema must POINT at the seam, not restate the rule (it drifted once already)"
+    ).toBe(true)
+
+    // (c) THE ROW SAYS WHICH DOOR. Without origin, "did the agent do this?" is
+    // answerable only by reading source — no use at all mid-incident.
+    expect(seam, "the origin header must be named in the seam").toContain("ORIGIN_HEADER")
+    expect(schema, "and the column must exist in the team schema").toContain("origin TEXT")
+  })
+
   // Every enforced law in the registry maps to one of the checks above (or a
   // per-worker seam test) — a law can't exist without a check.
   it("every enforced law has a known check", () => {
@@ -921,6 +968,7 @@ describe("RULES — the laws of the base", () => {
       "create-opens-record", // R22: the form-seam scan above
       "mutation-returns-row", // R23: the mutation-door response scan above
       "bulk-twin-declared", // R24: the bulk-door scan above
+      "activity-birth-to-death", // R25: the append-only + single-source scan above
     ])
     for (const r of RULES_REGISTRY) {
       if (r.status === "enforced")

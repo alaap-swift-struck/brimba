@@ -6,37 +6,16 @@
 // describes. The actor is always the user themselves, so there's no Actor arg.
 
 import type { ActivityItem } from "../../../../shared/types"
-import { ulid } from "../../../../shared/workers/id"
-import { publishUserChange } from "../../../../shared/workers/realtime"
+// The writer moved to shared/ so the mcp worker can log token events too.
+// Re-exported here so every existing auth call site is unchanged.
+export { logAccountActivity, type AccountEvent } from "../../../../shared/workers/account-activity"
 import type { Env } from "../env"
 
-export type AccountEvent = { type: string; description: string }
 
 /** Append one account-activity row (best-effort — never throws to the caller).
  * Every account-activity write flows through here, so publishing the live event
  * here means email-change / profile / any future identity event all update the
  * user's own account feed across their devices with no per-call wiring. */
-export async function logAccountActivity(
-  env: Env,
-  userId: string,
-  event: AccountEvent
-): Promise<void> {
-  const id = ulid()
-  try {
-    await env.DB.prepare(
-      `INSERT INTO account_activity (id, user_id, type, description, created_at)
-       VALUES (?, ?, ?, ?, ?)`
-    )
-      .bind(id, userId, event.type, event.description, new Date().toISOString())
-      .run()
-  } catch (e) {
-    console.error("account activity log failed:", e)
-    return
-  }
-  // Live: the actor's own account feed gains this row (best-effort).
-  await publishUserChange(env.REALTIME, userId, "account_activity", id, "add")
-}
-
 /** The signed-in person's own account history, newest first (capped at 50). */
 export async function listAccountActivity(
   env: Env,

@@ -48,31 +48,53 @@ export async function applyTeamSchema(
 }
 
 /**
- * Stamp the per-team invite_logs audit row as accepted (M4). The global
- * invite_index is the routing truth; this is the team-DB audit copy, so it's
- * BEST-EFFORT — a missing cloud key or team-DB hiccup must never block a join.
- * `inviteRowId` is invite_index.invite_row_id (= the invite_logs row id).
+ * Record an accepted invite in the team's own database: the `invite_logs` audit
+ * stamp, and the ARRIVAL of the member in the activity feed.
+ *
+ * THE JOIN LOG IS THE POINT (activity_log_review 2026-08-18, finding 2). The
+ * feed logged "Member removed" and "Member role changed" but nothing at all when
+ * someone JOINED — so a team's history showed people leaving and being demoted,
+ * and never showed them arriving. Gaining access was the one membership event
+ * that left no trace.
+ *
+ * Both join paths (fresh-signup sweep and explicit accept) end here, so logging
+ * in this one place covers both and cannot drift apart later.
+ *
+ * BEST-EFFORT throughout — a missing cloud key or team-DB hiccup must never
+ * block a join. `inviteRowId` is invite_index.invite_row_id (= the invite_logs
+ * row id); it may be absent, and the join is still logged when it is.
  */
-async function stampInviteAccepted(
+async function recordInviteAccepted(
   env: Env,
   teamId: string,
   inviteRowId: string | null,
-  acceptedAt: string
+  acceptedAt: string,
+  actor: Actor
 ): Promise<void> {
-  if (!inviteRowId) return
   try {
     const cfg = d1Config(env)
     const row = await env.DB.prepare("SELECT database_id FROM teams WHERE id = ?")
       .bind(teamId)
       .first<{ database_id: string | null }>()
     if (!row?.database_id) return
+
+    // The arrival. Logged even when there is no invite_logs row to stamp.
+    await logActivity(cfg, row.database_id, actor, {
+      type: "Member joined",
+      verb: "created",
+      description: `${actor.name} joined the team`,
+      relatedTable: "team_members",
+      relatedRowId: actor.id,
+    })
+
+    if (!inviteRowId) return
     await d1ExecScript(
       cfg,
       row.database_id,
       `UPDATE invite_logs SET invite_accepted = 1, invite_acceptance_timestamp = ${sqlString(acceptedAt)} WHERE id = ${sqlString(inviteRowId)};`
     )
   } catch (e) {
-    console.error("invite_logs accept stamp failed (audit only):", e)
+    console.error("invite accept record failed (audit only):", e)
   }
 }
 
@@ -108,6 +130,7 @@ export async function createTeam(
 
     await logActivity(cfg, databaseId, actor, {
       type: "Team created",
+      verb: "created",
       description: `${actor.name} created the team`,
       relatedTable: "teams",
       relatedRowId: teamId,
@@ -231,7 +254,7 @@ export async function acceptPendingInvites(
     await env.DB.prepare("UPDATE invite_index SET status = 'accepted' WHERE id = ?")
       .bind(invite.id)
       .run()
-    await stampInviteAccepted(env, invite.team_id, invite.invite_row_id, now)
+    await recordInviteAccepted(env, invite.team_id, invite.invite_row_id, now, actor)
   }
 
   if (invites.length > 0) {
@@ -356,7 +379,7 @@ export async function acceptInvite(
     .bind(invite.team_id, now, actor.id)
     .run()
 
-  await stampInviteAccepted(env, invite.team_id, invite.invite_row_id, now)
+  await recordInviteAccepted(env, invite.team_id, invite.invite_row_id, now, actor)
 
   // Row-level: the joiner becomes a member (added) and the invite flips to
   // 'accepted' in place — carry both ids so open lists patch just those rows.

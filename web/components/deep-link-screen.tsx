@@ -427,7 +427,7 @@ export function DeepLinkScreen() {
        * rings the content region — a just-opened dialog draws the eye on its own. */}
       <div
         data-trace={traceHighlight ?? undefined}
-        className={`mx-auto flex w-full max-w-3xl flex-col gap-6 rounded-xl transition-shadow ${
+        className={`mx-auto flex w-full flex-col gap-6 rounded-xl transition-shadow ${
           traceHighlight ? "ring-primary/60 ring-2 ring-offset-2 ring-offset-background" : ""
         }`}
       >

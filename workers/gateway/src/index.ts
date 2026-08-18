@@ -51,6 +51,7 @@ const MODULE_SHELLS = ["learning", "help"]
 
 import { rateLimit, type RateLimiter } from "../../../shared/workers/rate-limit"
 import { proxyService, requestIdFrom, REQUEST_ID_HEADER, callService } from "../../../shared/workers/trace"
+import { ORIGIN_HEADER } from "../../../shared/workers/activity"
 
 type Env = {
   ASSETS: Fetcher
@@ -92,6 +93,14 @@ export default {
     // broke silently, in exactly the case the inbound-id support exists for.
     const tracedHeaders = new Headers(request.headers)
     tracedHeaders.set(REQUEST_ID_HEADER, req)
+    // STRIP THE ORIGIN HEADER AT THE PUBLIC DOOR. It records WHICH SURFACE made a
+    // change and is trusted by the audit trail, so it must only ever be set by an
+    // internal caller. The MCP front desk and the agent's executor set it on
+    // worker-to-worker calls through `forwardToDoor`, which never passes through
+    // here — so deleting it on the way in costs those paths nothing and stops a
+    // browser stamping its own edit as "job" or "agent". Provenance a caller can
+    // forge is not provenance.
+    tracedHeaders.delete(ORIGIN_HEADER)
     const traced = new Request(request, { headers: tracedHeaders })
 
     // THE SURGE CEILING, at the one public door. Everything below is bounded in

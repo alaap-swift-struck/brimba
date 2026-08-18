@@ -1,8 +1,8 @@
--- The request id on an error row (architecture review, 2026-08-12).
+-- The request id on an error row (architecture review, 2026-08-18).
 --
 -- THE OPERATIONS DATABASE, not core: error_logs moved here in db/ops/0001. This
 -- file was first written into db/core by mistake, which would have failed on a
--- missing table at deploy time — caught by the ship gate, 2026-08-12.
+-- missing table at deploy time — caught by the ship gate, 2026-08-18.
 --
 -- One click can be handled by seven workers. Until the trace seam existed, an
 -- error_logs row said WHICH worker failed and WHAT it said, but nothing tied it

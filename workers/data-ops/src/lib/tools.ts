@@ -291,6 +291,7 @@ export async function executeTool(
     method: tool.method,
     cookie: request.headers.get("Cookie") ?? "",
     requestId: request.headers.get(REQUEST_ID_HEADER),
+    origin: "agent",
     query: tool.method === "GET" && tool.buildQuery ? tool.buildQuery(input) : "",
     body: tool.buildBody ? tool.buildBody(input) : {},
   })

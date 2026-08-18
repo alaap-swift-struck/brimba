@@ -514,6 +514,7 @@ export async function confirmImport(
   )
   await logActivity(cfg, guard.databaseId, actor, {
     type: "Data imported",
+      verb: "edited",
     description: `${actor.name} imported ${result.created} ${target.displayName.toLowerCase()} row(s)`,
     relatedTable: target.tableKey,
     relatedRowId: id,

@@ -1,5 +1,5 @@
 # Lean Mean Check — brimba
-Scanned 2026-08-12 · Overall **97/100 (Grade A)** · was 96 before this pass · 570 tests green · Leaner *and* better locked — 304 lines of duplicated test collapsed onto one shared scanner, and a rule-check that had been quietly blind since it was written.
+Scanned 2026-08-18 · Overall **97/100 (Grade A)** · was 96 before this pass · 570 tests green · Leaner *and* better locked — 304 lines of duplicated test collapsed onto one shared scanner, and a rule-check that had been quietly blind since it was written.
 
 ## Fix first (ordered by impact)
 

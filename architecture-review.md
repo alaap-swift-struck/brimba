@@ -1,5 +1,5 @@
 # Architecture Review — Brimba
-**2026-08-12 · 96/100 · was 74 before this pass · 570 tests green**
+**2026-08-18 · 96/100 · was 74 before this pass · 570 tests green**
 
 > The other reviews ask whether the system is good **under a condition** — under load
 > (`scaling_review` 94), under attack (`security_sentry` 99), under handover
@@ -94,7 +94,7 @@ gateway request open — so this scores 16, not 20.
 **The 0/15 is a decision, not an oversight.** A short cache of "this session is valid"
 would let a brief auth wobble pass unnoticed and would earn these points. It also means a
 session you revoked — a departing employee, a stolen laptop — keeps working for the length
-of that cache. Revocation is instant today and the owner chose (2026-08-12) to keep it
+of that cache. Revocation is instant today and the owner chose (2026-08-18) to keep it
 that way. Recorded in ARCHITECTURE §2b so the trade is visible, not accidental.
 
 ## 3 · Every fact has one owner — 97/16 · defect
@@ -153,7 +153,7 @@ staging across all seven workers. Staging genuinely proves something. Clean resu
 Capped at **55** before this pass, because the rubric caps any recovery story where
 nothing records an actual restore test — and nothing did.
 
-**So one was run, end to end, on 2026-08-12.** A throwaway database
+**So one was run, end to end, on 2026-08-18.** A throwaway database
 (`brimba-restore-drill`), two rows written, a bookmark taken, `DELETE FROM invoices`
 confirming zero rows, then a restore. **Both rows came back with identical values.** The
 drill database was deleted afterwards. No real data was touched.
@@ -167,7 +167,7 @@ drill database was deleted afterwards. No real data was touched.
    it is what `info` actually hands you.
 
 Also now stated: the window is **30 days** on Workers Paid, 7 on Free (checked against
-Cloudflare's live docs, 2026-08-12), bookmarks are automatic, restoring is free — and
+Cloudflare's live docs, 2026-08-18), bookmarks are automatic, restoring is free — and
 anything older than 30 days is **not recoverable by any means**, which nothing said before.
 
 ## 7 · The next module is cheap — 100/10 · coverage
@@ -221,7 +221,7 @@ because the two halves fail differently:
 
 | # | severity | finding | tier |
 |---|---|---|---|
-| 1 | medium | **`auth` has no fallback.** Six workers depend on it; an outage is total. A cached session verification would fix it and would delay revocation. Owner declined 2026-08-12, recorded in ARCHITECTURE §2b. | 3 — decision |
+| 1 | medium | **`auth` has no fallback.** Six workers depend on it; an outage is total. A cached session verification would fix it and would delay revocation. Owner declined 2026-08-18, recorded in ARCHITECTURE §2b. | 3 — decision |
 | 2 | low | **Nine pass-through paths are unbounded** (gateway proxy ×7, `forwardToDoor` ×2). Deliberate — they carry streamed and long-running responses — but a slow downstream can still hold a request open. A deadline-aware bound that resets on bytes received would close it. | 3 — design |
 | 3 | low | **`users` has two writers, separated by documentation not machinery.** Disjoint columns today; nothing fails if a future module adds a second writer to an existing column. | 2 — a check, when a third writer appears |
 | 4 | low | **The WebSocket hop carries no request id.** Reconstructing the Request would break the upgrade. | won't fix — reasoned |

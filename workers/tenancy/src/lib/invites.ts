@@ -218,6 +218,7 @@ export async function createInvite(
 
   await logActivity(cfg, guard.databaseId, actor, {
     type: "Invite sent",
+      verb: "created",
     description: `${actor.name || "Someone"} invited ${to} as ${roles[0].title}`,
     relatedTable: "invite_logs",
     relatedRowId: inviteRowId,
@@ -305,6 +306,7 @@ export async function revokeInvite(
   if (res.meta?.changes) {
     await logActivity(cfg, guard.databaseId, actor, {
       type: "Invite revoked",
+      verb: "removed",
       description: `${actor.name} revoked the invite${row?.email ? ` for ${row.email}` : ""}`,
       relatedTable: "invite_logs",
       relatedRowId: row?.invite_row_id,

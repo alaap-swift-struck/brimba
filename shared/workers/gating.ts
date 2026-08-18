@@ -15,6 +15,7 @@ import type { SessionUser } from "../types"
 import { d1Query, type D1Rest } from "./d1-rest"
 import { fail } from "./http"
 import { callService, REQUEST_ID_HEADER } from "./trace"
+import { originFrom, type Actor } from "./activity"
 
 /** The slice of a worker Env the gating needs. Every domain worker's Env
  * structurally satisfies this (the AUTH binding + the core DB + the Cloudflare
@@ -28,7 +29,12 @@ export type GatingEnv = {
 }
 
 export type Right = "read" | "create" | "edit" | "delete"
-export type Actor = { id: string; email: string; name: string }
+// ONE Actor type, defined where the activity log defines it. gating.ts used to
+// declare its own structurally-identical copy; the moment the activity log added
+// `origin` to the actor, the two silently disagreed and the origin never reached
+// a log row. Re-exported so every existing `import { Actor } from "./gating"`
+// still works.
+export type { Actor } from "./activity"
 export type MemberGuard = {
   userId: string
   teamId: string
@@ -97,11 +103,14 @@ export async function whoAmI(request: Request, env: GatingEnv): Promise<SessionU
   return ((await res.json()) as { user: SessionUser }).user
 }
 
-export function toActor(user: SessionUser): Actor {
+export function toActor(user: SessionUser, request?: Request): Actor {
   return {
     id: user.id,
     email: user.email,
     name: [user.firstName, user.lastName].filter(Boolean).join(" "),
+    // The one place the door is read. Every activity row written during this
+    // request inherits it, with no per-module wiring — see Actor.origin.
+    origin: request ? originFrom(request) : undefined,
   }
 }
 
@@ -180,7 +189,7 @@ export async function teamContext(request: Request, env: GatingEnv): Promise<Tea
   // spending the capacity of the dozens of others sharing the account.
   await limitTeam(env, guard.teamId)
 
-  return { user, actor: toActor(user), cfg, guard }
+  return { user, actor: toActor(user, request), cfg, guard }
 }
 
 /** Charge one request against the team's ceiling; 429 if it is spent. Fails

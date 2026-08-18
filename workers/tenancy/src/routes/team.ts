@@ -121,6 +121,7 @@ export async function postUpdateTeam(request: Request, env: Env): Promise<Respon
   // Record the edit on the team's Activity feed (was missing — team-edit feedback).
   await logActivity(cfg, guard.databaseId, actor, {
     type: "Team details updated",
+      verb: "edited",
     description: `${actor.name} updated the team details`,
     relatedTable: "teams",
     relatedRowId: guard.teamId,

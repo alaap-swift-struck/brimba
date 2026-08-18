@@ -199,6 +199,7 @@ VALUES (${sqlString(id)}, ${sqlString(ticketId)}, ${sqlString(userId)}, ${sqlStr
 
   await logActivity(cfg, guard.databaseId, actor, {
     type: "Stakeholder added",
+      verb: "created",
     description: `${actor.name} added a stakeholder to the ticket`,
     relatedTable: "help",
     relatedRowId: ticketId,

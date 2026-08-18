@@ -10,7 +10,7 @@
 //     until the agent worker exists — a ticket always opens regardless.
 
 import { assertNotConflicted, versionPredicate } from "../../../../shared/workers/concurrency"
-import { describeChanges, logActivity, type Actor } from "../../../../shared/workers/activity"
+import { changedFields, describeChanges, logActivity, type Actor } from "../../../../shared/workers/activity"
 import { d1ExecScript, d1Query, sqlString, type D1Rest } from "../../../../shared/workers/d1-rest"
 import { ulid } from "../../../../shared/workers/id"
 import type { HelpMessage, HelpTicket } from "../../../../shared/types"
@@ -240,6 +240,7 @@ VALUES (${sqlString(id)}, ${sqlString((optionalText(input.helpType, "Type", TEXT
 
   await logActivity(cfg, guard.databaseId, actor, {
     type: "Help ticket raised",
+      verb: "created",
     description: `${actor.name} raised a support ticket`,
     relatedTable: "help",
     relatedRowId: id,
@@ -273,7 +274,7 @@ export async function updateTicket(
   )
   assertNotConflicted(landed.length, expectedVersion)
 
-  const changes = describeChanges([
+  const diff = [
     { label: "Type", from: before.help_type, to: optionalText(input.helpType, "Type", TEXT_LIMITS.short) ?? null },
     { label: "Description", from: before.description, to: description },
     {
@@ -283,10 +284,13 @@ export async function updateTicket(
       hideValues: true,
     },
     { label: "Source", from: before.source_screen, to: optionalText(input.sourceScreen, "Source", TEXT_LIMITS.short) ?? null },
-  ])
+  ]
+  const changes = describeChanges(diff)
   await logActivity(cfg, guard.databaseId, actor, {
     type: "Help ticket edited",
+      verb: "edited",
     description: `${actor.name} edited a support ticket${changes ? ` — ${changes}` : ""}`,
+      changes: changedFields(diff),
     relatedTable: "help",
     relatedRowId: id,
   })

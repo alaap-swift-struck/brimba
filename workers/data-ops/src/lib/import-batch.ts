@@ -290,6 +290,7 @@ export async function confirmBatch(
   )
   await logActivity(cfg, guard.databaseId, actor, {
     type: "Data imported",
+      verb: "edited",
     description: `${actor.name} imported ${report.created} row(s) across ${report.perTarget.length} table(s)`,
     relatedTable: "import",
     relatedRowId: batchId,

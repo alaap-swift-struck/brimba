@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Activity Log Review — Brimba</title>
+<style>
+  :root{
+    --bg:#f7f8fa; --card:#fff; --ink:#12151a; --muted:#5b6472; --line:#e3e7ed;
+    --green:#137a4b; --green-bg:#e6f4ec; --amber:#8a5a00; --amber-bg:#fdf3e0;
+    --red:#a3232b; --red-bg:#fbeaea; --accent:#1d4ed8; --accent-bg:#e8eeff;
+    --dead:#c7cdd6; --shade:#f2d9d9;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#0e1116; --card:#161b22; --ink:#e8ecf1; --muted:#98a2b3; --line:#262d38;
+      --green:#4ade80; --green-bg:#10251b; --amber:#fbbf24; --amber-bg:#2a2010;
+      --red:#f87171; --red-bg:#2a1416; --accent:#7aa2ff; --accent-bg:#152039;
+      --dead:#3a424f; --shade:#3a1f22;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0e1116; --card:#161b22; --ink:#e8ecf1; --muted:#98a2b3; --line:#262d38;
+    --green:#4ade80; --green-bg:#10251b; --amber:#fbbf24; --amber-bg:#2a2010;
+    --red:#f87171; --red-bg:#2a1416; --accent:#7aa2ff; --accent-bg:#152039;
+    --dead:#3a424f; --shade:#3a1f22;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:400 15px/1.6 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    padding:32px 20px 72px}
+  .wrap{max-width:960px;margin:0 auto}
+  h1{font-size:26px;font-weight:600;margin:0 0 4px;letter-spacing:-.01em}
+  .sub{color:var(--muted);margin:0 0 28px;font-size:14px}
+  h2{font-size:17px;font-weight:600;margin:36px 0 12px;letter-spacing:-.005em}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px;margin-bottom:16px}
+  .verdict{display:flex;gap:24px;align-items:center;flex-wrap:wrap}
+  .big{font-size:56px;font-weight:600;line-height:1;letter-spacing:-.03em;color:var(--green)}
+  .big small{font-size:17px;color:var(--muted);font-weight:400;letter-spacing:0}
+  .delta{display:inline-block;background:var(--green-bg);color:var(--green);
+    border-radius:999px;padding:3px 11px;font-size:13px;font-weight:500;margin-top:8px}
+  .vtext{flex:1;min-width:260px}
+  .vtext strong{font-weight:600}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th{text-align:left;font-weight:500;color:var(--muted);padding:7px 8px;border-bottom:1px solid var(--line);font-size:12.5px;
+    text-transform:uppercase;letter-spacing:.04em}
+  td{padding:9px 8px;border-bottom:1px solid var(--line);vertical-align:middle}
+  tr:last-child td{border-bottom:none}
+  .bar{height:7px;background:var(--line);border-radius:4px;overflow:hidden;min-width:90px}
+  .bar span{display:block;height:100%;border-radius:4px;background:var(--green)}
+  .bar.mid span{background:var(--amber)}
+  .num{font-variant-numeric:tabular-nums;text-align:right;font-weight:500}
+  .was{color:var(--muted);font-variant-numeric:tabular-nums;font-size:13px}
+  .gate{background:var(--accent-bg);color:var(--accent);border-radius:5px;padding:1px 7px;font-size:11px;
+    font-weight:600;letter-spacing:.04em;margin-left:7px;vertical-align:middle}
+  .scroll{overflow-x:auto}
+  figure{margin:0}
+  figcaption{color:var(--muted);font-size:13px;margin-top:10px}
+  .two{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+  .chip{display:inline-block;border-radius:999px;padding:2px 10px;font-size:12px;font-weight:500}
+  .c-med{background:var(--amber-bg);color:var(--amber)}
+  .c-low{background:var(--accent-bg);color:var(--accent)}
+  .c-ok{background:var(--green-bg);color:var(--green)}
+  ul{margin:8px 0 0;padding-left:20px}
+  li{margin:5px 0}
+  code{font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--bg);
+    border:1px solid var(--line);border-radius:4px;padding:1px 5px}
+  .note{color:var(--muted);font-size:13.5px;margin:10px 0 0}
+  svg{max-width:100%;height:auto;display:block}
+  .n-label{font:500 12px ui-sans-serif,system-ui,sans-serif}
+  .n-sub{font:400 10px ui-sans-serif,system-ui,sans-serif}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Activity log review — Brimba</h1>
+  <p class="sub">18 August 2026 · when a record changes, does anything write it down — whichever door it came through?</p>
+
+  <div class="card verdict">
+    <div><div class="big" style="color:var(--amber)">75<small> / 100</small></div>
+      <div class="delta" style="background:var(--amber-bg);color:var(--amber)">gate passed — crit 2 at 61</div></div>
+    <div class="vtext"><strong>The worst gap:</strong> a member joining a team, and a personal
+      access token being created or revoked, leave no trace at all — the two moments where
+      someone <em>gains access</em> are the two the log does not record.
+      <p class="note">audit only · nothing changed · 572 tests green</p></div>
+  </div>
+
+  <h2>The scorecard</h2>
+  <div class="card scroll"><table>
+    <thead><tr><th>#</th><th>Criterion</th><th style="width:120px">Score</th><th class="num">Score</th><th class="num">Weight</th><th>Method</th></tr></thead><tbody>
+    <tr><td>1</td><td>One log, not many</td><td><div class="bar mid"><span style="width:40%"></span></div></td><td class="num">40</td><td class="num">9</td><td>coverage</td></tr>
+<tr><td>2</td><td>Every write path logs</td><td><div class="bar mid"><span style="width:61%"></span></div></td><td class="num">61</td><td class="num">17</td><td>coverage · GATE</td></tr>
+<tr><td>3</td><td>Every surface logs the same</td><td><div class="bar"><span style="width:75%"></span></div></td><td class="num">75</td><td class="num">13</td><td>coverage</td></tr>
+<tr><td>4</td><td>The whole lifecycle is covered</td><td><div class="bar"><span style="width:100%"></span></div></td><td class="num">100</td><td class="num">12</td><td>coverage</td></tr>
+<tr><td>5</td><td>The row says who, what, where</td><td><div class="bar"><span style="width:75%"></span></div></td><td class="num">75</td><td class="num">11</td><td>coverage</td></tr>
+<tr><td>6</td><td>The change itself is recoverable</td><td><div class="bar"><span style="width:90%"></span></div></td><td class="num">90</td><td class="num">10</td><td>defect</td></tr>
+<tr><td>7</td><td>The log cannot silently fail</td><td><div class="bar"><span style="width:78%"></span></div></td><td class="num">78</td><td class="num">9</td><td>defect</td></tr>
+<tr><td>8</td><td>Nothing rewrites history</td><td><div class="bar"><span style="width:93%"></span></div></td><td class="num">93</td><td class="num">7</td><td>defect</td></tr>
+<tr><td>9</td><td>The history is answerable</td><td><div class="bar mid"><span style="width:63%"></span></div></td><td class="num">63</td><td class="num">7</td><td>coverage</td></tr>
+<tr><td>10</td><td>The table has a life plan</td><td><div class="bar"><span style="width:85%"></span></div></td><td class="num">85</td><td class="num">5</td><td>coverage</td></tr>
+    </tbody></table>
+    <p class="note">Σ(score × weight) = 7516 · 7516 ÷ 100 = <strong>75</strong></p></div>
+
+  <h2>The surface parity board</h2>
+  <div class="card scroll">
+    <p class="note" style="margin-top:0">The question this review exists for: does the machine surface leave the same footprint as the UI?</p>
+    <table><thead><tr><th>Surface</th><th style="width:200px">Logged</th><th>What it writes</th></tr></thead><tbody>
+    <tr><td><strong>web / api</strong></td><td><div class="bar"><span style="width:80%"></span></div><span class="note" style="margin:0">80%</span></td><td>every team record</td></tr>
+<tr><td><strong>mcp</strong></td><td><div class="bar"><span style="width:80%"></span></div><span class="note" style="margin:0">80%</span></td><td>the same records, through the same doors</td></tr>
+<tr><td><strong>agent</strong></td><td><div class="bar"><span style="width:80%"></span></div><span class="note" style="margin:0">80%</span></td><td>the same doors again, acting as the user</td></tr>
+<tr><td><strong>import</strong></td><td><div class="bar"><span style="width:75%"></span></div><span class="note" style="margin:0">yes</span></td><td>writes through the gated create doors</td></tr>
+<tr><td><strong>background jobs</strong></td><td><div class="bar mid"><span style="width:2%"></span></div><span class="note" style="margin:0">0%</span></td><td>db_alerts, session sweep, shard counts</td></tr>
+    </tbody></table>
+    <p class="note"><strong>MCP and the agent are at parity because they are not separate code</strong> — every record write
+      forwards through <code>forwardToDoor</code> to the same gated door the browser posts to. The probe's 0% for MCP counted
+      only <code>mcp_tokens</code>, mcp's own table. <strong>The weakest surface is the nightly cron</strong>: it writes, logs nothing,
+      and has no system actor to attribute a row to.</p>
+  </div>
+
+  <h2>The lifecycle strip — one learning article, birth to death</h2>
+  <div class="card">
+    <div class="two" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">
+      <div style="border:1px solid var(--line);border-radius:12px;padding:14px"><div style="font-weight:600;font-size:14px">Created</div><div class="note" style="margin-top:4px">in the log</div><span class="chip c-ok" style="margin-top:8px">tracked</span></div>
+<div style="border:1px solid var(--line);border-radius:12px;padding:14px"><div style="font-weight:600;font-size:14px">Edited</div><div class="note" style="margin-top:4px">in the log, with old → new</div><span class="chip c-ok" style="margin-top:8px">tracked</span></div>
+<div style="border:1px solid var(--line);border-radius:12px;padding:14px"><div style="font-weight:600;font-size:14px">Deactivated</div><div class="note" style="margin-top:4px">its own verb</div><span class="chip c-ok" style="margin-top:8px">tracked</span></div>
+<div style="border:1px solid var(--line);border-radius:12px;padding:14px"><div style="font-weight:600;font-size:14px">Deleted</div><div class="note" style="margin-top:4px">never happens — by design</div><span class="chip c-ok" style="margin-top:8px">tracked</span></div>
+    </div>
+    <p class="note">Full marks. This settles a live disagreement: creation <em>is</em> in the central log and has been —
+      <code>Learning created</code>, <code>Role created</code>, <code>Team created</code>, <code>Dropdown value created</code>,
+      <code>Help ticket raised</code>. Hard deletes do not exist for master records, so deactivation is death.</p>
+  </div>
+
+  <h2>What the probe got wrong</h2>
+  <div class="card scroll"><table>
+    <thead><tr><th>Probe said</th><th>Truth</th><th>Why</th></tr></thead><tbody>
+    <tr><td>36% coverage</td><td><strong>80%</strong> on business records</td><td>14 phantom tables parsed from English prose, plus infrastructure counted as records</td></tr>
+    <tr><td>14 tables incl. <code>the</code>, <code>what</code>, <code>refuse</code></td><td>not tables</td><td>prose matched as SQL — 26 fake write sites</td></tr>
+    <tr><td>MCP logs 0 of 3</td><td>full parity</td><td>the 3 are mcp's own token table; record writes go through the shared doors</td></tr>
+    <tr><td><code>teams.ts:190</code> unlogged</td><td>logged</td><td>the log sits one caller up, in <code>routes/team.ts:123</code></td></tr>
+    </tbody></table></div>
+
+  <h2>Findings</h2>
+  <div class="card scroll"><table>
+    <thead><tr><th>Finding</th><th>Severity</th><th>Tier</th></tr></thead><tbody>
+    <tr><td>A personal access token can be created and revoked with no trace</td><td><span class="chip c-med">high</span></td><td>1</td></tr>
+<tr><td>Joining a team is not logged — removal and role change are</td><td><span class="chip c-med">high</span></td><td>1</td></tr>
+<tr><td>No origin column — which surface changed it is unanswerable from data</td><td><span class="chip c-low">medium</span></td><td>2</td></tr>
+<tr><td>No actor index — &quot;what has this person done&quot; is a table scan</td><td><span class="chip c-low">medium</span></td><td>1</td></tr>
+<tr><td>Three sources state the activity rule three different ways</td><td><span class="chip c-low">medium</span></td><td>1</td></tr>
+<tr><td>Background jobs log nothing and have no system actor</td><td><span class="chip c-low">medium</span></td><td>2</td></tr>
+<tr><td>No documented way to read a person's history across both log tables</td><td><span class="chip c-low">low</span></td><td>2</td></tr>
+<tr><td>Nothing states the table is append-only — true by practice only</td><td><span class="chip c-low">low</span></td><td>1</td></tr>
+    </tbody></table></div>
+
+  <p class="note" style="margin-top:28px"><strong>The verdict:</strong> a member joining a team, and a personal access
+    token being created or revoked, leave no trace at all — the two moments where someone gains access are the two
+    the log does not record.</p>
+</div>
+</body>
+</html>

@@ -285,7 +285,7 @@ export function AppShell({
           </div>
         )}
 
-        <main className="min-w-0 flex-1 overflow-x-hidden px-4 py-6 pb-24 md:pb-8">
+        <main className="min-w-0 flex-1 overflow-x-hidden px-4 py-6 pb-24 md:px-[10%] md:pb-8">
           {children}
         </main>
 
@@ -345,7 +345,7 @@ export function ShellLoading() {
           <Skeleton className="size-8 rounded-full" />
         </header>
         <main className="flex-1 px-4 py-6">
-          <div className="mx-auto w-full max-w-2xl">
+          <div className="mx-auto w-full">
             <Skeleton variant="list" lines={4} />
           </div>
         </main>
