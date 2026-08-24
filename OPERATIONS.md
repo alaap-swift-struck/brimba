@@ -14,7 +14,7 @@ How this project ships. /ship-staging and /ship-production read the config below
 
 ## Reset config
 
-The /reset-all skill reads this. DESTRUCTIVE — wipes data back to empty.
+The /clean_slate skill reads this. DESTRUCTIVE — wipes data back to empty.
 
 - reset_command: node scripts/reset-all.mjs <staging|production|both>
 - global_db_staging: brimba-core-staging

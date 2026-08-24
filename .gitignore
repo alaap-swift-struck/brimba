@@ -21,3 +21,6 @@ out/
 # Per-workstream working notes — local to whoever is building, never forked
 # into a new app (the new-app skill clones this repo).
 .session-notes/
+
+# Claude Code skills live globally in ~/.claude/skills/ — never vendored here
+/skills/
