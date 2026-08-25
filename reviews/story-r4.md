@@ -459,3 +459,48 @@ into a directory *first*, and then the seventeen checks land into it for free.
 matters most is that the two worst contradictions in the corpus today were both created,
 this week, by the repairs to my own round-3 findings — one by deleting a word instead of a
 claim, the other by replacing a number the sentence was not about.**
+
+---
+
+## POSTSCRIPT — the tree moved between `d9741c6` and my writing this up
+
+Everything above is measured at **`d9741c6`** and stands as the round-4 reading. While I
+was writing it, the main session shipped `d9a9895` and `45c350b`, which **repaired three
+of the four findings above and credited this review by name.** I am recording that rather
+than publishing a report the tree has already overtaken.
+
+| finding | status at `45c350b` | what landed |
+|---|---|---|
+| **H-NEW-1** MCP.md's phantom paragraph | **CLOSED** | Rewritten to say the subsystem was removed and there is nothing to exclude — plus a dated note that the paragraph *"was itself broken for an hour … a regex deletion on prose, which is the same class of mistake as a regex scanner on source"* |
+| **H-NEW-2** SCALING.md's self-contradiction | **CLOSED** | The rationale is restored and correct (80 % leaves 2 GB where 65 % left 3.5), with the same self-noting footnote |
+| **N2** CHANGELOG.md's vault claim | **CLOSED, and better than I asked** | The line is corrected, **and `vault-claims-match-reality` was inverted to the deny-list this report recommends as F3** — a line naming the vault must now carry an explicit not-yet marker or name what creates it. The comment records that this is the check's *third* attempt |
+| **N1** the census's `ANY` exemption | **still open** | |
+| **SCALING.md:388** `threshold 80% → 80%` | **still open** — the fix-list row still proposes changing a number to itself | |
+| every carried medium | **still open** | |
+
+**Recomputed at `45c350b`, using the same published scale:**
+
+```
+crit 1  −20 + 15 (MCP) + 15 (SCALING) + 7 (CHANGELOG)  =  17
+crit 3   46 + 7 (the vault check now fails safe)        =  53
+crit 7   72 + 3 (one more stale claim closed)           =  75
+crit 10  61 + 4 (the MCP capability is owned again)     =  65
+
+17×14 = 238 · 93×13 = 1209 · 53×12 = 636 · 88×10 = 880 · 87×9 = 783
+93×9 = 837 · 75×8 = 600 · 83×6 = 498 · 86×6 = 516 · 65×8 = 520 · 88×5 = 440
+238+1209 = 1447; +636 = 2083; +880 = 2963; +783 = 3746; +837 = 4583;
++600 = 5183; +498 = 5681; +516 = 6197; +520 = 6717; +440 = 7157
+7157 / 100 = 71.57  →  72
+```
+
+**71 → 68 → 68 → 68 → 72.** This review would rise for the first time in the campaign, and
+past its round-1 opening — **but only because the repairs made in response to it were made
+carefully, on the claim rather than on the token, within an hour of being named.** That is
+the whole difference between this round's two repair styles, and it is measurable: the
+same four documents, edited twice in one day, cost 42 points the first time and returned 37
+the second.
+
+**The finding underneath the score is unchanged by any of it.** Four facts were still
+corrected by hand this round with no check attached, and F5 — the three cheapest checks —
+is still unwritten. Everything repaired today rots on the same schedule as everything
+repaired last week.

@@ -69,7 +69,7 @@ function body(src, from) {
  * surface was the first wrong answer; over-crediting it is worse, because a
  * census that says a door is guarded is a reason to stop looking at it. */
 function inlineBranch(src, path) {
-  const re = new RegExp(`(?:url\\.)?pathname (?:===|\\.startsWith\\()\\s*"${path.replace(/[/]/g, "\\/")}"`)
+  const re = new RegExp(`(?:url\\.)?pathname\\s*(?:===\\s*|\\.startsWith\\()\\s*"${path.replace(/[/]/g, "\\/")}"`)
   const m = re.exec(src)
   if (!m) return ""
   const open = src.indexOf("{", m.index)
@@ -139,7 +139,11 @@ export function census() {
     // need writing down: the only public one, and the one holding every socket.
     // Found by lean_mean and security_sentry independently, from opposite sides.
     for (const m of index.matchAll(
-      /(?:url\.)?pathname (?:===|\.startsWith\()\s*"([^"]+)"\)?(?:\s*&&\s*request\.method === "([A-Z]+)")?/g
+      // `pathname\s*` — a LITERAL SPACE lived here, and `pathname.startsWith(` has
+      // none, so the startsWith branch never matched anything. Dead since it was
+      // written, hiding both `/media/*` doors: the census's third wrong answer, and
+      // the third to print a confident number. (scaling round 4.)
+      /(?:url\.)?pathname\s*(?:===\s*|\.startsWith\()\s*"([^"]+)"\)?(?:\s*&&\s*request\.method === "([A-Z]+)")?/g
     )) {
       const path = m[1]
       if (path === "/api/") continue // the rate-limit prefix guard, not a door

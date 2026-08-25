@@ -7,7 +7,7 @@ source. It exists because a security sweep once measured 45 state-changing
 routes when there were 61, and scored the app on the 45 it happened to find.
 A reviewer should inherit the surface, not rediscover it.
 
-**99 routes · 60 state-changing · 2 with no gate detected.**
+**108 routes · 60 state-changing · 2 with no gate detected.**
 
 | Worker | Method | Path | Handler | Kind | Gate |
 |---|---|---|---|---|---|
@@ -66,8 +66,17 @@ A reviewer should inherit the surface, not rediscover it.
 | data-ops | GET | `/api/data-ops/import/preview` | `getImportPreview` | read | requireRight, teamContext |
 | data-ops | GET | `/api/data-ops/import/sample` | `getImportSample` | read | teamContext |
 | data-ops | GET | `/api/data-ops/import/targets` | `getImportTargets` | read | teamContext |
+| gateway | ANY | `/api/auth/` | `fetch` | — | **none detected** |
+| gateway | ANY | `/api/content/` | `fetch` | — | **none detected** |
+| gateway | ANY | `/api/data-ops/` | `fetch` | — | **none detected** |
 | gateway | POST | `/api/log/client` | `fetch` | — | INTERNAL_KEY |
+| gateway | ANY | `/api/mcp/` | `fetch` | — | **none detected** |
+| gateway | ANY | `/api/realtime` | `fetch` | — | **none detected** |
+| gateway | ANY | `/api/tenancy/` | `fetch` | — | **none detected** |
 | gateway | ANY | `/mcp` | `fetch` | — | **none detected** |
+| gateway | GET | `/media/` | `fetch` | — | **none detected** |
+| gateway | GET | `/media/learning/` | `fetch` | — | **none detected** |
+| gateway | ANY | `/t/` | `fetch` | — | **none detected** |
 | mcp | GET | `/api/mcp/health` | `json` | — | **none detected** |
 | mcp | GET | `/api/mcp/tokens` | `getTokens` | — | requireUser |
 | mcp | POST | `/api/mcp/tokens` | `postToken` | — | requireUser |

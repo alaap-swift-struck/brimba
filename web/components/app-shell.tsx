@@ -44,7 +44,18 @@ const SECTION_ICONS: Record<string, typeof Home> = { learning: GraduationCap, he
 let activityTimer: ReturnType<typeof setTimeout> | null = null
 const ACTIVITY_COALESCE_MS = 1_000
 function queueActivityRefresh(teamId: string): void {
-  if (activityTimer) clearTimeout(activityTimer)
+  // COALESCE, which is what the comment above always said and what the code did
+  // NOT do. `clearTimeout` on every ping is a DEBOUNCE: the deadline resets, so
+  // under a sustained stream — a 512-id bulk action, an import — the refresh keeps
+  // being pushed back and staleness is unbounded rather than one second.
+  //
+  // Returning instead means the FIRST ping starts a one-second window and every
+  // ping inside it rides along. That is the append-only argument actually holding:
+  // one refresh at the end of the window shows every row. (scaling round 4 — and
+  // realtime round 3 verified the property and took "coalesce" from the comment,
+  // which is how a comment that describes the intended design rather than the real
+  // one costs two reviews at once.)
+  if (activityTimer) return
   activityTimer = setTimeout(() => {
     activityTimer = null
     invalidate(`activity:team:${teamId}`)
