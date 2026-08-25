@@ -138,9 +138,6 @@ const SOCKET_SPY = `
     const Native = window.WebSocket
     function Wrapped(url, protocols) {
       const s = protocols === undefined ? new Native(url) : new Native(url, protocols)
-      /* SABOTAGE: swallow the app's message handler — the socket connects (the
-         dot goes Live) but the live listener never hears a thing. */
-      Object.defineProperty(s, "onmessage", { set() {}, get() { return null } })
       spy.opened++
       spy.sockets.push(s)
       return s
