@@ -151,3 +151,80 @@ Two examples from this campaign, resolved rather than smoothed over:
 And keep an absorption budget — ours was roughly 550 lines of duplication and
 about three more laws before comprehension dropped a band. Know yours before you
 start adding.
+
+
+---
+
+## 9 · Prove a fresh clone runs — the lockfile is what npm obeys
+
+Both `package.json` files pinned the UI library at v0.16.0. `package-lock.json`
+still resolved the git SHA of **v0.4.0**, and `npm install` obeys the lockfile. So
+`main` was a repository that compiles only on a machine with warm `node_modules`.
+The law guarding this read both manifests and never opened the lockfile.
+
+It was found by cloning the remote into a scratch directory, installing, and
+running the gate — the only way this class ever surfaces.
+
+**Do at the start:** a periodic clone-install-check from the REMOTE, not the
+working copy. And when you pin a version, check the lockfile agrees.
+
+---
+
+## 10 · A guard must be CALLED, not merely exist
+
+An attacker-minded review tried fourteen ways to defeat a new privilege guard and
+could not. Then it deleted the call from both doors and the suite stayed green:
+119 of 119. Three tests covered the guard in isolation; none covered a door.
+
+**Do at the start:** test the DOOR, not the helper. And derive the door list —
+"any handler that writes a role assignment must call the guard" fails on the day
+someone writes a new door, where a hardcoded list fails on the day someone audits.
+
+---
+
+## 11 · A check written about specific sentences must be run against them
+
+A check existed to stop documents claiming the secrets vault was sealed when it
+was not. It searched for "is committed". The three sentences it was written about
+say ", committed to the repo like anything else", ", committed and encrypted", and
+a bare present tense. It matched none of them and sat green while all three lied.
+
+**Do at the start:** when you write a check about text that exists today, run it
+against that text before you commit it. If it does not fire, you have written a
+check about text you imagined.
+
+---
+
+## 12 · Under-reporting and over-reporting both read as fine
+
+A route census was built so the next reviewer would inherit the attack surface
+instead of rediscovering it. Its first version missed two whole workers — including
+the only public one — and reported "1 door with no gate" while hiding the base's
+only ungated door. Fixed, it then credited a gate to every inline door because it
+read the whole router, so a genuinely ungated door reported as guarded.
+
+The first error hides work. The second stops anyone looking. **Both print a
+confident number.**
+
+**Do at the start:** for any counting tool, ask "what would make this number too
+LOW, and what would make it too HIGH?" and test both.
+
+---
+
+## 13 · How to run many reviews without them fighting
+
+The method, since it worked and is reusable:
+
+1. **Measure everything before changing anything.** Sixteen read-only reviews at
+   once, each required to answer *"which other review could my fix hurt?"* You
+   cannot prove change A did not damage score B if you only know one of them.
+2. **One reconciler.** Agents repaired on strictly disjoint file sets; every
+   conflict between two reviews' recommendations was resolved in one place, by one
+   party, in writing. Scaling beat lean_mean over a code path. A domain review beat
+   my own judgement about keeping a dead seam.
+3. **Re-measure with people who did not write the repairs.** This is the whole
+   thing. Round 3 found four faults IN the repair pass — three reviews
+   independently caught the same regression, and one proved a security fix was
+   closed but completely unlocked. Every one of those looked like a passing check.
+4. **Record what you deliberately did NOT do.** A reconciliation nobody wrote down
+   gets re-filed as a finding next round, and re-argued.
