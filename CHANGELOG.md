@@ -62,7 +62,7 @@ Indexes matching the sorts the app actually issues; the module mover stopped
 orphaning the data it moved; retention on the exhaust tables with audit tables
 off by default; a row ceiling inside a cache entry; `Range` requests on `/media`.
 
-Also the encrypted secrets vault (`secrets.vault` + `scripts/vault.mjs`), so the
+Also the secrets-vault TOOLING (`scripts/vault.mjs` — `secrets.vault` itself does not exist until someone runs `npm run vault:save`), so the
 credentials survive the laptop.
 
 ## 2026-08-11 — the seven fork findings

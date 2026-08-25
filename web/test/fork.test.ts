@@ -115,19 +115,43 @@ it("every workspace pins the SAME UI library version", () => {
 
   // AND THE LOCKFILE, which is what `npm install` actually obeys.
   //
-  // Fixing the manifests was not enough and the gap was invisible: both
-  // package.json files pinned v0.16.0 while package-lock.json still resolved the
-  // git SHA of v0.4.0, so a FRESH CLONE of main did not compile — two TS2307s on
-  // a primitive the manifests promised. This check read the manifests and never
-  // opened the lockfile, so R26 was green while the install it governs was wrong.
-  // Caught by mac_fell_in_the_ocean actually cloning the remote and following the
-  // README, which is the only way this class of fault ever surfaces.
-  const lock = readFileSync(join(ROOT, "package-lock.json"), "utf8")
-  const tag = [...versions.values()][0].split("#")[1]
-  const entry = lock.slice(lock.indexOf("swift-struck-ui"))
-  expect(tag, "the pin carries no version tag").toBeTruthy()
-  expect(
-    /"resolved": "[^"]+#([0-9a-f]{40})"/.test(entry) || entry.includes(tag),
-    `package-lock.json does not resolve @swift-struck/ui at ${tag} — run \`npm update @swift-struck/ui\`. A fresh clone installs the lockfile, not the manifest.`
-  ).toBe(true)
+  // Fixing the manifests was not enough: both pinned v0.16.0 while
+  // package-lock.json still resolved the git SHA of v0.4.0, so a FRESH CLONE of
+  // main did not compile. This check read the manifests and never opened the
+  // lockfile.
+  //
+  // THE FIRST FIX COULD NOT FAIL EITHER. It accepted any 40-hex SHA and sliced
+  // `entry` to end of file, so regressing the lockfile to v0.4.0 with a bogus SHA
+  // passed 4/4. Third attempt at this same fault in one session, and each earlier
+  // one looked finished. So it now resolves the tag to its ACTUAL commit with
+  // `git ls-remote` and demands that exact SHA — there is no shape left to satisfy
+  // without being correct. (ocean round 4.)
+  const lock = JSON.parse(readFileSync(join(ROOT, "package-lock.json"), "utf8")) as {
+    packages?: Record<string, { resolved?: string }>
+  }
+  const spec = [...versions.values()][0]
+  const tag = spec.split("#")[1]
+  expect(tag, "the pin carries no version tag").toMatch(/^v\d+\.\d+\.\d+$/)
+
+  const entries = Object.entries(lock.packages ?? {}).filter(([k]) => k.includes("@swift-struck/ui"))
+  expect(entries.length, "the lockfile has no @swift-struck/ui entry at all").toBeGreaterThan(0)
+
+  const wanted = execFileSync("git", ["ls-remote", "https://github.com/alaap-swift-struck/swift-struck-ui.git", `refs/tags/${tag}^{}`], {
+    encoding: "utf8",
+  })
+    .split(/\s/)[0]
+    ?.trim()
+  expect(wanted, `git ls-remote could not resolve ${tag} — this check has gone blind`).toMatch(/^[0-9a-f]{40}$/)
+
+  for (const [name, e] of entries) {
+    const sha = /#([0-9a-f]{40})/.exec(e.resolved ?? "")?.[1]
+    expect(
+      sha,
+      `${name} has no resolved commit in package-lock.json — run \`npm update @swift-struck/ui\``
+    ).toBeTruthy()
+    expect(
+      sha,
+      `package-lock.json resolves ${name} to ${sha}, but ${tag} is ${wanted}. A fresh clone installs the LOCKFILE, not the manifest — run \`npm update @swift-struck/ui\`.`
+    ).toBe(wanted)
+  }
 })

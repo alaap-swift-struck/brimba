@@ -261,12 +261,19 @@ exclusion must be checked against the code it excludes.**
 Everything else — reading and writing the actual records — is exposed, and each
 tool forwards to the same gated route the web app posts to.
 
-**`config/screens` was on this list until 2026-08-25 and is now a tool**
-member of the team SEES" — but the door had no caller on ANY surface, so the
-exclusion was describing a subsystem that simply could not be reached rather than a
-decision anyone had made. It reshapes a screen for the whole team, so it **confirms
-before it runs** and needs the `screens:edit` right, which no role holds by
-default.
+**`config/screens` is gone from this list because the subsystem is gone.** It sat
+here as an exclusion — "changes what every member of the team SEES" — but the door
+had no caller on ANY surface, so the row was describing something unreachable
+rather than a decision anyone had made. Offered the choice between finishing it and
+removing it, the owner chose removal on 2026-08-25: the table, the migration, the
+gate, the validator, the permission row, the renderer and the client merge all
+went. There is nothing to exclude.
+
+*(This paragraph was itself broken for an hour. The edit that removed the deleted
+tool's name took out one line from the middle of a sentence and left the rest
+advertising a tool with no code behind it — a regex deletion on prose, which is the
+same class of mistake as a regex scanner on source. `story_checks_out` round 4
+found it.)*
 
 **Two honest limits:**
 

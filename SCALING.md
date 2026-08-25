@@ -63,11 +63,21 @@ request depends on.
 In `workers/tenancy/src/lib/sharding.ts`, in order of reach:
 
 1. **ALARM** — the nightly cron sizes every database this project owns and writes
-   a `db_alerts` row past the threshold. The threshold is **80%** of the 10 GB
-   cap (it was 80%). Relieving a full database means creating one, copying
-   millions of rows through the REST door, verifying counts and flipping routing;
-   2 GB of headroom is days at a large tenant's growth rate, and that is not
-   enough time to notice, decide and act. 2 GB is.
+   a `db_alerts` row past the threshold. The threshold is **80%** of the 10 GB cap
+   — the number `ARCHITECTURE.md` has always carried, restored by the owner on
+   2026-08-25 after the code had drifted to 65% and the alarm's own message still
+   said 80.
+
+   What it costs, stated rather than lost: relieving a full database means creating
+   one, copying millions of rows through the REST door, verifying counts and
+   flipping routing. 80% leaves **2 GB** of headroom where 65% left 3.5 — days
+   rather than weeks at a large tenant's growth rate. The alarm runs nightly and is
+   reported, so 2 GB is a warning with time in it rather than a surprise.
+
+   *(This paragraph argued against itself for an hour: a mechanical 65%→80% replace
+   caught three numbers, two of which were not the threshold, leaving "**80%** …
+   (it was 80%)". `story_checks_out` round 4 found it. A find-and-replace on prose
+   is the same class of mistake as a regex scanner on source.)*
 2. **MOVER** — `moveModuleToOwnDatabase` relocates one module's tables into a
    dedicated database.
 3. **SPLIT** — `resolveModuleDatabases` + `d1QueryAcross` can read a (team,

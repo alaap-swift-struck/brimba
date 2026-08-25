@@ -414,12 +414,22 @@ never slow code here — check the hop count first (below), then the budget.
 A round trip to a per-team database is a REST call over the network, not a local
 query, so hops are the expensive unit in this base and the one worth counting.
 
-| Screen, cold, fresh tab | Requests | Distinct answers |
-|---|---|---|
-| `/home` | 8 | 8 |
-| `/t/<team>/help/<id>` | 16 | 11 |
+| Screen, cold, fresh tab | Requests | Distinct answers | Verdict |
+|---|---|---|---|
+| `/home` | 10 | 8 | **over** — 2 of them are `useActiveTeam` running twice |
+| `/t/<team>/help/<id>` | 18 | 11 | over, same cause plus paging |
 
-Both were roughly double this on 25 August — 16 and 24 — before in-flight
+Both were roughly double on 25 August — 16 and 24 — before in-flight
 de-duplication, the single-row `?id=` doors and the removal of the screen-override
-fetch. **A screen that needs more requests than it has distinct questions is
-asking something twice**; that is the check worth making when adding one.
+fetch. **A screen that needs more requests than it has distinct questions is asking
+something twice**; that is the check worth making when adding one.
+
+By that rule `/home` currently FAILS, and the cause is known and singular:
+`useActiveTeam` is mounted twice (`agent-host` and `deep-link-screen`) and reads
+outside `sharedFetch`, so it is the one caller the de-duplication does not cover.
+Fixing that takes both rows to 8/8 and 16/11.
+
+> These numbers were first written here as 8 and 16 — two low on each — from
+> counting through the de-duplicated store rather than the network. `round_trip`
+> round 4 re-counted independently and caught it. A budget nobody re-derives is a
+> claim, and a budget that says you pass when you fail is worse than none.

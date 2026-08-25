@@ -305,10 +305,20 @@ describe("getRolePermissions", () => {
 // import path, whatever comes next — fails this the day it is written, rather than
 // the day someone audits it.
 describe("every door that assigns a role calls the guard", () => {
-  const LIB = join(__dirname, "..", "src", "lib")
-  const sources = readdirSync(LIB)
-    .filter((f) => f.endsWith(".ts"))
-    .map((f) => [f, stripComments(readFileSync(join(LIB, f), "utf8"))] as const)
+  // BOTH directories. `src/routes/` already exists with six files and was never
+  // scanned, so a role-assigning door written there would have walked straight
+  // past this check — a next-door hole rather than a live one, which is exactly
+  // the kind that is live by the time anyone looks again. (security round 4.)
+  const sources = ["lib", "routes"].flatMap((dir) => {
+    const d = join(__dirname, "..", "src", dir)
+    try {
+      return readdirSync(d)
+        .filter((f) => f.endsWith(".ts"))
+        .map((f) => [`${dir}/${f}`, stripComments(readFileSync(join(d, f), "utf8"))] as const)
+    } catch {
+      return []
+    }
+  })
 
   it("found the library at all", () => {
     expect(sources.length, "no tenancy lib sources found — this scan has gone blind").toBeGreaterThan(3)
@@ -316,7 +326,10 @@ describe("every door that assigns a role calls the guard", () => {
 
   for (const [file, src] of sources) {
     // A door assigns a role if it writes `role_id` or hands one to an invite.
-    for (const m of src.matchAll(/export async function (\w+)/g)) {
+    // `export async function` AND `export const x = async (…) =>`. An arrow export
+    // is the same door written differently, and walked past the first version.
+    for (const m of src.matchAll(/export (?:async function (\w+)|const (\w+)\s*(?::[^=\n]*)?=\s*async)/g)) {
+      const fnName = m[1] ?? m[2]
       const body = declarationBody(src, m.index!)
       // WRITES only. The first version matched `role_id)` and `role_id =`, which
       // appear in every SELECT and WHERE in these files, so it demanded the guard
@@ -324,8 +337,8 @@ describe("every door that assigns a role calls the guard", () => {
       // is not the safe direction: it makes the check noisy, and a noisy check
       // gets loosened rather than fixed.
       const assigns =
-        /INSERT INTO team_members\b/i.test(body) ||
-        /INSERT INTO invite_index\b/i.test(body) ||
+        /INSERT (?:OR \w+ )?INTO team_members\b/i.test(body) ||
+        /INSERT (?:OR \w+ )?INTO invite_index\b/i.test(body) ||
         // Up to WHERE only — `[^;]*` reached into the WHERE clause, so
         // `removeMember`'s `... WHERE ... role_id = ?` read as an assignment. A
         // filter is not a write.
@@ -343,16 +356,16 @@ describe("every door that assigns a role calls the guard", () => {
         acceptPendingInvites:
           "same as acceptInvite, for invites that were waiting when the account was created. The acceptor is not choosing a role.",
       }
-      if (NOT_A_CHOICE[m[1]]) {
-        it(`${file} → ${m[1]} is a reviewed exception`, () => {
-          expect(NOT_A_CHOICE[m[1]].length, "an exception needs a real reason").toBeGreaterThan(40)
+      if (NOT_A_CHOICE[fnName]) {
+        it(`${file} → ${fnName} is a reviewed exception`, () => {
+          expect(NOT_A_CHOICE[fnName].length, "an exception needs a real reason").toBeGreaterThan(40)
         })
         continue
       }
-      it(`${file} → ${m[1]}`, () => {
+      it(`${file} → ${fnName}`, () => {
         expect(
           /assertCanAssignRole\s*\(/.test(body),
-          `${m[1]} writes a role assignment without calling assertCanAssignRole — that is the escalation: create a role, grant it everything, put someone (or a plus-address of yourself) into it`
+          `${fnName} writes a role assignment without calling assertCanAssignRole — that is the escalation: create a role, grant it everything, put someone (or a plus-address of yourself) into it`
         ).toBe(true)
       })
     }

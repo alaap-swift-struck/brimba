@@ -18,8 +18,9 @@ workers would start refusing each other.
 
 ## The vault
 
-**One encrypted file — `secrets.vault` — which lands in the repo like any other
-file once it is created.** It does NOT exist yet — `npm run vault:save` creates it, and until the
+**One encrypted file — `secrets.vault` — which does not exist yet.** `npm run
+vault:save` creates it, and until the owner runs that it lands nowhere: the
+credentials below survive only on the author's laptop. It does NOT exist yet — `npm run vault:save` creates it, and until the
 owner runs that (it needs a passphrase nobody else may hold) the credentials in
 this document survive only on the author's laptop.
 

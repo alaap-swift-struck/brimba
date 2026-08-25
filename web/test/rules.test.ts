@@ -930,11 +930,23 @@ describe("RULES — the laws of the base", () => {
         // mac_fell_in_the_ocean, round 3. Present-tense assertion is the signal;
         // an imperative ("run `npm run vault:save`") is not.
         if (!/secrets\.vault/.test(line)) continue
-        const claimsItExists =
-          /\bcommitted\b/i.test(line) ||
-          /`secrets\.vault` is\b/i.test(line) ||
-          /\b(is sealed|lives in the repo|already (?:in|exists))\b/i.test(line)
-        if (claimsItExists) lies.push(`${f}: ${line.trim().slice(0, 90)}`)
+        // THIRD ATTEMPT. Version one looked for "is committed" and matched none
+        // of the three sentences it was written about. Version two added a few
+        // more phrasings and still passed on two natural rewordings. Enumerating
+        // ways to say "it exists" is a losing game — English has more of them than
+        // anyone will think of.
+        //
+        // So the test is INVERTED: a line naming the vault must carry an explicit
+        // not-yet marker, or say what CREATES it. Anything else counts as a claim.
+        // That fails safe — a new sentence about the vault is a finding until
+        // somebody writes it carefully — which is the right direction for the one
+        // artefact standing between a lost laptop and lost credentials.
+        // (ocean round 4.)
+        const saysNotYet =
+          /\b(does not exist|not yet|until|once|will be|to be created|has not been)\b/i.test(line) ||
+          /vault:save|vault:check/.test(line) ||
+          /^\s*[/*#|>-]*\s*(node|npm) /.test(line)
+        if (!saysNotYet) lies.push(`${f}: ${line.trim().slice(0, 90)}`)
       }
     }
     expect(
