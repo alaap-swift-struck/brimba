@@ -4,7 +4,7 @@
 // confirmation (the route returns needsConfirm; the client confirms; confirmAndRun
 // executes + resumes) — constructive writes run straight away, see requiresConfirm;
 // tool RESULTS go back as fenced DATA, never instructions; a mid-run failure STOPS —
-// and the MODEL explains what was refused and why (an unmetered wrap-up turn), never
+// and the MODEL explains what was refused and why (one more metered turn), never
 // a canned "something went wrong"; a step cap prevents runaways; every turn is saved
 // with each step's outcome (the audit trail the panel rehydrates from).
 
@@ -122,12 +122,18 @@ function traceIds(input: Record<string, unknown>): Record<string, string> | unde
 const FAIL_NOTE =
   "I couldn't finish — one of the steps was refused, so I stopped there. Nothing further was changed."
 
-/** One extra (UNMETERED — same user turn) model call after a failed step. The FAILED
- * tool results are already in the convo with the door's exact reason (e.g. which
- * permission was missing), so the model can tell the user plainly what worked, what
- * was refused and why — instead of the canned note that used to hide it. complete()
- * only (a one-or-two-sentence wrap-up isn't worth a second stream); the caller say()s
- * the text into the live bubble. Any hiccup falls back to the canned note. */
+/** One extra model call after a failed step. The FAILED tool results are already in
+ * the convo with the door's exact reason (e.g. which permission was missing), so the
+ * model can tell the user plainly what worked, what was refused and why — instead of
+ * the canned note that used to hide it. complete() only (a one-or-two-sentence wrap-up
+ * isn't worth a second stream); the caller say()s the text into the live bubble. Any
+ * hiccup falls back to the canned note.
+ *
+ * METERING IS THE CALLER'S, and deliberately so: the plan loop meters a unit for it
+ * (it is a real model call and the account's only spend meter is the unit counter),
+ * while `confirmAndRun`'s failure exit is already covered by the unit it prepaid — one
+ * unit for the one model call that turn makes. Metering inside here would double-charge
+ * the confirm path; forgetting to meter at all is what made the thirteenth call free. */
 async function failureWrapUp(model: Model, convo: ChatMessage[], tools: ToolSpec[]): Promise<string> {
   const ask: ChatMessage = {
     role: "user",
@@ -364,16 +370,34 @@ async function runPlanLoop(
   // A turn that changed NOTHING the user wanted — a refused/failed action or a model
   // hiccup — hands its metered units back, so a blocked action never costs a credit (the
   // credit-fairness feedback). Called only on the FAILURE exits; a normal question-answer
-  // turn (which took no write but did the work asked of it) still meters as usual. After a
-  // refund the logged row shows 0 credits (an honest "attempted, refused, no charge").
+  // turn (which took no write but did the work asked of it) still meters as usual.
+  //
+  // IT HANDS BACK THE ACTIONS, NEVER THE EXPLANATION. A full refund was wrong twice
+  // over. `agent_usage.used` — the column it subtracts from — is the exact column the
+  // account-wide spend alarm sums (`checkAccountAiSpend`, workers/tenancy/src/lib/
+  // sharding.ts), and it is the ONLY account-wide view of AI spend that exists: every
+  // other quota read is scoped `WHERE team_id = ?`. So a wholly-refused turn bought
+  // real inference, charged nothing, and then erased its own trace from the one meter
+  // built to see it. And because the erasure was total, forcing a refusal was a way to
+  // buy model calls for free, over and over, bounded only by the gateway's rate ceiling.
+  //
+  // Keeping ONE unit fixes both: the person is not charged for actions they were
+  // refused, and the turn still shows up as the inference it was. The kept unit comes
+  // out of the FREE allowance wherever the turn used one, so a purchased credit — real
+  // money — goes back in full unless the whole turn was paid for outright. And it is
+  // kept unconditionally, including when the wrap-up itself could not be metered: a
+  // refused turn that nets zero is a refused turn that can be repeated forever.
   const refundIfNothingDone = async () => {
-    if (opts.tally.okWrites === 0 && opts.tally.credits > 0) {
-      await refundAiUnits(env, guard.teamId, opts.tally.free, opts.tally.credit)
-      opts.tally.credits = 0
-      opts.tally.free = 0
-      opts.tally.credit = 0
-      quota = await getQuota(env, guard.teamId)
-    }
+    if (opts.tally.okWrites > 0 || opts.tally.credits <= 0) return
+    const keepFree = opts.tally.free > 0 ? 1 : 0
+    const keepCredit = keepFree ? 0 : Math.min(1, opts.tally.credit)
+    const free = opts.tally.free - keepFree
+    const credit = opts.tally.credit - keepCredit
+    if (free > 0 || credit > 0) await refundAiUnits(env, guard.teamId, free, credit)
+    opts.tally.free = keepFree
+    opts.tally.credit = keepCredit
+    opts.tally.credits = keepFree + keepCredit
+    quota = await getQuota(env, guard.teamId)
   }
 
   for (let step = 0; step < MAX_STEPS; step++) {
@@ -419,7 +443,7 @@ async function runPlanLoop(
       const msg = "The assistant had trouble just now and couldn't reply. Please try again in a moment."
       say(msg)
       await appendMessage(cfg, guard, actor, threadId, { role: "assistant", content: msg, source: opts.source })
-      await refundIfNothingDone() // a model hiccup that changed nothing costs nothing
+      await refundIfNothingDone() // a model hiccup that changed nothing hands its steps back
       await log()
       return { done: true, threadId, reply: msg, quota }
     }
@@ -528,12 +552,24 @@ async function runPlanLoop(
       if (!result.ok) failed = true
     }
     if (failed) {
-      // The model explains (unmetered): the FAILED reasons are in the convo, so the
-      // reply says what was refused and why — not a canned "something went wrong".
-      const note = await failureWrapUp(model, convo, tools)
+      // The model explains: the FAILED reasons are in the convo, so the reply says what
+      // was refused and why — not a canned "something went wrong". It METERS like every
+      // other model call. It used to be free, which made the most expensive reply the
+      // app can produce (thirteen model calls) the one whose thirteenth nothing counted
+      // — not the team's quota and not the account's alarm. A team with nothing left
+      // gets the canned note rather than a free call.
+      let note = FAIL_NOTE
+      const wrap = await consumeAiUnit(env, guard.teamId)
+      if (wrap.ok) {
+        quota = wrap.quota
+        opts.tally.credits += 1
+        if (wrap.source === "credit") opts.tally.credit += 1
+        else if (wrap.source === "free") opts.tally.free += 1
+        note = await failureWrapUp(model, convo, tools)
+      }
       say(note)
       await appendMessage(cfg, guard, actor, threadId, { role: "assistant", content: note, source: opts.source })
-      await refundIfNothingDone() // a refused action (e.g. inviting an existing member) costs nothing
+      await refundIfNothingDone() // the refused actions (e.g. inviting an existing member) cost nothing
       await log()
       return { done: true, threadId, reply: note, quota }
     }
@@ -655,7 +691,10 @@ export async function confirmAndRun(
   ]
 
   if (failed) {
-    // Same seam as the plan loop: the model explains what was refused and why.
+    // Same seam as the plan loop: the model explains what was refused and why. NOT
+    // metered again here — this turn prepaid one unit above and this wrap-up is the one
+    // model call it makes (the success path spends that same unit on runPlanLoop's
+    // first step, via `prepaid`). One unit, one model call, either way.
     const note = await failureWrapUp(selectModel(env), convo, toolSpecs())
     emit?.({ t: "text", d: note })
     await appendMessage(cfg, guard, actor, opts.threadId, { role: "assistant", content: note, source: opts.source })

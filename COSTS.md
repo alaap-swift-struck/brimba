@@ -43,13 +43,66 @@ document do not drift apart with two copies of the same fact.
 ## 3 · Cost per user action
 
 The three actions worth costing, because they are the three that scale with use.
+The agent reply gets three rows rather than one: the spread between its mean and
+its worst case is nearly 7×, and a single number would hide whichever end of that
+you happened to need.
 
 | Action | Cost | What dominates |
 |---|---|---|
 | One signup | **$0.000415** | a handful of D1 row writes and one email |
 | One import | **$0.0122** | the planning turns, not the row writes |
-| One agent reply (worst case, 12 steps) | **$0.152** | model tokens |
 | One agent reply (mean, 2.5 turns, cached) | **$0.025646** | model tokens |
+| One agent reply that succeeds at the step cap — 12 model calls | **$0.152183** | model tokens |
+| One agent reply that **fails** at the step cap — 13 model calls | **$0.173604** | model tokens |
+
+**The most expensive single thing this product can do is produce a reply that
+fails.** A reply that succeeds stops at the step cap, `MAX_STEPS = 12`
+(`workers/data-ops/src/lib/agent.ts`), and never buys a thirteenth call. A reply
+that hits a refused step buys one more — `failureWrapUp`, the turn where the
+model reads the failed tool results and explains what was refused and why,
+instead of the canned note that used to hide it. That call carries the whole
+conversation and every tool result in it, which makes it the single most
+expensive call of the reply: **$0.021422**, against $0.019742 for the twelfth
+step. `model.ts` says so in its own cache comment — *"up to 13 model calls per
+reply"* — and this table said twelve until 2026-08-26.
+
+```
+prices as per §2 · prefix 6,209 tok · ~750 tok added per step · ~200 out tok per turn
+
+TWELVE METERED STEPS
+  cache write   1 x 6,209 x $2.50/1e6                      = $0.01552250
+  cache read   11 x 6,209 x $0.20/1e6                      = $0.01365980
+  fresh msgs      call n carries (n-1) x 750 tok
+                  sum over 12 calls = 66 x 750 = 49,500 tok
+                  49,500 x $2.00/1e6                       = $0.09900000
+  output       12 x 200 = 2,400 tok x $10.00/1e6           = $0.02400000
+                                                             -----------
+                                                             $0.15218230
+
+THE THIRTEENTH CALL — only bought by a reply that failed
+  cache read      6,209 x $0.20/1e6                        = $0.00124180
+  fresh msgs      the conversation as it stands after 12
+                  steps: 12 x 750 = 9,000, + ~90 for the ask
+                  9,090 x $2.00/1e6                        = $0.01818000
+  output          200 tok x $10.00/1e6                     = $0.00200000
+                                                             -----------
+                                                             $0.02142180
+
+WORST CASE PER USER TURN                                     $0.17360410
+```
+
+Watch the fresh-token line on the thirteenth call. It is the size of the
+conversation **at that moment** (9,000 tokens), not the 49,500 above it — that
+figure is the *sum* of a growing conversation across twelve calls, and reusing it
+here would triple the estimate. A round-5 review made exactly that substitution
+and reported the worst case as $0.256.
+
+**It is metered.** The wrap-up used to be a free call: real inference, charged to
+nobody, invisible to the per-team quota and to the account-wide alarm in §6
+alike. Since 2026-08-26 it claims a unit like every other model call, and it is
+the one unit a wholly-refused turn does **not** get refunded — the actions a
+person was refused still cost them nothing, and the account still sees that the
+reply bought thirteen calls. So a worst-case reply is 13 units, not 12.
 
 ## 4 · What prompt caching bought
 
@@ -109,6 +162,21 @@ per-environment ceiling.
 | Team retention | 1 pass | D1 row deletes |
 | Orphan upload scan | 10,000 references | R2 Class A per team |
 | Database size check | one per database | D1 reads |
+| Account AI spend alarm | one aggregate read | D1 read |
+
+**The spend alarm is the §5 cross-reference.** `checkAccountAiSpend`
+(`workers/tenancy/src/lib/sharding.ts`) sums `agent_usage.used` across every team
+for today and files a `db_alerts` row past `ACCOUNT_AI_DAILY_ALARM` (5,000
+units/day). It is on the cron and never on a request path, because a per-request
+`SUM` over every tenant would buy a number nobody reads at a cost everybody pays.
+
+That column is the only account-wide view of AI spend the base has, which makes
+anything that *subtracts* from it a change to this alarm whether or not it looks
+like one. The agent's refund does subtract from it — see §3: it hands back the
+units a refused turn's actions cost, and deliberately keeps the one that bought
+the explanation, so a failed reply still registers here rather than erasing
+itself. Note the alarm's blind spot while you are here: it sums the free counter
+only, so a team spending **purchased credits** is invisible to it.
 
 **Retention's per-run ceiling is 500,000 rows per night per environment.** A
 clean table costs one query and exits, so the ceiling is a ceiling and not a
