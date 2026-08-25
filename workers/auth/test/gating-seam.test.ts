@@ -20,12 +20,22 @@ import { declarationBody, stripComments } from "../../../shared/test/source"
 const SRC = join(__dirname, "..", "src")
 const index = stripComments(readFileSync(join(SRC, "index.ts"), "utf8"))
 
-/** Every `case "<METHOD> <path>": return await <handler>(` in the switch. */
-const routes = [...index.matchAll(/case "([A-Z]+) ([^"]+)":\s*return await (\w+)\(/g)].map((m) => ({
+/** Every `case "<METHOD> <path>": return [await] <handler>(` in the switch.
+ *
+ * `await` OPTIONAL. The first version required it, so a door written
+ * `return handler(request, env)` — legal, identical in behaviour — was invisible
+ * to this scan and the suite stayed green with an ungated route added. Proven
+ * with a planted `POST /api/auth/danger`. (Security sentry, round 2, 2026-08-25.) */
+const routes = [...index.matchAll(/case "([A-Z]+) ([^"]+)":\s*return (?:await\s+)?(\w+)\(/g)].map((m) => ({
   method: m[1],
   path: m[2],
   handler: m[3],
 }))
+
+/** Every `case "<METHOD> <path>":` in the switch, however it is answered. The
+ * count below must MATCH — an equality, not a floor, so a door the handler regex
+ * cannot parse fails loudly instead of being skipped. */
+const allCases = [...index.matchAll(/case "([A-Z]+) ([^"]+)":/g)]
 
 /** A handler's body. auth keeps its handlers in `index.ts` beside the switch
  * rather than under `src/routes/` — another way it diverges from the shape the
@@ -67,6 +77,12 @@ describe("auth: every state-changing door reaches a gate (R10)", () => {
     // rather than quietly find nothing and report all clear — at which point
     // delete this file and add auth to `describeGatingSeam` instead.
     expect(routes.length, "no routes parsed out of auth's switch — this scan has gone blind").toBeGreaterThan(8)
+    // EQUALITY. A floor lets a door the handler regex cannot parse slip through
+    // unnoticed; this makes the unparsed door the failure.
+    expect(
+      routes.length,
+      `auth has ${allCases.length} route cases but only ${routes.length} could be parsed — the unparsed ones are ungoverned`
+    ).toBe(allCases.length)
   })
 
   for (const r of routes.filter((r) => r.method !== "GET")) {

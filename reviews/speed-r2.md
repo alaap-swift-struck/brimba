@@ -1,6 +1,20 @@
 # Speed review — round 2 — Brimba · 2026-08-25
 SCORE: 39/100   (round 1: 37/100)
 
+**Measured at `fe7d683`** — the state `ROUND2-BRIEF.md` describes (commits
+`73a60a4 … fe7d683`). Line numbers are that tree's.
+
+**A round-3 repair pass (`1ef1210`) landed while this review was running.** I
+re-verified every load-bearing claim against it at 14:03:51 rather than assume:
+`Server-Timing` in code **0**, `performance.now/mark/measure` **0**, `waitUntil`
+**0**, `"observability": enabled` still **14**, all five `one*` readers still
+single-row, all five `?id=` doors still whole-collection, `EDGE-CASES.md §2` still
+unamended. Nothing in `1ef1210` moves a criterion here. Two citations shift and
+are marked: the gateway `fetch` handler moves from line 76 to **101** (a new
+`decodeKey` guard above it), and `forwardToDoor` gains a `try/catch` while
+**explicitly keeping no timeout** (`shared/workers/http.ts:87` — "Deliberately
+still NO timeout"), which strengthens rather than changes finding 1.
+
 ## DELTA
 
 Round 1: **37/100** → Round 2: **39/100**   (uncapped both times; the gate's cap of
@@ -400,7 +414,9 @@ export async function timed(
 
 ### 2 · `workers/gateway/src/index.ts` — 4 lines changed
 
-Import `timed` alongside `traceError` (line 53), then, inside `fetch` (line 76):
+Import `timed` alongside `traceError`, then, inside the `fetch` handler
+(line 76 at `fe7d683`, **line 101 at `1ef1210`** — anchor on `const requestId =
+requestIdFrom(request)`, not the number):
 
 ```ts
     const requestId = requestIdFrom(request)
@@ -525,16 +541,29 @@ durations, across two rounds. See "The forty lines" above for the implementation
 `team_members(deactivated_at, team_id)`.
 
 **4 · HIGH (NEW, from the repair pass) — five correct single-row readers now
-exist, and the four `?id=` doors beside them still read the whole collection.**
-`workers/tenancy/src/routes/roles.ts:38`, `invites.ts:24`, `selectable.ts:29`,
-`members.ts:16` and `workers/content/src/routes/learning.ts:38` all answer
-`?id=<id>` with `listX().filter()` plus a `COUNT(*)`. **This is the row-level
-live-patch re-pull path** — `web/lib/store.ts:patchRow` calls
-`TEAM_RESOURCES[r].fetchOne(id)`, which is exactly these doors. So the repair
-fixed the mutation *response* path and left the *live-sync* path reading a
-thousand rows to patch one. `workers/content/src/routes/help.ts:56` shows the
-right shape and says why at the line. *Fix:* five one-line changes — call the
-`oneX` that now exists.
+exist, the five `?id=` doors beside them still read the whole collection, and
+`CACHING.md` calls those doors "gated single-row read".**
+`workers/tenancy/src/routes/roles.ts:38` (`:39` at `1ef1210`), `invites.ts:24`,
+`selectable.ts:29`, `members.ts:16` and `workers/content/src/routes/learning.ts:38`
+all answer `?id=<id>` with `listX().filter()` plus a `COUNT(*)`.
+
+**This is the row-level live-patch re-pull path.** `web/lib/store.ts:patchRow`
+answers a "row X changed" ping by calling `TEAM_RESOURCES[r].fetchOne(id)`, and
+five of the six entries at `web/lib/live-resources.ts:175-219` resolve straight to
+those doors — `tenancy.member`, `tenancy.role`, `tenancy.invite`,
+`tenancy.selectableOne`, `contentApi.learningOne`. Only `contentApi.helpOne` hits
+a real single-row door (`routes/help.ts:56`). So the repair fixed the mutation
+*response* path and left the *live-sync* path reading a whole collection to patch
+one row.
+
+**And the canon states otherwise.** `CACHING.md:59` documents the registry entry
+as `fetchOne: (id) => tenancy.role(id), // gated single-row read`. It is gated;
+it is not a single-row read. That is a stated guarantee with no mechanism behind
+it, on the exact path CACHING rule 3 exists to make cheap — a
+`story_checks_out_review` contradiction as well as a duration defect.
+
+*Fix:* five one-line changes — call the `oneX` that now exists — after which the
+comment becomes true.
 
 **5 · MEDIUM — the two `together` bulk twins still run their rows one at a time.**
 `bulkSetLearningActive` (`workers/content/src/lib/learning.ts:441`) and
@@ -596,7 +625,7 @@ value is the record of what a fix cost. New rows carry **NEW**.
 | Fix | Files it touches | What it ADDS / REMOVES | Which other review could this hurt? |
 |---|---|---|---|
 | ~~**F3/F4** single-row `oneX` readers~~ **DONE** | 5 files across content + tenancy | REMOVED a 1,000-row read from every create/edit/status/deactivate response | Landed as predicted: `story_checks_out` was protected because each comment was rewritten to explain the new guarantee; `lean_mean` paid ~40 lines for three shared projection constants. **It also fixed a bug neither review had found** — past the list cap the old readers returned `null` and `applyUpdated` dropped a live record off the screen |
-| **F13 NEW** Point the four `?id=` doors and `getLearning?id=` at the `oneX` readers that now exist | `workers/tenancy/src/routes/{roles,invites,selectable,members}.ts`, `workers/content/src/routes/learning.ts` | REMOVES a full list read + a `COUNT(*)` from every row-level live patch. ~5 lines changed, net negative | **realtime_review** — this IS their re-pull path, so the response shape must stay byte-identical or a patched row differs from a listed one. The shared projections make that structural now. **R16** — the `?id=` response still carries `total`, so the `COUNT` stays; only the list read goes. **interfacelessness_review** — confirm no MCP tool reads the `?id=` shape |
+| **F13 NEW** Point the five `?id=` doors at the `oneX` readers that now exist | `workers/tenancy/src/routes/{roles,invites,selectable,members}.ts`, `workers/content/src/routes/learning.ts` | REMOVES a full list read + a `COUNT(*)` from every row-level live patch. ~5 lines changed, net negative | **realtime_review** — this IS their re-pull path, so the response shape must stay byte-identical or a patched row differs from a listed one. The shared projections make that structural now. **R16** — the `?id=` response still carries `total`, so the `COUNT` stays; only the list read goes. **interfacelessness_review** — confirm no MCP tool reads the `?id=` shape. **story_checks_out_review** — strictly helps: it makes `CACHING.md:59`'s "gated single-row read" true instead of false |
 | **F1** Emit a duration: `timed()` in the trace seam + the gateway wrapper (the forty lines) | `shared/workers/trace.ts`, `workers/gateway/src/index.ts`, `scripts/smoke-staging.mjs`, `OPERATIONS.md` | ADDS ~40 lines and one log line per request | **spend_review** — Workers Logs are billed per event on the paid plan, and this turns an error-only stream into a per-request one. Real, and the biggest cost of this fix. **realtime_review** — the 101 guard is mandatory; without it `/api/realtime` stops upgrading. **lean_mean** — 4 files for zero user-visible feature. Helps **error_log_review** and **architecture_review** |
 | **F5** `Promise.all` the four `created` + `total` pairs | `routes/learning.ts`, `selectable.ts`, `roles.ts`, `help.ts` | Neutral line count | none — four one-line rewrites, no behaviour change |
 | **F6** Core migration: index `teams(creator_id)`, `teams(db_status)`, `team_members(deactivated_at, team_id)` | new `db/core/0018_*.sql` | ADDS 3 indexes | **spend_review** / **scaling_review** — three more b-trees on the two hottest global tables. `teams` is written rarely so its two are near-free; `team_members(deactivated_at, …)` is the one to weigh. **mac_fell_in_the_ocean** — one more migration to apply on both environments, owner-gated in production |

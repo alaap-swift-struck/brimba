@@ -26,6 +26,7 @@ import {
 } from "../src/lib/roles"
 import { GuardError } from "../src/lib/permissions"
 import { TEAM_MODULE_CATALOG } from "../src/team-schema"
+import { assertCanAssignRole } from "../src/lib/roles"
 
 const cfg = { accountId: "a", apiToken: "t" } as never
 const guard = { userId: "ME", teamId: "TEAM", roleId: "ADMIN", databaseId: "db" , movedModules: 0}
@@ -127,6 +128,42 @@ describe("setRolePermissions", () => {
     expect(script).toContain("'team_members', 1, 1, 0, 0")
     // a module not in the value is written all-off
     expect(script).toContain("'learning', 0, 0, 0, 0")
+  })
+})
+
+describe("assertCanAssignRole — the other half of no-amplification", () => {
+  // Closing setRolePermissions alone did NOT close the escalation, because it
+  // never needed that door. The Admin role always exists and is always active,
+  // and listMembers hands out every roleId — so `team_members:create` alone was
+  // "invite a plus-address of yourself as Admin and accept", and
+  // `team_members:edit` alone was "promote an accomplice". Both reachable through
+  // the assistant and through MCP. (security_sentry round 2, 2026-08-25.)
+  it("refuses a role holding a right the caller does not hold", async () => {
+    d1Query.mockImplementation(async (_c, _db, sql: string, params?: unknown[]) => {
+      if (!sql.includes("FROM role_permissions")) return []
+      // The caller holds nothing; the target role holds everything.
+      return params?.[0] === guard.roleId
+        ? []
+        : [{ module: "team_members", can_read: 1, can_create: 1, can_edit: 1, can_delete: 1 }]
+    })
+    await expect(assertCanAssignRole(cfg, guard, "STRONGER")).rejects.toMatchObject({
+      code: "privilege_amplification",
+    })
+  })
+
+  it("allows a role that cannot exceed the caller", async () => {
+    d1Query.mockImplementation(async (_c, _db, sql: string, params?: unknown[]) => {
+      if (!sql.includes("FROM role_permissions")) return []
+      return params?.[0] === guard.roleId
+        ? [{ module: "team_members", can_read: 1, can_create: 1, can_edit: 1, can_delete: 1 }]
+        : [{ module: "team_members", can_read: 1, can_create: 0, can_edit: 0, can_delete: 0 }]
+    })
+    await expect(assertCanAssignRole(cfg, guard, "VIEWER")).resolves.toBeUndefined()
+  })
+
+  it("never blocks assigning the caller's OWN role — it cannot exceed itself", async () => {
+    d1Query.mockImplementation(async () => [])
+    await expect(assertCanAssignRole(cfg, guard, guard.roleId)).resolves.toBeUndefined()
   })
 })
 

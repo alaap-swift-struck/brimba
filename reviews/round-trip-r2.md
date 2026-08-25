@@ -1,6 +1,22 @@
 # Round trip review — round 2 — Brimba · 2026-08-25
 SCORE: 45/100   (round 1: 45/100)   ·   **uncapped 50** (round 1: uncapped 48)
 
+**Measured at `fe7d683`** — the state `ROUND2-BRIEF.md` describes (commits
+`73a60a4 … fe7d683`). Line numbers are that tree's.
+
+**A round-3 repair pass (`1ef1210`) landed while this review was running.** I
+re-verified every load-bearing claim against it at 14:03:51 rather than assume:
+no in-flight de-duplication in `web/lib/store.ts` (zero `inflight`/`Map<string,
+Promise>` hits; `void load()` still unconditional at `:281`), still **10**
+`usePermissions` call sites, `useActiveTeam` still instantiated twice, all five
+`?id=` doors still `listX().filter()`, `learning-detail.tsx:67` still `.find()`s
+the whole list, `EDGE-CASES.md §2` **still unamended**, and
+`helpers.perfMeasurement` still empty. Nothing in `1ef1210` moves a criterion
+here. Two things it did change are noted where they matter: `roles.ts:38` shifts
+to `:39`, and `web/lib/live-bus.ts` + `web/lib/use-live-refetch.ts` were deleted
+as dead code (zero call sites, so zero effect on any hop count — an in-memory
+emit, never a request).
+
 ## DELTA
 
 Round 1: **45/100** (uncapped 48) → Round 2: **45/100** (uncapped 50)
@@ -428,20 +444,45 @@ serial REST hops (gate, list, count) where it could be 2. `routes/help.ts:45`
 already shows the pattern. **Fix:** `Promise.all` the pair in each; the gate stays
 awaited first, so `EDGE-CASES.md §3`'s deny-before-read rule is preserved.
 
-### F6 · MEDIUM — the `?id=` doors still read the whole collection, and the correct readers now exist beside them
-`workers/tenancy/src/routes/roles.ts:38` · `invites.ts:24` · `selectable.ts:29` · `members.ts:16` · `workers/content/src/routes/learning.ts:38`
+### F6 · MEDIUM — the `?id=` doors still read the whole collection, the correct readers now exist beside them, and `CACHING.md` calls those doors "gated single-row read"
+`workers/tenancy/src/routes/roles.ts:38` (`:39` at `1ef1210`) · `invites.ts:24` · `selectable.ts:29` · `members.ts:16` · `workers/content/src/routes/learning.ts:38` · **`CACHING.md:59`**
 
 Round 1's F6 had two halves. The half about `oneRole`/`oneMember` is **fixed**. The
-half about `?id=` is not, and it is the half on the hot path: `patchRow` answers
-every row-level live ping by calling `fetchOne(id)`, which resolves to these doors.
-Every "row X changed" ping on roles, invites, dropdown values, members or learning
-still costs a full list read plus a `COUNT` to update one row.
+half about `?id=` is not, and it is the half on the hot path.
 
-**Fix.** Five one-line changes — call the `oneX` that now exists. Response shape
-must stay byte-identical, which the new shared projections
-(`ROLE_COLUMNS`, `MEMBER_SELECT`, `LEARNING_SELECT`, `toRole`, `toMember`,
-`toInvite`, `toValue`) now guarantee structurally rather than by reading
-everything. `R16`'s `total` stays on the response; only the list read goes.
+`web/lib/store.ts:patchRow` answers every row-level live ping by calling
+`TEAM_RESOURCES[r].fetchOne(id)`. Traced all six entries
+(`web/lib/live-resources.ts:175-219`) through `web/lib/api.ts`:
+
+| entry | resolves to | shape |
+|---|---|---|
+| `tenancy.member(id)` | `GET /api/tenancy/members?id=` | whole list, filtered in JS |
+| `tenancy.role(id)` | `GET /api/tenancy/roles?id=` (`api.ts:264`) | whole list + `COUNT(*)` |
+| `tenancy.invite(id)` | `GET /api/tenancy/invites?id=` | whole list + `COUNT(*)` |
+| `tenancy.selectableOne(id)` | `GET /api/tenancy/selectable?id=` | whole list + `COUNT(*)` |
+| `contentApi.learningOne(id)` | `GET /api/content/learning?id=` | whole list + `COUNT(*)` |
+| `contentApi.helpOne(id)` | `GET /api/content/help?id=` | **correct** — `routes/help.ts:56` |
+
+Five of six. Every "row X changed" ping on roles, invites, dropdown values,
+members or learning still costs a full collection read plus a `COUNT` to update
+one row — on the path CACHING rule 3 exists to make cheap.
+
+**And the canon says the opposite.** `CACHING.md:59`, in the worked example of
+rule 3 itself:
+
+```ts
+fetchOne: (id) => tenancy.role(id),         // gated single-row read
+```
+
+It is gated. It is not a single-row read. That is a stated guarantee with no
+mechanism behind it — a `story_checks_out_review` contradiction sitting inside the
+very rule this criterion measures, and it survived round 3 untouched.
+
+**Fix.** Five one-line changes — call the `oneX` that now exists — after which the
+comment becomes true. Response shape must stay byte-identical, which the new
+shared projections (`ROLE_COLUMNS`, `MEMBER_SELECT`, `LEARNING_SELECT`, `toRole`,
+`toMember`, `toInvite`, `toValue`) now guarantee structurally rather than by
+reading everything. R16's `total` stays on the response; only the list read goes.
 
 ### F7 · MEDIUM — write-then-read, and coarse invalidation after a write
 `web/components/role-detail.tsx:115-116` · `web/components/access-tokens.tsx:96,111` ·
@@ -566,7 +607,7 @@ is the record of what a fix cost. New rows carry **NEW**.
 | ~~**4.** Detail screens fall back to the single-row door~~ **HALF DONE** | `help-detail.tsx` ✅ · `learning-detail.tsx` ❌ · **`EDGE-CASES.md` ❌** | ADDED ~20 lines to help; fixed the paged deep link | **The predicted harm landed.** `story_checks_out_review` now has a live contradiction: `EDGE-CASES.md:94` states there is no get-one fetch, and there is one. **Finish it in both directions** — amend the doc *and* do `learning-detail.tsx` — or revert help. Leaving it half-done is the only outcome with no upside |
 | **5.** `Promise.all` list + count in the five list doors (F5) | `workers/tenancy/src/routes/{roles,invites,selectable}.ts`, `lib/members.ts`, `workers/content/src/routes/help.ts` | REMOVES 1 serial REST hop from each of the app's five hottest read doors | **scaling_review** — 2 concurrent D1 REST calls per request instead of 2 serial ones raises peak concurrency against the same database without changing the query count. **spend_review** — neutral, identical query count. Gate ordering untouched, so no security effect |
 | ~~**6a.** Real single-row `oneRole` / `oneMember`~~ **DONE** | `workers/tenancy/src/lib/members.ts` and 4 more | REMOVED a full list read + a `COUNT` from every mutation response | Landed as predicted. **lean_mean** paid ~40 lines for three shared projection constants; **interfacelessness_review**'s shape concern was met structurally. **It also fixed a bug neither review found**: past `LIST_HARD_CAP` the old readers returned `null` and `applyUpdated` dropped a live record off the screen |
-| **6b NEW.** Point the five `?id=` doors at the `oneX` readers that now exist (F6) | `workers/tenancy/src/routes/{roles,invites,selectable,members}.ts`, `workers/content/src/routes/learning.ts` | REMOVES a full list read from **every row-level live patch**. ~5 lines changed, net negative | **realtime_review** — this IS their re-pull path; the response must stay byte-identical, which the shared projections now guarantee. **R16** — keep `total` on the response. **interfacelessness_review** — confirm no MCP tool reads the `?id=` shape |
+| **6b NEW.** Point the five `?id=` doors at the `oneX` readers that now exist (F6) | `workers/tenancy/src/routes/{roles,invites,selectable,members}.ts`, `workers/content/src/routes/learning.ts` | REMOVES a full list read from **every row-level live patch**. ~5 lines changed, net negative | **realtime_review** — this IS their re-pull path; the response must stay byte-identical, which the shared projections now guarantee. **R16** — keep `total` on the response. **interfacelessness_review** — confirm no MCP tool reads the `?id=` shape. **story_checks_out_review** — strictly helps: it makes `CACHING.md:59`'s "gated single-row read" true instead of false, closing a contradiction rather than opening one |
 | **7.** `confirmImport` uses the existing `writeParcel` path (F4) | `workers/data-ops/src/lib/import.ts` | ADDS ~12 lines mirroring `import-batch.ts:247-253`. REMOVES up to 999 sequential HTTP requests per import | **activity_log_review** — must verify the bulk door writes one activity row per record; one per parcel loses per-row provenance (R25). **scaling_review** benefits. R24's ordering declaration must be honoured for any `in-order` target. Note the parcel path must keep `forwardToDoor`'s `origin: "import"` stamp, which it already does |
 | **8.** `reconcileCatalog` heals on miss, not on every read (F8) | `workers/data-ops/src/lib/import.ts` | REMOVES 5 sequential writes per Import-screen open | **story_checks_out_review / R13** — R13's law is "the catalogue self-heals against the code on read". Heal-on-miss still satisfies the guarantee, but `RULES.md` and the `catalog-coverage` check must be confirmed to allow it. Do not change without reading the check |
 | **9.** `Server-Timing` at the gateway + a written hop budget (F10) | `workers/gateway/src/index.ts`, `EDGE-CASES.md`, `CLAUDE.md` | ADDS ~10 lines and a documented number; makes criteria 1 and 10 measurable | **Coordinate with `speed_review`'s F1 — it proposes the same gateway wrapper. Do it once.** Their version carries the mandatory `status === 101` guard, without which `/api/realtime` stops upgrading. **spend_review** — turns an error-only log stream into a per-request one; real. Otherwise negligible |

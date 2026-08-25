@@ -11,6 +11,7 @@ import type { Env } from "../env"
 import { GuardError, type MemberGuard } from "./permissions"
 import { notifyRemoved, notifyRoleChanged } from "./notify"
 import { LIST_HARD_CAP } from "../../../../shared/workers/limits"
+import { assertCanAssignRole } from "./roles"
 
 type RoleRow = {
   id: string
@@ -282,6 +283,10 @@ export async function changeMemberRole(
   )
   if (!roles[0]) throw new GuardError(400, "role_not_found", "That role doesn't exist.")
   if (target.role_id === newRoleId) return // no-op
+  // You may not promote anyone into a role stronger than your own. Without this,
+  // `team_members:edit` alone promoted an accomplice — or yourself, via an
+  // account you already controlled — to Admin.
+  await assertCanAssignRole(cfg, guard, newRoleId)
 
   const adminId = await adminRoleId(cfg, guard)
   if (target.role_id === adminId && newRoleId !== adminId) {

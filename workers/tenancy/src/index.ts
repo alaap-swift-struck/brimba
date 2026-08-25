@@ -29,7 +29,7 @@
 //   GET  /api/tenancy/invitations          -> invites I've RECEIVED (any signed-in user)
 //   POST /api/tenancy/invitations/accept   -> accept a received invite (join + switch)
 //   GET  /api/tenancy/config/screens       -> a team's screen-recipe overrides (any member)
-//   POST /api/tenancy/config/screens       -> set a screen override (teams:edit; agent-callable)
+//   POST /api/tenancy/config/screens       -> set a screen override (screens:edit; NO caller today)
 //   POST /api/tenancy/admin/migrate-teams  -> roll team-schema migrations (x-admin-key)
 //   GET  /api/tenancy/admin/db-sizes       -> size every team DB + open alarms
 //   POST /api/tenancy/admin/move-module    -> relocate a heavy module (the mover)

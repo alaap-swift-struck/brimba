@@ -178,6 +178,56 @@ export function normalizeRights(r: Partial<RightSet> | undefined): RightSet {
   return { read: !!r?.read || create || edit || del, create, edit, delete: del }
 }
 
+
+/** NO PRIVILEGE AMPLIFICATION, for ASSIGNING a role — the other half of the rule
+ * `setRolePermissions` enforces for EDITING one.
+ *
+ * Closing the edit door alone was not enough, because the escalation never needed
+ * it. The Admin role always exists and is always active, and `listMembers` hands
+ * out every `roleId`, so `team_members:create` alone was "invite a plus-address of
+ * yourself straight into Admin" — and `team_members:edit` alone was "promote an
+ * accomplice". Neither door asked what the role you were handing out could DO.
+ * Both are reachable through the assistant and through MCP, which act as the
+ * signed-in user over these same doors.
+ *
+ * So: you may not put anyone — including yourself — into a role that holds a right
+ * you do not hold. Assigning a WEAKER or equal role is always allowed, which is
+ * every ordinary case: an admin can assign anything, and a manager can hand out
+ * any role that cannot exceed them. (Security sentry, round 2, 2026-08-25.) */
+export async function assertCanAssignRole(
+  cfg: D1Rest,
+  guard: MemberGuard,
+  roleId: string
+): Promise<void> {
+  if (roleId === guard.roleId) return // your own role can never exceed itself
+  const [mine, theirs] = await Promise.all([
+    d1Query<PermRow>(
+      cfg,
+      guard.databaseId,
+      "SELECT module, can_read, can_create, can_edit, can_delete FROM role_permissions WHERE role_id = ?",
+      [guard.roleId]
+    ),
+    d1Query<PermRow>(
+      cfg,
+      guard.databaseId,
+      "SELECT module, can_read, can_create, can_edit, can_delete FROM role_permissions WHERE role_id = ?",
+      [roleId]
+    ),
+  ])
+  const mineBy = new Map(mine.map((r) => [r.module, r]))
+  const exceeds: string[] = []
+  for (const row of theirs)
+    for (const right of ["read", "create", "edit", "delete"] as const)
+      if (row[`can_${right}`] === 1 && mineBy.get(row.module)?.[`can_${right}`] !== 1)
+        exceeds.push(`${right} on ${row.module.replace(/_/g, " ")}`)
+  if (exceeds.length)
+    throw new GuardError(
+      403,
+      "privilege_amplification",
+      `You can only give someone a role you could hold yourself. That role has rights yours does not: ${exceeds.join(", ")}.`
+    )
+}
+
 /** Save a role's permission sheet (upsert one row per module). Refuses the
  * locked Admin role; enforces auto-flip-read on every module. */
 export async function setRolePermissions(

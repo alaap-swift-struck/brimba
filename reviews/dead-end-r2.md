@@ -3,6 +3,16 @@ SCORE: **50/100** (capped by the criterion-1 gate; uncapped **61**)   (round 1: 
 
 One question: **what did we build that nobody can actually reach?**
 
+> **Measured against `fe7d683`** (the six repair commits named in `ROUND2-BRIEF.md`).
+> Commit `1ef1210` landed while this run was finishing. I checked its file list
+> against every file this report scores: it touches **none** of them — not
+> `workers/tenancy/src/index.ts`, `routes/config.ts`, `routes/selectable.ts`,
+> `MCP.md`, `shared/team-modules.ts`, `lib/roles.ts`, `content/src/lib/help.ts`,
+> `auth/src/lib/email-change.ts`, `lib/activity-read.ts`, `shared/types.ts` or
+> `web/lib/nav.ts`. Every finding below still stands at `1ef1210`. It does delete
+> `web/lib/use-live-refetch.ts` and `web/lib/live-bus.ts` — a seam with zero call
+> sites, which was a dead end and is now gone; correctly not filed as a finding.
+
 ---
 
 ## DELTA

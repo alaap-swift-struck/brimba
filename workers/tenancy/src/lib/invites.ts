@@ -14,6 +14,7 @@ import { GuardError, type MemberGuard } from "./permissions"
 import { notifyInviteRevoked } from "./notify"
 import { LIST_HARD_CAP } from "../../../../shared/workers/limits"
 import { callService } from "../../../../shared/workers/trace"
+import { assertCanAssignRole } from "./roles"
 
 const INVITE_TTL_DAYS = 7
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
@@ -179,6 +180,10 @@ export async function createInvite(
     [roleId]
   )
   if (!roles[0]) throw new GuardError(400, "role_not_found", "That role doesn't exist.")
+  // You may not invite someone into a role stronger than your own. Without this,
+  // `team_members:create` alone was full tenant admin: invite a plus-address of
+  // yourself as Admin and accept.
+  await assertCanAssignRole(cfg, guard, roleId)
 
   const alreadyMember = await env.DB.prepare(
     `SELECT 1 FROM team_members tm JOIN users u ON u.id = tm.user_id

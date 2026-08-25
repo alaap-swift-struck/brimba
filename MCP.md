@@ -257,7 +257,7 @@ exclusion must be checked against the code it excludes.**
 | `learning/done`, `help/stakeholders` | per-person state on someone's behalf, which the act-as-you model makes ambiguous. |
 | `learning/bulk-active`, `help/bulk-status`, `help/bulk-status-by-filter` | bulk writes. `plan_import` is the supported machine path for changing many rows, because it shows what it will do first. |
 | `import/*` (the six session endpoints) | a stateful multi-step flow. `plan_import` is the single tool that wraps it. |
-| `config/screens` | changes what every member of the team SEES. A UI decision, not a data one. |
+| `config/screens` | changes what every member of the team SEES. Note this is not "kept to the UI" — there is no UI for it either: the door has **no caller on any surface**, so the screen-override subsystem is currently unreachable. Finishing it or removing it is an open decision; see `reviews/dead-end.md`. |
 
 Everything else — reading and writing the actual records — is exposed, and each
 tool forwards to the same gated route the web app posts to.

@@ -7,6 +7,14 @@ environment, both barred by the campaign brief's read-only rule. **A live walk w
 fresh account would still beat this entire report**, and that nobody has done one is
 still finding #4 and still criterion 10's zero.
 
+> **Measured against `fe7d683`** (the six repair commits named in `ROUND2-BRIEF.md`).
+> Commit `1ef1210` landed while this run was finishing. Its file list touches **none**
+> of the files this report scores — `home-screen.tsx`, `learning-progress.tsx`,
+> `web/e2e/`, `web/lib/screens.ts`, `web/lib/pages.ts`, `onboarding/page.tsx`,
+> `BOOTSTRAP.md` and `data-ops/src/lib/import.ts` are all untouched by it. The one web
+> file it does change, `app-shell.tsx`, loses two `emitLive` calls and no empty state.
+> Every finding and every score below still stands at `1ef1210`.
+
 ---
 
 ## DELTA
@@ -433,18 +441,21 @@ nothing.
 
 The arithmetic, then the judgement, because they do not quite agree.
 
+Baseline 62.25. Every row is `Σ(Δcriterion × weight)/100` added to it, unrounded so it
+can be recomputed by hand.
+
 | fix | criteria it moves | arithmetic | total |
 |---|---|---|---|
-| **A · first-run prompt on `/home`** (finding 1) | C2: helpful 3/21→4/21 (+2.2), landing block 0→20, wording +0.5 → 22→44.7 = **+3.3**. C4: "named" 20→40 (+2.4), steps 12→11 removes the guess, 10→15 (+0.6) = **+3.0** | +6.3 | **68** |
-| **C · richer copy on the 19 absences** (finding 2) | C2 only: helpful 3/21→21/21 = 6.4→45 (+38.6), wording 1→10 (+9); the 25-block stays 15 (library) → 22→70 = **+7.2** | +7.2 | **69** |
-| **D · zero-row branch on Team progress** (finding 3) | C3 82→97 (**+1.95**) · C6 72→97 (**+2.5**) | +4.5 | **66** |
-| **E · extend the e2e past the skip** (finding 4) | C8 0→80 (no CI) or 100 (CI) | +4.8 / +6.0 | **67 / 68** |
-| **W · one person signs up once** | C10 0→100 | +4.0 | **66** |
+| **A · first-run prompt on `/home`** (finding 1) | C2 22.35→44.65: helpful 3/21→4/21 (6.4→8.6), landing block 0→20, wording +0.5 → **+3.35**. C4 40→65: "named" 20→40, steps 12→11 removes the guess so 10→15 → **+3.00** | +6.35 | 68.6 → **69** |
+| **C · richer copy on the 19 absences** (finding 2) | C2 only, 22.35→70: helpful 3/21→21/21 (6.4→45), wording 0.95→10; the 25-block stays 15 (library) → **+7.15** | +7.15 | 69.4 → **69** |
+| **D · zero-row branch on Team progress** (finding 3) | C3 82→97 (**+1.95**) · C6 72→97 (**+2.50**) | +4.45 | 66.7 → **67** |
+| **E · extend the e2e past the skip** (finding 4) | C8 0→80 (no CI) or 100 (CI) | +4.80 / +6.00 | 67.1 / 68.3 → **67 / 68** |
+| **W · one person signs up once** | C10 0→100 | +4.00 | 66.3 → **66** |
 
 **The answer: fix A, the first-run prompt on the landing screen.**
 
-C is worth 0.9 more points on paper and it is the wrong thing to do first, for four
-reasons I want on the record:
+A and C round to the same 69 — C is 0.8 of a point ahead unrounded — and A is still
+the one to do first, for four reasons I want on the record:
 
 1. **A is where the customer actually is.** Rewriting 19 empty states helps a person
    who has already navigated somewhere. The landing screen is the screen they are
