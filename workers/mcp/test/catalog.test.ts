@@ -137,3 +137,42 @@ describe("MCP.md's exclusion table", () => {
     expect(lies, `the exclusion table contradicts the tool catalogue: ${lies.join("; ")}`).toEqual([])
   })
 })
+
+// TWO GUARDS THAT STOPPED AT THE MACHINE BOUNDARY.
+//
+// Both were found by interfacelessness_review and both had the same shape: a
+// protection the UI gets by default that no tool could reach, so the machine
+// surface was quietly weaker than the human one at the same door.
+describe("the machine surface gets the same guards as the UI", () => {
+  it("a required boolean REFUSES when omitted, instead of meaning false", () => {
+    // `active: i.active === true` reads as a coercion and behaves as a decision:
+    // an omitted field is undefined, `undefined === true` is false, and the tool
+    // sends "switch this off". The schema says required and `tools/call` does not
+    // validate against the schema — so a machine caller that simply forgot the
+    // field DEACTIVATED the record, and the door's clean 400 was unreachable
+    // because the tool had already invented a value.
+    const toggles = MCP_TOOLS.filter((t) => /^set_\w+_active$/.test(t.mcpName ?? t.name))
+    expect(toggles.length, "no set_*_active tools found — this scan has gone blind").toBeGreaterThan(2)
+    for (const t of toggles) {
+      expect(() => t.buildBody!({ id: "x", roleId: "x" }), `${t.name} must refuse an omitted "active" rather than defaulting it to false`).toThrow()
+      expect(t.buildBody!({ id: "x", roleId: "x", active: false }).active).toBe(false)
+      expect(t.buildBody!({ id: "x", roleId: "x", active: true }).active).toBe(true)
+    }
+  })
+
+  it("every edit door that accepts expectedVersion has a tool that forwards it", () => {
+    // Four doors carry the lost-update guard and the web client sends it. No tool
+    // exposed or forwarded it, so a machine edit ALWAYS won a concurrent race —
+    // the assistant silently overwriting a change a person made seconds earlier.
+    const edits = MCP_TOOLS.filter((t) => /^update_/.test(t.mcpName ?? t.name))
+    expect(edits.length, "no update_* tools found — this scan has gone blind").toBeGreaterThan(1)
+    for (const t of edits) {
+      const props = (t.inputSchema as { properties?: Record<string, unknown> })?.properties ?? {}
+      expect(props, `${t.name} must EXPOSE expectedVersion, or a machine caller cannot opt into the guard`).toHaveProperty("expectedVersion")
+      expect(
+        t.buildBody!({ id: "x", roleId: "x", title: "t", value: "v", description: "d", expectedVersion: "V" }).expectedVersion,
+        `${t.name} must FORWARD expectedVersion — exposing it and dropping it is worse than not offering it`
+      ).toBe("V")
+    }
+  })
+})

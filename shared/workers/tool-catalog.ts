@@ -14,6 +14,8 @@
 // get_role_permissions + update_team + mark_learning_done; the MCP's whoami +
 // exports + the agentic-import batch tools + agent_chat/agent_confirm.
 
+import { GuardError } from "./gating"
+
 /* ------------------------------- schema helpers ------------------------------- */
 
 export const S = { type: "string" } as const
@@ -30,6 +32,41 @@ export const str = (input: Record<string, unknown>, key: string): string => {
   const v = input[key]
   return typeof v === "string" ? v : v == null ? "" : String(v)
 }
+/** THE LOST-UPDATE GUARD, for a machine caller.
+ *
+ * Four edit doors take `expectedVersion` — the `updated_at` the caller was shown —
+ * and refuse to land on a row that has moved on since. The web client sends it.
+ * No tool exposed it or forwarded it, so a machine edit ALWAYS won a concurrent
+ * race: the assistant or an outside integration would silently overwrite a change
+ * a person made thirty seconds earlier, and the door's protection was reachable
+ * from exactly one of the three surfaces.
+ *
+ * Optional, because a machine caller that genuinely has not read the row first
+ * cannot supply one, and refusing every such edit would break more than it fixes.
+ * Supplying it is how a caller opts INTO the protection the UI gets by default.
+ * (Interfacelessness review, 2026-08-25.) */
+const VERSION_FIELD = { expectedVersion: S }
+const version = (input: Record<string, unknown>): string | undefined => opt(input, "expectedVersion")
+
+/** A REQUIRED boolean body field.
+ *
+ * The three `set_*_active` tools used to build `active: i.active === true`. That
+ * reads as a coercion and behaves as a decision: an OMITTED field is `undefined`,
+ * `undefined === true` is `false`, and the tool cheerfully sends "switch this
+ * off". The schema marks it required and `tools/call` does not validate against
+ * the schema, so a machine caller that simply forgot the field DEACTIVATED the
+ * record — and the door's own clean 400 was unreachable, because the tool had
+ * already invented a value for it.
+ *
+ * Throwing here puts that 400 back within reach. (Interfacelessness review,
+ * 2026-08-25.) */
+const bool = (input: Record<string, unknown>, key: string): boolean => {
+  const v = input[key]
+  if (typeof v !== "boolean")
+    throw new GuardError(400, "invalid_input", `"${key}" must be true or false — it was ${v === undefined ? "not given" : JSON.stringify(v)}.`)
+  return v
+}
+
 /** An OPTIONAL string body field: the value, or undefined so JSON.stringify drops it
  * (the door then treats it as an omitted form field). */
 const opt = (input: Record<string, unknown>, key: string): string | undefined => str(input, key) || undefined
@@ -180,8 +217,8 @@ export const SHARED_TOOLS: SharedTool[] = [
     name: "update_role",
     summary: "Rename or re-describe an existing team role (by id).",
     binding: "TENANCY", method: "POST", path: "/api/tenancy/roles/update",
-    schema: obj({ roleId: S, title: S, description: S }, ["roleId", "title"]),
-    buildBody: (i) => ({ roleId: str(i, "roleId"), title: str(i, "title"), description: str(i, "description") || "" }),
+    schema: obj({ roleId: S, title: S, description: S, ...VERSION_FIELD }, ["roleId", "title"]),
+    buildBody: (i) => ({ roleId: str(i, "roleId"), title: str(i, "title"), description: str(i, "description") || "", expectedVersion: version(i) }),
     // PRIVILEGE WRITE (member_roles) → confirm. Renaming isn't a grant, but a
     // rename is how a grant gets socially engineered ("call Viewer Admin").
     agent: { write: true, confirm: true, summarize: (i, names) => `Rename ${roleLabel(i, names)} to "${str(i, "title")}"` },
@@ -191,7 +228,7 @@ export const SHARED_TOOLS: SharedTool[] = [
     summary: "Switch a role off (deactivate — holders keep access) or back on (reactivate) — never deleted.",
     binding: "TENANCY", method: "POST", path: "/api/tenancy/roles/active",
     schema: obj({ roleId: S, active: B }, ["roleId", "active"]),
-    buildBody: (i) => ({ roleId: str(i, "roleId"), active: i.active === true }),
+    buildBody: (i) => ({ roleId: str(i, "roleId"), active: bool(i, "active") }),
     agent: {
       write: true,
       // PRIVILEGE WRITE (member_roles) → confirm BOTH ways. Deactivating removes
@@ -275,8 +312,8 @@ export const SHARED_TOOLS: SharedTool[] = [
     name: "update_dropdown_value",
     summary: "Rename a dropdown value (by id).",
     binding: "TENANCY", method: "POST", path: "/api/tenancy/selectable/update",
-    schema: obj({ id: S, value: S }, ["id", "value"]),
-    buildBody: (i) => ({ id: str(i, "id"), value: str(i, "value") }),
+    schema: obj({ id: S, value: S, ...VERSION_FIELD }, ["id", "value"]),
+    buildBody: (i) => ({ id: str(i, "id"), value: str(i, "value"), expectedVersion: version(i) }),
     agent: { write: true, confirm: false, summarize: (i) => `Rename dropdown value ${str(i, "id")} to "${str(i, "value")}"` },
   },
   {
@@ -285,7 +322,7 @@ export const SHARED_TOOLS: SharedTool[] = [
     summary: "Switch a dropdown value off (deactivate) or back on (reactivate) — never deleted.",
     binding: "TENANCY", method: "POST", path: "/api/tenancy/selectable/active",
     schema: obj({ id: S, active: B }, ["id", "active"]),
-    buildBody: (i) => ({ id: str(i, "id"), active: i.active === true }),
+    buildBody: (i) => ({ id: str(i, "id"), active: bool(i, "active") }),
     agent: {
       write: true,
       confirm: (i) => i.active !== true, // destructive only when DEACTIVATING
@@ -310,10 +347,10 @@ export const SHARED_TOOLS: SharedTool[] = [
     summary: "Edit an existing learning article (by id).",
     binding: "CONTENT", method: "POST", path: "/api/content/learning/update",
     schema: obj(
-      { id: S, title: S, category: S, description: S, contentType: S, contentLink: S, body: S, sequence: N, required: B },
+      { id: S, title: S, category: S, description: S, contentType: S, contentLink: S, body: S, sequence: N, required: B, ...VERSION_FIELD },
       ["id", "title"]
     ),
-    buildBody: (i) => ({ id: str(i, "id"), ...learningBody(i) }),
+    buildBody: (i) => ({ id: str(i, "id"), ...learningBody(i), expectedVersion: version(i) }),
     agent: { write: true, confirm: false, summarize: (i) => `Edit learning article ${str(i, "id")}` },
   },
   {
@@ -321,7 +358,7 @@ export const SHARED_TOOLS: SharedTool[] = [
     summary: "Switch a learning article off (deactivate — member progress survives) or back on (reactivate) — never deleted.",
     binding: "CONTENT", method: "POST", path: "/api/content/learning/active",
     schema: obj({ id: S, active: B }, ["id", "active"]),
-    buildBody: (i) => ({ id: str(i, "id"), active: i.active === true }),
+    buildBody: (i) => ({ id: str(i, "id"), active: bool(i, "active") }),
     agent: {
       write: true,
       confirm: (i) => i.active !== true, // destructive only when DEACTIVATING
@@ -343,8 +380,8 @@ export const SHARED_TOOLS: SharedTool[] = [
     name: "update_help_ticket",
     summary: "Edit a support ticket's details (by id).",
     binding: "CONTENT", method: "POST", path: "/api/content/help/update",
-    schema: obj({ id: S, description: S, helpType: S, screenRecordingLink: S }, ["id", "description"]),
-    buildBody: (i) => ({ id: str(i, "id"), description: str(i, "description"), helpType: opt(i, "helpType"), screenRecordingLink: opt(i, "screenRecordingLink") }),
+    schema: obj({ id: S, description: S, helpType: S, screenRecordingLink: S, ...VERSION_FIELD }, ["id", "description"]),
+    buildBody: (i) => ({ id: str(i, "id"), description: str(i, "description"), helpType: opt(i, "helpType"), screenRecordingLink: opt(i, "screenRecordingLink"), expectedVersion: version(i) }),
     agent: { write: true, confirm: false, summarize: (i) => `Edit support ticket ${str(i, "id")}` },
   },
   {
