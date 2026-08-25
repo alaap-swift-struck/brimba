@@ -337,11 +337,16 @@ export const tenancy = {
       body: JSON.stringify({ type, value }),
     }),
 
-  /** Rename a dropdown value (its type stays). Needs selectable_data:edit. */
-  updateSelectable: (id: string, value: string, expectedVersion?: string | null) =>
+  /** Rename a dropdown value and/or MOVE it to another group. Needs
+   * selectable_data:edit. Passing `type` moves the value into that group;
+   * OMITTING it leaves the value where it is (JSON.stringify drops an undefined
+   * key, so the door reads it as absent — which is what makes an inline rename
+   * safe). Nothing is orphaned by a move: the modules that consume dropdown
+   * values store the chosen TEXT, never this row's id. Returns the affected ROW (R23). */
+  updateSelectable: (id: string, value: string, expectedVersion?: string | null, type?: string) =>
     api<{ updated: SelectableValue | null }>("/api/tenancy/selectable/update", {
       method: "POST",
-      body: JSON.stringify({ id, value, expectedVersion }),
+      body: JSON.stringify({ id, value, expectedVersion, type }),
     }),
 
   /** Deactivate / reactivate a dropdown value (deactivate-only). Needs

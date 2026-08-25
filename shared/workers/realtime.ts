@@ -19,7 +19,7 @@
 // is invisible from here — a publisher still names `team:<id>` and the realtime
 // worker expands it. One resolver, in one place, instead of every caller.
 
-import { callService } from "./trace"
+import { callService, traceHop } from "./trace"
 
 // ---------------------------------------------------------------------------
 // SHARD ADDRESSING — the shared vocabulary, so the two sides cannot disagree.
@@ -102,6 +102,10 @@ export type ChangeEvent = {
  * swallows the failure (best-effort, as the contract above promises) and records
  * a structured line carrying the request id. */
 async function publish(realtime: Fetcher, channel: string, event: ChangeEvent): Promise<void> {
+  // TIMED, because every mutation waits on it (LAW R1) and nothing knew what it
+  // cost. A Durable Object is a single addressed instance, so this hop's price is
+  // where that object lives — a fact no amount of reading the code reveals.
+  const started = Date.now()
   await callService(
     realtime,
     "https://realtime/publish",
@@ -112,6 +116,7 @@ async function publish(realtime: Fetcher, channel: string, event: ChangeEvent): 
     },
     { worker: "realtime-publish", place: channel }
   )
+  traceHop({ worker: "realtime-publish", op: `publish:${event.resource}`, ms: Date.now() - started })
 }
 
 /** Tell a TEAM's channel that one row in `resource` changed. */

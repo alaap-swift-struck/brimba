@@ -139,6 +139,15 @@ Today it covers:
   value as `cursor`; never construct or mutate one — a cursor the server didn't issue
   is refused with a 400. When `hasMore` is false you have reached the end. A client
   that ignores the cursor still works: it simply sees the newest page.
+  **An edit is a PARTIAL update: a field you omit is KEPT.** Send only the fields you
+  mean to change. (Until 2026-08-25 the content doors wrote every column
+  unconditionally, so "rename this article" also wiped its body, category, link and
+  type. If you have been sending a whole object to work around that, you can stop.)
+  **One honest limit that follows:** these tools drop an empty string exactly as they
+  drop an absent field, so an edit tool cannot currently CLEAR an optional field — it
+  can only set it to something else. The doors themselves distinguish the two; the
+  tools do not yet expose the difference.
+
   **Every edit tool takes an optional `expectedVersion`** — the `updated_at` you were
   shown when you read the record (a row that has never been edited uses its
   `created_at`). Send it back and the door refuses to land on a row that has moved on
@@ -312,9 +321,17 @@ tool forwards to the same gated route the web app posts to.
 here as an exclusion — "changes what every member of the team SEES" — but the door
 had no caller on ANY surface, so the row was describing something unreachable
 rather than a decision anyone had made. Offered the choice between finishing it and
-removing it, the owner chose removal on 2026-08-25: the table, the migration, the
-gate, the validator, the permission row, the renderer and the client merge all
-went. There is nothing to exclude.
+removing it, the owner chose removal on 2026-08-25: the routes, the gate, the
+validator, the permission row, the renderer and the client merge all went. There is
+nothing left to exclude.
+
+**What did NOT go, and must not: the `screens` TABLE.** Team migration
+`0002_screens` still creates it, and every team database still has it. Migrations
+are append-only — a migration already applied to hundreds of live databases cannot
+be un-run by deleting it from the list, and rewriting history there is how a fork
+and its parent end up with different schemas that both claim to be version N. The
+table is simply unread now. Removing the code was the decision; removing the
+migration would be a different and much worse one.
 
 *(This paragraph was itself broken for an hour. The edit that removed the deleted
 tool's name took out one line from the middle of a sentence and left the rest

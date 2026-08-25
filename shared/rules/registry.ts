@@ -167,7 +167,7 @@ export const RULES_REGISTRY: Rule[] = [
   {
     id: "R20",
     dimension: "ui",
-    law: "Every navigable destination resolves in a FRESH TAB. The app is a static export, so a top-level `/<segment>` exists only if a page source emits it, and `/<segment>/<id>` resolves only if the gateway serves that module's shell for it — two requirements, in two workspaces, both INVISIBLE from inside the app (the client router never leaves the page, so the nav always works and the missing page shows up only when someone pastes the url). Both are DERIVED from the nav registries (NAV + TEAM_SECTIONS placement:\"sidebar\"), never hand-listed. Earned by: three modules in one fork shipping a sidebar entry with no page behind it, three separate times, with nothing red.",
+    law: "Every navigable destination resolves in a FRESH TAB. The app is a static export, so THREE separate lists in three workspaces have to agree, and all three are INVISIBLE from inside the app (the client router never leaves the page, so the nav always works and the missing page shows up only when someone pastes the url): a top-level `/<segment>` exists only if a page source emits it (web/app), soft navigation to it only stays soft if TOP_LEVEL_MODULES names it (web/components/deep-link/route.ts — otherwise the framework router takes it and the static export makes that a full RELOAD that tears the shell down), and `/<segment>/<id>` resolves only if the gateway serves that module's shell for it (MODULE_SHELLS in workers/gateway). All three are DERIVED from the nav registries (NAV + TEAM_SECTIONS placement:\"sidebar\"), never hand-listed. Earned by: three modules in one fork shipping a sidebar entry with no page behind it, three separate times, with nothing red.",
     checkId: "static-destinations",
     status: "enforced",
   },
@@ -207,7 +207,7 @@ export const CATALOG_EXEMPT: Record<string, string> = {
   teams: "team metadata is created by the team factory (one row per team), never imported",
   team_members: "membership arrives through invites (an identity flow) — a CSV cannot consent for a person",
   help: "tickets are conversations raised in-app; importing them would forge authorship and timelines",
-  screens: "screen recipes are app furniture (config), not team data",
+  screens: "the screen-override subsystem was REMOVED on 2026-08-25 (no caller on any surface). The `screens` table itself remains — team migration 0002_screens is applied to every live database and migrations are append-only — so the module key still resolves and still needs a line here. It was never team data; now nothing reads it at all.",
   agent: "the assistant's threads/usage are system records, not importable content",
 }
 
@@ -282,7 +282,7 @@ export const DEAF_EXEMPT: Record<string, string> = {
  * or earn a visible line here — never a silent bypass. */
 export const ACTIVITY_TABLE_EXEMPT: Record<string, string> = {
   teams: "team metadata (name/logo) is member-wide — the team screen itself has no module gate",
-  screens: "screen-recipe changes are app furniture every member renders; the rows carry no record content",
+  screens: "the screen-override subsystem was REMOVED on 2026-08-25, so nothing writes this relatedTable any more; the entry stays because the table (team migration 0002_screens) does, and a historical row in an existing team's feed must still resolve. It never carried record content — only which recipe a screen rendered.",
   import: "an import summary names only counts + the target module; the imported rows' own activity is gated by their module",
   team_module_databases:
     "the module MOVER relocating a module to its own database — owner-only maintenance about where data lives, never about what any record says. It names a module and a row count, both of which every member already sees in the nav. Written by the SYSTEM actor (R25), so there is no person's rights to subtract.",

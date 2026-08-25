@@ -229,7 +229,12 @@ export const SHARED_TOOLS: SharedTool[] = [
     summary: "Rename or re-describe an existing team role (by id).",
     binding: "TENANCY", method: "POST", path: "/api/tenancy/roles/update",
     schema: obj({ roleId: S, title: S, description: S, ...VERSION_FIELD }, ["roleId", "title"]),
-    buildBody: (i) => ({ roleId: str(i, "roleId"), title: str(i, "title"), description: str(i, "description") || "", expectedVersion: version(i) }),
+    // `opt`, never `|| ""` — an unmentioned description must DROP OUT of the body
+    // (JSON.stringify removes the key) so the door reads it as absent and keeps
+    // what is stored. Flattened to "" it arrives as a PRESENT, empty field, which
+    // is a real instruction to clear: a rename would erase the description while
+    // the confirm card said only "Rename X to Y". Same rule as `learningBody`.
+    buildBody: (i) => ({ roleId: str(i, "roleId"), title: str(i, "title"), description: opt(i, "description"), expectedVersion: version(i) }),
     // PRIVILEGE WRITE (member_roles) → confirm. Renaming isn't a grant, but a
     // rename is how a grant gets socially engineered ("call Viewer Admin").
     agent: { write: true, confirm: true, summarize: (i, names) => `Rename ${roleLabel(i, names)} to "${str(i, "title")}"` },
@@ -321,11 +326,23 @@ export const SHARED_TOOLS: SharedTool[] = [
   },
   {
     name: "update_dropdown_value",
-    summary: "Rename a dropdown value (by id).",
+    summary:
+      "Rename a dropdown value (by id), and/or MOVE it to another group by passing `type` (the destination group name). Omit `type` to leave it where it is. A value typed into the wrong group is fixed this way — the record keeps its history, and everything that already picked it is unaffected.",
     binding: "TENANCY", method: "POST", path: "/api/tenancy/selectable/update",
-    schema: obj({ id: S, value: S, ...VERSION_FIELD }, ["id", "value"]),
-    buildBody: (i) => ({ id: str(i, "id"), value: str(i, "value"), expectedVersion: version(i) }),
-    agent: { write: true, confirm: false, summarize: (i) => `Rename dropdown value ${str(i, "id")} to "${str(i, "value")}"` },
+    // R19 — the door parses `type`, so the tool exposes AND forwards it: a field
+    // only the UI can send is a capability the machine surfaces silently lack.
+    // `opt` keeps the omitted case omitted (see update_role above).
+    schema: obj({ id: S, value: S, type: S, ...VERSION_FIELD }, ["id", "value"]),
+    buildBody: (i) => ({ id: str(i, "id"), value: str(i, "value"), type: opt(i, "type"), expectedVersion: version(i) }),
+    agent: {
+      write: true, confirm: false,
+      // The summary says which of the two things is happening — a move announced
+      // as a rename is a step row that lies about what it did.
+      summarize: (i) =>
+        str(i, "type")
+          ? `Move dropdown value ${str(i, "id")} to ${str(i, "type")}`
+          : `Rename dropdown value ${str(i, "id")} to "${str(i, "value")}"`,
+    },
   },
   {
     name: "set_dropdown_active",

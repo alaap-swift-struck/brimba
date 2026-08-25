@@ -369,7 +369,19 @@ export async function updateRole(
   actor: Actor,
   roleId: string,
   title: string,
-  description: string,
+  /**
+   * The role's description. `undefined` = the caller never mentioned it, so it
+   * KEEPS what is stored; `null` or "" = the field was PRESENT and empty, so it
+   * really does clear.
+   *
+   * It used to be a plain `string`, which made those two callers indistinguishable
+   * by the time they arrived: the assistant's `update_role` needs only roleId +
+   * title, so "rename this role" wrote NULL over a description nobody had asked
+   * to remove — behind a confirm card that said only "Rename X to Y", which is
+   * worse than an unconfirmed write, not better. Same update-door rule as the
+   * content libs. (Correctness review, round 5.)
+   */
+  description: string | null | undefined,
   /** The `updated_at` the caller was shown. Given one, the write refuses to land
    * on a row that has moved on since — see shared/workers/concurrency.ts. */
   expectedVersion?: string | null
@@ -379,6 +391,8 @@ export async function updateRole(
     throw new GuardError(409, "locked_role", "The Admin role is locked — it can't be renamed.")
   const cleanTitle = title.trim()
   if (!cleanTitle) throw new GuardError(400, "invalid_input", "A role needs a name.")
+  const nextDescription =
+    description === undefined ? role.description : description?.trim() || null
 
   const now = new Date().toISOString()
   // RETURNING turns the write into its own answer: no rows came back means
@@ -386,15 +400,18 @@ export async function updateRole(
   const landed = await d1Query<{ id: string }>(
     cfg,
     guard.databaseId,
-    `UPDATE member_roles SET title = ${sqlString(cleanTitle)}, description = ${sqlString(description.trim() || null)}, updated_at = ${sqlString(now)}, editor_id = ${sqlString(actor.id)}, editor_email = ${sqlString(actor.email)}, editor_name = ${sqlString(actor.name)} WHERE id = ${sqlString(roleId)}${versionPredicate(expectedVersion)} RETURNING id`
+    `UPDATE member_roles SET title = ${sqlString(cleanTitle)}, description = ${sqlString(nextDescription)}, updated_at = ${sqlString(now)}, editor_id = ${sqlString(actor.id)}, editor_email = ${sqlString(actor.email)}, editor_name = ${sqlString(actor.name)} WHERE id = ${sqlString(roleId)}${versionPredicate(expectedVersion)} RETURNING id`
   )
   assertNotConflicted(landed.length, expectedVersion)
 
   // Name exactly what changed, old -> new (the activity ruleset: edits carry
-  // their field diffs, not just "edited").
+  // their field diffs, not just "edited"). Every `to` is the value actually
+  // WRITTEN above, never the raw incoming one — a diff computed a second,
+  // different way reports a PRESERVED field as cleared, which is history
+  // describing a change that never happened.
   const diff = [
     { label: "Name", from: role.title, to: cleanTitle },
-    { label: "Description", from: role.description, to: description.trim() || null },
+    { label: "Description", from: role.description, to: nextDescription },
   ]
   const changes = describeChanges(diff)
   await logActivity(cfg, guard.databaseId, actor, {

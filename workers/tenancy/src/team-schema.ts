@@ -72,11 +72,19 @@ CREATE INDEX idx_activity_related ON activity (related_table, related_row_id);
 `,
   },
   {
-    // Screen-engine config: a team's per-screen recipe OVERRIDES. The base
-    // recipes ship in app code (one definition every team inherits); a row here
-    // overrides one screen for THIS team — the runtime-editable layer that lets
-    // an admin/agent reshape a screen with no deploy. `recipe` is opaque JSON to
-    // the worker (the web app owns the ScreenRecipe shape + validates it).
+    // HISTORICAL, and it stays. This table held a team's per-screen recipe
+    // OVERRIDES — the runtime-editable layer that let an admin reshape a screen
+    // with no deploy. The whole subsystem was REMOVED on 2026-08-25 at the
+    // owner's decision ("not something we wanna be able to do right now"): the
+    // gate, the validator, the permission row, the renderer, the client merge
+    // and the tool all went, and `resolveRecipe(key)` is now a plain lookup of
+    // the in-code base recipes.
+    //
+    // The MIGRATION cannot go with them. Migrations are append-only — every team
+    // database already ran this one, and deleting it here would only mean a
+    // database rebuilt from the list no longer matches a database built by
+    // running. So every team carries an empty `screens` table that nothing reads.
+    // That is the correct outcome, not an oversight; do not "clean it up".
     version: "0002_screens",
     sql: `
 CREATE TABLE screens (

@@ -221,7 +221,9 @@ export async function teamContext(request: Request, env: GatingEnv): Promise<Tea
   //
   // The gateway's ceiling stops one PERSON flooding; this stops one TENANT
   // spending the capacity of the dozens of others sharing the account.
+  const startedLimit = Date.now()
   await limitTeam(env, guard.teamId)
+  traceHop({ req, worker: "gating", op: "limitTeam:rate-limiter", ms: Date.now() - startedLimit })
 
   return { user, actor: toActor(user, request), cfg, guard }
 }

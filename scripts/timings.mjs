@@ -90,6 +90,22 @@ const PROBES = [
   { name: "auth health", path: "/api/auth/health", class: "read", budget: 200 },
   { name: "realtime health", path: "/api/realtime/health", class: "read", budget: 200 },
   { name: "mcp health", path: "/api/mcp/health", class: "read", budget: 200 },
+  // THE STEP BETWEEN THEM — one read of the CORE database and nothing else.
+  //
+  // Round 5 measured a cliff and could not see into it: three health checks at
+  // 3ms, then three team doors at 900ms, and nothing in between. So "the app is
+  // slow" was attributable to anything — the auth hop, the permission spine, the
+  // D1 REST door — and four rounds picked wrong. `/api/auth/me` is the probe that
+  // splits the cliff: it crosses the gateway and a service binding like the team
+  // doors do, but it touches exactly ONE database (the global core, over the
+  // native binding) and no team database at all. Whatever this costs is the price
+  // of a single core round trip, and every team door pays it two or three times
+  // before it does any work of its own.
+  //
+  // Its budget is the honest target for one indexed read over an in-colo binding,
+  // NOT the read-class default — inheriting 400ms would let a quarter-second
+  // round trip pass as normal, which is precisely how this hid.
+  { name: "who am I", path: "/api/auth/me", class: "read", budget: 100, authed: true },
   // Authenticated: gateway → worker → auth → the D1 REST door. The point of the
   // exercise — these are the only probes that measure the real request path.
   { name: "members list", path: "/api/tenancy/members", class: "read", authed: true },

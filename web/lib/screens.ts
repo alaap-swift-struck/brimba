@@ -381,11 +381,12 @@ export const helpListRecipe: ScreenRecipe = {
 
 /* ------------------------------ the registry ------------------------------ */
 
-/** The in-code BASE recipe for each screen key — the shipped default every team
- * inherits. A team can OVERRIDE one via the config store (per-team `screens`
- * table); the resolver merges override-over-base. Keys are `<module>.<view>`.
- * Roles DETAIL has no recipe — its permission grid has no engine block, so the
- * host composes it from the library PermissionMatrix (see role-detail.tsx). */
+/** The recipe for each screen key — one definition every team shares. Keys are
+ * `<module>.<view>`. Until 2026-08-25 a team could OVERRIDE one from a per-team
+ * config store and the resolver merged override-over-base; that subsystem was
+ * removed, so this is now the only source. Roles DETAIL has no recipe — its
+ * permission grid has no engine block, so the host composes it from the library
+ * PermissionMatrix (see role-detail.tsx). */
 export const BASE_RECIPES: Record<string, ScreenRecipe> = {
   "team.detail": teamDetailRecipe,
   "members.list": membersListRecipe,
@@ -397,27 +398,6 @@ export const BASE_RECIPES: Record<string, ScreenRecipe> = {
   "help.list": helpListRecipe,
 }
 
-/** A structural guard for a parsed override. The config store treats a recipe as
- * OPAQUE JSON (it only checks it parses + is bounded), so the WEB app owns the
- * shape check. Without this, valid-but-malformed JSON (e.g. `{}`, `42`, a recipe
- * missing its `actions`/`fields` arrays) would reach the engine and throw when it
- * reads `recipe.actions`/`recipe.fields` — blanking the screen team-wide. */
-export function isScreenRecipe(value: unknown): value is ScreenRecipe {
-  if (typeof value !== "object" || value === null) return false
-  const r = value as Record<string, unknown>
-  return (
-    typeof r.type === "string" &&
-    Array.isArray(r.fields) &&
-    Array.isArray(r.actions) &&
-    typeof r.binding === "object" &&
-    r.binding !== null
-  )
-}
-
-/** Resolve the recipe for a screen key: a team's JSON override (if present AND a
- * structurally-valid recipe) wins over the in-code base. Defensive — a missing,
- * unparseable, OR shape-incomplete override falls back to the base, so a bad
- * override can never break the screen. */
 /** The recipe for a screen.
  *
  * It used to take a per-team OVERRIDE map and merge it over the base. That

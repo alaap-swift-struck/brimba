@@ -2,7 +2,7 @@
 
 > **Status: a design record. Every phase shipped; the whole build has been live on
 > production since 2026-07-03** (the external `mcp` worker followed on 2026-07-07).
-> Nothing below is outstanding work except the four deferred hooks listed under
+> Nothing below is outstanding work except the three deferred hooks listed under
 > *Remaining work*, which is why OPERATIONS.md, DATA-MODEL.md and
 > `workers/tenancy/src/team-schema.ts` still cite this file.
 >
@@ -26,7 +26,7 @@ genuine new fork.
 **STATUS:** all five phases are done. Phases 1–4 landed 2026-06-23 (learning, help,
 import, the in-app AI agent and the UI wiring); Phase 5 (quality, docs, ship)
 finished with the first production rollout on 2026-07-03; the external `mcp` worker
-followed on 2026-07-07. What remains is the four deferred hooks listed at the end.
+followed on 2026-07-07. What remains is the three deferred hooks listed at the end.
 
 > **HISTORICAL PLAN — where a detail below disagrees with the shipped truth, the
 > manual wins** (BASE-MANUAL.md + EDGE-CASES.md). Details superseded since this
@@ -114,16 +114,20 @@ Gate: green + tests (token gating, confirm rule, fence, quota, tool catalog).
   new core 0008/0009/0010 + team `0004_modules` migs first; realtime-FIRST deploy
   order).
 
-## Remaining work — the four hooks still deferred
+## Remaining work — the three hooks still deferred
 - **Help attachments** — the `brimba-help-media` bucket is bound, but the upload hook
   isn't wired.
-- **The agent's auto first-draft help reply** — the `cheapText` seam exists; the
-  auto-draft-on-new-ticket hook is deferred.
-- **The agent driving imports via chat** — import works as its own wizard; letting the
-  agent run the import flow conversationally is deferred.
+- **The agent's auto first-draft help reply** — the `cheapText` seam exists and
+  `maybeDraftFirstReply` is called on every new ticket, but it is a deliberate no-op:
+  the drafting itself is deferred.
 - **The agent generating temporary-view recipes** — deferred, and further away than
   it was: the per-team recipe store this would have written into was removed on
   2026-08-25 (SCREEN-ENGINE-PLAN.md).
+
+**No longer deferred: the agent driving imports via chat.** It shipped 2026-07-06 —
+attach a file in the chat, the app plans it, and the agent's `run_import_batch` tool
+runs the plan through the same engine the Import screen uses (creator-scoped, every
+target re-gated for `create`, always confirmed). See AGENTIC-IMPORT.md.
 
 ## New infra (BUILT 2026-06-23, except as noted)
 - **R2 buckets**: `brimba-help-media`, `brimba-learning-media` (+ `-staging`), per-team

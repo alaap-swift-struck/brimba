@@ -5,9 +5,10 @@
 // Cloudflare token in a repo is one "make public" click away from someone deleting
 // every database you own. But gitignored means NOT BACKED UP — and Cloudflare
 // secrets are write-only, so you cannot read them back off the platform either.
-// Lose the laptop and you lose the ability to redeploy `auth`, `tenancy` and
-// `content` with an INTERNAL_KEY that matches the one already live. The code all
-// survives; the app keeps running; you just can't touch it any more.
+// Lose the laptop and you lose the ability to redeploy `auth`, `tenancy`,
+// `content`, `gateway` or `mcp` with an INTERNAL_KEY that matches the one
+// already live — all five present or verify it. The code all survives; the app
+// keeps running; you just can't touch it any more.
 //
 // So: ONE encrypted file, `secrets.vault`, committed like any other file. It is
 // AES-256 ciphertext — useless to anyone without the passphrase, safe in a public

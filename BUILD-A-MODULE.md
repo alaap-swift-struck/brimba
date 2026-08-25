@@ -398,7 +398,7 @@ and the gateway's top-level shell loop (gateway index.ts).
 **Add your product words to the glossary (Law R6).** Any new term your UI shows —
 `invoices`, `purchase order`, `SKU` — goes in `shared/glossary.ts` (one term, one
 clear ≤140-char definition), and UI copy must use exactly that word, never a synonym.
-`web/test/rules.test.ts` checks the glossary is well-formed (`glossary-wellformed`).
+`web/test/rules/ui.test.ts` checks the glossary is well-formed (`glossary-wellformed`).
 
 ### 4c. The screen recipe (`web/lib/screens.ts`)
 
@@ -558,7 +558,7 @@ where a test looks for it.
 | Law | What it checks | What you do |
 |---|---|---|
 | **R1** publish-seam | `workers/content/test/publish-seam.test.ts` reads `ROUTES` + handler source: every `mutation` must contain a `publishChange` call; non-GET routes must be classified. | Classify each route (3e) and actually publish (3d). A `housekeeping` route (e.g. upload) must be added to the test's reviewed `HOUSEKEEPING` set. |
-| **R2** record-detail-tabs | `web/test/rules.test.ts` reads each name in `RECORD_DETAIL_COMPONENTS` and asserts the file contains `TabsView` + `ActivityFeed`. | Add `"note-detail"` to `RECORD_DETAIL_COMPONENTS` in `shared/rules/registry.ts`; the test then forces Layer 5. |
+| **R2** record-detail-tabs | `web/test/rules/ui.test.ts` reads each name in `RECORD_DETAIL_COMPONENTS` and asserts the file contains `TabsView` + `ActivityFeed`. | Add `"note-detail"` to `RECORD_DETAIL_COMPONENTS` in `shared/rules/registry.ts`; the test then forces Layer 5. |
 | **R3** no-handrolled-toggles | No component fakes a tab strip with `variant={x === y ? …}`. | Use `TabsView` for any tab strip (Learning's Articles/Team-progress does). |
 | **R4/R7** forms | Every dialog in `FORM_DIALOGS` imports `FormShell` and `useFormDraft`. | If you add a `note-form-dialog`, add it to `FORM_DIALOGS` (registry.ts) and build it on `FormShell` + `useFormDraft`. |
 | **R5** generic-activity-path | The activity read has a generic `record` scope; the web reads via `recordActivity`. | Read history only via `tenancy.recordActivity(...)` (Layer 5). No new SQL. |

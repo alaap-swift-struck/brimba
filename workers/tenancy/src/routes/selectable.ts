@@ -64,10 +64,18 @@ export async function postCreateSelectable(request: Request, env: Env): Promise<
 }
 
 export async function postUpdateSelectable(request: Request, env: Env): Promise<Response> {
-  const { actor, cfg, guard, body } = await gatedBody<{ id?: string; value?: string; expectedVersion?: string }>(request, env, "selectable_data", "edit")
+  const { actor, cfg, guard, body } = await gatedBody<{ id?: string; value?: string; type?: string; expectedVersion?: string }>(request, env, "selectable_data", "edit")
   if (!body.id) return fail(400, "invalid_input", "id and value are required.")
   const value = requireText(body.value, "Option", TEXT_LIMITS.short)
-  await updateSelectable(cfg, guard, actor, body.id, value, body.expectedVersion)
+  // The destination group. ABSENT leaves the value where it is (the Dropdown-values
+  // screen renames inline and posts no type at all); SENT moves it. There is no
+  // third case — a group can't be cleared — so a present-but-blank one is a caller
+  // mistake and `requireText` answers it with the clean 400, rather than passing a
+  // blank through as "don't move" and leaving the caller believing it moved.
+  const type = body.type === undefined ? undefined : requireText(body.type, "Group", TEXT_LIMITS.short)
+  // `type` is LAST: it was added after `expectedVersion` on purpose, so the
+  // positional callers that predate it keep passing the version where they always did.
+  await updateSelectable(cfg, guard, actor, body.id, value, body.expectedVersion, type)
   await publishChange(env.REALTIME, guard.teamId, "selectable_data", body.id)
   // R23: the affected ROW, and no count — an edit cannot move a total. See RULES.md.
   return json({ updated: await oneSelectable(cfg, guard, body.id) })

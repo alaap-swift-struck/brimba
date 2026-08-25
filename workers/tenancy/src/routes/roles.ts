@@ -152,7 +152,18 @@ export async function postUpdateRole(request: Request, env: Env): Promise<Respon
   }
   if (!body.roleId) return fail(400, "invalid_input", "roleId and title are required.")
   const title = requireText(body.title, "Name", TEXT_LIMITS.short)
-  await updateRole(cfg, guard, actor, body.roleId, title, (optionalText(body.description, "Description", TEXT_LIMITS.long) ?? ""), body.expectedVersion)
+  // AN OMITTED FIELD IS NOT AN EMPTY ONE. `?? ""` flattened the two callers into
+  // one: a machine renaming the role (no description key at all) looked exactly
+  // like a person who emptied the box, and the lib wrote NULL over the stored
+  // text. The split is made HERE, on the raw body, because `optionalText` maps
+  // both null and "" to undefined — so it can validate the value but can no
+  // longer say whether one was sent. `=== undefined` is the whole distinction;
+  // `== null` cannot express it. (Correctness review, round 5.)
+  const description =
+    body.description === undefined
+      ? undefined // absent → the lib keeps what is stored
+      : optionalText(body.description, "Description", TEXT_LIMITS.long) ?? null // present → written, blank clears
+  await updateRole(cfg, guard, actor, body.roleId, title, description, body.expectedVersion)
   await publishChange(env.REALTIME, guard.teamId, "member_roles", body.roleId)
   // R23: the affected ROW, and no count — an edit cannot move a total. See RULES.md.
   return json({ updated: await oneRole(env, cfg, guard, body.roleId) })

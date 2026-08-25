@@ -121,14 +121,35 @@ This is deliberate (CACHING.md): **derive detail from the list, never
 double-fetch a collection for a derived value.**
 
 **The rule.** The list `SELECT`s are intentionally **"fat"** — they carry every
-field the detail screen renders, not just the columns the list *shows*. Look at
-`listLearning` in `workers/content/src/lib/learning.ts`: it
-selects `content_body` — the full article HTML the detail screen and the agent
-read — even though the list card only shows a title + a short
-`content_description`. **Don't blindly trim a list SELECT to reduce payload.**
-Before removing a column, grep the matching `*-detail.tsx` for the field. If a
-column is genuinely list-only bloat, fine — but the default assumption is that
-every selected column is load-bearing for detail.
+field the detail screen renders, not just the columns the list *shows*. Today,
+for example, `listLearning` in `workers/content/src/lib/learning.ts` selects
+`content_body` — the full article HTML the detail screen and the agent read —
+even though the list card only shows a title + a short `content_description`.
+
+**So trim DELIBERATELY, having checked every consumer — not "never trim".** A fat
+projection has a real cost (a hundred articles' worth of HTML on a screen that
+shows titles), and splitting the list projection from the detail projection is a
+legitimate change. What is not legitimate is doing it column-by-column without
+looking, because a dropped column does not fail loudly — it renders as an empty
+field. Before removing a column from a list `SELECT`, check **all four**
+consumers:
+
+1. **The detail screen** (`*-detail.tsx`) — grep it for the field. It reads the
+   list cache first, so a column you drop is a field it can no longer find.
+2. **The single-row door for the same resource** — the `?id=` read and the
+   `patchRow` re-pull write into the SAME cache the list fills. If the two
+   projections disagree, a live ping silently changes which fields a row has,
+   mid-session, for whichever client happened to receive it.
+3. **The export projection** (`list*ForExport`) — already separate, and it is
+   full-field by contract, so it is the one place a trim must NOT propagate.
+4. **The agent's and MCP's reading copy** — a list tool hands the model whatever
+   the list carries. Dropping a field the model was answering from turns a
+   correct answer into a confident wrong one.
+
+**And if you do trim, the detail screen needs a single-row fallback first** — the
+one `help-detail.tsx` grew when help became paged (above). Without it, trimming
+converts "the detail screen is slow" into "the detail screen is blank", which is
+the worse of the two failures.
 
 (The single-row endpoint that `patchRow` calls on a live ping is the *only* true
 "get one" read, and it exists to patch one row into the cached list — not to
@@ -464,6 +485,35 @@ can't express the invariant.* Keep both layers when you copy this — the count 
 the nice error, the `WHERE` for the actual safety. Unique indexes play the same
 role for uniqueness invariants (one atomic write, DB-enforced); don't replace an
 index or an atomic `WHERE` with an application-level check.
+
+### The invite that outlives its role (decided; keeping today's behaviour)
+
+A related case, real and written down nowhere until now. An invite names a role,
+and it lives up to seven days. So a role can be **deactivated in the window
+between sending the invite and accepting it** — and the two ends of that window
+behave differently, on purpose.
+
+- **Creating** an invite against a deactivated role is REFUSED at the door:
+  `createInvite` looks the role up with `AND deactivated_at IS NULL` and throws
+  `400 role_not_found`. The picker only offers active roles, and the server does
+  not trust the picker.
+- **Accepting** one does NOT re-check. `acceptInvite` claims the invite, joins
+  the person on the `role_id` the invite carries, and that is that.
+
+**That is deliberate, and it follows from what deactivating a role means here:**
+holders keep their access. Deactivating a role takes it out of the picker; it
+does not strip the people already holding it (`requireRight` reads
+`role_permissions` by `role_id` and never consults `member_roles.deactivated_at`).
+So a person accepting an invite into a since-deactivated role lands in exactly the
+state an existing holder is already in — which is consistent, where refusing them
+would strand an invited person outside the team with no self-service remedy, and
+silently downgrading them would hand someone rights nobody chose.
+
+**The admin's remedy is the invite, not the role.** Revoking a pending invite
+DOES bite: the accept path claims the row with a conditional
+`UPDATE … WHERE status = 'pending'`, so a revoke landing in the window makes the
+claim move zero rows and the join never happens. After the fact, change the
+member's role like any other. Owner's call, 2026-07-03: keep this behaviour.
 
 ---
 

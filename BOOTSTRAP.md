@@ -94,7 +94,7 @@ quota tables. Create it for each environment and apply the core migrations in
 npx wrangler d1 create brimba-core-staging
 npx wrangler d1 create brimba-core
 
-# Apply every core migration (0001…0017) to each env. Any core-bound worker can run it;
+# Apply every core migration (0001…0019) to each env. Any core-bound worker can run it;
 # auth is the canonical one. Run WITHOUT --env for production.
 cd workers/auth
 npx wrangler d1 migrations apply brimba-core-staging --env staging --remote
@@ -128,7 +128,7 @@ cd ../..
 > failure, so a fresh environment that skipped this step looks completely healthy
 > and records nothing at all. (Base-fork + story reviews, 2026-08-25.)
 
-The current core migrations are `0001`–`0018` (users, teams, team_members, the
+The current core migrations are `0001`–`0019` (users, teams, team_members, the
 email-change security records, account activity, the import catalog, and the three
 agent quota tables `agent_usage` / `agent_credits` / `agent_usage_log`, plus the
 central error log `error_logs`). DATA-MODEL.md
