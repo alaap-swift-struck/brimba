@@ -26,6 +26,7 @@ declare module "node:fs" {
     path: string,
     opts: { withFileTypes: true }
   ): { name: string; isDirectory(): boolean }[]
+  export function existsSync(path: string): boolean
 }
 
 declare module "node:path" {

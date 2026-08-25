@@ -47,8 +47,20 @@ function findRoot(): string {
 
 export const ROOT = findRoot()
 
-/** A path with the root prefix removed, for readable failure messages. */
-const rel = (p: string) => p.slice(ROOT.length).replace(/^[/\\]/, "")
+/** A path with the root prefix removed, for readable failure messages.
+ *
+ * NOT `p.slice(ROOT.length)`. When `findRoot()` returns `"."` — which it does
+ * whenever a suite runs from the repo root — `join(".", "workers")` normalises
+ * away the dot to `"workers"`, so slicing one character off produced
+ * `orkers/auth/src/index.ts`. Harmless in a failure message, and NOT harmless in
+ * the several checks that filter or EXEMPT by path prefix: an exemption for
+ * `workers/…` silently matched nothing, so the thing it excused was never
+ * excused and the thing it should have caught was never caught. Found by the
+ * privilege-guard scan on 2026-08-25. */
+const rel = (p: string) => {
+  const stripped = ROOT === "." ? p : p.slice(ROOT.length)
+  return stripped.replace(/^[/\\]/, "")
+}
 
 export const read = (p: string) => readFileSync(p, "utf8")
 

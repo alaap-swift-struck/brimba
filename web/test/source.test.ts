@@ -3,7 +3,10 @@
 
 import { describe, expect, it } from "vitest"
 
-import { catchBodies, declarationBody, namedBody, stripComments, serverSources } from "@shared/test/source"
+import { existsSync } from "node:fs"
+import { join } from "node:path"
+
+import { ROOT, catchBodies, declarationBody, namedBody, stripComments, serverSources, workerNames, workerSources } from "@shared/test/source"
 
 describe("stripComments", () => {
   it("removes both comment forms", () => {
@@ -59,6 +62,28 @@ describe("stripComments", () => {
 
   it("leaves a template literal whole, so SQL keeps its LIMIT", () => {
     expect(stripComments("const q = `SELECT 1 LIMIT ${n}`")).toContain("LIMIT ${n}")
+  })
+})
+
+describe("the readers' own footing", () => {
+  it("workerNames skips node_modules — vitest's cache lives there", () => {
+    // Running ANY worker suite creates workers/node_modules/.vite. Every check
+    // that walked workers/* and assumed each entry was a worker then threw on
+    // `.../node_modules/src`, and on 2026-08-25 that turned THIRTEEN law checks
+    // red at once. Running the tests was poisoning the law checks.
+    const names = workerNames()
+    expect(names, "the scan has gone blind").toContain("tenancy")
+    expect(names).not.toContain("node_modules")
+    for (const n of names) expect(existsSync(join(ROOT, "workers", n, "src")), `${n} has no src`).toBe(true)
+  })
+
+  it("a path in a failure message keeps its first character", () => {
+    // `p.slice(ROOT.length)` ate one character whenever ROOT was ".", because
+    // join(".", "workers") normalises the dot away — so `workers/x` came back as
+    // `orkers/x`. Cosmetic in a message; NOT cosmetic in the checks that exempt
+    // by path prefix, where an exemption for `workers/…` matched nothing at all.
+    const [firstPath] = workerSources()[0]
+    expect(firstPath.startsWith("workers/") || firstPath.includes("/workers/")).toBe(true)
   })
 })
 

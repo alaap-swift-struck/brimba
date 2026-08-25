@@ -1,12 +1,22 @@
 "use client"
 
-// The LIVE-LISTENER registry (R15): every resource string any worker publishes
-// must REACH a listener here — a row-level entry (TEAM_RESOURCES), a coarse
-// invalidation (SIMPLE_INVALIDATIONS), or a reasoned DEAF_EXEMPT entry in the
-// rules registry. Publishing to nobody is the silent half of the stale-screen
-// bug, so the check derives the publisher set by scanning publishChange calls
-// and fails the build on any resource no listener claims. Lives in lib (not the
-// shell component) so the check can import it as data.
+// The LIVE-LISTENER registry (R15), which pairs up BOTH WAYS.
+//
+// Every resource string any worker publishes must REACH a listener here — a
+// row-level entry (TEAM_RESOURCES), a coarse invalidation (SIMPLE_INVALIDATIONS),
+// or a reasoned DEAF_EXEMPT entry in the rules registry. Publishing to nobody is
+// the silent half of the stale-screen bug.
+//
+// And every listener here must have a PUBLISHER, which for a long time nothing
+// checked. That half is the quieter one: a listener nothing pings is dead for
+// ever, and a live listener that never fires looks exactly like nothing having
+// changed yet, so nobody notices. Both sets are derived by scanning the publish
+// call sites, so neither is a list anyone keeps by hand.
+//
+// This map is ALSO what the reconnect catch-up walks, so an entry here is the
+// difference between a list that comes back after a dropped socket and one that
+// does not. Lives in lib (not the shell component) so the checks can import it
+// as data.
 //
 // The list fetchers here ALSO prime the `total:` sidecar each door now returns
 // (R16): a badge shows the server COUNT(*), never rows.length, so whoever pulls
@@ -299,9 +309,10 @@ export const SIMPLE_INVALIDATIONS: Record<string, (teamId: string) => string[]> 
   //
   // The publisher is `postBatchConfirm` in workers/data-ops/src/routes/import.ts.
   // It was missing until 2026-08-25, and this listener sat ready and idle for
-  // months with a note in this spot explaining that it did — which is the reason
-  // Law R15 is only half a law: its check proves every PUBLISHER reaches a
-  // listener, and never that every listener has a publisher. A listener with no
-  // publisher fails silently and forever, and documents itself while doing it.
+  // months with a note in this spot explaining that it did. R15's check proved
+  // every PUBLISHER reached a listener and never once the other way round, so a
+  // listener with no publisher failed silently and for ever — and documented
+  // itself while doing it. The check now runs BOTH ways, which is why this
+  // comment can no longer be the only thing standing guard.
   data_import_batches: (t) => [`import-batches:${t}`],
 }
