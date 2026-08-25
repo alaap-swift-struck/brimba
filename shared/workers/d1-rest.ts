@@ -296,9 +296,12 @@ export async function d1ExecScript(
  * of a request is the distance to the door. Raising a support ticket was an
  * insert, an activity row, a read-back and a count as FOUR separate HTTPS calls
  * to api.cloudflare.com — about 427ms of a 1.2s operation spent on latency alone.
- * Three of those four now travel together (the activity row keeps its own call,
- * because `shared/workers/activity.ts` owns that statement), and the create went
- * from 1457ms to 894ms measured against staging from the same colo.
+ * All four now travel together — the activity row joined once
+ * `shared/workers/activity.ts` exported the statement builder rather than only
+ * the writer, so there is still exactly one INSERT INTO activity in the base.
+ * The create went from 1457ms to 894ms, measured against staging from the same
+ * colo; the reading afterwards was taken against a freshly reset database, so
+ * treat that pair as the honest like-for-like one.
  *
  * PARAMS ARE NOT AVAILABLE HERE, AND THAT IS THE WHOLE RISK. The REST `/query`
  * endpoint accepts multiple statements OR a `params` array, never both — sending

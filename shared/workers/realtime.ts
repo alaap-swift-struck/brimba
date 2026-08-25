@@ -104,7 +104,7 @@ export type ChangeEvent = {
 const PUBLISH_INTEGRATION = "realtime-publish"
 
 /** The ONE place a change ping leaves a worker — which is why guarding it here
- * covers all ~53 publish call sites in the base at once, and why bounding it here
+ * covers every publish call site in the base at once, and why bounding it here
  * matters: without a timeout a wedged live layer would hold open every write that
  * had just succeeded, turning a cosmetic outage into a total one. `callService`
  * swallows the failure (best-effort, as the contract above promises) and records
@@ -173,7 +173,7 @@ async function publish(
  * exactly as it always has. It is trailing and optional for the same reason
  * `recordOutbound`, `logActivity`'s `record` and `d1-rest`'s `recordFailure` are:
  * this is the base's most-copied call, and a required argument here would have to
- * be invented at 42 call sites, several of which have no database of their own.
+ * be invented at every call site, several of which have no database of their own.
  *
  * FIVE of those 42 pass one today — the tenancy team lifecycle. The rest are one
  * token away and are listed in the round-5 report; they were left because they sit
