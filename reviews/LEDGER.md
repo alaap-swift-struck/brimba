@@ -915,3 +915,90 @@ Named by the reviews themselves, so the next session does not spend effort on th
 **Seal the vault.** `npm run vault:save`, with a GENERATED passphrase from a
 password manager — both repositories are public. Four documents now say plainly
 that it does not exist yet, and a check keeps them honest.
+
+
+---
+
+# ROUND 5 — the run at 95
+
+## Six scores were wrong before a line of code changed
+
+The uncomfortable finding first. A third of round 4's closing numbers were
+arithmetic, not engineering, and every correction below is justified by the
+rubric's own published text — never by preference.
+
+| Review | R4 said | True at HEAD | Why |
+|---|---|---|---|
+| security_sentry | 83 | **88** | Substituted its own formula for the skill's published weighted mean, and counted a 2-MEDIUM/3-LOW penalty as 12 rather than 9. Both errors pushed the same way |
+| ocean | 94 | **95** | Asserted criterion 1 instead of measuring it from its own rows |
+| base_fork | 83 | **85** | A round-3 HIGH had closed; and a criterion was scored 67 where the rubric says "unmeasured, not zero… rather than inventing a number" |
+| dead_end | 70 | **75** | Three findings already fixed, never re-measured |
+| story | 68 | **72** | Ran a DEFECT criterion as a running delta, where the rubric restarts it at 100 each run |
+| round_trip | 62 | **66** | Its own CRITICAL and a HIGH landed after the measurement |
+| interfacelessness | 88 | **89** | A deleted tool stopped being advertised |
+| speed | 55 | **56** | An index defect it carried forward was already fixed |
+
+**Average 78 → 86 before any repair.** The lesson is the same one the campaign
+keeps re-learning, applied one level up: *a number that looks measured, is quoted
+downstream, and was never re-derived, is a blind check wearing different clothes.*
+
+## Five of the eight "ceilings that are not code" did not survive contact
+
+Two were mine. `speed` was capped at 84 because I declined `ctx.waitUntil` to
+protect Law R1's check — a check whose regex had always matched the wrapped form,
+so the refusal protected nothing. `round_trip` was capped at 78 on "the
+gateway→auth hop IS the permission spine" — the gateway does not call auth on the
+normal path at all, and the hop that does happen is a same-colo service binding.
+
+Only `scaling`'s contentless-ping decision (which is what stops a client without
+rights learning row data) and `ocean`'s one-author truck factor held.
+
+## What the round actually bought
+
+**Four defects no rubric asked about**, every one found by an agent reading the
+surrounding code on the way past a scoring task:
+
+1. **Three update doors destroyed data.** An omitted field was treated as a
+   cleared field. Asking the assistant to rename an article wiped its body,
+   category, link and type; granting a role one module's rights **zeroed the other
+   six**. Two of the three tools were marked not-dangerous, so no confirmation
+   ever appeared. A form posts every field, so only a machine caller could reach
+   them — which is why nobody had.
+2. **The performance evidence was measuring nothing.** Round 4's "2–9 ms,
+   everything inside budget" came from health endpoints that do no work. The first
+   authenticated probes: 770, 874, 1454 ms server-side. Every SQL statement in
+   this app runs in 0.1–0.3 ms; the latency is entirely network distance, because
+   the core database is in APAC and the team databases are in WEUR.
+3. **Three faults in the module every law check reads source through** — a regex
+   literal containing a quote made sixteen files leak their comments into what
+   checks read as code; a path helper ate the first character of every path, so
+   prefix-based exemptions matched nothing; and vitest's own cache directory
+   turned thirteen checks red at once.
+4. **A lost-update guard no caller could reach**, and a live listener registered
+   and idle for months with a comment explaining that nothing published it.
+
+**One measured latency win:** raising a ticket, 1457 ms → **894 ms** (−39 %),
+same colo, measured from an isolated worktree so the number is attributable.
+
+**Three more blind checks found, two written this round, one of them mine:** the
+R21 check read for a literal `created:` and went red on a correct refactor; the
+error-seam check read for the log call *inside* the catch body and went red when
+I hoisted two copies into one helper; and the one deliberately-public door's
+exemption asserted that its justification sentence was **longer than 40
+characters**, then skipped the route entirely. That is eighteen across the
+campaign.
+
+## How the reviews were kept from fighting
+
+Recorded in full in `ROUND5-RECONCILIATION.md`. In short: measure everything
+read-only first; make every proposed fix declare which other review it could
+damage; settle the collisions centrally and in writing before editing; partition
+the repair work by **file**, not by review, so two fixes can never meet in one
+diff; and re-measure with agents that wrote none of it.
+
+Two repairs were refused by the agent asked to make them, on evidence, and both
+refusals stand: skipping the paged `COUNT(*)` (the agent and MCP surfaces are
+promised an exact total and have no sidecar to fall back on) and trimming the fat
+list projection (the detail screen reads the list cache and feeds it back through
+the update door, so a trimmed list would not render blank — it would destroy the
+article).
