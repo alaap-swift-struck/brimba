@@ -76,3 +76,40 @@ describe("R26 — the fork sweep reaches every identity literal", () => {
     }
   })
 })
+
+// A FORK MUST INSTALL THE SAME LIBRARY THIS REPO IS BUILT AGAINST.
+//
+// Proven by actually forking: a clean clone was swept to a new name, installed and
+// checked, and the gate went RED — not because the sweep missed anything (it
+// reached 135 files and 644 occurrences, leaving zero mentions of the old name)
+// but because the ROOT package.json pinned no version of the UI library while
+// web/package.json pinned v0.16.0. The fork installed an older library with no
+// `ConnectionStatus`, and two files failed to resolve it.
+//
+// A fork inheriting a DIFFERENT library from the base it was forked from is the
+// same fault class as inheriting the base's database ids: a fresh environment
+// quietly differing from the one it was copied out of.
+it("every workspace pins the SAME UI library version", () => {
+  const versions = new Map<string, string>()
+  // Every workspace that declares it — and the ROOT deliberately does not. It did
+  // until 2026-08-25, unpinned, and npm hoisted that older resolution OVER web's
+  // correct one: `npm install` at the root silently downgraded the library the app
+  // is built against, and two files stopped resolving. Nothing outside `web/`
+  // imports it, so the dependency was dead AND harmful.
+  for (const f of ["package.json", "web/package.json"]) {
+    const pkg = JSON.parse(readFileSync(join(ROOT, f), "utf8")) as {
+      dependencies?: Record<string, string>
+      devDependencies?: Record<string, string>
+    }
+    const v = pkg.dependencies?.["@swift-struck/ui"] ?? pkg.devDependencies?.["@swift-struck/ui"]
+    if (v) versions.set(f, v)
+  }
+  expect(versions.size, "the UI library is declared nowhere — this scan has gone blind").toBeGreaterThan(0)
+  expect(
+    versions.has("package.json"),
+    "the ROOT must not declare the UI library: nothing outside web/ imports it, and npm hoists the root's resolution over web's"
+  ).toBe(false)
+  const unpinned = [...versions].filter(([, v]) => !/#v\d+\.\d+\.\d+/.test(v)).map(([f]) => f)
+  expect(unpinned, `these pin no version, so a fresh install gets whatever is on the default branch: ${unpinned.join(", ")}`).toEqual([])
+  expect(new Set(versions.values()).size, `workspaces disagree on the UI library version: ${[...versions].map(([f, v]) => `${f}=${v}`).join(", ")}`).toBe(1)
+})

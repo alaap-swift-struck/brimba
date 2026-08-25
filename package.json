@@ -26,7 +26,6 @@
     "wrangler": "^4.120.0"
   },
   "dependencies": {
-    "@swift-struck/ui": "github:alaap-swift-struck/swift-struck-ui"
   },
   "engines": {
     "node": ">=24.0.0",
