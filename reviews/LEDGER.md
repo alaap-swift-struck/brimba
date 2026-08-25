@@ -82,7 +82,7 @@ Named in advance so a fix that trips one is caught by design rather than by luck
 
 ## Results
 
-Phase 0 in progress.
+Phase 0 complete — all 16 measured. Phase 2 repairs landed. Phase 3 re-measure running.
 
 ### Phase 0 results as they land
 
@@ -654,3 +654,62 @@ was written, guarding a law everyone believes is enforced.
 
 Candidate law for the next base: **a rule check is not admissible until it has been proven to
 fail.** Sabotage as a requirement of adding a check, not a practice someone remembers.
+
+
+---
+
+# PHASE 2 — the repairs, and what was deliberately NOT repaired
+
+Six commits on branch `review-campaign`, gate green after each.
+
+| Commit | What |
+|---|---|
+| `73a60a4` | the checks that could not fail, and the sweep that deleted real files |
+| `e6676c5` | the record that vanished, the reply nobody could see, the columns nobody read |
+| `3cd3e14` | three calls to tenant admin, and the check that watched a gate leave |
+| `138c3e4` | the four law lists nothing checked, and the database no runbook mentions |
+| `5e35efe` | auth had ten ungated doors and no check could see them |
+| `fe7d683` | a ticket that existed, and R15's check that had never been able to fail |
+
+## The keystone
+
+`shared/test/source.ts` — ONE source reader, tested in `web/test/source.test.ts`.
+Ten checks were blind because each hand-rolled its own slicing. **`stripComments`
+itself was broken**: it ran the block pass first, so a slash-star inside a LINE
+comment opened a comment that was never opened and ate real code to the next
+terminator. Fifteen files carry that pattern, three of them worker entry points.
+Every Law check in this repo had been reading less than it believed.
+
+It was found only because a NEW check failed on something visibly present — and
+the first version of that new check had the SAME fault, its own explanatory
+comment satisfying the search. Caught by sabotage, on the afternoon the
+comments-are-not-code rule was written down, by the person writing it.
+
+## Sabotage-proven, every one
+
+Each new or changed check was proven by breaking the guarded thing, watching it go
+red naming the right file, and restoring **from a copy — never `git checkout`**:
+
+R11's aliased-binding scan · the orphan sweep's paged reference read · the
+error-seam's derived worker list AND its catch-body scoping (the first version
+stayed green under sabotage — a file-wide grep matched an unrelated handler) ·
+the single-row-reader scan · the activity verb scan · the DEAF_EXEMPT key check ·
+the root-layout mount check · the law-range check · the runbook migration check ·
+the MCP exclusion-table check · auth's R10 suite · the gating-seam slicer.
+
+## Deliberately NOT repaired — the reconciliation
+
+These are the conflicts Phase 1 existed to resolve. Recorded so they are not
+re-filed as findings:
+
+- **the 69-line merged-shard read chain stays.** `lean_mean` called it dead code;
+  `SCALING.md` names it a relief valve. Scaling wins.
+- **`AgentView` stays.** Unreferenced, but its own comment says the panel never
+  mounts one until the feature lands. Deleting a planned capability is the owner's
+  call, not a cleanup.
+- **`ctx.waitUntil` on `publishChange` NOT applied.** It would make a hot path
+  faster and keep R1's check green while changing what the code does — precisely
+  the failure this campaign exists to find.
+- **caching the R16 count NOT applied.** It breaks the law.
+- **the secrets vault** — the owner must seal it. It needs a passphrase I must
+  never see or handle.
