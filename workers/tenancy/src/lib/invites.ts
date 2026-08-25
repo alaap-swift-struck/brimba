@@ -49,19 +49,23 @@ export async function listInvites(
   const titleById = new Map(roles.map((r) => [r.id, r.title]))
   const now = new Date().toISOString()
 
-  return (rows.results ?? []).map((r) => ({
+  return (rows.results ?? []).map((r) => toInvite(r, titleById.get(r.role_id), now))
+}
+
+/** ONE invite row, shaped. Shared by the list and the single-row read so the two
+ * cannot drift — which is the guarantee `oneInvite` used to buy by reading the
+ * whole list. */
+function toInvite(r: InviteRow, roleTitle: string | undefined, now: string): Invite {
+  return {
     id: r.id,
     email: r.email,
     roleId: r.role_id,
-    roleTitle: titleById.get(r.role_id) ?? "Unknown role",
+    roleTitle: roleTitle ?? "Unknown role",
     // A still-"pending" invite past its expiry is shown as expired.
-    status:
-      r.status === "pending" && r.expires_at < now
-        ? "expired"
-        : (r.status as Invite["status"]),
+    status: r.status === "pending" && r.expires_at < now ? "expired" : (r.status as Invite["status"]),
     createdAt: r.created_at,
     expiresAt: r.expires_at,
-  }))
+  }
 }
 
 /** The per-team invite_logs audit for one invite (M4), resolved from the GLOBAL
@@ -110,15 +114,30 @@ export async function getInviteAudit(
   }
 }
 
-/** ONE invite by id, or null — what a create hands back (R21). Picks from the
- * bounded list read so a single row matches a listed one exactly. */
+/** ONE invite by id, or null — what a create hands back (R21) and what a revoke
+ * hands back (R23). Two single-row reads, sharing `toInvite` with the list.
+ *
+ * `team_id = ?` is not decoration: `invite_index` is GLOBAL, so without it an id
+ * from another team would resolve. */
 export async function oneInvite(
   env: Env,
   cfg: D1Rest,
   guard: MemberGuard,
   id: string
 ): Promise<Invite | null> {
-  return (await listInvites(env, cfg, guard)).find((i) => i.id === id) ?? null
+  const r = await env.DB.prepare(
+    "SELECT id, email, role_id, status, expires_at, created_at FROM invite_index WHERE id = ? AND team_id = ?"
+  )
+    .bind(id, guard.teamId)
+    .first<InviteRow>()
+  if (!r) return null
+  const roles = await d1Query<{ title: string }>(
+    cfg,
+    guard.databaseId,
+    "SELECT title FROM member_roles WHERE id = ? LIMIT 1",
+    [r.role_id]
+  )
+  return toInvite(r, roles[0]?.title, new Date().toISOString())
 }
 
 /** R16: exact server COUNT(*) for the badge — never rows.length. */

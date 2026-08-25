@@ -54,14 +54,23 @@ export async function listSelectableForExport(cfg: D1Rest, guard: MemberGuard): 
   )
 }
 
-/** ONE dropdown value by id, or null — what a create hands back (R21). Picks
- * from the bounded list read so a single row matches a listed one exactly. */
+/** ONE dropdown value by id, or null — what a create hands back (R21) and what an
+ * edit / status change hands back (R23). Shares `toValue` with the list, so a
+ * single row matches a listed one exactly; it used to buy that by reading the
+ * whole capped list and calling `.find()`, which returned `null` for anything
+ * past the cap — and `applyUpdated` drops a null row from the screen. */
 export async function oneSelectable(
   cfg: D1Rest,
   guard: MemberGuard,
   id: string
 ): Promise<SelectableValue | null> {
-  return (await listSelectable(cfg, guard)).find((v) => v.id === id) ?? null
+  const rows = await d1Query<Row>(
+    cfg,
+    guard.databaseId,
+    "SELECT id, type, value, is_default, deactivated_at FROM selectable_data WHERE id = ? LIMIT 1",
+    [id]
+  )
+  return rows[0] ? toValue(rows[0]) : null
 }
 
 /**
@@ -216,6 +225,7 @@ export async function setSelectableActive(
 
   await logActivity(cfg, guard.databaseId, actor, {
     type: active ? "Dropdown value activated" : "Dropdown value deactivated",
+    verb: active ? "activated" : "deactivated",
     description: `${actor.name} ${active ? "restored" : "removed"} the "${row.value}" ${row.type} value`,
     relatedTable: "selectable_data",
     relatedRowId: id,

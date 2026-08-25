@@ -34,3 +34,21 @@ export function requireIdList(value: unknown): string[] {
   }
   return [...seen]
 }
+
+/** The same validation for a list that is allowed to be ABSENT or EMPTY.
+ *
+ * `requireIdList` throws on an empty array, which is right for a bulk door — a
+ * batch of nothing is a caller mistake. It is wrong for an optional field like a
+ * reply's @mentions, where empty is the ordinary case: reusing it there turns
+ * every un-mentioning reply into a 400.
+ *
+ * That mattered because the alternative was no validation at all. A ticket
+ * reply's `taggedUserIds` was filtered for strings and never counted, and each
+ * surviving id became one email, sent with an uncapped `Promise.all` — so any
+ * holder of `help:read` could address the entire team from one reply, on a door
+ * that is not in `HEAVY_PATHS`. (Spend review, 2026-08-25.) */
+export function optionalIdList(value: unknown): string[] {
+  if (value === undefined || value === null) return []
+  if (Array.isArray(value) && value.length === 0) return []
+  return requireIdList(value)
+}

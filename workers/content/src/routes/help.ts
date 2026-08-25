@@ -32,6 +32,7 @@ import {
 import { notifyReplyAndMentions } from "../lib/notify"
 import { addStakeholder, listStakeholders } from "../lib/stakeholders"
 import type { Env } from "../env"
+import { optionalIdList } from "../../../../shared/workers/bulk"
 
 /** EVERY ticket response is a PAGE (R14) — including the one a mutation returns,
  * so a client re-priming its list from a write still learns where page two
@@ -187,11 +188,12 @@ export async function postHelpReply(request: Request, env: Env): Promise<Respons
   const ticket = await getTicket(cfg, guard, body.helpId)
   if (!ticket) return fail(404, "help_not_found", "That ticket doesn't exist.")
 
-  // Untrusted: only keep string ids, and never the author's own id (you can't
-  // @mention yourself). A mention is notify-only — never an instruction.
-  const tagged = Array.isArray(body.taggedUserIds)
-    ? body.taggedUserIds.filter((x): x is string => typeof x === "string" && x !== actor.id)
-    : []
+  // Untrusted, and CAPPED. A mention is notify-only — never an instruction — and
+  // each one becomes an email, so an uncounted list let any `help:read` holder
+  // address the whole team from a single reply. `optionalIdList` bounds it at
+  // BULK_IDS_LIMIT and refuses a malformed entry with a clean 400; the author's
+  // own id is dropped after, because you cannot @mention yourself.
+  const tagged = optionalIdList(body.taggedUserIds).filter((x) => x !== actor.id)
 
   const replyId = await addReply(cfg, guard, actor, body.helpId, replyBody, tagged, false)
   await publishChange(env.REALTIME, guard.teamId, "help_threads", replyId, "add")

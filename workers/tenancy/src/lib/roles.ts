@@ -314,6 +314,7 @@ export async function setRoleActive(
 
   await logActivity(cfg, guard.databaseId, actor, {
     type: active ? "Role activated" : "Role deactivated",
+    verb: active ? "activated" : "deactivated",
     description: `${actor.name} ${active ? "activated" : "deactivated"} the ${role.title} role`,
     relatedTable: "member_roles",
     relatedRowId: roleId,

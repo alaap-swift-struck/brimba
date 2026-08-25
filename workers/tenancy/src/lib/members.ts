@@ -46,12 +46,7 @@ export async function listMembers(
   guard: MemberGuard
 ): Promise<TeamMember[]> {
   const members = await env.DB.prepare(
-    `SELECT tm.user_id, tm.role_id, tm.created_at,
-            u.email, u.first_name, u.last_name, u.image_url
-     FROM team_members tm
-     JOIN users u ON u.id = tm.user_id
-     WHERE tm.team_id = ? AND tm.deactivated_at IS NULL
-     ORDER BY tm.created_at LIMIT ${LIST_HARD_CAP}` // R14 hard cap
+    `${MEMBER_SELECT} ORDER BY tm.created_at LIMIT ${LIST_HARD_CAP}` // R14 hard cap
   )
     .bind(guard.teamId)
     .all<{
@@ -73,21 +68,40 @@ export async function listMembers(
   )
   const roleById = new Map(roles.map((r) => [r.id, r]))
 
-  return (members.results ?? []).map((m) => {
-    const role = roleById.get(m.role_id)
-    return {
-      userId: m.user_id,
-      email: m.email,
-      firstName: m.first_name,
-      lastName: m.last_name,
-      imageUrl: m.image_url,
-      roleId: m.role_id,
-      roleTitle: role?.title ?? "Unknown role",
-      isYou: m.user_id === guard.userId,
-      isAdmin: role?.is_default === 1,
-      joinedAt: m.created_at,
-    }
-  })
+  return (members.results ?? []).map((m) => toMember(m, roleById.get(m.role_id), guard.userId))
+}
+
+/** The columns both member reads project — global `team_members` joined to the
+ * global `users` row, so a name or photo is always current rather than copied. */
+const MEMBER_SELECT = `SELECT tm.user_id, tm.role_id, tm.created_at,
+            u.email, u.first_name, u.last_name, u.image_url
+     FROM team_members tm
+     JOIN users u ON u.id = tm.user_id
+     WHERE tm.team_id = ? AND tm.deactivated_at IS NULL`
+
+type MemberRow = {
+  user_id: string
+  role_id: string
+  created_at: string
+  email: string
+  first_name: string | null
+  last_name: string | null
+  image_url: string | null
+}
+
+function toMember(m: MemberRow, role: RoleRow | undefined, viewerId: string): TeamMember {
+  return {
+    userId: m.user_id,
+    email: m.email,
+    firstName: m.first_name,
+    lastName: m.last_name,
+    imageUrl: m.image_url,
+    roleId: m.role_id,
+    roleTitle: role?.title ?? "Unknown role",
+    isYou: m.user_id === viewerId,
+    isAdmin: role?.is_default === 1,
+    joinedAt: m.created_at,
+  }
 }
 
 /** Every role in the team, with how many members hold each. */
@@ -118,7 +132,7 @@ export async function listRoles(
   }>(
     cfg,
     guard.databaseId,
-    `SELECT id, title, description, is_default, deactivated_at, created_at, creator_name, updated_at, editor_name FROM member_roles ORDER BY (deactivated_at IS NULL) DESC, is_default DESC, title LIMIT ${LIST_HARD_CAP}` // R14 hard cap
+    `SELECT ${ROLE_COLUMNS} FROM member_roles ORDER BY (deactivated_at IS NULL) DESC, is_default DESC, title LIMIT ${LIST_HARD_CAP}` // R14 hard cap
   )
   const counts = await env.DB.prepare(
     "SELECT role_id, COUNT(*) AS n FROM team_members WHERE team_id = ? AND deactivated_at IS NULL GROUP BY role_id"
@@ -127,35 +141,73 @@ export async function listRoles(
     .all<{ role_id: string; n: number }>()
   const countBy = new Map((counts.results ?? []).map((c) => [c.role_id, c.n]))
 
-  return roles.map((r) => ({
+  return roles.map((r) => toRole(r, countBy.get(r.id) ?? 0))
+}
+
+/** The role columns both reads project. Shared, so the single-row read and the
+ * list cannot drift — the guarantee `oneRole` used to buy by reading the list. */
+const ROLE_COLUMNS =
+  "id, title, description, is_default, deactivated_at, created_at, creator_name, updated_at, editor_name"
+
+type RoleFullRow = {
+  id: string
+  title: string
+  description: string | null
+  is_default: number
+  deactivated_at: string | null
+  created_at: string | null
+  creator_name: string | null
+  updated_at: string | null
+  editor_name: string | null
+}
+
+function toRole(r: RoleFullRow, memberCount: number): TeamRole {
+  return {
     id: r.id,
     title: r.title,
     description: r.description,
     isDefault: r.is_default === 1,
-    memberCount: countBy.get(r.id) ?? 0,
+    memberCount,
     active: r.deactivated_at == null,
     // The audit block, for the role detail's Overview tab (audit-overview parity).
     createdAt: r.created_at,
     createdByName: r.creator_name,
     updatedAt: r.updated_at,
     editedByName: r.editor_name,
-  }))
+  }
 }
 
-/** ONE role by id, or null — what a create hands back (R21). Picks from the
- * bounded list read rather than repeating its projection + member-count rollup,
- * so a single row can never differ in shape from a listed one. */
+/** ONE role by id, or null — what a create hands back (R21) and what an edit or
+ * deactivate hands back (R23). Two targeted reads sharing `ROLE_COLUMNS` and
+ * `toRole` with the list, rather than reading the whole capped list to pick one
+ * row out of it — which also returned `null` for any role past the cap, and
+ * `applyUpdated` drops a null row from the screen. */
 /** ONE member by user id, or null — what a member mutation hands back (R23).
- * Picks from the bounded list read so a single row matches a listed one
- * exactly; null when they are no longer a member, which is precisely what the
- * client needs to DROP them from the list it is showing. */
+ * Shares `MEMBER_SELECT` and `toMember` with the list, so a single row matches a
+ * listed one exactly.
+ *
+ * `null` MEANS SOMETHING HERE: they are no longer an active member, which is
+ * precisely what the client needs in order to drop them from the list it is
+ * showing. That is exactly why reading the whole capped list to work it out was
+ * dangerous rather than merely wasteful — past the cap it returned null for a
+ * member who was still there, and the client removed them from the screen. */
 export async function oneMember(
   env: Env,
   cfg: D1Rest,
   guard: MemberGuard,
   userId: string
 ): Promise<TeamMember | null> {
-  return (await listMembers(env, cfg, guard)).find((m) => m.userId === userId) ?? null
+  const m = await env.DB.prepare(`${MEMBER_SELECT} AND tm.user_id = ? LIMIT 1`)
+    .bind(guard.teamId, userId)
+    .first<MemberRow>()
+  if (!m) return null
+  const roles = await d1Query<RoleRow>(
+    cfg,
+    guard.databaseId,
+    "SELECT id, title, is_default FROM member_roles WHERE id = ? LIMIT 1",
+    [m.role_id]
+  )
+  return toMember(m, roles[0], guard.userId)
 }
 
 export async function oneRole(
@@ -164,7 +216,19 @@ export async function oneRole(
   guard: MemberGuard,
   id: string
 ): Promise<TeamRole | null> {
-  return (await listRoles(env, cfg, guard)).find((r) => r.id === id) ?? null
+  const rows = await d1Query<RoleFullRow>(
+    cfg,
+    guard.databaseId,
+    `SELECT ${ROLE_COLUMNS} FROM member_roles WHERE id = ? LIMIT 1`,
+    [id]
+  )
+  if (!rows[0]) return null
+  const count = await env.DB.prepare(
+    "SELECT COUNT(*) AS n FROM team_members WHERE team_id = ? AND role_id = ? AND deactivated_at IS NULL"
+  )
+    .bind(guard.teamId, id)
+    .first<{ n: number }>()
+  return toRole(rows[0], count?.n ?? 0)
 }
 
 /** The membership row for a target user (active only), with their identity

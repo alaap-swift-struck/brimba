@@ -69,7 +69,16 @@ export type Actor = {
 /** The nightly cron has no signed-in person behind it. Rather than write a blank
  * actor — which reads as "nobody knows" — background work signs its own rows, so
  * "who deactivated this?" answers "the scheduled job" instead of nothing. */
-export const SYSTEM_ACTOR: Actor = { id: "system", email: "system", name: "Scheduled job" }
+export const SYSTEM_ACTOR: Actor = {
+  id: "system",
+  email: "system",
+  name: "Scheduled job",
+  // AND ITS ORIGIN. Without this the fallback below stamped "ui" on every row a
+  // nightly job wrote, so the trail said a person had done it by hand — a
+  // provenance column stating something untrue is worse than no column, because
+  // it is believed. (Activity-log review, 2026-08-25.)
+  origin: "job",
+}
 
 /**
  * WHICH DOOR THE CHANGE CAME THROUGH.
@@ -210,7 +219,7 @@ export async function logActivity(
           ${sqlString(ulid())}, ${sqlString(entry.type)}, ${sqlString(entry.description)},
           ${sqlString(entry.relatedTable ?? null)}, ${sqlString(entry.relatedRowId ?? null)},
           ${sqlString(now)}, ${sqlString(actor.id)}, ${sqlString(actor.email)}, ${sqlString(actor.name)},
-          ${sqlString(entry.origin ?? actor.origin ?? "ui")}, ${sqlString(diff)}, ${sqlString(entry.verb ?? null)}
+          ${sqlString(entry.origin ?? actor.origin ?? "ui")} /* "ui" is the FALLBACK, not a default anyone should rely on: every non-UI surface sets its own via ORIGIN_HEADER or the actor */, ${sqlString(diff)}, ${sqlString(entry.verb ?? null)}
        );`
     )
   } catch (e) {

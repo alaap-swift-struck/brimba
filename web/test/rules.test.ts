@@ -544,6 +544,38 @@ describe("RULES — the laws of the base", () => {
     expect(offenders, `a mutation door returned a collection (R23): ${offenders.join("; ")}`).toEqual([])
   })
 
+  it("mutation-returns-row: the single-row reader reads ONE row, not the whole list (R23)", () => {
+    // R23's letter is "return the affected row". Every `one*` reader obeyed it by
+    // reading the WHOLE capped list and calling `.find()` — so the law removed a
+    // full list read from the WIRE and left it in the DATABASE, on the hot path of
+    // every create, edit, status change and deactivate.
+    //
+    // And it was not only wasteful. Past `LIST_HARD_CAP` the `.find()` misses and
+    // the reader returns `null`, which `applyUpdated` reads as "this record left
+    // the list" — so editing row 1,001 made it vanish from the screen. The shape
+    // guarantee those readers were buying (a single row identical to a listed one)
+    // is better bought by SHARING the projection, which is what they do now.
+    // (Scaling + speed reviews, 2026-08-25.)
+    const offenders: string[] = []
+    let seen = 0
+    for (const [path, src] of serverSources()) {
+      if (!path.includes("/src/lib/")) continue
+      const re = /export async function (one[A-Z]\w*)/g
+      let m: RegExpExecArray | null
+      while ((m = re.exec(src))) {
+        seen++
+        const body = stripComments(declarationBody(src, m.index))
+        if (/await\s+(?:list|search)\w*\(/.test(body) && /\.find\(/.test(body))
+          offenders.push(`${path} → ${m[1]} reads a whole list to return one row`)
+      }
+    }
+    expect(seen, "no one* single-row readers found at all — the scan has gone blind").toBeGreaterThan(3)
+    expect(
+      offenders,
+      `a single-row reader read the whole collection (R23) — give it its own WHERE id = ?, sharing the list's projection: ${offenders.join("; ")}`
+    ).toEqual([])
+  })
+
   // R20 — every navigable destination resolves in a FRESH TAB. This app is a
   // static export: `/<segment>` only exists if a page source emits it, and a
   // sub-path like `/<segment>/<id>` only resolves if the gateway serves that
@@ -773,6 +805,29 @@ describe("RULES — the laws of the base", () => {
       deaf,
       `published to nobody (R15) — add a TEAM_RESOURCES/SIMPLE_INVALIDATIONS listener or a reasoned DEAF_EXEMPT entry: ${deaf.join(", ")}`
     ).toEqual([])
+    // AN EXEMPTION THAT NAMES A KEY MUST NAME A REAL ONE. A DEAF_EXEMPT reason is
+    // prose, and prose was how `help_threads` stayed deaf: its reason described a
+    // refresh mechanism that did not exist. Any `backticked` cache key in a reason
+    // is now checked against live-resources.ts, so the excuse has to be true.
+    // (The general lesson, from the MCP exclusion table that was false the day it
+    // shipped: a documented exclusion must be machine-checked against the code it
+    // excludes.)
+    // stripComments, because the first version of this check read the raw file —
+    // and the COMMENT explaining the fix contained the very key it was looking
+    // for, so deleting the real deps left it green. Caught by sabotage, on the
+    // same afternoon the comments-are-not-code rule was written down. The lesson
+    // is not "remember to strip comments"; it is that a check is only known to
+    // work once you have watched it fail.
+    const liveSrc = stripComments(read(join(WEB, "lib", "live-resources.ts")))
+    const unbacked: string[] = []
+    for (const [resource, why] of Object.entries(DEAF_EXEMPT))
+      for (const m of why.matchAll(/`([a-z-]+:[a-z-]*)`/g))
+        if (!liveSrc.includes(m[1])) unbacked.push(`${resource} claims \`${m[1]}\` which live-resources.ts does not contain`)
+    expect(
+      unbacked,
+      `a DEAF_EXEMPT reason named a cache key that does not exist: ${unbacked.join("; ")}`
+    ).toEqual([])
+
     // The paged half: the refetch seam exists and the shell fans pings + reconnects
     // into it; any component fetching a /search door must subscribe.
     const bus = read(join(WEB, "lib", "use-live-refetch.ts"))

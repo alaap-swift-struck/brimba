@@ -255,9 +255,17 @@ export const GROWING_COLLECTIONS: Record<
   },
 }
 
+// AN EXEMPTION THAT NAMES A CACHE KEY IS CHECKED AGAINST THE CODE.
+//
+// `help_threads` sat here for months with a reason that was simply false — it
+// said a reply pings the parent help row "whose row-level patch refreshes the
+// open ticket's deps", and that deps array never contained the thread key. Two
+// people on one ticket saw only their own replies. Prose cannot be trusted to
+// describe a mechanism, so `live-collections` now asserts that every backticked
+// key in a reason below actually appears in `web/lib/live-resources.ts`.
 export const DEAF_EXEMPT: Record<string, string> = {
   help_threads:
-    "a reply pings the parent help row too (op edit), whose row-level patch refreshes the open ticket's deps; the thread list itself re-pulls when the detail (re)opens",
+    "a reply also pings the parent help row (op edit), and that resource's deps now include `help-thread:` and `total:help-thread:` — so the open conversation and its count both refresh",
   agent_usage:
     "the quota badge rides every chat response and the usage dialog fetches on open — there is no standing cache a ping could refresh",
 }

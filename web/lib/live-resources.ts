@@ -219,9 +219,24 @@ export const TEAM_RESOURCES: Record<
     fetchOne: (id) => contentApi.helpOne(id),
     fetchList: (t) => listFetch.help(t),
     // A status change / edit / reply / stakeholder-add on a ticket also refreshes
-    // its Activity tab + Stakeholders tab. The My list is a SERVER-scoped page, so
-    // it can't be row-patched from here — drop it and it reloads page one.
-    deps: (t, id) => [`activity:record:help:${id}`, `help-stakeholders:${id}`, `help-mine:${t}`],
+    // its Activity tab, its Stakeholders tab AND ITS CONVERSATION. The My list is a
+    // SERVER-scoped page, so it can't be row-patched from here — drop it and it
+    // reloads page one.
+    //
+    // `help-thread:` was missing until 2026-08-25, and a `DEAF_EXEMPT` entry
+    // explained the absence by claiming the parent ping "refreshes the open
+    // ticket's deps" — which is what this array IS, and it did not contain the
+    // thread. Two people replying to one ticket each saw only their own replies
+    // until they navigated away and back, and the reply-count badge was stale with
+    // it. An exemption that describes a mechanism has to name a mechanism that
+    // exists. (Realtime review, 2026-08-25.)
+    deps: (t, id) => [
+      `activity:record:help:${id}`,
+      `help-stakeholders:${id}`,
+      `help-mine:${t}`,
+      `help-thread:${id}`,
+      `total:help-thread:${id}`,
+    ],
   },
 }
 

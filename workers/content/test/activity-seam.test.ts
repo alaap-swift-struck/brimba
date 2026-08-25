@@ -8,6 +8,8 @@
 
 import { describe, expect, it, vi } from "vitest"
 
+import { serverSources, stripComments } from "../../../shared/test/source"
+
 const scripts: string[] = []
 vi.mock("../../../shared/workers/d1-rest", async () => {
   const actual = await vi.importActual<typeof import("../../../shared/workers/d1-rest")>("../../../shared/workers/d1-rest")
@@ -155,5 +157,26 @@ describe("the verbs are a closed set", () => {
     for (const v of ["created", "edited", "deactivated", "activated"]) {
       expect(ACTIVITY_VERBS as readonly string[]).toContain(v)
     }
+  })
+
+  it("and every one of them is actually WRITTEN somewhere", () => {
+    // The assertion above cannot fail: it checks that a constant contains the
+    // strings listed on the line above it. It passed happily while THREE of the
+    // six verbs — deactivated, activated, status — were produced by no code path
+    // at all, because all five deactivate/status log sites simply omitted `verb`.
+    // `idx_activity_verb`'s own documented example query, "every deactivation
+    // this month", returned zero rows for ever. A closed set nothing writes into
+    // is a schema, not a record. (Activity-log review, 2026-08-25.)
+    const written = new Set<string>()
+    for (const [, src] of serverSources())
+      for (const m of stripComments(src).matchAll(/verb:\s*(?:\w+\s*\?\s*)?"(\w+)"(?:\s*:\s*"(\w+)")?/g)) {
+        written.add(m[1])
+        if (m[2]) written.add(m[2])
+      }
+    expect(written.size, "no verbs found in the source at all — the scan has gone blind").toBeGreaterThan(3)
+    expect(
+      ACTIVITY_VERBS.filter((v) => !written.has(v)),
+      "these verbs are declared but nothing writes them — either write them or drop them from the set"
+    ).toEqual([])
   })
 })

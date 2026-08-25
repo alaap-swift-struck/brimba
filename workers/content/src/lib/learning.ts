@@ -124,6 +124,8 @@ type LearningBefore = {
   content_type: string | null
   content_link: string | null
   content_body: string | null
+  sequence: number
+  is_required: number
 }
 
 async function learningOrThrow(
@@ -134,7 +136,7 @@ async function learningOrThrow(
   const rows = await d1Query<LearningBefore>(
     cfg,
     guard.databaseId,
-    "SELECT id, content_title, category, content_description, content_type, content_link, content_body FROM learning WHERE id = ?",
+    "SELECT id, content_title, category, content_description, content_type, content_link, content_body, sequence, is_required FROM learning WHERE id = ?",
     [id]
   )
   if (!rows[0]) throw new GuardError(404, "learning_not_found", "That learning item doesn't exist.")
@@ -183,15 +185,17 @@ async function ensureCategory(
 /** Every learning item (active + inactive) for the team, in display order
  * (sequence then created_at), with the CALLER's own `done` merged in from
  * learning_progress so each row shows the viewer's progress. */
+const LEARNING_SELECT = `SELECT l.id, l.category, l.content_title, l.content_description, l.content_type,
+            l.content_link, l.content_body, l.sequence, l.is_required, l.deactivated_at,
+            l.created_at, l.creator_name, l.editor_name, l.updated_at, p.done AS done
+     FROM learning l
+     LEFT JOIN learning_progress p ON p.learning_id = l.id AND p.user_id = ?`
+
 export async function listLearning(cfg: D1Rest, guard: MemberGuard): Promise<Learning[]> {
   const rows = await d1Query<LearningRow>(
     cfg,
     guard.databaseId,
-    `SELECT l.id, l.category, l.content_title, l.content_description, l.content_type,
-            l.content_link, l.content_body, l.sequence, l.is_required, l.deactivated_at,
-            l.created_at, l.creator_name, l.editor_name, l.updated_at, p.done AS done
-     FROM learning l
-     LEFT JOIN learning_progress p ON p.learning_id = l.id AND p.user_id = ?
+    `${LEARNING_SELECT}
      ORDER BY l.sequence ASC, l.created_at ASC LIMIT ${LIST_HARD_CAP}`, // R14 hard cap
     [guard.userId]
   )
@@ -199,11 +203,25 @@ export async function listLearning(cfg: D1Rest, guard: MemberGuard): Promise<Lea
 }
 
 /** ONE item by id, or null — what a create hands back (R21) and what the `?id=`
- * door resolves. Picks from the bounded list read rather than repeating its
- * projection + progress join, so a single row can never differ in shape from a
- * listed one. */
+ * door resolves.
+ *
+ * It shares `LEARNING_SELECT` with the list so a single row can never differ in
+ * shape from a listed one. It used to get that guarantee by reading the WHOLE
+ * bounded list and calling `.find()`, which bought identical shape at two
+ * prices: a 1,000-row read to return one row on every create, edit, status
+ * change and deactivate (R21/R23 got their letter and not their spirit), and —
+ * worse — `null` for any record past the list's own cap. `applyUpdated` reads a
+ * null row as "this record left the list" and drops it, so editing row 1,001
+ * made it disappear from the screen. Sharing the projection gives the same
+ * guarantee structurally, for one row. (Scaling + speed reviews, 2026-08-25.) */
 export async function oneLearning(cfg: D1Rest, guard: MemberGuard, id: string): Promise<Learning | null> {
-  return (await listLearning(cfg, guard)).find((l) => l.id === id) ?? null
+  const rows = await d1Query<LearningRow>(
+    cfg,
+    guard.databaseId,
+    `${LEARNING_SELECT} WHERE l.id = ? LIMIT 1`,
+    [guard.userId, id]
+  )
+  return rows[0] ? toLearning(rows[0]) : null
 }
 
 /** R16: exact server COUNT(*) for the badge — never rows.length. */
@@ -331,7 +349,7 @@ export async function updateLearning(
   const landed = await d1Query<{ id: string }>(
     cfg,
     guard.databaseId,
-    `UPDATE learning SET category = ${sqlString(category)}, content_title = ${sqlString(title)}, content_description = ${sqlString(description)}, content_type = ${sqlString(contentType)}, content_link = ${sqlString(safeLink(optionalText(input.contentLink, "Link", TEXT_LIMITS.link)))}, content_body = ${sqlString(body)}, sequence = ${intOr(input.sequence, 0)}, is_required = ${input.required ? 1 : 0}, updated_at = ${sqlString(now)}, editor_id = ${sqlString(actor.id)}, editor_email = ${sqlString(actor.email)}, editor_name = ${sqlString(actor.name)} WHERE id = ${sqlString(id)}${versionPredicate(expectedVersion)} RETURNING id`
+    `UPDATE learning SET category = ${sqlString(category)}, content_title = ${sqlString(title)}, content_description = ${sqlString(description)}, content_type = ${sqlString(contentType)}, content_link = ${sqlString(safeLink(optionalText(input.contentLink, "Link", TEXT_LIMITS.link)))}, content_body = ${sqlString(body)}, sequence = ${input.sequence == null ? before.sequence : intOr(input.sequence, 0)}, is_required = ${input.required == null ? before.is_required : input.required ? 1 : 0}, updated_at = ${sqlString(now)}, editor_id = ${sqlString(actor.id)}, editor_email = ${sqlString(actor.email)}, editor_name = ${sqlString(actor.name)} WHERE id = ${sqlString(id)}${versionPredicate(expectedVersion)} RETURNING id`
   )
   assertNotConflicted(landed.length, expectedVersion)
 
@@ -342,6 +360,20 @@ export async function updateLearning(
     { label: "Type", from: before.content_type, to: contentType },
     { label: "Link", from: before.content_link, to: safeLink(input.contentLink) },
     { label: "Body", from: before.content_body, to: body, hideValues: true },
+    // Sequence and Required were absent from this diff AND defaulted in the SET
+    // above, so an edit that omitted them wrote 0/false over a real value and
+    // recorded nothing about it. A learning item quietly stopped being required
+    // and quietly moved to the front of the order. (Dead-end review, 2026-08-25.)
+    {
+      label: "Order",
+      from: String(before.sequence),
+      to: String(input.sequence == null ? before.sequence : intOr(input.sequence, 0)),
+    },
+    {
+      label: "Required",
+      from: before.is_required ? "Yes" : "No",
+      to: (input.required == null ? before.is_required === 1 : input.required) ? "Yes" : "No",
+    },
   ]
   const changes = describeChanges(diff)
   await logActivity(cfg, guard.databaseId, actor, {
@@ -383,6 +415,7 @@ export async function setLearningActive(
 
   await logActivity(cfg, guard.databaseId, actor, {
     type: active ? "Learning activated" : "Learning deactivated",
+    verb: active ? "activated" : "deactivated",
     description: `${actor.name} ${active ? "activated" : "deactivated"} the "${item.content_title}" learning item`,
     relatedTable: "learning",
     relatedRowId: id,

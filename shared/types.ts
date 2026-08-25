@@ -160,6 +160,12 @@ export type ActivityItem = {
   /** who did it (name snapshot), or null if unknown */
   actorName: string | null
   createdAt: string
+  /** WHICH DOOR the change came through — "ui", "agent", "mcp", "job", "api",
+   * "import". NULL on rows written before migration 0008. */
+  origin?: string | null
+  /** WHAT KIND of change — "created", "edited", "deactivated", "activated",
+   * "removed", "status". NULL on rows written before migration 0008. */
+  verb?: string | null
 }
 
 /** A team's Overview-tab metadata (who made it + when). */

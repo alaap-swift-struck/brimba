@@ -14,6 +14,8 @@ type ActivityRow = {
   description: string
   created_at: string
   creator_name: string | null
+  origin: string | null
+  verb: string | null
 }
 
 /** R18 — the ONE visibility clause for the cross-module team feed. The feed's
@@ -94,7 +96,12 @@ export async function getActivity(
     d1Query<ActivityRow>(
       cfg,
       guard.databaseId,
-      `SELECT id, type, description, created_at, creator_name FROM activity${pageWhere}
+      // `origin` and `verb` are SELECTed, not merely stored. Migration 0008 added
+      // three columns and the writers to fill them; no reader was ever written,
+      // so for a week the base recorded which door every change came through and
+      // could not show it to anyone. A column nothing reads is not an audit
+      // trail — it is a cost. (Activity-log review, 2026-08-25.)
+      `SELECT id, type, description, created_at, creator_name, origin, verb FROM activity${pageWhere}
        ORDER BY created_at DESC, id DESC LIMIT ${PAGE_SIZE + 1}`,
       [...params, ...after.params]
     ),
@@ -110,6 +117,8 @@ export async function getActivity(
       description: r.description,
       actorName: r.creator_name,
       createdAt: r.created_at,
+      origin: r.origin,
+      verb: r.verb,
     })),
     total: counted[0]?.n ?? 0,
   }

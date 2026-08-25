@@ -325,6 +325,7 @@ export async function setStatus(
 
   await logActivity(cfg, guard.databaseId, actor, {
     type: `Help ticket ${status === "resolved" ? "resolved" : status === "reopened" ? "reopened" : "updated"}`,
+    verb: "status",
     description: `${actor.name} set a support ticket to ${status.replace("_", " ")}`,
     relatedTable: "help",
     relatedRowId: id,
@@ -459,6 +460,21 @@ export async function addReply(
 VALUES (${sqlString(id)}, ${sqlString(ticketId)}, ${sqlString(clean)}, ${tagged}, ${isAgent ? 1 : 0}, ${sqlString(now)}, ${sqlString(actor.id)}, ${sqlString(actor.email)}, ${sqlString(actor.name)});
 UPDATE help SET updated_at = ${sqlString(now)} WHERE id = ${sqlString(ticketId)};`
   )
+
+  // LAW R25 — a reply is a real change to a real record, and this was the only
+  // user-editable business table in the base whose writes were logged nowhere.
+  // It mattered most for the surface least likely to be watched: `add_help_reply`
+  // is an agent AND MCP tool, so the assistant could add content to a customer's
+  // support ticket and leave no trace of having done so. The previous audit
+  // missed it because a `logActivity` sits thirty lines above, in a different
+  // function. (Activity-log review, 2026-08-25.)
+  await logActivity(cfg, guard.databaseId, actor, {
+    type: "Ticket reply added",
+    verb: "created",
+    description: `${actor.name} replied to a support ticket${isAgent ? " (drafted by the assistant)" : ""}`,
+    relatedTable: "help",
+    relatedRowId: ticketId,
+  })
 
   return id
 }
