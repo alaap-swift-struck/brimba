@@ -258,14 +258,22 @@ async function route(request: Request, env: Env, req: string): Promise<Response>
     // Client error beacon → console (Cloudflare observability, live tails) AND
     // the central error_logs table via auth's internal door, so a crash on a
     // user's phone is queryable + resolvable later, not just visible for a week.
-    // Only forwarded once the session is VERIFIED with auth — a cookie header is
-    // attacker-controlled, so `Cookie: session=x` used to be enough to write a
-    // row into the GLOBAL core database from an anonymous request. Recording is
-    // best-effort, so a failed lookup simply drops it (the console line stays).
+    // BOTH are forwarded only once the session is VERIFIED with auth — a cookie
+    // header is attacker-controlled, so `Cookie: session=x` used to be enough to
+    // write a row into the GLOBAL core database from an anonymous request. An
+    // unverified caller now gets neither the row NOR the console line: this
+    // comment used to end "(the console line stays)", and that exemption was the
+    // whole hole. Recording is still best-effort — a failed lookup drops the
+    // beacon entirely and always answers 204, so a prober learns nothing.
     // The swappable client seam is web/lib/log.ts; the ruleset is ERROR-HANDLING.md.
     if (pathname === "/api/log/client" && request.method === "POST") {
-      const raw = await request.text().catch(() => "")
-      console.error("client_error", raw.slice(0, 4000))
+      // VERIFY FIRST, THEN SAY ANYTHING. The row was gated and the console line
+      // was not: `console.error("client_error", …)` sat three lines ABOVE this
+      // check, so anyone at all could put a chosen 4 KB into the stream that
+      // Cloudflare observability, the live tail and every alert built on them
+      // read — unsigned, unattributed, and wearing the same "client_error"
+      // prefix a real crash carries. Forging an incident was cheaper than
+      // causing one, and the door's own comment already claimed otherwise.
       const cookie = request.headers.get("Cookie") ?? ""
       const signedIn =
         cookie.includes("brimba_session=") &&
@@ -278,6 +286,14 @@ async function route(request: Request, env: Env, req: string): Promise<Response>
           )
         )?.ok === true
       if (signedIn) {
+        // FROM `traced`, NOT `request`. Constructing `traced` from `request`
+        // above marks the original's body used (the fetch spec disturbs the
+        // input Request), so `request.text()` here answered "" for every beacon
+        // ever sent — the parse then found no `message` and the door recorded
+        // NOTHING, silently, while looking entirely healthy. `traced` is this
+        // path's own copy and is never proxied, so reading it costs nothing.
+        const raw = await traced.text().catch(() => "")
+        console.error("client_error", raw.slice(0, 4000))
         let b: { where?: string; message?: string; stack?: string; url?: string } = {}
         try {
           b = JSON.parse(raw)

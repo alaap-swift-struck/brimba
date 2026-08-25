@@ -65,14 +65,25 @@ export async function sendMail(
 
 /** Send one BRANDED email — the same template every transactional mail uses, so
  * they all look identical. A thin wrapper over `sendMail`: one door, one place
- * that knows the internal key and the timeout. */
+ * that knows the internal key and the timeout.
+ *
+ * `what` names the notice, because the three callers below all used to throw the
+ * returned boolean away. `sendMail` was rewritten to answer honestly and then
+ * nobody downstream listened, which is the same silence in a new place: a team
+ * whose mailer is unset removes a member, changes a role and withdraws an invite,
+ * and NONE of those people are told, and nothing anywhere says so. The action is
+ * still not failed — it already happened and is already in activity — but the
+ * un-sent notice now leaves a line rather than nothing. */
 async function send(
   env: Env,
   to: string,
   subject: string,
+  what: string,
   content: Pick<BrandedEmail, "heading" | "intro" | "footnote">
 ): Promise<boolean> {
-  return sendMail(env, to, subject, brandedEmail(content))
+  const sent = await sendMail(env, to, subject, brandedEmail(content))
+  if (!sent) console.error(`${what} notice was NOT sent (mailer unconfigured, unreachable or refused)`)
+  return sent
 }
 
 /** A member's role was changed by someone else. */
@@ -86,7 +97,7 @@ export async function notifyRoleChanged(
   if (!to) return
   try {
     const name = await teamName(env, teamId)
-    await send(env, to, `Your role in ${name} changed`, {
+    await send(env, to, `Your role in ${name} changed`, "role-change", {
       heading: `Your role in ${name} changed`,
       intro: `${actorName || "An admin"} changed your role in ${name} on ${brand.name} to ${roleTitle}.`,
       footnote: "If you weren't expecting this, reach out to a team admin.",
@@ -106,7 +117,7 @@ export async function notifyRemoved(
   if (!to) return
   try {
     const name = await teamName(env, teamId)
-    await send(env, to, `You were removed from ${name}`, {
+    await send(env, to, `You were removed from ${name}`, "removal", {
       heading: `You were removed from ${name}`,
       intro: `${actorName || "An admin"} removed you from ${name} on ${brand.name}. You no longer have access to it.`,
       footnote: "If you think this was a mistake, a team admin can invite you back.",
@@ -126,7 +137,7 @@ export async function notifyInviteRevoked(
   if (!to) return
   try {
     const name = await teamName(env, teamId)
-    await send(env, to, `Your invite to ${name} was withdrawn`, {
+    await send(env, to, `Your invite to ${name} was withdrawn`, "invite-withdrawn", {
       heading: `Your invite to ${name} was withdrawn`,
       intro: `Your invitation to join ${name} on ${brand.name} was withdrawn. No action is needed.`,
       footnote: "If you think this was a mistake, ask a team admin to invite you again.",
