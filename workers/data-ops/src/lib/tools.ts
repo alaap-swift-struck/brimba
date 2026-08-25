@@ -176,6 +176,32 @@ const AGENT_ONLY: AgentTool[] = [
       `${i.active ? "Activate" : "Deactivate"} ${Array.isArray(i.ids) ? i.ids.length : 0} articles`,
   },
   {
+    // The SYMMETRIC twin of bulk_set_learning_active. `selectable/bulk-active` was
+    // added under R24 on 12 August and had no caller on ANY surface — not web, not
+    // the agent, not MCP — for a fortnight: a gated, published, tested door that
+    // nothing could open. Shipping the door and not the tool is the R13 fault in a
+    // different coat ("shipping the code ships the capability").
+    // (Interfacelessness review, rounds 2 and 3.)
+    name: "bulk_set_dropdown_active",
+    description:
+      "Switch MANY dropdown values off (deactivate) or back on (reactivate) at once — never deleted. " +
+      "First list the values (a read) to get their ids, then call this with those ids — at most " +
+      `${BULK_IDS_LIMIT} per call (the door refuses more). A bulk change is confirmed with a count ` +
+      "before it runs.",
+    schema: obj(
+      { ids: { type: "array", items: S, maxItems: BULK_IDS_LIMIT }, active: { type: "boolean" } },
+      ["ids", "active"]
+    ),
+    binding: "TENANCY",
+    method: "POST",
+    path: "/api/tenancy/selectable/bulk-active",
+    write: true,
+    confirm: true, // a bulk change is high-blast — always confirm
+    buildBody: (i) => ({ ids: i.ids, active: i.active }),
+    summarize: (i) =>
+      `${i.active ? "Activate" : "Deactivate"} ${Array.isArray(i.ids) ? i.ids.length : 0} dropdown values`,
+  },
+  {
     name: "mark_learning_done",
     description: "Mark a learning article done (or not done) for yourself.",
     schema: obj({ id: S, done: { type: "boolean" } }, ["id", "done"]),

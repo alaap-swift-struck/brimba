@@ -78,6 +78,7 @@ export function traceFor(
     case "create_dropdown_value":
     case "update_dropdown_value":
     case "set_dropdown_active":
+    case "bulk_set_dropdown_active":
       return { path: seg(teamId, "dropdowns"), highlight: "main" }
 
     /* ------------------------------- learning ------------------------------ */
