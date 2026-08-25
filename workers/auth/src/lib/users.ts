@@ -1,6 +1,7 @@
 import type { SessionUser } from "../../../../shared/types"
 import type { Env } from "../env"
 import { ulid } from "../../../../shared/workers/id"
+import { logAccountActivity } from "./account-activity"
 
 /** Raw users row as D1 returns it. */
 export type UserRow = {
@@ -63,6 +64,16 @@ export async function findOrCreateUserByEmail(
   )
     .bind(user.id, user.email, now, now)
     .run()
+  // THE FIRST EVENT IN A PERSON'S HISTORY, which had none. `account_activity`
+  // recorded email changes, name and photo changes, and access tokens — but not
+  // the moment the account began, so every person's story started midway through.
+  // Best-effort by construction (logAccountActivity never throws to its caller):
+  // a logging hiccup must never stop someone signing up.
+  // (Activity-log review, 2026-08-25.)
+  await logAccountActivity(env, user.id, {
+    type: "account_created",
+    description: "Account created",
+  })
   return { user, isNew: true }
 }
 

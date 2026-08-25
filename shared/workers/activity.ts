@@ -39,9 +39,17 @@
 //     LOOKING at, not a change to any record.
 //
 // THE TWO TABLES. `activity` is per-team and holds record history.
-// `account_activity` is global and holds identity events (sign-in, email change)
-// which happen before a person belongs to any team and therefore cannot live in
-// a team's database. Reading a person's full story means both; the documented
+// `account_activity` is global and holds identity events — account created, email
+// changed, name or photo changed, access token created or revoked — which happen
+// before a person belongs to any team and therefore cannot live in a team's
+// database.
+//
+// It does NOT hold sign-ins, and this comment claimed it did until 2026-08-25.
+// That is a deliberate scaling decision, not an oversight: a sign-in row per
+// person per session lands in the ONE shared core database that every tenant uses
+// and that has no mover, so it is the fastest-growing thing we could add to the
+// slowest thing to relieve. Account CREATION happens once per person and is the
+// event that actually answers "when did this account start?". Reading a person's full story means both; the documented
 // way to do that is in DATA-MODEL.md § "Reading one person's whole history".
 
 import { d1ExecScript, sqlString, type D1Rest } from "./d1-rest"
