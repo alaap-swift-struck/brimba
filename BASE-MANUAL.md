@@ -392,7 +392,7 @@ A Law lives in three linked places:
   conscious line — never a silent bypass (e.g. `RECORD_DETAIL_EXCEPTIONS`,
   `TAB_COUNT_EXCEPTIONS`, `HOUSEKEEPING`).
 - **A test that reads source straight off disk** — a per-worker
-  `publish-seam.test.ts` or a case in `web/test/rules.test.ts`. Break a law and
+  `publish-seam.test.ts` or a case in `web/test/rules/`. Break a law and
   `npm run check` turns **red**.
 
 **[RULES.md](RULES.md) is the list of laws — read it there, not here.** It carries
@@ -429,7 +429,7 @@ state-changing route without consciously classifying it `read` / `mutation` /
 `housekeeping`. The classification *is* the reminder.
 
 **The registry can't drift from the doc.** A meta-check (`registry-integrity` in
-`web/test/rules.test.ts`) asserts RULES.md lists *exactly* the law ids in the
+`web/test/rules/meta.test.ts`) asserts RULES.md lists *exactly* the law ids in the
 registry. So: **you cannot add a Law without its check, and you cannot add a
 check without its Law.** To add one, do all three steps (registry row + test +
 RULES.md row) or the build fails — which is precisely the property that keeps an

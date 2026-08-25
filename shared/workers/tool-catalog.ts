@@ -237,7 +237,16 @@ export const SHARED_TOOLS: SharedTool[] = [
     buildBody: (i) => ({ roleId: str(i, "roleId"), title: str(i, "title"), description: opt(i, "description"), expectedVersion: version(i) }),
     // PRIVILEGE WRITE (member_roles) → confirm. Renaming isn't a grant, but a
     // rename is how a grant gets socially engineered ("call Viewer Admin").
-    agent: { write: true, confirm: true, summarize: (i, names) => `Rename ${roleLabel(i, names)} to "${str(i, "title")}"` },
+    agent: {
+      write: true, confirm: true,
+      // The card must name EVERYTHING the call will do. It said only "Rename X to
+      // Y" while the door also rewrote the description — so a yes approved a
+      // change the card never described, which makes the confirm worse than none.
+      // The erasure is fixed above (`opt`); the card now says when a description
+      // is being written too.
+      summarize: (i, names) =>
+        `Rename ${roleLabel(i, names)} to "${str(i, "title")}"${str(i, "description") ? " and change its description" : ""}`,
+    },
   },
   {
     name: "set_role_active",

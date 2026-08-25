@@ -20,7 +20,7 @@
 //
 // APPEND-ONLY, BY LAW. Nothing in this codebase updates or deletes an activity
 // row in the request path. A trail that can be edited is not a trail, so the
-// absence is enforced by `activity-append-only` in web/test/rules.test.ts rather
+// absence is enforced by `activity-birth-to-death` in web/test/rules/activity.test.ts rather
 // than left to habit. Ageing rows are swept by the retention rule
 // (`shared/workers/retention.ts`), which is a documented policy, not code
 // rewriting history.

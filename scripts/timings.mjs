@@ -208,10 +208,27 @@ async function signIn() {
   return { cookie, seedTicketId }
 }
 
+/**
+ * WHICH DATA CENTRE ANSWERED — the column without which this whole file lies.
+ *
+ * A Worker runs in the colo the client's network happened to reach, and the
+ * databases it reads do NOT move with it: the global core is pinned to one
+ * region, each team database to another. So the SAME code, measured twice an hour
+ * apart from the same laptop, is served from Amsterdam once and Singapore the
+ * next — and every hop's cost is the distance between those two facts. Measured
+ * on 2026-08-25: one core read cost 245ms from AMS and 90ms from SIN; one team
+ * read cost 50ms from AMS and 207ms from SIN. Nothing in the app changed.
+ *
+ * Recording it turns a 400ms "regression" that is really a different continent
+ * into a comparison the history can refuse to make (see `priorFor`).
+ */
+const coloOf = (res) => (res.headers.get("cf-ray") ?? "").split("-")[1] || null
+
 async function probe(p, ctx) {
   const path = typeof p.path === "function" ? p.path(ctx) : p.path
   const times = []
   let reported = null
+  let colo = null
   for (let i = 0; i < RUNS; i++) {
     const started = Date.now()
     const res = await fetch(`${BASE}${path}`, {
@@ -228,10 +245,11 @@ async function probe(p, ctx) {
     // take the LARGEST — the outermost duration is the whole server-side cost.
     const durations = [...(res.headers.get("server-timing") ?? "").matchAll(/dur=([\d.]+)/g)].map((m) => Number(m[1]))
     if (durations.length) reported = Math.max(...durations)
+    colo = coloOf(res) ?? colo
     await res.arrayBuffer()
   }
   times.sort((a, b) => a - b)
-  return { median: times[Math.floor(times.length / 2)], best: times[0], worst: times[times.length - 1], reported }
+  return { median: times[Math.floor(times.length / 2)], best: times[0], worst: times[times.length - 1], reported, colo }
 }
 
 // ── run ───────────────────────────────────────────────────────────────────────
@@ -252,14 +270,20 @@ if (TARGETS_PRODUCTION)
 const ctx = await signIn()
 
 const history = readHistory()
-const priorFor = (op) => [...history].reverse().find((r) => r.op === op && r.target === BASE)
+/** COMPARE LIKE WITH LIKE. A prior run served from a different data centre read
+ * different databases at different distances, so subtracting the two produces a
+ * number with no meaning — and this file reported exactly such a number as a
+ * "regression" until 2026-08-25. An older row with no colo recorded at all is
+ * unusable for the same reason, so it is skipped rather than guessed at. */
+const priorFor = (op, colo) =>
+  [...history].reverse().find((r) => r.op === op && r.target === BASE && r.colo && r.colo === colo)
 const stamp = new Date().toISOString()
 const fresh = []
 
 console.log(`\n  ${BASE}\n  ${RUNS} runs each · "server" is what the worker reports about itself`)
 console.log(`  signed in as ${SCRATCH_EMAIL} (scratch team)\n`)
-console.log("  operation           class   median   best   worst   server   budget   vs last   verdict")
-console.log("  " + "─".repeat(88))
+console.log("  operation           class   median   best   worst   server   budget   colo   vs same colo   verdict")
+console.log("  " + "─".repeat(100))
 
 let over = 0
 for (const p of PROBES) {
@@ -267,13 +291,13 @@ for (const p of PROBES) {
   const budget = budgetOf(p)
   const ok = r.median <= budget
   if (!ok) over++
-  const prior = priorFor(p.name)
+  const prior = priorFor(p.name, r.colo)
   const delta = prior ? r.median - prior.median : null
-  fresh.push({ date: stamp, target: BASE, op: p.name, class: p.class, median: r.median, server: r.reported })
+  fresh.push({ date: stamp, target: BASE, op: p.name, class: p.class, median: r.median, server: r.reported, colo: r.colo })
   console.log(
     `  ${p.name.padEnd(18)} ${p.class.padEnd(6)} ${String(r.median).padStart(6)}ms ${String(r.best).padStart(5)} ` +
       `${String(r.worst).padStart(7)} ${String(r.reported ?? "—").padStart(7)} ${String(budget).padStart(7)}ms ` +
-      `${(delta === null ? "  new" : `${delta > 0 ? "+" : ""}${delta}ms`).padStart(8)}   ${ok ? "ok" : "OVER"}`
+      `${String(r.colo ?? "—").padStart(6)} ${(delta === null ? "  new" : `${delta > 0 ? "+" : ""}${delta}ms`).padStart(13)}   ${ok ? "ok" : "OVER"}`
   )
 }
 
@@ -284,13 +308,16 @@ const keep = new Set([...new Set(all.map((r) => r.date))].sort().slice(-HISTORY_
 writeFileSync(HISTORY_PATH, `${JSON.stringify(all.filter((r) => keep.has(r.date)), null, 2)}\n`)
 
 const regressions = fresh.filter((r) => {
-  const prior = priorFor(r.op)
+  const prior = priorFor(r.op, r.colo)
   return prior && r.median - prior.median > prior.median * 0.25
 })
+const colos = [...new Set(fresh.map((r) => r.colo).filter(Boolean))]
 console.log(
   `\n  ${over === 0 ? "Every operation is inside its budget." : `${over} operation(s) OVER budget.`}` +
-    (regressions.length ? `\n  ${regressions.length} slower than last run by more than 25%: ${regressions.map((r) => r.op).join(", ")}.` : "") +
-    `\n  History: ${keep.size} run(s) in timings.json — "vs last" is against the previous run on this target.` +
+    (regressions.length ? `\n  ${regressions.length} slower than the last run FROM THE SAME COLO by more than 25%: ${regressions.map((r) => r.op).join(", ")}.` : "") +
+    `\n  History: ${keep.size} run(s) in timings.json — "vs same colo" only compares runs served from the same data centre.` +
+    `\n  Served from ${colos.join(", ") || "an unknown colo"}. That is not a detail: the core database and the team` +
+    `\n  databases sit in different regions, so a colo change alone moves these numbers by hundreds of ms.` +
     `\n  Round-trip includes the network from wherever you ran this; "server" does not.\n`
 )
 process.exit(over === 0 ? 0 : 1)

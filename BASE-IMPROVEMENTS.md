@@ -288,7 +288,7 @@ fail — a green check that cannot go red is worse than no check, because it is
 reported as a pass:
 
 ```bash
-grep -L "stripComments" workers/*/test/gating-seam.test.ts web/test/rules.test.ts
+grep -L "stripComments" workers/*/test/gating-seam.test.ts web/test/rules/*.test.ts
 ```
 **Patch:** every file listed reads COMMENTS AS CODE. This is the worst of the
 three, because this repo comments densely about the very seams being scanned and

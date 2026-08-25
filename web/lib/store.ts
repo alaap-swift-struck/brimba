@@ -246,6 +246,31 @@ export function invalidate(key: string): void {
   notify(key)
 }
 
+/** Drop every LOADED entry whose key starts with `prefix`, and tell whoever is
+ * showing them to refetch.
+ *
+ * The reconnect catch-up's reach into keys whose ids it does not know. `invalidate`
+ * takes one exact key, and the shell knows the LISTS (`help:<teamId>`) but not
+ * which RECORD someone is looking at — so a person deep-linked to one ticket
+ * through a dropped socket was caught up on nothing at all: `reconcile` no-ops on a
+ * collection that was never loaded, and their `help-one:<id>` was not a key anyone
+ * could name. The screen sat still under a dot reading "Live".
+ *
+ * It walks the KEYS THE CACHE HOLDS, so a prefix nothing has loaded is free and
+ * silent — no entry to drop, no subscriber to notify — and it drops each one
+ * through `invalidate`, so the freshness stamps and the request on the wire are
+ * cleared by the same code that clears them everywhere else. A second, private
+ * copy of "what invalidate means" is exactly how a stale-read path gets back in
+ * through the side door.
+ *
+ * Note this INVALIDATES rather than refetches: the next read is fresh, and a
+ * screen nobody is looking at pays nothing. Re-pulling every record a long
+ * session had ever opened would turn one blip into a stampede. */
+export function invalidatePrefix(prefix: string): void {
+  // Snapshot the keys: `invalidate` deletes from the very Map this iterates.
+  for (const key of [...cache.keys()]) if (key.startsWith(prefix)) invalidate(key)
+}
+
 /** Seed/replace a cached entry — e.g. after a mutation returns fresh data, so
  * the screen updates instantly without a round-trip. */
 export function primeCache(key: string, value: unknown): void {

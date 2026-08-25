@@ -207,7 +207,7 @@ input lived only in component state. **Rule: every form dialog persists its draf
   unmounts from navigation — the case we protect. All drafts drop on sign-out
   (`clearAllFormDrafts`).
 - Machine-enforced: every dialog in `FORM_DIALOGS` (`shared/rules/registry.ts`) must
-  route its state through `useFormDraft` — checked by `web/test/rules.test.ts`.
+  route its state through `useFormDraft` — checked by `web/test/rules/ui.test.ts`.
 
 ## The agent-modules resources (BUILT 2026-06-23)
 

@@ -1,7 +1,7 @@
 // "IT SAID NO" AND "IT SAID NOTHING" ARE NOT THE SAME ANSWER.
 //
 // This is the behavioural half of R11's internal hop. The source scan in
-// `web/test/rules.test.ts` proves no worker calls a service binding directly; it
+// `web/test/rules/worker.test.ts` proves no worker calls a service binding directly; it
 // cannot prove what a caller DOES with the answer, because that needs the meaning
 // of the code and not its shape. This file covers exactly that gap.
 //

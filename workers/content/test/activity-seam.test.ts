@@ -1,6 +1,6 @@
 // R25, the parts a source scan cannot see.
 //
-// The scan in `web/test/rules.test.ts` proves the log is append-only, that the
+// The scan in `web/test/rules/activity.test.ts` proves the log is append-only, that the
 // rule is stated once, and that the origin column exists. It cannot prove what
 // the writer actually PUTS in a row — and every one of the properties below is
 // the kind that fails silently: a row still gets written, it just says less than

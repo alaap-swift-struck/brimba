@@ -10,6 +10,61 @@ import { describe, expect, it } from "vitest"
 import { ROOT, read } from "./_paths"
 
 describe("RULES — what the documents claim", () => {
+  // Every backticked repo path a root document names must EXIST.
+  //
+  // Written 2026-08-25, after one test file was split into eight and left
+  // FIFTEEN dangling pointers across the canon — in RULES.md, CLAUDE.md,
+  // README.md, CACHING.md, BASE-MANUAL.md, four worker test headers and the
+  // glossary. Every one of them told a reader to open a file that no longer
+  // existed, and the build stayed green through all of it, because nothing
+  // anywhere compared a documented path to the disk.
+  //
+  // That is the whole failure mode this campaign keeps finding: a claim nobody
+  // machine-checks rots silently, and prose rots fastest of all. A path is the
+  // one kind of claim a document makes that a computer can settle outright.
+  it("doc-paths-resolve: every repo path a document names is a path that exists", () => {
+    // Only paths that are unambiguously THIS repo's: a slash, a known top-level
+    // directory, and a file extension. A bare word in backticks is a symbol, a
+    // glob is a pattern, and `~/.claude/...` belongs to another repo entirely.
+    const REPO_PATH = /`((?:web|workers|shared|scripts|db)\/[A-Za-z0-9._*/-]+\.[a-z]+)`/g
+    // NAMED, with a reason each — the repo's own convention for an exemption, so
+    // that "this path is allowed not to exist" is a decision on the record and
+    // not a hole in the regex. A path missing from here is a finding.
+    const EXEMPT: Record<string, string> = {
+      "web/components/note-detail.tsx":
+        "the worked example — BUILD-A-MODULE walks the reader through building a `notes` module that deliberately does not exist. A guide that could only name files already written would be no guide.",
+      "workers/tenancy/src/lib/screens-config.ts":
+        "deliberately historical — SCREEN-ENGINE-PLAN records the screen-override subsystem removed on 2026-08-25, and a design record that cannot name what it removed is not a record.",
+    }
+    // Generated reports are OUTPUT, not canon: a skill overwrites them wholesale
+    // on its next run, so a stale path in one is a stale artefact, not a stale
+    // claim, and holding the gate red until someone re-runs a report would make
+    // this check a nuisance rather than a guard.
+    const GENERATED = /-(report|review)\.md$/
+    const dangling: string[] = []
+    for (const file of readdirSync(ROOT).filter((f) => f.endsWith(".md") && !GENERATED.test(f))) {
+      const doc = read(join(ROOT, file))
+      for (const m of doc.matchAll(REPO_PATH)) {
+        const claimed = m[1]
+        // A `*` is a family, not a file — `workers/*/test/publish-seam.test.ts`
+        // is a true statement about seven files. Resolve the first segment that
+        // globs and accept the claim if ANY sibling matches.
+        if (claimed.includes("*")) {
+          const [head] = claimed.split("*")
+          const dir = join(ROOT, head.slice(0, head.lastIndexOf("/")))
+          if (!EXEMPT[claimed] && !existsSync(dir)) dangling.push(`${file} → ${claimed}`)
+          continue
+        }
+        if (EXEMPT[claimed]) continue
+        if (!existsSync(join(ROOT, claimed))) dangling.push(`${file} → ${claimed}`)
+      }
+    }
+    expect(
+      dangling,
+      `a document points at a file that does not exist:\n  ${dangling.join("\n  ")}`
+    ).toEqual([])
+  })
+
   it("runbook-migrations-current: BOOTSTRAP names the migrations that exist on disk", () => {
     // A day-zero runbook is only as good as its last edit. BOOTSTRAP.md claimed
     // core `0001`–`0013` while seventeen were on disk, and team `0001`…`0006`

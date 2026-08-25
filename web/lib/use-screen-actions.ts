@@ -108,8 +108,15 @@ export function useScreenActions(teamId: string | null) {
   // Raise a help ticket — its own handler (a small object payload). Primes the list
   // so the ticket shows at once; the realtime "add" ping refreshes everyone else.
   const createHelp = React.useCallback(
-    async (input: { description: string; helpType?: string }) => {
+    async (input: { description: string; helpType?: string; sourceScreen?: string }) => {
       if (!teamId) return
+      // FORWARDED WHOLE, so the type has to say so. `sourceScreen` — the "Raised
+      // from" the form auto-fills off the breadcrumb — reached the door only
+      // because this passes `input` by reference; the type never mentioned it, so
+      // the field survived on an accident of style. Anyone tidying this into
+      // `createHelp({ description, helpType })` would have deleted the feature
+      // silently, and no test would have noticed. A type that under-describes what
+      // it forwards is a trap laid for the next reader.
       const { created, total, mineTotal } = await contentApi.createHelp(input)
       // Both scopes: you raised it, so it belongs in All AND in My tickets.
       await applyCreated({ listKey: helpKey(teamId, "all"), created })

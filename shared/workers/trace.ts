@@ -260,7 +260,18 @@ export const SLOW_MS = 1_000
  * NOT `traceError`: a slow hop that succeeded is not an error, and stamping it
  * as one is how alerting rules get switched off (same reasoning as `timed`).
  */
-export const HOP_SLOW_MS = 0 /* DIAGNOSTIC RUN — restore to 250 */
+/**
+ * 150ms, and the number is argued rather than felt. Every hop in this system does
+ * work measured in fractions of a millisecond — a D1 statement's own
+ * `sql_duration_ms` is 0.1–0.3ms whichever database it runs against — so anything
+ * above about a tenth of a second is transport, not computation. 150 is low
+ * enough to catch a cross-region round trip (measured 2026-08-25: 245ms
+ * Amsterdam→Osaka, 207ms Singapore→Amsterdam) and high enough that a co-located
+ * deployment says nothing at all. A line that disappears when the fault is fixed
+ * is the right kind of line; a threshold set above the fault (250 would have
+ * hidden both numbers above) is how a measurement gets built and still misses.
+ */
+export const HOP_SLOW_MS = 150
 
 export function traceHop(fields: {
   req?: string

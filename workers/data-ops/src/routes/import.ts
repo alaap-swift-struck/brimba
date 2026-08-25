@@ -185,6 +185,20 @@ export async function postBatchConfirm(request: Request, env: Env): Promise<Resp
   for (const m of planModules(view.plan)) await requireRight(cfg, guard, m, "create")
   const { report, modules } = await confirmBatch(env, request, cfg, guard, actor, body.batchId)
   for (const m of modules) await publishChange(env.REALTIME, guard.teamId, m)
+  // …AND THE BATCH ROW ITSELF. The imported tables were published and the import
+  // HISTORY never was: `import-batches:<teamId>` is a real subscribed screen (the
+  // Past imports list under the drop zone) and nothing in the base had ever
+  // pinged it, so a run stayed invisible to every teammate — and to the runner's
+  // other devices — until somebody reloaded. Two admins importing in parallel
+  // each saw only their own. The listener has been sitting ready and idle.
+  //
+  // `add` because that is what a listener OBSERVES: the row was inserted as a
+  // draft by /batch, which publishes nothing, so this ping is the first time the
+  // batch exists as far as anyone else's screen is concerned. (The coarse
+  // listener ignores `op` — it drops the one key and re-reads — so this is
+  // description, not instruction.) Awaited, like the module pings above: a bare
+  // publish is cancelled when the isolate finishes and never arrives (R1).
+  await publishChange(env.REALTIME, guard.teamId, "data_import_batches", body.batchId, "add")
   return json({ report })
 }
 
