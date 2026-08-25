@@ -235,12 +235,24 @@ The catalogue is opt-in, so an absence is a decision. Here is every one, named �
 because an undocumented absence is indistinguishable from an oversight, and the
 next person maintaining this needs to tell them apart.
 
+**Every row below is machine-checked** against `MCP_TOOLS` by
+`workers/mcp/test/catalog.test.ts`. Until 2026-08-25 it was not, and this table
+was wrong: it claimed that creating an invite, revoking an invite and setting
+role permissions were "deliberately kept to the UI", while `create_invite`,
+`revoke_invite` and `set_role_permissions` had all been live tools since 8 July.
+`git log -S` traces those rows to the commit of an MCP-parity audit that scored
+98/100 — the audit had found a coverage gap and closed it by writing a doc saying
+the gap was intentional. The doc was false the day it shipped, and nothing could
+notice, because the claim and its evidence had the same author.
+
+That is the general lesson, and it is why the check exists: **a documented
+exclusion must be checked against the code it excludes.**
+
 | Not exposed | Why |
 |---|---|
 | `admin/migrate-teams`, `admin/move-module`, `admin/db-sizes`, `admin/errors` | owner-only maintenance, gated by `ADMIN_KEY` rather than a role. A token holder is a USER; these are operator actions. |
 | `bootstrap`, `switch-team`, `invitations/accept` | identity-sensitive self-actions. A token is pinned to ONE team by design — letting it switch teams would defeat that. |
-| `invites` (create), `invites/revoke` | inviting a person is a membership change with an email side effect. Deliberately kept to the UI, where the human sees who they are inviting. |
-| `teams` (create), `teams/update`, `roles/permissions` | changing the shape of a tenant or a permission sheet. A machine caller may USE rights; it may not GRANT them. |
+| `teams` (create), `teams/update` | changing the shape of a tenant. |
 | `learning/upload` | binary upload; the raw-body wire format is not a good fit for a JSON-RPC tool. |
 | `learning/done`, `help/stakeholders` | per-person state on someone's behalf, which the act-as-you model makes ambiguous. |
 | `learning/bulk-active`, `help/bulk-status`, `help/bulk-status-by-filter` | bulk writes. `plan_import` is the supported machine path for changing many rows, because it shows what it will do first. |

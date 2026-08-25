@@ -93,7 +93,7 @@ quota tables. Create it for each environment and apply the core migrations in
 npx wrangler d1 create brimba-core-staging
 npx wrangler d1 create brimba-core
 
-# Apply every core migration (0001…0013) to each env. Any core-bound worker can run it;
+# Apply every core migration (0001…0017) to each env. Any core-bound worker can run it;
 # auth is the canonical one. Run WITHOUT --env for production.
 cd workers/auth
 npx wrangler d1 migrations apply brimba-core-staging --env staging --remote
@@ -101,7 +101,32 @@ npx wrangler d1 migrations apply brimba-core --remote
 cd ../..
 ```
 
-The current core migrations are `0001`–`0013` (0013 = `mcp_tokens` + `sessions.team_pin` — the MCP front desk) (users, teams, team_members, the
+### The OPERATIONS database — do not skip this
+
+```bash
+# The exhaust (error_logs and friends) lives AWAY from the records, in its own
+# database bound as OPS. Paste each returned database_id into the five workers
+# that carry an OPS binding.
+npx wrangler d1 create brimba-ops-staging
+npx wrangler d1 create brimba-ops
+
+# Apply the ops migrations (db/ops/0001…0002) to each env.
+cd workers/auth
+npx wrangler d1 migrations apply brimba-ops-staging --env staging --remote
+npx wrangler d1 migrations apply brimba-ops --remote
+cd ../..
+```
+
+> **Why this has its own heading.** Until 2026-08-25 this database appeared
+> nowhere in this runbook, and the word "OPS" did not appear in it at all — while
+> five workers shipped an `OPS` binding carrying the ORIGINAL author's database
+> ids. `shared/workers/ops-db.ts` has an `env.OPS ?? env.DB` fallback written for
+> exactly this case, and it is defeated, because the binding arrives *present* and
+> pointing somewhere that is not yours. Worse, `logError` swallows its own
+> failure, so a fresh environment that skipped this step looks completely healthy
+> and records nothing at all. (Base-fork + story reviews, 2026-08-25.)
+
+The current core migrations are `0001`–`0017` (users, teams, team_members, the
 email-change security records, account activity, the import catalog, and the three
 agent quota tables `agent_usage` / `agent_credits` / `agent_usage_log`, plus the
 central error log `error_logs`). DATA-MODEL.md
@@ -109,7 +134,7 @@ lists every table. **Migrations are additive — never edit an applied one.**
 
 > **Per-team databases are NOT created here.** Each team's database is created at
 > runtime when the team is created (`applyTeamSchema` runs the `TEAM_MIGRATIONS` from
-> `workers/tenancy/src/team-schema.ts` — `0001`…`0006` today). You only apply *team-schema* migrations to
+> `workers/tenancy/src/team-schema.ts` — `0001`…`0008` today). You only apply *team-schema* migrations to
 > *existing* teams later, via the migrate-teams robot (§7).
 
 ---

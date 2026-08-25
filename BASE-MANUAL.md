@@ -384,7 +384,7 @@ hoped. This is the mechanism.
 
 A Law lives in three linked places:
 
-- **`RULES.md`** — the human-readable law-book (R1–R8), one row per law.
+- **`RULES.md`** — the human-readable law-book (R1–R25), one row per law.
 - **`shared/rules/registry.ts`** — the same laws *as data* (`RULES_REGISTRY`),
   each carrying the `checkId` of the test that enforces it. Deny-lists (the
   reviewed exceptions) also live here as data, so every exception is a visible,

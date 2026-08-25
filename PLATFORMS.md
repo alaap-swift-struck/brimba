@@ -88,11 +88,11 @@ rewrite. In rough effort order:
 5. **Serve the static web bundle** (`web/out`) from the platform's static host (native
    on Vercel/Netlify; a bucket+CDN elsewhere).
 6. **Point the config seams**: the email sender and `AGENT_MODEL`. No code.
-7. **Re-run the gates**: `npm run check` (the app code is unchanged, so the Laws R1–R10
+7. **Re-run the gates**: `npm run check` (the app code is unchanged, so the Laws R1–R25
    still hold), then the platform's own smoke.
 
 **What never changes in a port:** the app logic, the 7-worker split, the permission
-spine (`requireRight`), the Laws (R1–R10), the screen engine, the glossary, the agent.
+spine (`requireRight`), the Laws (R1–R25), the screen engine, the glossary, the agent.
 That's the payoff of the seams — you rewrite ~4 files, not the product.
 
 ---

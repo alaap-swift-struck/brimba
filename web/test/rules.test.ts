@@ -55,6 +55,23 @@ describe("RULES — the laws of the base", () => {
     const md = read(join(ROOT, "RULES.md"))
     const inDoc = [...md.matchAll(/^\|\s*(R\d+[a-z]?)\s*\|/gm)].map((m) => m[1])
     expect(new Set(inDoc)).toEqual(new Set(ids))
+
+    // AND EVERY OTHER DOCUMENT THAT STATES A RANGE. This check read exactly one
+    // file, which is precisely why RULES.md was the one law list that stayed
+    // right: four others drifted because nothing looked at them. On 2026-08-25
+    // README.md said R1–R19, PLATFORMS.md said R1–R10 twice, CLAUDE.md said
+    // R1–R23, and BASE-MANUAL.md said R1–R8 while offering R9 as "a natural next
+    // Law" — R9 having been enforced since 4 August with a different meaning.
+    //
+    // The general rule, and the one worth carrying to the next base: a fact
+    // stated in more than one document needs exactly one machine-checked source.
+    const top = Math.max(...ids.map((i) => Number(i.replace(/\D/g, ""))))
+    const stale: string[] = []
+    for (const f of readdirSync(ROOT).filter((f) => f.endsWith(".md"))) {
+      for (const m of read(join(ROOT, f)).matchAll(/R1\s*[–-]\s*R(\d+)/g))
+        if (Number(m[1]) !== top) stale.push(`${f} says R1–R${m[1]}, the registry holds R1–R${top}`)
+    }
+    expect(stale, `a document states a law range that is not the registry's: ${stale.join("; ")}`).toEqual([])
   })
 
   // R2 — every record-detail screen exposes Overview + Activity tabs. The
@@ -786,6 +803,32 @@ describe("RULES — the laws of the base", () => {
   // registry, a coarse invalidation, or a reasoned exemption). Publishing to
   // nobody is the silent half of the stale-screen bug. The publisher set is
   // DERIVED by scanning publishChange calls — never hand-listed.
+  it("runbook-migrations-current: BOOTSTRAP names the migrations that exist on disk", () => {
+    // A day-zero runbook is only as good as its last edit. BOOTSTRAP.md claimed
+    // core `0001`–`0013` while seventeen were on disk, and team `0001`…`0006`
+    // while eight were — and it did not mention the OPERATIONS database at all,
+    // though five workers ship an `OPS` binding. A fresh environment built by
+    // following it recorded no errors whatsoever, and looked healthy doing it,
+    // because `logError` swallows its own failure.
+    // (Base-fork + story reviews, 2026-08-25.)
+    const doc = read(join(ROOT, "BOOTSTRAP.md"))
+    const highest = (dir: string) =>
+      Math.max(...readdirSync(join(ROOT, dir)).map((f) => Number(f.slice(0, 4))).filter((n) => !isNaN(n)))
+    const core = highest("db/core")
+    const ops = highest("db/ops")
+    const team = Math.max(
+      ...[...read(join(ROOT, "workers", "tenancy", "src", "team-schema.ts")).matchAll(/"(\d{4})_/g)].map((m) => Number(m[1]))
+    )
+    expect(doc, `BOOTSTRAP must name core migrations up to ${String(core).padStart(4, "0")}`).toContain(
+      `\`0001\`–\`${String(core).padStart(4, "0")}\``
+    )
+    expect(doc, `BOOTSTRAP must name team migrations up to ${String(team).padStart(4, "0")}`).toContain(
+      `\`0001\`…\`${String(team).padStart(4, "0")}\``
+    )
+    expect(doc, "BOOTSTRAP must stand up the OPERATIONS database — five workers bind it").toMatch(/ops/i)
+    expect(ops, "db/ops must have migrations for the runbook to apply").toBeGreaterThan(0)
+  })
+
   it("root-layout-renders-what-it-imports: an import that goes nowhere is not a mount", () => {
     // ERROR-HANDLING.md C1 says the root error boundary wraps the app. It was
     // IMPORTED into web/app/layout.tsx on 19 June and never rendered — `git log -S`

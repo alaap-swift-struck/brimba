@@ -97,3 +97,43 @@ describe("personal access tokens", () => {
     expect(await sha256Hex(s1)).not.toBe(await sha256Hex(s2))
   })
 })
+
+// THE EXCLUSION TABLE IS CHECKED AGAINST THE CODE.
+//
+// MCP.md carries a table of endpoints deliberately NOT exposed as tools. Until
+// 2026-08-25 nothing verified it, and it was wrong: it stated that creating an
+// invite, revoking an invite and setting role permissions were "deliberately kept
+// to the UI", while `create_invite`, `revoke_invite` and `set_role_permissions`
+// had been live tools since 8 July. Those rows were written by an MCP-parity
+// audit, to close a coverage gap the audit itself had found — a claim and its
+// evidence with the same author, and no way for anyone to notice.
+//
+// So: no row in the table may name a path that a live tool actually forwards to.
+describe("MCP.md's exclusion table", () => {
+  const doc = readFileSync(join(__dirname, "..", "..", "..", "MCP.md"), "utf8")
+  const rows = doc
+    .slice(doc.indexOf("| Not exposed | Why |"))
+    .split("\n")
+    .filter((l) => l.startsWith("| `"))
+
+  it("was found at all", () => {
+    expect(rows.length, "the exclusion table moved or was renamed — this check has gone blind").toBeGreaterThan(4)
+  })
+
+  it("names nothing that is actually exposed", () => {
+    // A row cites endpoints as backticked fragments of their path, e.g.
+    // `invites/revoke` or `config/screens`. A tool's `path` is the full route.
+    const exposed = MCP_TOOLS.map((t) => t.path)
+    const lies: string[] = []
+    for (const row of rows) {
+      const claim = row.slice(0, row.indexOf("|", 1))
+      for (const m of claim.matchAll(/`([a-z0-9/_-]+)`/g)) {
+        const fragment = m[1].replace(/\/\*$/, "")
+        if (fragment.length < 5) continue // too short to match meaningfully
+        const hit = exposed.find((p) => p.endsWith(`/${fragment}`) || p.endsWith(fragment))
+        if (hit) lies.push(`MCP.md says \`${fragment}\` is not exposed, but a tool forwards to ${hit}`)
+      }
+    }
+    expect(lies, `the exclusion table contradicts the tool catalogue: ${lies.join("; ")}`).toEqual([])
+  })
+})
