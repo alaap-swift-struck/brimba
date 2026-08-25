@@ -52,11 +52,74 @@ const rel = (p: string) => p.slice(ROOT.length).replace(/^[/\\]/, "")
 
 export const read = (p: string) => readFileSync(p, "utf8")
 
-/** Comments are NOT code. Block comments first; line comments only when the
- * `//` is not part of a `https://` URL. SQL and template literals are left
- * intact — R14 reads LIMIT out of them. */
+// Comments are NOT code — so `// no LIMIT needed here` cannot satisfy the very
+// bound it describes the absence of, and a comment naming a seam cannot stand in
+// for calling it.
+//
+// A LEFT-TO-RIGHT SCANNER, not two regexes. The regex version ran the BLOCK pass
+// first, so a block-open sequence occurring inside a LINE comment opened a block
+// that was never opened and swallowed everything up to the next terminator. One
+// line in the root layout named a path ending "icons" then a slash-star, and
+// that ate the next 1,500 characters of real code — including the JSX every
+// mounted component appears in, so a check asking "is this component rendered?"
+// answered no about a component plainly on screen.
+//
+// Fifteen files in this repo contain the pattern, three of them worker entry
+// points that Law checks read THROUGH this function. Found on 2026-08-25 only
+// because a NEW check failed on something visibly present. Every older check
+// using it had simply been reading less of those files than it believed.
+//
+// Strings and template literals are preserved WHOLE — R14 reads LIMIT out of
+// them — and a `//` inside one is not a comment.
 export function stripComments(src: string): string {
-  return src.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/[^\n]*/gm, "$1")
+  let out = ""
+  let i = 0
+  while (i < src.length) {
+    const c = src[i]
+    const next = src[i + 1]
+    // A comment, in either form. Line comments end at the newline (which is
+    // kept, so line numbers survive); block comments end at their terminator.
+    if (c === "/" && next === "/") {
+      while (i < src.length && src[i] !== "\n") i++
+      continue
+    }
+    if (c === "/" && next === "*") {
+      i += 2
+      while (i < src.length && !(src[i] === "*" && src[i + 1] === "/")) i++
+      i += 2
+      out += " "
+      continue
+    }
+    // A string or template literal is copied verbatim — its contents are data,
+    // and a `//` inside a URL is not the start of a comment.
+    if (c === '"' || c === "'" || c === "`") {
+      const quote = c
+      out += c
+      i++
+      let depth = 0
+      while (i < src.length) {
+        const ch = src[i]
+        if (ch === "\\") {
+          out += src.slice(i, i + 2)
+          i += 2
+          continue
+        }
+        if (quote === "`" && ch === "$" && src[i + 1] === "{") depth++
+        else if (quote === "`" && ch === "}" && depth > 0) depth--
+        else if (ch === quote && depth === 0) {
+          out += ch
+          i++
+          break
+        }
+        out += ch
+        i++
+      }
+      continue
+    }
+    out += c
+    i++
+  }
+  return out
 }
 
 /** The source of ONE top-level declaration, starting at `from`.
@@ -123,7 +186,7 @@ function walkSources(dir: string, ext: string): [string, string][] {
     for (const e of readdirSync(d, { withFileTypes: true })) {
       const p = join(d, e.name)
       if (e.isDirectory()) walk(p)
-      else if (e.name.endsWith(ext)) out.push([p.slice(ROOT.length), read(p)])
+      else if (e.name.endsWith(ext)) out.push([rel(p), read(p)])
     }
   }
   walk(dir)

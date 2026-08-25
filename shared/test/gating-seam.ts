@@ -28,6 +28,8 @@
 
 import { readFileSync, readdirSync } from "node:fs"
 import { join } from "node:path"
+
+import { declarationBody } from "./source"
 import { describe, expect, it } from "vitest"
 
 /** The shape of a worker's ROUTES table this scan needs. */
@@ -44,10 +46,16 @@ function exportedFunctions(dir: string): Map<string, string> {
   const out = new Map<string, string>()
   for (const file of readdirSync(dir).filter((f) => f.endsWith(".ts"))) {
     const code = readFileSync(join(dir, file), "utf8")
-    const starts = [...code.matchAll(/export\s+async\s+function\s+(\w+)/g)]
-    starts.forEach((m, i) => {
-      out.set(m[1], code.slice(m.index, starts[i + 1]?.index ?? code.length))
-    })
+    for (const m of code.matchAll(/export\s+async\s+function\s+(\w+)/g))
+      // `declarationBody`, NOT a slice to the next EXPORTED function. The old
+      // version swallowed every non-exported helper in between and read their
+      // text as the handler's own — so deleting `postImportConfirm`'s
+      // `requireRight` left this suite GREEN, because the slice ran past the
+      // closing brace into the private `requireAnyImportRight`, whose
+      // declaration line matches the gate pattern below. A security check that
+      // passes over a removed gate is worse than no check: it is a reason not to
+      // look. (Security sentry, 2026-08-25.)
+      out.set(m[1], declarationBody(code, m.index!))
   }
   return out
 }

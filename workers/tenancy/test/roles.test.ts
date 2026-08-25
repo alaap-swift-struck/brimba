@@ -32,10 +32,29 @@ const guard = { userId: "ME", teamId: "TEAM", roleId: "ADMIN", databaseId: "db" 
 const actor = { id: "ME", email: "me@x.com", name: "Me" }
 
 /** Make d1Query answer the role lookup with the given row (or none = missing). */
-function roleLookup(role: { id: string; title: string; is_default: number } | null) {
-  d1Query.mockImplementation(async (_c, _db, sql: string) =>
-    sql.includes("FROM member_roles") ? (role ? [role] : []) : []
-  )
+/** `callerHolds` is the caller's OWN permission sheet. It defaults to a full one
+ * because a caller with nothing cannot legitimately grant anything: since
+ * 2026-08-25 `setRolePermissions` refuses to grant a right the actor does not
+ * hold, so a fixture with an empty sheet is a caller who may do nothing at all. */
+function roleLookup(
+  role: { id: string; title: string; is_default: number } | null,
+  callerHolds: "all" | "none" = "all"
+) {
+  const full = TEAM_MODULE_CATALOG.map((m) => ({
+    module: m.key,
+    can_read: 1,
+    can_create: 1,
+    can_edit: 1,
+    can_delete: 1,
+  }))
+  d1Query.mockImplementation(async (_c, _db, sql: string, params?: unknown[]) => {
+    if (sql.includes("FROM member_roles")) return role ? [role] : []
+    if (sql.includes("FROM role_permissions"))
+      // The caller's own sheet, versus the TARGET role's current sheet (empty —
+      // a fresh role holds nothing, which is what makes a grant a grant).
+      return params?.[0] === guard.roleId && callerHolds === "all" ? full : []
+    return []
+  })
 }
 
 beforeEach(() => {
@@ -80,6 +99,20 @@ describe("setRolePermissions", () => {
     await expect(
       setRolePermissions(cfg, guard, actor, "NOPE", {})
     ).rejects.toBeInstanceOf(GuardError)
+  })
+
+  it("refuses to grant a right the caller does not hold (no privilege amplification)", async () => {
+    // The escalation this closes: member_roles:edit could not tick every box on
+    // your OWN role, but nothing stopped you creating a role, granting IT
+    // everything, and inviting a plus-address of yourself into it. Three calls to
+    // full tenant admin, and reachable through the assistant and MCP too.
+    roleLookup({ id: "R", title: "Editor", is_default: 0 }, "none")
+    await expect(
+      setRolePermissions(cfg, guard, actor, "R", {
+        team_members: { read: true, create: true, edit: true, delete: true },
+      })
+    ).rejects.toMatchObject({ code: "privilege_amplification" })
+    expect(d1ExecScript, "nothing may be written when the grant is refused").not.toHaveBeenCalled()
   })
 
   it("re-applies auto-flip-read on the server before writing", async () => {

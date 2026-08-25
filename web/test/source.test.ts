@@ -1,0 +1,70 @@
+// The source reader reads its own repository. Everything below is a fault that
+// SHIPPED in the hand-rolled versions this module replaced.
+
+import { describe, expect, it } from "vitest"
+
+import { catchBodies, declarationBody, namedBody, stripComments, serverSources } from "@shared/test/source"
+
+describe("stripComments", () => {
+  it("removes both comment forms", () => {
+    expect(stripComments("a // gone\nb")).toContain("a")
+    expect(stripComments("a // gone\nb")).not.toContain("gone")
+    expect(stripComments("a /* gone */ b").replace(/\s+/g, " ")).toBe("a b")
+  })
+
+  it("does NOT let a block-open inside a LINE comment eat the code after it", () => {
+    // The fault, exactly: a path like `icons/*` in a line comment opened a block
+    // comment for the regex version, which then ran to the next terminator and
+    // swallowed every line between — including real, rendered JSX.
+    const src = [
+      "// the brand monogram (web/public/icons/*).",
+      "const KEEP_ME = 1",
+      "/* a genuine block */",
+      "const ALSO_KEEP = 2",
+    ].join("\n")
+    expect(stripComments(src)).toContain("KEEP_ME")
+    expect(stripComments(src)).toContain("ALSO_KEEP")
+  })
+
+  it("does not treat a URL's slashes as a comment", () => {
+    expect(stripComments('const u = "https://example.com/x"')).toContain("https://example.com/x")
+  })
+
+  it("leaves a template literal whole, so SQL keeps its LIMIT", () => {
+    expect(stripComments("const q = `SELECT 1 LIMIT ${n}`")).toContain("LIMIT ${n}")
+  })
+})
+
+describe("declarationBody", () => {
+  const src = ["export function a() {", "  return 1", "}", "", "export function b() {", "  FORBIDDEN", "}"].join("\n")
+
+  it("stops at the next top-level declaration, not at end of file", () => {
+    // `src.slice(src.indexOf(name))` read every function below the target too, so
+    // an assertion could be satisfied by unrelated code further down. One check
+    // was green for two months on other functions' text.
+    expect(declarationBody(src, src.indexOf("export function a"))).not.toContain("FORBIDDEN")
+  })
+
+  it("returns empty rather than the whole file when the name is gone", () => {
+    // So a rename makes its check FAIL instead of silently passing on everything.
+    expect(namedBody(src, "export function missing")).toBe("")
+  })
+})
+
+describe("catchBodies", () => {
+  it("returns only what is inside the catch", () => {
+    const src = 'try { A() } catch (e) { RECORD(e) }\nfunction other() { RECORD(1) }'
+    expect(catchBodies(src).join()).toContain("RECORD(e)")
+    expect(catchBodies(src).join()).not.toContain("function other")
+  })
+})
+
+describe("serverSources", () => {
+  it("sees the shared seams, not just the workers", () => {
+    // R11's scan walked `workers/*/src` only while carrying an exemption keyed to
+    // a `shared/` path — the exemption was the proof it was blind.
+    const paths = serverSources().map(([p]) => p)
+    expect(paths.some((p) => p.includes("shared/workers/"))).toBe(true)
+    expect(paths.some((p) => p.includes("workers/gateway/src"))).toBe(true)
+  })
+})

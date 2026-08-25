@@ -206,6 +206,56 @@ export async function setRolePermissions(
       "You can't change your own role's access rights — ask an admin."
     )
 
+  // NO PRIVILEGE AMPLIFICATION — the guard above states the right principle
+  // ("it must not be a ladder to every right you weren't given") and, on its own,
+  // only blocked the direct route. The indirect one walked straight round it:
+  //
+  //   1. create role Y                    (member_roles:create)
+  //   2. grant Y every right              (Y !== guard.roleId, so the check above
+  //                                        never fires)
+  //   3. invite you+2@yourdomain as Y     (the self-invite check compares exact
+  //                                        emails, and a plus-address is not one)
+  //   4. accept, switch role              -> full tenant admin, in three calls
+  //
+  // Also reachable through the assistant and through MCP, since both act as the
+  // signed-in user over these same doors. So the rule is the general one: you may
+  // not GRANT a right you do not hold yourself. Revoking is always allowed, and a
+  // right the target role already has is left alone — otherwise editing a role
+  // would silently strip whatever the editor happens to lack.
+  // (Security sentry, 2026-08-25.)
+  const [mine, current] = await Promise.all([
+    d1Query<PermRow>(
+      cfg,
+      guard.databaseId,
+      "SELECT module, can_read, can_create, can_edit, can_delete FROM role_permissions WHERE role_id = ?",
+      [guard.roleId]
+    ),
+    d1Query<PermRow>(
+      cfg,
+      guard.databaseId,
+      "SELECT module, can_read, can_create, can_edit, can_delete FROM role_permissions WHERE role_id = ?",
+      [roleId]
+    ),
+  ])
+  const sheet = (rows: PermRow[]) => new Map(rows.map((r) => [r.module, r]))
+  const mineBy = sheet(mine)
+  const nowBy = sheet(current)
+  const amplified: string[] = []
+  for (const m of TEAM_MODULE_CATALOG) {
+    const want = normalizeRights(value?.[m.key])
+    for (const right of ["read", "create", "edit", "delete"] as const) {
+      const adding = want[right] && nowBy.get(m.key)?.[`can_${right}`] !== 1
+      if (adding && mineBy.get(m.key)?.[`can_${right}`] !== 1)
+        amplified.push(`${right} on ${m.key.replace(/_/g, " ")}`)
+    }
+  }
+  if (amplified.length)
+    throw new GuardError(
+      403,
+      "privilege_amplification",
+      `You can only grant rights you hold yourself. Your role is missing: ${amplified.join(", ")}.`
+    )
+
   const statements = TEAM_MODULE_CATALOG.map((m) => {
     const n = normalizeRights(value?.[m.key])
     const bit = (b: boolean) => (b ? 1 : 0)

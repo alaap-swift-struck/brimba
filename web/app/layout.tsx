@@ -72,7 +72,14 @@ export default function RootLayout({
           <AmbientBackground />
           <ErrorReporter />
           <VersionWatch />
-          {children}
+          {/* THE ROOT ERROR BOUNDARY (ERROR-HANDLING.md C1). This component was
+            * imported here on 19 June and never rendered — `git log -S` shows it
+            * was never in this tree at all — while the ruleset and a test both
+            * stated it wrapped the root. `noUnusedLocals` is off, so an import
+            * that went nowhere kept the gate green for two months. A render crash
+            * showed a blank page and the promised recovery screen did not exist.
+            * (Error-log review, 2026-08-25.) */}
+          <ErrorBoundary label="root">{children}</ErrorBoundary>
           {/* The AI co-pilot rides ABOVE the routed screens (not inside any per-route
            * AppShell), so navigation — including the assistant's own screen-trace —
            * moves the page beneath it without ever closing the panel or dropping the

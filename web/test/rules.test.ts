@@ -786,6 +786,29 @@ describe("RULES — the laws of the base", () => {
   // registry, a coarse invalidation, or a reasoned exemption). Publishing to
   // nobody is the silent half of the stale-screen bug. The publisher set is
   // DERIVED by scanning publishChange calls — never hand-listed.
+  it("root-layout-renders-what-it-imports: an import that goes nowhere is not a mount", () => {
+    // ERROR-HANDLING.md C1 says the root error boundary wraps the app. It was
+    // IMPORTED into web/app/layout.tsx on 19 June and never rendered — `git log -S`
+    // shows it was never in that tree at all — while the ruleset and a test both
+    // said it was there. `noUnusedLocals` is off, so an import that went nowhere
+    // kept the gate green for two months and a render crash showed a blank page.
+    //
+    // The root layout is where "mounted at the root" claims live, so every
+    // component it imports must actually appear in its JSX. (Error-log review,
+    // 2026-08-25.)
+    const src = stripComments(read(join(WEB, "app", "layout.tsx")))
+    const imported: string[] = []
+    for (const m of src.matchAll(/^import \{([^}]+)\} from "[@./]/gm))
+      for (const name of m[1].split(",").map((n) => n.trim().split(" as ").pop()!.trim()))
+        if (/^[A-Z]/.test(name)) imported.push(name)
+    expect(imported.length, "no components found in the root layout's imports — the scan has gone blind").toBeGreaterThan(4)
+    const unmounted = imported.filter((n) => !new RegExp(`<${n}[\\s/>]`).test(src))
+    expect(
+      unmounted,
+      `imported into the root layout and never rendered: ${unmounted.join(", ")}`
+    ).toEqual([])
+  })
+
   it("live-collections: every published resource reaches a listener (no deaf publishers)", () => {
     const published = new Set<string>()
     for (const [, src] of workerSources()) {
