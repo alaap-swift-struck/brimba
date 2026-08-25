@@ -277,3 +277,38 @@ the surface nobody clicks through before shipping.
 - **Check the whole chain for flatteners.** One door's guard was inert because
   `|| ""` and `?? ""` upstream had already destroyed the distinction twice before
   the door saw it.
+
+## 15 · The reader every check trusts is the highest-leverage thing to get wrong
+
+Rounds 1–4 found fifteen blind checks. Round 5 found **three more faults in the
+one module all of them read source through** — and each was invisible for the
+same reason: the check did not error, it just quietly read something other than
+what it believed.
+
+| Fault | What it did | How it was found |
+|---|---|---|
+| A regex literal containing a quote | `/["]/` looked like a slash then an opening quote, so a "string" ran to the next quote ANYWHERE in the file. **Sixteen files** leaked their comments into what checks read as code | The fork sweep tripped over it |
+| `p.slice(ROOT.length)` | With a root of `"."`, `join(".", "workers")` drops the dot — so every path lost its first character. `workers/x` became `orkers/x`, and every check that EXEMPTS by path prefix matched nothing | A privilege-guard scan reported a file it could not name |
+| Treating every directory under `workers/` as a worker | Running any worker suite creates `workers/node_modules/.vite`. **Thirteen law checks went red at once** — running the tests poisoned the law checks | It happened mid-session |
+
+The comment-stripping fault is the second one found in that same function. The
+first — a block-comment pass that ate 1,500 characters of real code — was fixed
+in round 3 by rewriting it as a scanner. The scanner was *better* and still
+wrong, in the same direction: **it preserved things it should have removed, and
+a check that finds its word in a comment believes it found the code.**
+
+### What follows
+
+- **A shared reader deserves its own tests, and they must be sabotage-proven
+  like any law.** Every fault above is now pinned by a test that was watched to
+  fail. Before round 5 that module had four tests and three bugs.
+- **Prefer failing loudly to failing plausibly.** The `node_modules` fault turned
+  thirteen checks RED and was fixed in minutes. The regex fault turned nothing
+  red and had been there since the module was written. The loud one was cheap.
+- **Ask what a fault does to the DIRECTION of a check.** All three of these made
+  checks read *more* comment prose or *fewer* files — both of which make a check
+  more likely to pass. A reader bug that made checks fail spuriously would have
+  been found the day it landed.
+- **A gate that reddens for a silly reason gets distrusted**, and distrust is how
+  a real red gets waved through. `npm ls` in the wrong folder should never cost
+  thirteen law checks.
