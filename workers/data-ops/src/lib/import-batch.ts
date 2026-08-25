@@ -16,6 +16,8 @@ import { norm, TARGETS, type TargetDef } from "./targets"
 import { packParcels, resolveRow, scanRows } from "./import-plan"
 import { analyzeBatch, type AnalyzeFile } from "./import-agent"
 import { writeParcel, writeRow } from "./import"
+import { forwardToDoor } from "../../../../shared/workers/http"
+import { requestIdFrom } from "../../../../shared/workers/trace"
 
 const MAX_FILES = 8
 const MAX_ROWS_PER_FILE = 1000
@@ -158,9 +160,12 @@ async function buildResolvedMap(
 ): Promise<Map<string, string>> {
   const map = new Map<string, string>()
   if (!def.list) return map
-  const fetcher = def.endpoint.binding === "CONTENT" ? env.CONTENT : env.TENANCY
-  const res = await fetcher.fetch(`https://internal${def.list.path}`, {
-    headers: { Cookie: request.headers.get("Cookie") ?? "" },
+  const res = await forwardToDoor(def.endpoint.binding === "CONTENT" ? env.CONTENT : env.TENANCY, {
+    path: def.list.path,
+    method: "GET",
+    cookie: request.headers.get("Cookie") ?? "",
+    requestId: requestIdFrom(request),
+    origin: "import",
   })
   if (!res.ok) return map
   const data = (await res.json().catch(() => null)) as Record<string, unknown> | null

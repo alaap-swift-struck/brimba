@@ -28,97 +28,24 @@ import { SIMPLE_INVALIDATIONS, TEAM_RESOURCES } from "../lib/live-resources"
 import { NAV, TEAM_SECTIONS } from "../lib/pages"
 import { BASE_RECIPES } from "../lib/screens"
 
-/** Every worker's src .ts file (recursively), as [repo-relative path, source]. */
-function workerSources(): [string, string][] {
-  const out: [string, string][] = []
-  const walk = (d: string) => {
-    for (const e of readdirSync(d, { withFileTypes: true })) {
-      const p = join(d, e.name)
-      if (e.isDirectory()) walk(p)
-      else if (e.name.endsWith(".ts")) out.push([p.slice(ROOT.length), read(p)])
-    }
-  }
-  for (const w of readdirSync(join(ROOT, "workers"), { withFileTypes: true }))
-    if (w.isDirectory()) walk(join(ROOT, "workers", w.name, "src"))
-  return out
-}
+// R11's check once walked `workers/*/src` only while carrying an exemption for
+// `shared/workers/http.ts` — a path it could never reach. Every source reader in
+// this file now comes from ONE module, so a blind walk cannot be reinvented per
+// check. See shared/test/source.ts for the eight faults that produced it.
+import {
+  componentFiles,
+  declarationBody,
+  namedBody,
+  read,
+  serverSources,
+  stringLiterals,
+  stripComments,
+  workerSources,
+} from "../../shared/test/source"
 
 const HERE = dirname(fileURLToPath(import.meta.url)) // web/test
 const WEB = join(HERE, "..") // web/
 const ROOT = join(WEB, "..") // repo root
-const read = (p: string) => readFileSync(p, "utf8")
-
-/** Comments are NOT code. Without this, `// no LIMIT needed here` satisfies the
- * very bound it describes the ABSENCE of, and a comment naming a seam stands in
- * for calling it. Block comments go first; line comments only when the `//`
- * isn't part of a `https://` URL (SQL and template literals are left intact —
- * R14 reads LIMIT out of them). */
-function stripComments(src: string): string {
-  return src.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/[^\n]*/gm, "$1")
-}
-
-/** The source of ONE top-level declaration, starting at `from`. A top-level
- * declaration always begins at column 0, so the next one ends this one — slicing
- * to the next `export` instead swallows every private helper in between and
- * blames their SQL on the exported function above them. */
-function declarationBody(src: string, from: number): string {
-  const re = /\n(?:export |async function |function |const |class |type |interface )/g
-  re.lastIndex = from + 1
-  const next = re.exec(src)
-  return src.slice(from, next ? next.index : undefined)
-}
-
-/** Every string literal in a chunk of TypeScript — template, double- and
- * single-quoted. A template literal is returned WHOLE, interpolations and nested
- * templates included, because a SQL statement is often assembled that way
- * (`` `SELECT … ${cond ? `WHERE …` : ""} … LIMIT ${n}` ``) and its LIMIT belongs
- * to the same statement as its SELECT. Naive backtick-splitting stops at the
- * first nested backtick and cuts that statement in half. */
-function stringLiterals(src: string): string[] {
-  const out: string[] = []
-  let i = 0
-  while (i < src.length) {
-    const ch = src[i]
-    if (ch === "`") {
-      let j = i + 1
-      let depth = 0 // how many `${` we are inside — a backtick in there is nested
-      while (j < src.length) {
-        const c = src[j]
-        if (c === "\\") { j += 2; continue }
-        if (c === "$" && src[j + 1] === "{") { depth++; j += 2; continue }
-        if (c === "}" && depth > 0) { depth--; j++; continue }
-        if (c === "`" && depth === 0) break
-        j++
-      }
-      out.push(src.slice(i + 1, j))
-      i = j + 1
-      continue
-    }
-    if (ch === '"' || ch === "'") {
-      let j = i + 1
-      while (j < src.length && src[j] !== ch) j += src[j] === "\\" ? 2 : 1
-      out.push(src.slice(i + 1, j))
-      i = j + 1
-      continue
-    }
-    i++
-  }
-  return out
-}
-
-/** Every *.tsx under web/components (recursively). */
-function componentFiles(): string[] {
-  const out: string[] = []
-  const walk = (dir: string) => {
-    for (const e of readdirSync(dir, { withFileTypes: true })) {
-      const p = join(dir, e.name)
-      if (e.isDirectory()) walk(p)
-      else if (e.name.endsWith(".tsx")) out.push(p)
-    }
-  }
-  walk(join(WEB, "components"))
-  return out
-}
 
 describe("RULES — the laws of the base", () => {
   // L0 — the keystone: the doc, the data, and the table can't drift.
@@ -277,16 +204,39 @@ describe("RULES — the laws of the base", () => {
     // own error page: the browser is asking for HTML.
     const BINDINGS = ["AUTH", "TENANCY", "CONTENT", "DATAOPS", "MCP", "REALTIME"]
     const offenders: string[] = []
-    for (const [path, src] of workerSources()) {
+    // serverSources, NOT workerSources. This check walked `workers/*/src` only for
+    // its first week — while carrying, three lines above, an exemption keyed
+    // `shared/workers/http.ts`: a path it could not reach. The exemption was the
+    // proof it was blind and nobody read it that way.
+    for (const [path, src] of serverSources()) {
       const rel = path.replace(/^\//, "")
       if (rel.endsWith(SEAM) || EXEMPT[rel]) continue
+      const code = stripComments(src)
       for (const b of BINDINGS) {
         // `env.AUTH.fetch(` is the direct shape. A binding handed to a helper as an
         // ARGUMENT is fine — that helper is where the bound lives, which is the whole
         // point of having a seam.
-        if (new RegExp(`env\\.${b}\\.fetch\\(`).test(src)) offenders.push(`${rel} -> env.${b}.fetch`)
+        if (new RegExp(`env\\.${b}\\.fetch\\(`).test(code)) offenders.push(`${rel} -> env.${b}.fetch`)
+      }
+      // THE ALIAS. `const fetcher = x ? env.CONTENT : env.TENANCY` followed by
+      // `fetcher.fetch(...)` is the same unbounded, untraced hop with a local name
+      // in front of it. Three of them lived on the import path, invisible to the
+      // direct-shape regex above, each fanning one request into thousands of door
+      // calls with no timeout and no request id. (Architecture review, 2026-08-25.)
+      const alias = /(?:const|let)\s+(\w+)\s*(?::[^=\n]*)?=\s*([^\n;]*)/g
+      let a: RegExpExecArray | null
+      while ((a = alias.exec(code))) {
+        const [, name, rhs] = a
+        if (!BINDINGS.some((b) => new RegExp(`env\\.${b}\\b`).test(rhs))) continue
+        if (new RegExp(`\\b${name}\\.fetch\\(`).test(code)) offenders.push(`${rel} -> ${name}.fetch (aliased binding)`)
       }
     }
+    // The tripwire this check never had: it must SEE the shared seams, or it is
+    // reading a fraction of the base and reporting all clear.
+    expect(
+      serverSources().some(([p]) => p.includes("shared/workers/")),
+      "R11's scan cannot see shared/workers — the seams every worker imports are where its own exemption lives"
+    ).toBe(true)
     expect(
       offenders,
       `service binding called directly instead of through callService/proxyService (R11): ${offenders.join(", ")}`

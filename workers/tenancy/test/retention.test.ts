@@ -13,6 +13,8 @@ import { readFileSync, readdirSync } from "node:fs"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 
+import { namedBody } from "../../../shared/test/source"
+
 import {
   CORE_RETENTION,
   KEEP_FOREVER,
@@ -149,7 +151,10 @@ describe("cutoffFor", () => {
 // CLOSED (an empty reference set must never be read as "delete everything").
 describe("the orphaned-upload sweep", () => {
   const src = readFileSync(join(__dirname, "..", "src", "lib", "sharding.ts"), "utf8")
-  const fn = src.slice(src.indexOf("export async function sweepOrphanedUploads"))
+  // ONE declaration, not the rest of the file. `slice(indexOf(...))` read every
+  // function BELOW this one too, so an assertion could be satisfied by unrelated
+  // code further down and this suite would never know. (See shared/test/source.ts.)
+  const fn = namedBody(src, "export async function sweepOrphanedUploads")
 
   it("keeps anything recent, however unreferenced", () => {
     const days = Number(/ORPHAN_GRACE_DAYS = (\d+)/.exec(src)?.[1])
@@ -187,6 +192,33 @@ describe("the orphaned-upload sweep", () => {
     expect(src).toMatch(/ORPHAN_SCAN_CAP = [\d_]+/)
     expect(fn).toMatch(/limit: ORPHAN_SCAN_CAP/)
     expect(fn).toMatch(/listed\.truncated/)
+  })
+
+  it("reads the reference set WHOLE, or deletes nothing", () => {
+    // The fault this exists to prevent, live in the base until 2026-08-25:
+    //
+    //     SELECT content_link FROM learning WHERE … LIMIT 10000     <- no ORDER BY
+    //     …
+    //     for (const object of listed.objects)                      <- KEY order
+    //
+    // A capped reference read is not a smaller sweep. The delete loop walks
+    // objects in key order while the reference read returns rows in whatever
+    // order the database chose, so above the cap the two sets simply DISAGREE —
+    // and every referenced object missing from the truncated set is deleted once
+    // the grace period passes. Someone's attachment, gone, with a green suite.
+    //
+    // So: the read must page (keyset, so pages cannot overlap or gap), and
+    // hitting its bound must reach the SAME fail-closed path as a read that threw.
+    const read = fn.slice(fn.indexOf("let referenced"), fn.indexOf("const listed"))
+    expect(read, "the reference read must be ORDERed, or its pages cannot be trusted to tile").toMatch(/ORDER BY id/)
+    expect(read, "the reference read must page by key, not take one capped bite").toMatch(/id > \$\{sqlValue\(after\)\}/)
+    expect(
+      /throw new Error/.test(read),
+      "exceeding the bound must THROW into the fail-closed catch — carrying on with a partial set deletes real files"
+    ).toBe(true)
+    // And the catch it throws into must still skip the team.
+    const guard = fn.slice(fn.indexOf("} catch"), fn.indexOf("const listed"))
+    expect(/continue/.test(guard)).toBe(true)
   })
 
   it("runs on the nightly pass", () => {

@@ -18,6 +18,8 @@ import { DurableObject } from "cloudflare:workers"
 import type { SessionUser } from "../../../shared/types"
 import { fail, json } from "../../../shared/workers/http"
 import { isActiveMember } from "../../../shared/workers/membership"
+import { recordWorkerError } from "../../../shared/workers/error-log"
+import { opsDatabase } from "../../../shared/workers/ops-db"
 import { MAX_SHARDS, shardChannel, shardFor } from "../../../shared/workers/realtime"
 import { callService, REQUEST_ID_HEADER } from "../../../shared/workers/trace"
 
@@ -117,6 +119,22 @@ async function whoAmI(request: Request, env: Env): Promise<SessionUser | null> {
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
+    // THE CENTRAL CATCH. realtime has held a `DB` binding since it was written
+    // and recorded nothing into it — a crash in the switchboard surfaced as a
+    // bare platform 500 and left no row, so an outage in the live layer was
+    // invisible afterwards. `error-seam.test.ts` did not see this because its
+    // worker list was hardcoded to four names. (Reviews of 2026-08-25.)
+    try {
+      return await route(request, env)
+    } catch (e) {
+      await recordWorkerError(opsDatabase(env), "realtime", `${request.method} ${new URL(request.url).pathname}`, e, request)
+      return fail(500, "internal", "Something went wrong on our side. Try again.")
+    }
+  },
+} satisfies ExportedHandler<Env>
+
+async function route(request: Request, env: Env): Promise<Response> {
+  {
     const url = new URL(request.url)
 
     // Internal only (reached via service binding, never the public gateway):
@@ -184,5 +202,5 @@ export default {
     }
 
     return fail(404, "not_found", "No such realtime action.")
-  },
-} satisfies ExportedHandler<Env>
+  }
+}

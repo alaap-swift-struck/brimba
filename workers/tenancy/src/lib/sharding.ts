@@ -396,6 +396,8 @@ export const ORPHAN_GRACE_DAYS = 7
  * that tries to list an unbounded bucket is the same mistake as an unbounded
  * list endpoint (R14) — it just fails at 3am instead of in front of someone. */
 const ORPHAN_SCAN_CAP = 10_000
+/** One page of the reference read. Keyset, so the pages cannot overlap or gap. */
+const ORPHAN_PAGE = 1_000
 
 /**
  * Nightly: delete uploaded files that no record points at.
@@ -428,18 +430,37 @@ export async function sweepOrphanedUploads(
     // What this team's records actually point at. Read FIRST: if this read
     // fails, the sweep for this team is skipped entirely rather than running
     // with an empty reference set and deleting everything it can see.
+    // PAGED, and fail-closed if it cannot be completed. The reference set must be
+    // WHOLE: the delete loop below walks objects in KEY order while this read
+    // returns rows in whatever order the database chooses, so a truncated
+    // reference set is not a smaller sweep — it is a set that disagrees with the
+    // one being deleted from, and every referenced object missing from it is
+    // deleted once the grace period passes. A single `LIMIT` here silently lost
+    // real attachments above the cap. (Scaling review, 2026-08-25.)
     let referenced: Set<string>
     try {
-      const rows = await d1Query<{ content_link: string | null }>(
-        cfg,
-        team.database_id,
-        `SELECT content_link FROM learning WHERE content_link LIKE '/media/learning/%' LIMIT ${ORPHAN_SCAN_CAP}`
-      )
-      referenced = new Set(
-        rows
-          .map((r) => r.content_link?.split("?")[0].replace("/media/learning/", "") ?? "")
-          .filter(Boolean)
-      )
+      referenced = new Set<string>()
+      let after = ""
+      for (;;) {
+        const rows = await d1Query<{ id: string; content_link: string | null }>(
+          cfg,
+          team.database_id,
+          `SELECT id, content_link FROM learning
+             WHERE content_link LIKE '/media/learning/%'${after ? ` AND id > ${sqlValue(after)}` : ""}
+             ORDER BY id LIMIT ${ORPHAN_PAGE}`
+        )
+        for (const r of rows) {
+          const key = r.content_link?.split("?")[0].replace("/media/learning/", "") ?? ""
+          if (key) referenced.add(key)
+        }
+        if (rows.length < ORPHAN_PAGE) break
+        after = rows[rows.length - 1].id
+        // A bound, because an unbounded loop on a cron is its own fault. Hitting
+        // it means the set is incomplete, which is exactly the case that must
+        // NOT proceed to deletion.
+        if (referenced.size > ORPHAN_SCAN_CAP)
+          throw new Error(`more than ${ORPHAN_SCAN_CAP} referenced attachments`)
+      }
     } catch (e) {
       console.error(`orphan sweep: skipping team ${team.id}, could not read its references:`, e)
       continue

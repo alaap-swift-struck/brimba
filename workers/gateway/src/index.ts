@@ -50,7 +50,7 @@ async function serveObject(bucket: R2Bucket, key: string, request: Request): Pro
 const MODULE_SHELLS = ["learning", "help"]
 
 import { rateLimit, type RateLimiter } from "../../../shared/workers/rate-limit"
-import { proxyService, requestIdFrom, REQUEST_ID_HEADER, callService } from "../../../shared/workers/trace"
+import { proxyService, requestIdFrom, traceError, REQUEST_ID_HEADER, callService } from "../../../shared/workers/trace"
 import { ORIGIN_HEADER } from "../../../shared/workers/activity"
 
 type Env = {
@@ -74,6 +74,47 @@ type Env = {
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
+    // THE CENTRAL CATCH, on the ONE public door. Until 2026-08-25 this handler
+    // had none and the worker binds no database, so a throw here was a bare
+    // platform 500 with no `error_logs` row — on the only surface the internet
+    // can reach. `GET /media/%` is enough: `decodeURIComponent` throws a
+    // URIError, unauthenticated, and nothing recorded it.
+    //
+    // It records through AUTH's existing `/internal/log-error` door rather than
+    // taking a D1 binding of its own. The gateway is deliberately thin — giving
+    // the busiest worker in the base its own database handle to write one row
+    // per crash is a bigger change than the fault warrants, and the door is
+    // already used a few lines below for the browser's error beacon.
+    const requestId = requestIdFrom(request)
+    try {
+      return await route(request, env, requestId)
+    } catch (e) {
+      const place = `${request.method} ${new URL(request.url).pathname}`
+      traceError({ req: requestId, worker: "gateway", place, event: "unhandled", detail: String(e) })
+      await callService(
+        env.AUTH,
+        "https://internal/internal/log-error",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-internal-key": env.INTERNAL_KEY ?? "" },
+          body: JSON.stringify({
+            source: "gateway",
+            place,
+            message: e instanceof Error ? e.message : String(e),
+            stack: e instanceof Error ? e.stack : undefined,
+            url: request.url,
+            requestId,
+          }),
+        },
+        { req: requestId, worker: "gateway", place: "catch/record" }
+      )
+      return fail(500, "internal", "Something went wrong on our side. Try again.")
+    }
+  },
+} satisfies ExportedHandler<Env>
+
+async function route(request: Request, env: Env, req: string): Promise<Response> {
+  {
     const { pathname } = new URL(request.url)
 
     // THE REQUEST ID, minted once at the one public door and carried on every
@@ -81,7 +122,6 @@ export default {
     // one click; without this their log lines have nothing in common and an
     // incident is read by guessing which lines belong together. An inbound
     // x-request-id is honoured so a client or proxy can supply its own.
-    const req = requestIdFrom(request)
     // The forwarded request carries the id. Built once, and NOT used for the
     // WebSocket route below — a re-constructed Request loses the upgrade, so
     // that one path forwards the original object untouched.
@@ -251,5 +291,5 @@ export default {
     // Assets serves matching files BEFORE this Worker runs, so per-asset headers
     // must live in _headers, not here.
     return env.ASSETS.fetch(request)
-  },
-} satisfies ExportedHandler<Env>
+  }
+}

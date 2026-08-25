@@ -17,6 +17,8 @@ import type { Env } from "../env"
 import type { ImportColumn, ImportPreview } from "../../../../shared/types"
 import { parseCsv } from "./csv"
 import { autoMap, TARGETS, type TargetDef } from "./targets"
+import { forwardToDoor } from "../../../../shared/workers/http"
+import { requestIdFrom } from "../../../../shared/workers/trace"
 
 /** Hard cap on rows per import — keeps a single confirm bounded (each row is one
  * gated write). Larger files are rejected with a clear message. */
@@ -378,12 +380,23 @@ export async function writeRow(
   target: TargetDef,
   body: Record<string, unknown>
 ): Promise<{ ok: boolean; error?: string }> {
-  const fetcher = target.endpoint.binding === "CONTENT" ? env.CONTENT : env.TENANCY
-  const res = await fetcher.fetch(`https://internal${target.endpoint.path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Cookie: request.headers.get("Cookie") ?? "" },
-    body: JSON.stringify(body),
-  })
+  // THROUGH THE ONE FORWARD SEAM, not a hand-rolled fetch. The hand-rolled
+  // version was three things at once: an unbounded, untraced service call R11's
+  // check could not see (it aliased the binding to a local first), and a write
+  // that recorded `origin: "ui"` — so `origin: "import"`, a declared R25 value,
+  // was produced by nothing in the base while imports lied about their own
+  // provenance. (Reviews of 2026-08-25: architecture, error_log, interfacelessness.)
+  const res = await forwardToDoor(
+    target.endpoint.binding === "CONTENT" ? env.CONTENT : env.TENANCY,
+    {
+      path: target.endpoint.path,
+      method: "POST",
+      cookie: request.headers.get("Cookie") ?? "",
+      body,
+      requestId: requestIdFrom(request),
+      origin: "import",
+    }
+  )
   if (res.ok) return { ok: true }
   let error = `Couldn't add a row (HTTP ${res.status}).`
   try {
@@ -412,12 +425,17 @@ export async function writeParcel(
 ): Promise<{ ok: boolean; error?: string }> {
   const bulk = target.bulk
   if (!bulk) return { ok: false, error: "That table has no bulk import door." }
-  const fetcher = target.endpoint.binding === "CONTENT" ? env.CONTENT : env.TENANCY
-  const res = await fetcher.fetch(`https://internal${bulk.path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Cookie: request.headers.get("Cookie") ?? "" },
-    body: JSON.stringify({ rows: bodies }),
-  })
+  const res = await forwardToDoor(
+    target.endpoint.binding === "CONTENT" ? env.CONTENT : env.TENANCY,
+    {
+      path: bulk.path,
+      method: "POST",
+      cookie: request.headers.get("Cookie") ?? "",
+      body: { rows: bodies },
+      requestId: requestIdFrom(request),
+      origin: "import",
+    }
+  )
   if (res.ok) return { ok: true }
   let error = `The whole batch of ${bodies.length} row(s) was refused (HTTP ${res.status}) — no row in it was written.`
   try {
