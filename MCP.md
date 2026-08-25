@@ -257,10 +257,17 @@ exclusion must be checked against the code it excludes.**
 | `learning/done`, `help/stakeholders` | per-person state on someone's behalf, which the act-as-you model makes ambiguous. |
 | `learning/bulk-active`, `help/bulk-status`, `help/bulk-status-by-filter` | bulk writes. `plan_import` is the supported machine path for changing many rows, because it shows what it will do first. |
 | `import/*` (the six session endpoints) | a stateful multi-step flow. `plan_import` is the single tool that wraps it. |
-| `config/screens` | changes what every member of the team SEES. Note this is not "kept to the UI" — there is no UI for it either: the door has **no caller on any surface**, so the screen-override subsystem is currently unreachable. Finishing it or removing it is an open decision; see `reviews/dead-end.md`. |
 
 Everything else — reading and writing the actual records — is exposed, and each
 tool forwards to the same gated route the web app posts to.
+
+**`config/screens` was on this list until 2026-08-25 and is now a tool**
+(`set_screen_override`). It was listed as excluded because "it changes what every
+member of the team SEES" — but the door had no caller on ANY surface, so the
+exclusion was describing a subsystem that simply could not be reached rather than a
+decision anyone had made. It reshapes a screen for the whole team, so it **confirms
+before it runs** and needs the `screens:edit` right, which no role holds by
+default.
 
 **Two honest limits:**
 

@@ -211,6 +211,25 @@ export const SHARED_TOOLS: SharedTool[] = [
     agent: { write: true, confirm: true, summarize: (i, names) => `Set access rights for ${roleLabel(i, names)}` },
   },
 
+  /* -------------------------------- screens -------------------------------- */
+  {
+    name: "set_screen_override",
+    summary:
+      "Reshape one of the team's screens for EVERYONE in the team. `module` is the screen to change (team, team_members, member_roles, invites, learning, help, selectable_data); `recipe` is the screen recipe as JSON. This replaces what every member of the team sees on that screen until it is changed again — it is not a personal view.",
+    binding: "TENANCY", method: "POST", path: "/api/tenancy/config/screens",
+    schema: obj({ module: S, recipe: { type: "object" } }, ["module", "recipe"]),
+    buildBody: (i) => ({ module: str(i, "module"), recipe: i.recipe }),
+    // CONFIRM. This is the only tool in the catalogue whose effect lands on every
+    // other member's screen at once, and nothing about it is obvious from the
+    // outside — a person who did not ask for it just finds their screen different.
+    // That is squarely the "changes what everyone sees" case the confirm rule
+    // exists for, even though it destroys no data.
+    agent: {
+      write: true, confirm: true,
+      summarize: (i) => `Reshape the ${str(i, "module").replace(/_/g, " ")} screen for everyone in the team`,
+    },
+  },
+
   /* -------------------------------- members -------------------------------- */
   {
     name: "set_member_role",
@@ -374,6 +393,7 @@ export const TOOL_GATES: Record<string, string> = {
   update_role: "member_roles:edit",
   set_role_active: "member_roles:delete",
   set_role_permissions: "member_roles:edit",
+  set_screen_override: "screens:edit",
   set_member_role: "team_members:edit",
   remove_member: "team_members:delete",
   invite_member: "team_members:create",

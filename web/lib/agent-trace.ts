@@ -73,6 +73,14 @@ export function traceFor(
     case "get_role_permissions":
       return { path: `${seg(teamId, "roles")}/${str(input, "roleId")}`, highlight: "main" }
 
+    /* -------------------------------- screens ------------------------------ */
+    // Reshaping a screen → THAT screen. The whole point of this tool is that the
+    // change is visible, and the only place it is visible is the screen it
+    // reshapes — so the co-pilot lands you there and you watch it happen. The
+    // module name IS the screen segment.
+    case "set_screen_override":
+      return { path: seg(teamId, str(input, "module")), highlight: "main" }
+
     /* ------------------------------ dropdowns ------------------------------ */
     // Any dropdown write → the Dropdown values screen (one screen, no per-value URL).
     case "create_dropdown_value":

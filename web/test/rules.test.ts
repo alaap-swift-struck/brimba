@@ -845,6 +845,32 @@ describe("RULES — the laws of the base", () => {
     }
   })
 
+  it("vault-claims-match-reality: no document may say the vault exists when it does not", () => {
+    // `secrets.vault` has NEVER existed — `git log --all --diff-filter=A` returns
+    // nothing — while SECRETS.md said so twice, and OPERATIONS.md and CHANGELOG.md
+    // agreed. The project's own `vault:check` exits 1 saying "NO VAULT", and is not
+    // in any gate. So the one artefact standing between a lost laptop and lost
+    // credentials was absent, and four documents said it was there.
+    //
+    // This does not force the vault to exist — that needs a passphrase, which is
+    // the owner's alone. It forces the DOCUMENTS to stop claiming it does.
+    // (Ocean + security reviews, 2026-08-25.)
+    const sealed = existsSync(join(ROOT, "secrets.vault"))
+    if (sealed) return // the claim is true; nothing to police
+    const lies: string[] = []
+    for (const f of readdirSync(ROOT).filter((f) => f.endsWith(".md"))) {
+      for (const line of read(join(ROOT, f)).split("\n")) {
+        // A claim of EXISTENCE, not an instruction for how to make one.
+        if (/secrets\.vault/.test(line) && /\b(is committed|is sealed|lives in the repo|already (?:in|exists))\b/i.test(line))
+          lies.push(`${f}: ${line.trim().slice(0, 90)}`)
+      }
+    }
+    expect(
+      lies,
+      `secrets.vault does not exist, but a document says it does — run npm run vault:save or correct the wording: ${lies.join(" | ")}`
+    ).toEqual([])
+  })
+
   it("root-layout-renders-what-it-imports: an import that goes nowhere is not a mount", () => {
     // ERROR-HANDLING.md C1 says the root error boundary wraps the app. It was
     // IMPORTED into web/app/layout.tsx on 19 June and never rendered — `git log -S`

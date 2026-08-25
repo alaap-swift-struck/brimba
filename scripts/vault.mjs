@@ -18,16 +18,22 @@
 //   npm run vault:check    is the vault present, and does it match what's on disk?
 //
 // The cryptography is Node's own (`node:crypto`) rather than a shell-out to
-// openssl, for one reason that matters: the passphrase never crosses a process
-// boundary. No argument list (visible to every process on the machine via `ps`),
-// no environment variable, no temporary file. It is read straight into this
-// process and used there.
+// openssl: no argument list (visible to every process on the machine via `ps`),
+// no environment variable, no temporary file, nothing written to disk.
+//
+// It is NOT true that the passphrase never crosses a process boundary — this
+// comment and SECRETS.md both used to say so. `askPassphrase` below shells out to
+// /bin/sh to turn terminal echo off, and reads the value back over a pipe. Small
+// and local, but real, and a security claim that is false is worse than none.
 //
 //   AES-256-GCM  — authenticated, so a corrupted or tampered vault fails loudly
 //                  instead of decrypting to plausible rubbish.
-//   PBKDF2-SHA512, 600,000 iterations — what makes a passphrase a human can
-//                  actually remember survive an offline attack on the ciphertext.
-//                  (OWASP's 2023 floor for PBKDF2-SHA512 is 210,000.)
+//   PBKDF2-SHA512, 600,000 iterations — well above OWASP's 2023 floor of 210,000.
+//                  It buys TIME against a weak passphrase; it does not buy safety.
+//                  This repo is PUBLIC, so the ciphertext is available to everyone
+//                  for ever with unlimited time to attack it offline. Use a
+//                  GENERATED passphrase of 128 bits or more, from a password
+//                  manager — never one composed to be memorable.
 //   Random 16-byte salt + 12-byte IV per save, so saving twice never produces
 //                  the same bytes and nothing leaks through comparison.
 //

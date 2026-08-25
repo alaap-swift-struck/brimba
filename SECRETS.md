@@ -30,19 +30,41 @@ npm run vault:check    # is there a vault, is it committed? (prints key NAMES on
 the passphrase it is noise — and GCM is *authenticated*, so a corrupted or
 tampered vault fails loudly rather than decrypting to plausible rubbish. The key
 is stretched from the passphrase with PBKDF2-SHA512 at 600,000 iterations, which
-is what makes a passphrase a human can actually remember survive an offline
-attack on the file. A fresh random salt and IV each save, so saving twice never
-produces the same bytes.
+is what makes a WEAK passphrase survive an offline attack for a while. A fresh
+random salt and IV each save, so saving twice never produces the same bytes.
+
+**But this repository is PUBLIC, which changes the passphrase rule.** A public
+repo hands the ciphertext to everyone, for ever, with unlimited time to attack it
+offline — the one threat model where "a passphrase a human can remember" is the
+wrong answer, because PBKDF2 is the most GPU-friendly of the modern stretching
+functions and a memorable phrase is exactly what a wordlist attack is built for.
+600,000 iterations buys time against a weak passphrase; it does not buy safety.
+
+**Use a GENERATED passphrase of at least 128 bits** — your password manager's
+"generate" button, 20+ random characters or six or more random words. Do not
+compose one you can recall. You should never need to type it from memory: it lives
+in the password manager, and you paste it. (Security review, 2026-08-25.)
 
 **Why not plaintext, even in a private repo.** `CF_D1_TOKEN` can delete every
 database on the account. A private repo is one settings click, one added
 collaborator, or one forked CI job away from not being private. Encrypted costs
 you one passphrase and removes that entire class of accident.
 
-**The passphrase never leaves the process.** No command-line argument (visible to
-every process on the machine via `ps`), no environment variable, no temp file —
-`node:crypto` does the work in-process. Which also means: nobody but you ever
-types it, including any agent working on this repo.
+**Where the passphrase actually goes.** The cryptography runs in-process with
+`node:crypto` — no command-line argument (visible to every process via `ps`), no
+environment variable, no temp file. It is never written to disk and never sent
+anywhere.
+
+It does, however, cross a process boundary **twice**: `askPassphrase` shells out to
+`/bin/sh` to turn terminal echo off while you type, and reads the value back over a
+pipe. This document previously said "the passphrase never leaves the process",
+which was not true, and a security claim that is not true is worse than no claim —
+somebody plans around it. The exposure is small and local (a `read` in a short-lived
+child shell, no argument list, nothing on disk) but it is not nothing: anything that
+can already read that process's memory or its pipes on your machine could see it.
+
+What has always been true, and is the part that matters: **nobody but you ever types
+it, including any agent working on this repository.**
 
 ### The one rule
 
