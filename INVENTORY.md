@@ -72,5 +72,5 @@ Everything else is created by using the app. There is no fixture data to restore
 ## Single points of failure
 
 1. **One git remote.** GitHub is the only copy. A second remote costs one command — see the recommendation in `ocean-review.md`.
-2. **The vault passphrase.** `secrets.vault` is encrypted with a passphrase held by one person and stored nowhere in this repository. If it is lost, `SECRETS.md` §4 regenerates everything by hand — an afternoon, not a catastrophe.
+2. **The vault passphrase.** Once `npm run vault:save` has been run, `secrets.vault` will be encrypted with a passphrase held by one person and stored nowhere in this repository. **It has not been run yet.** If it is lost, `SECRETS.md` §4 regenerates everything by hand — an afternoon, not a catastrophe.
 3. **One maintainer.** Named above. `BOOTSTRAP.md` is the mitigation: it rebuilds the whole system from nothing, command by command.

@@ -920,8 +920,21 @@ describe("RULES — the laws of the base", () => {
     for (const f of readdirSync(ROOT).filter((f) => f.endsWith(".md"))) {
       for (const line of read(join(ROOT, f)).split("\n")) {
         // A claim of EXISTENCE, not an instruction for how to make one.
-        if (/secrets\.vault/.test(line) && /\b(is committed|is sealed|lives in the repo|already (?:in|exists))\b/i.test(line))
-          lies.push(`${f}: ${line.trim().slice(0, 90)}`)
+        //
+        // The first version looked for "is committed" / "is sealed". It was written
+        // ABOUT these exact three sentences and matched none of them — SECRETS.md
+        // says ", committed to the repo like anything else", OPERATIONS.md says
+        // ", committed and encrypted", INVENTORY.md uses a bare present tense.
+        // So the check that exists to stop documents claiming the vault is there
+        // sat green while three documents claimed exactly that. Found by
+        // mac_fell_in_the_ocean, round 3. Present-tense assertion is the signal;
+        // an imperative ("run `npm run vault:save`") is not.
+        if (!/secrets\.vault/.test(line)) continue
+        const claimsItExists =
+          /\bcommitted\b/i.test(line) ||
+          /`secrets\.vault` is\b/i.test(line) ||
+          /\b(is sealed|lives in the repo|already (?:in|exists))\b/i.test(line)
+        if (claimsItExists) lies.push(`${f}: ${line.trim().slice(0, 90)}`)
       }
     }
     expect(

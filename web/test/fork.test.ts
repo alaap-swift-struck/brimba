@@ -112,4 +112,22 @@ it("every workspace pins the SAME UI library version", () => {
   const unpinned = [...versions].filter(([, v]) => !/#v\d+\.\d+\.\d+/.test(v)).map(([f]) => f)
   expect(unpinned, `these pin no version, so a fresh install gets whatever is on the default branch: ${unpinned.join(", ")}`).toEqual([])
   expect(new Set(versions.values()).size, `workspaces disagree on the UI library version: ${[...versions].map(([f, v]) => `${f}=${v}`).join(", ")}`).toBe(1)
+
+  // AND THE LOCKFILE, which is what `npm install` actually obeys.
+  //
+  // Fixing the manifests was not enough and the gap was invisible: both
+  // package.json files pinned v0.16.0 while package-lock.json still resolved the
+  // git SHA of v0.4.0, so a FRESH CLONE of main did not compile — two TS2307s on
+  // a primitive the manifests promised. This check read the manifests and never
+  // opened the lockfile, so R26 was green while the install it governs was wrong.
+  // Caught by mac_fell_in_the_ocean actually cloning the remote and following the
+  // README, which is the only way this class of fault ever surfaces.
+  const lock = readFileSync(join(ROOT, "package-lock.json"), "utf8")
+  const tag = [...versions.values()][0].split("#")[1]
+  const entry = lock.slice(lock.indexOf("swift-struck-ui"))
+  expect(tag, "the pin carries no version tag").toBeTruthy()
+  expect(
+    /"resolved": "[^"]+#([0-9a-f]{40})"/.test(entry) || entry.includes(tag),
+    `package-lock.json does not resolve @swift-struck/ui at ${tag} — run \`npm update @swift-struck/ui\`. A fresh clone installs the lockfile, not the manifest.`
+  ).toBe(true)
 })

@@ -338,7 +338,7 @@ ledger records it as applied and it will not run again.
 
 **Code, docs and history** — GitHub, plus whatever second remote is configured.
 
-**Secrets** — `secrets.vault`, committed and encrypted. `npm run vault:open`
+**Secrets** — `secrets.vault`, encrypted, **not yet created**. `npm run vault:save` seals it; `npm run vault:open`
 restores every `.dev.vars` after a fresh clone. See SECRETS.md.
 
 **Databases** — Cloudflare D1 Time Travel. **The window is 30 days** on the

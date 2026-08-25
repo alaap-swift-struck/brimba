@@ -18,7 +18,10 @@ workers would start refusing each other.
 
 ## The vault
 
-**One encrypted file, `secrets.vault`, committed to the repo like anything else.**
+**One encrypted file — `secrets.vault` — which lands in the repo like any other
+file once it is created.** It does NOT exist yet — `npm run vault:save` creates it, and until the
+owner runs that (it needs a passphrase nobody else may hold) the credentials in
+this document survive only on the author's laptop.
 
 ```bash
 npm run vault:save     # read every .dev.vars → encrypt → secrets.vault (then commit it)
