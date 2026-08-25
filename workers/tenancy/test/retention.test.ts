@@ -13,7 +13,7 @@ import { readFileSync, readdirSync } from "node:fs"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 
-import { namedBody, stripComments } from "../../../shared/test/source"
+import { namedBody, serverSources, stripComments } from "../../../shared/test/source"
 
 import {
   CORE_RETENTION,
@@ -371,15 +371,77 @@ describe("the orphaned-upload sweep", () => {
     ).toBeLessThan(scheduled.indexOf("buildErrorDigest"))
   })
 
-  it("ships the storage meter's retention IN THE SAME PASS that writes it", () => {
-    // A growth meter with no retention is a differently-shaped growth problem.
-    // The window belongs in CORE_RETENTION eventually (there is a TODO saying
-    // so), but it must never be absent in the meantime.
-    expect(src, "the meter must declare a window").toMatch(/DB_SIZES_RETAIN_DAYS = \d+/)
+  it("records what a team still stores in OBJECT STORAGE, under an `r2:` name", () => {
+    // `db_sizes` carries two meters — this one and the D1 file sizes written by
+    // `checkDatabaseSizes`. They are only telling apart by the name they file
+    // under, so the prefix is load-bearing, not decoration.
     expect(fn, "the meter must record what a team still stores").toMatch(/INSERT INTO db_sizes/)
-    expect(fn, "and prune itself, or the meter becomes the growth").toMatch(
-      /DELETE FROM db_sizes WHERE at < \?/
+    expect(fn, "object-storage rows must be distinguishable from D1 rows").toMatch(
+      /`r2:learning-media\/\$\{team\.id\}`/
     )
+  })
+})
+
+// THE GROWTH METER — `db_sizes`, and the two things that were wrong with it.
+//
+// It shipped with a table, two indexes, a migration promising "one row per
+// database per night", and a retention rule. What it did not have was a writer
+// for the thing it is named after: the ONLY `INSERT INTO db_sizes` filed R2 media
+// bytes, while the nightly sizing pass held `file_size` for every D1 database in
+// the account and discarded it below the alarm threshold. An alarm answers "is it
+// full"; only a history answers "when will it be".
+//
+// And it had TWO retention windows — a hardcoded 90-day `DELETE` at the tail of
+// the orphan sweep, and the `CORE_RETENTION` rule that superseded it. Both ran
+// nightly, the shorter silently won, and `RETAIN_DB_SIZES_DAYS` was a knob that
+// did nothing above 90 while looking like it worked.
+// (Architecture + scaling reviews, round 5.)
+describe("the growth meter", () => {
+  const sharding = stripComments(
+    readFileSync(join(__dirname, "..", "src", "lib", "sharding.ts"), "utf8")
+  )
+  const sizing = namedBody(sharding, "export async function checkDatabaseSizes")
+
+  it("writes a D1 file size for EVERY watched database, not only the alarming ones", () => {
+    expect(sizing, "the nightly sizing pass must record what it measured").toMatch(
+      /INSERT INTO db_sizes/
+    )
+    // Unconditional: the row must be written from the full `watched` list, not
+    // from inside the alarm loop that `continue`s below the threshold — which is
+    // precisely how the measurement was thrown away for months.
+    expect(
+      sizing,
+      "the meter must read the whole watched list, or it only records databases that are already full"
+    ).toMatch(/watched\.map\(/)
+    const insertAt = sizing.indexOf("INSERT INTO db_sizes")
+    const skipAt = sizing.indexOf("< ALERT_THRESHOLD_BYTES")
+    expect(
+      insertAt,
+      "the meter must run BEFORE the threshold skip, or it inherits the alarm's filter"
+    ).toBeLessThan(skipAt)
+    // And it must file under the database's own name, so an `r2:` row from the
+    // orphan sweep can never be read as a D1 size.
+    expect(sizing).toMatch(/db\.uuid, db\.name/)
+  })
+
+  it("has EXACTLY ONE retention window, and CORE_RETENTION owns it", () => {
+    const rule = CORE_RETENTION.find((r) => r.table === "db_sizes")
+    expect(rule, "the meter must have a window, or it becomes the growth it measures").toBeTruthy()
+    expect(
+      rule?.envVar,
+      "the window must be overridable per environment like every other one"
+    ).toBe("RETAIN_DB_SIZES_DAYS")
+
+    // NO SECOND PRUNE ANYWHERE. A hand-rolled `DELETE FROM db_sizes` in a worker
+    // is a second window that silently beats the configurable one whenever it is
+    // shorter — which is the whole finding.
+    const offenders = serverSources()
+      .filter(([, s]) => /DELETE\s+FROM\s+db_sizes/i.test(stripComments(s)))
+      .map(([p]) => p)
+    expect(
+      offenders,
+      `a worker prunes db_sizes itself — CORE_RETENTION owns that window: ${offenders.join(", ")}`
+    ).toEqual([])
   })
 })
 

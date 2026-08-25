@@ -251,23 +251,6 @@ const ORPHAN_PAGE = 1_000
  * linger longer for no safety gained. It stays at 7. */
 const ORPHAN_TEAMS_PER_NIGHT = 200
 
-/** How long the per-team storage meter keeps its history.
- *
- * SHIPPED WITH THE METER, DELIBERATELY. A growth meter with no retention is just
- * a differently-shaped growth problem: it writes a row per team per visit, for
- * ever, into the shared database whose 10 GB cap has no mover to relieve it.
- * The cursor already bounds the write rate to ≤200 rows a night whatever the
- * tenant count (≈73,000 a year, not the ≈3.6M an uncursored walk over 10,000
- * teams would produce), and this bounds the total: ~18,000 rows in the steady
- * state, which is a rounding error against the cap.
- *
- * The canonical home for this window is `CORE_RETENTION` in
- * shared/workers/retention.ts, so an owner can override it per environment like
- * every other window. That file is not this change's to edit — see the TODO at
- * the prune below. Until the rule moves there this prune IS the rule, so the
- * meter has never at any point been unbounded. */
-const DB_SIZES_RETAIN_DAYS = 90
-
 /**
  * Nightly: delete uploaded files that no record points at.
  *
@@ -369,6 +352,9 @@ export async function sweepOrphanedUploads(
       await env.LEARNING_MEDIA.delete(object.key)
       deleted++
     }
+    // OBJECT-STORAGE bytes, filed under an `r2:` name so this meter and the D1
+    // one in `checkDatabaseSizes` share `db_sizes` without being mistaken for
+    // each other. Its retention is `CORE_RETENTION`'s — see below.
     await env.DB.prepare(
       "INSERT INTO db_sizes (database_id, name, size_bytes, at) VALUES (?, ?, ?, ?)"
     )
@@ -378,21 +364,14 @@ export async function sweepOrphanedUploads(
       console.warn(`orphan sweep: team ${team.id} has more than ${ORPHAN_SCAN_CAP} objects — the rest wait for tomorrow`)
   }
 
-  // The meter's own retention, in the same pass that writes it (see
-  // DB_SIZES_RETAIN_DAYS). One bounded statement a night against an indexed
-  // column, and it can never be the thing that fails the sweep above.
-  //
-  // TODO(retention): this window belongs in `CORE_RETENTION` in
-  // shared/workers/retention.ts as
-  //   { table: "db_sizes", column: "at", days: 90,
-  //     envVar: "RETAIN_DB_SIZES_DAYS", why: "…" }
-  // so an owner can override it per environment like every other window, and so
-  // it is swept by the one seam rather than by this special case. That file is
-  // owned by another change and is deliberately not edited here — when the rule
-  // lands there, DELETE the statement below rather than leaving both.
-  await env.DB.prepare("DELETE FROM db_sizes WHERE at < ?")
-    .bind(new Date(Date.now() - DB_SIZES_RETAIN_DAYS * 86_400_000).toISOString())
-    .run()
+  // NO PRUNE HERE ANY MORE. This used to end with a hardcoded, unbounded
+  // `DELETE FROM db_sizes WHERE at < ?` at a fixed 90 days, carrying a TODO that
+  // said to remove it once the rule reached `CORE_RETENTION`. The rule has landed
+  // (`shared/workers/retention.ts`), and leaving both gave one table two windows:
+  // whichever was shorter won, so `RETAIN_DB_SIZES_DAYS` was a knob that did
+  // nothing above 90 while appearing to work. `runRetention` now owns it — one
+  // window, overridable per environment, and swept by the same bounded, multi-pass,
+  // shortfall-reporting seam as every other log.
 
   return { scanned, deleted, teams: page.length, nextCursor }
 }

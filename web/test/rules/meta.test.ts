@@ -4,7 +4,7 @@
 // door this app has, with its gate) · and the rule that a law cannot exist
 // without a check that exists.
 
-import { existsSync, readdirSync } from "node:fs"
+import { existsSync, readFileSync, readdirSync } from "node:fs"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 
@@ -259,6 +259,45 @@ describe("RULES — the keystone", () => {
     expect(
       missing,
       `an enforced law names a check that exists nowhere in any test file: ${missing.join(", ")}`
+    ).toEqual([])
+  })
+
+  // SOURCE IS TEXT, and a NUL byte is the one character that decides otherwise.
+  //
+  // Two files carried literal NULs as key sentinels — `web/components/app-shell.tsx`
+  // (the live-sync fan-out, both sockets, the coalescer, the reconnect catch-up)
+  // and `workers/data-ops/src/lib/import-plan.ts` (the deterministic core of
+  // agentic import). Everything downstream treats a file with a NUL in it as
+  // binary: `file(1)` called both `data`, `grep ConnectionStatus app-shell.tsx`
+  // came back empty while line 34 imported it, and `git diff` printed "Binary
+  // files differ" — so the file owning the hardest-to-reason-about subsystem in
+  // the app was the one file nobody could review a diff of. Nothing failed. It is
+  // not a bug in any behaviour, which is exactly why it survived.
+  //
+  // The irony, on the record: `shared/workers/validate.ts` strips NUL out of every
+  // request body because a NUL reaching D1 is a 500. We refused it at the front
+  // door and typed it into our own source.
+  //
+  // BYTES, not the decoded string, because that is the level the tools work at.
+  it("sources-are-text: no source file contains a NUL byte", () => {
+    const binary: string[] = []
+    let scanned = 0
+    const walk = (dir: string) => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        if (e.name === "node_modules" || e.name === ".next" || e.name === "out") continue
+        const full = join(dir, e.name)
+        if (e.isDirectory()) walk(full)
+        else if (/\.(ts|tsx|js|mjs|jsx|sql|json|jsonc|md|css)$/.test(e.name)) {
+          scanned++
+          if (readFileSync(full).includes(0)) binary.push(full.slice(ROOT.length + 1))
+        }
+      }
+    }
+    for (const d of ["web", "workers", "shared", "scripts", "db"]) walk(join(ROOT, d))
+    expect(scanned, "no source files found — this scan has gone blind").toBeGreaterThan(200)
+    expect(
+      binary,
+      `a NUL byte makes a source file binary to grep, file(1) and git diff — use a printable sentinel such as \\x1f: ${binary.join(", ")}`
     ).toEqual([])
   })
 })

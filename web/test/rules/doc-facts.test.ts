@@ -22,6 +22,19 @@ describe("RULES — what the documents claim", () => {
   // That is the whole failure mode this campaign keeps finding: a claim nobody
   // machine-checks rots silently, and prose rots fastest of all. A path is the
   // one kind of claim a document makes that a computer can settle outright.
+  //
+  // TWICE HALF-BLIND, and both halves found the day after it was written.
+  //
+  //  1. THE GLOB BRANCH CHECKED NOTHING PAST THE FIRST SEGMENT. It took the text
+  //     before the first `*`, dropped back to the parent directory, and asked
+  //     whether THAT existed — so `workers/*/test/there-is-no-such-file.test.ts`
+  //     resolved to `workers`, which exists, and passed. Every `*` path in the
+  //     canon was effectively unchecked. It now expands the glob for real and
+  //     asks whether any file matches.
+  //  2. IT READ ROOT DOCUMENTS ONLY. `readdirSync(ROOT)` is not recursive, so the
+  //     ~80 documents in subdirectories were invisible — including the review
+  //     archive, which is where the pointers to the split-up `rules.test.ts`
+  //     actually live. The scan now walks the whole repo.
   it("doc-paths-resolve: every repo path a document names is a path that exists", () => {
     // Only paths that are unambiguously THIS repo's: a slash, a known top-level
     // directory, and a file extension. A bare word in backticks is a symbol, a
@@ -41,22 +54,88 @@ describe("RULES — what the documents claim", () => {
     // claim, and holding the gate red until someone re-runs a report would make
     // this check a nuisance rather than a guard.
     const GENERATED = /-(report|review)\.md$/
-    const dangling: string[] = []
-    for (const file of readdirSync(ROOT).filter((f) => f.endsWith(".md") && !GENERATED.test(f))) {
-      const doc = read(join(ROOT, file))
-      for (const m of doc.matchAll(REPO_PATH)) {
-        const claimed = m[1]
-        // A `*` is a family, not a file — `workers/*/test/publish-seam.test.ts`
-        // is a true statement about seven files. Resolve the first segment that
-        // globs and accept the claim if ANY sibling matches.
-        if (claimed.includes("*")) {
-          const [head] = claimed.split("*")
-          const dir = join(ROOT, head.slice(0, head.lastIndexOf("/")))
-          if (!EXEMPT[claimed] && !existsSync(dir)) dangling.push(`${file} → ${claimed}`)
-          continue
+    // Machine output and other repos' trees — nothing here is a claim this repo
+    // makes. `.session-notes` is gitignored working scratch.
+    //
+    // `reviews/` is here for the same reason as GENERATED above, and it took a
+    // decision rather than a rule: it holds 121 paths that no longer resolve, and
+    // ALL 121 dangling paths in the repo are inside it. They are not stale claims
+    // — they are DATED RECORDS. A review written on 12 August saying "rules.test.ts
+    // line 412" was true on 12 August, and editing it to point at the eight files
+    // that replaced it would falsify the record of what was found and when.
+    //
+    // Three of them settle the argument: `there-is-no-such-file.test.ts`,
+    // `00NN_*.sql` and `workers/node_modules/.vite` are ILLUSTRATIONS OF BAD PATHS,
+    // quoted inside reviews that were documenting this very check's blind spots.
+    // A check that failed on its own bug report would be its own punchline.
+    const SKIP = new Set([
+      "reviews",
+      "node_modules",
+      ".next",
+      "out",
+      ".git",
+      ".wrangler",
+      ".session-notes",
+      "test-results",
+      "playwright-report",
+    ])
+    /** EVERY document in the repo, not just the ones at the top. */
+    const docs: string[] = []
+    const collect = (dir: string) => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        if (SKIP.has(e.name)) continue
+        const full = join(dir, e.name)
+        if (e.isDirectory()) collect(full)
+        else if (e.name.endsWith(".md") && !GENERATED.test(e.name)) docs.push(full)
+      }
+    }
+    collect(ROOT)
+    expect(docs.length, "no documents found — this scan has gone blind").toBeGreaterThan(30)
+
+    /** Does a globbed claim match anything real? Expands segment by segment, so
+     * every part of the path is resolved and not just the first. `*` matches
+     * within one segment; `**` spans any number of them. */
+    const globResolves = (claimed: string): boolean => {
+      let here = [ROOT]
+      for (const part of claimed.split("/")) {
+        const next: string[] = []
+        for (const dir of here) {
+          if (part === "**") {
+            // Zero or more directories: this level, and everything beneath it.
+            const descend = (d: string) => {
+              next.push(d)
+              for (const e of readdirSync(d, { withFileTypes: true }))
+                if (e.isDirectory() && !SKIP.has(e.name)) descend(join(d, e.name))
+            }
+            descend(dir)
+          } else if (part.includes("*")) {
+            const rx = new RegExp(
+              `^${part.split("*").map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("[^/]*")}$`
+            )
+            for (const e of readdirSync(dir)) if (rx.test(e)) next.push(join(dir, e))
+          } else if (existsSync(join(dir, part))) {
+            next.push(join(dir, part))
+          }
         }
+        here = [...new Set(next)]
+        if (!here.length) return false
+      }
+      return true
+    }
+
+    const dangling: string[] = []
+    for (const full of docs) {
+      const where = full.slice(ROOT.length + 1)
+      for (const m of read(full).matchAll(REPO_PATH)) {
+        const claimed = m[1]
         if (EXEMPT[claimed]) continue
-        if (!existsSync(join(ROOT, claimed))) dangling.push(`${file} → ${claimed}`)
+        // A `*` is a family, not a file — `workers/*/test/publish-seam.test.ts`
+        // is a true statement about seven files. It is a true statement only if
+        // one of those files is really there, which is what this resolves.
+        const ok = claimed.includes("*")
+          ? globResolves(claimed)
+          : existsSync(join(ROOT, claimed))
+        if (!ok) dangling.push(`${where} → ${claimed}`)
       }
     }
     expect(

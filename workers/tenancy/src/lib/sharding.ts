@@ -68,6 +68,8 @@ export const ALERT_THRESHOLD_BYTES = Math.floor(8 * 1024 * 1024 * 1024)
  * the shape of an alarm that reports all clear. (Scaling review, round 3.) */
 const CORE_DB_NAMES = /-(core|ops)(-staging)?$/
 const COPY_BATCH = 250
+/** How many nightly size rows go into one `batch()`. See `checkDatabaseSizes`. */
+const METER_BATCH = 500
 
 /* --------------------------- the nightly job's own state ------------------- */
 
@@ -100,8 +102,10 @@ export async function ensureNightlyTables(env: Env): Promise<void> {
        cursor TEXT
      )`
   ).run()
-  // The per-team storage meter (below). HISTORY, so it is the one thing here
-  // that grows — and it is pruned in the same pass that writes it.
+  // The storage meter (below): a D1 file size per watched database, plus an
+  // `r2:`-prefixed row per team from the orphan sweep. HISTORY, so it is the one
+  // thing here that grows — its window is `CORE_RETENTION`'s, swept by
+  // `runRetention` on this same nightly pass.
   await env.DB.prepare(
     `CREATE TABLE IF NOT EXISTS db_sizes (
        database_id TEXT NOT NULL,
@@ -247,7 +251,16 @@ export async function checkAccountAiSpend(
  * invites, the error log, account activity, agent usage — as the only one
  * nobody was watching. Per-team sharding does nothing for it: it holds the SUM
  * of all tenants, so it is the first shared thing to reach D1's 10 GB cap and it
- * has no mover to relieve it. (Scaling review, 2026-08-11.) */
+ * has no mover to relieve it. (Scaling review, 2026-08-11.)
+ *
+ * AND IT RECORDS EVERY SIZE, not only the alarming ones. `db_sizes` shipped with
+ * a table, two indexes, a migration whose comment promises "one row per database
+ * per night" and a retention rule — and the ONLY thing ever writing to it was the
+ * orphan sweep, filing R2 media bytes. So this pass held `db.file_size` for every
+ * database in the account and threw all of it away below the threshold, which is
+ * exactly the number the meter exists to trend. An alarm answers "is it full";
+ * only a history answers "when will it be", and that was the question `db_sizes`
+ * was created for. (Scaling review, round 5.) */
 export async function checkDatabaseSizes(
   env: Env,
   cfg: D1Rest
@@ -255,6 +268,26 @@ export async function checkDatabaseSizes(
   const all = await d1ListDatabases(cfg)
   const watched = all.filter((db) => db.name.startsWith("team-") || CORE_DB_NAMES.test(db.name))
   const alerted: string[] = []
+
+  // THE METER, before the alarm and unconditional — the value is already in hand,
+  // so a night's history costs one write per database and nothing else.
+  //
+  // `name` is the D1 database name (`team-…`, `<project>-core`, `<project>-ops`).
+  // The orphan sweep files ITS rows under `r2:learning-media/<team>`, so the two
+  // meters share a table and stay legible apart: a `r2:` prefix is object storage,
+  // anything else is a D1 file size. Retention is `CORE_RETENTION`'s job, on the
+  // same nightly pass (`shared/workers/retention.ts`).
+  const at = new Date().toISOString()
+  const meter = watched.map((db) =>
+    env.DB.prepare(
+      "INSERT INTO db_sizes (database_id, name, size_bytes, at) VALUES (?, ?, ?, ?)"
+    ).bind(db.uuid, db.name, db.file_size ?? 0, at)
+  )
+  // Chunked: this walks EVERY database the project owns, so at ten thousand
+  // tenants one batch would be ten thousand statements. A handful of round trips
+  // instead, whatever the tenant count.
+  for (let i = 0; i < meter.length; i += METER_BATCH)
+    await env.DB.batch(meter.slice(i, i + METER_BATCH))
 
   for (const db of watched) {
     if ((db.file_size ?? 0) < ALERT_THRESHOLD_BYTES) continue

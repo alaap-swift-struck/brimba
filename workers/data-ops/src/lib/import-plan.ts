@@ -269,7 +269,14 @@ export function scanRows(
     const missing = required.find((c) => !mapped[c.key])
     if (missing) return { mapped, reject: `Missing required "${missing.label}".` }
     if (required.length) {
-      const fingerprint = required.map((c) => norm(mapped[c.key])).join(" ")
+      // JOINED ON U+001F (unit separator), WRITTEN AS AN ESCAPE. The separator only
+      // has to be something `norm` cannot emit — it reduces a value to [a-z0-9] —
+      // so that ["ab","c"] and ["a","bc"] stay different records. It used to be a
+      // literal NUL byte, which turned this whole module binary: `file(1)` called
+      // it `data` and `git diff` printed "Binary files differ" on the deterministic
+      // core of agentic import. Ironic, given `shared/workers/validate.ts` strips
+      // NUL out of every request body because a NUL reaching D1 is a 500.
+      const fingerprint = required.map((c) => norm(mapped[c.key])).join("\x1f")
       const first = seen.get(fingerprint)
       if (first) return { mapped, reject: `Duplicate of row ${first} in this file — skipped.` }
       seen.set(fingerprint, i + 1)
