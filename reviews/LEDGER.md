@@ -1002,3 +1002,83 @@ promised an exact total and have no sidecar to fall back on) and trimming the fa
 list projection (the detail screen reads the list cache and feeds it back through
 the update door, so a trimmed list would not render blank — it would destroy the
 article).
+
+## FINAL SCORES — round 5, measured by agents that wrote none of the repairs
+
+| Review | R4 | **R5** | Δ | ceiling the re-measure derived |
+|---|---|---|---|---|
+| realtime | 86 | **95** | +9 | 99 |
+| interfacelessness | 88 | **94** | +6 | 99 |
+| lean_mean | 93 | **94** | +1 | 96 |
+| activity_log | 89 | **92** | +3 | 95 |
+| ocean | 94 | **92** | −2 | 97 (truck factor −2, permanent) |
+| architecture | 89 | **90** | +1 | **94** |
+| story | 68 | **89** | +21 | 98 |
+| dead_end | 70 | **85** | +15 | ~95 |
+| first_run | 77 | **85** | +8 | **93** |
+| base_fork | 83 | **83** | 0 | 96 |
+| spend | 81 | **83** | +2 | 95 |
+| error_log | 70 | **78** | +8 | 95 |
+| round_trip | 62 | **76** | +14 | **85** without an endpoint-contract change |
+| security | 83 | **75** | −8 | 98.8 |
+| scaling | 66 | **72** | +6 | **92** |
+| speed | 55 | **70** | +15 | 97 |
+
+**Average 78.4 → 84.6. One review at 95.**
+
+### The benchmark cannot be met, and here is the arithmetic
+
+Four reviews are capped below 95 by their own rubrics, not by effort:
+**scaling 92** (the contentless ping, the refused exact-count, owner-declined
+presigned uploads) · **first_run 93** (seven of twenty-one surfaces are activity
+feeds, and a timeline has no action to name) · **architecture 94** (95 needs a
+database adapter over 147 sites, which the prime directive prices as a defect) ·
+**round_trip 85** (95 needs a composite per-screen read — a contract change, not
+a fix).
+
+### Two scores went DOWN, and both are the campaign working
+
+**security 83 → 75.** Every point is measurement. Round 4 measured 85 of 206
+request fields, 49 of 80 resource-bound paths, 1 of 437 dependencies — and
+reported those ratios for the whole surface. Round 5 enumerated 652 of 655 sites
+at 99.5% coverage. Security was never 83 or 88; it was about 76 all along.
+
+**ocean 94 → 92.** Four of six moved dimensions are arithmetic corrections
+describing no change in the repo. Five of round 4's twelve scores were not
+reachable from their own point tables.
+
+**base_fork flat at 83** for the most instructive reason on the board: real
+repairs earned +365 and round 3's arithmetic cost −520. Round 3 had scored one
+criterion 67 — and that criterion's rows are 40/30/30, so the reachable set is
+{0, 30, 40, 60, 70, 100}. **67 was not a lenient reading; it was a number with no
+derivation.**
+
+### The disease this round is named after
+
+Round 4 ended with fifteen blind checks found. Round 5 found **eight more, five
+of them written during round 5 itself**, and they share one shape: **a check that
+guards one direction, or reads a narrower subject than it claims.**
+
+- Law R15 proved every publisher reaches a listener, never that a listener has a
+  publisher — a live listener sat idle for months with a comment explaining it.
+- The MCP exclusion check proves no stated exclusion is false; delete a row
+  entirely and it stays green.
+- The "exactly one INSERT INTO activity" check reads two named files, and a
+  document paragraph added the same day claims it is machine-checked.
+- Law R9's check "exists" only because of a comment on line 1.
+- `doc-paths-resolve` — written this round, against this very lesson — validates
+  nothing past a glob's first segment, and reads only root documents. Its own
+  logic over the rest of the repo finds 113 dangling paths.
+
+### The finding no process caught, and the gap it exposes
+
+Two repairs landed this round, each correct in isolation. `failureWrapUp` (so a
+refused action explains itself) is an unmetered thirteenth model call.
+`refundIfNothingDone` (so a blocked action costs no credit) subtracts the turn's
+units from the column the new account-wide alarm sums. **Together: a failed turn
+spends real money, is charged nothing, and erases its own trace from the meter
+built to see it** — about $2,217 a day at the existing rate ceiling.
+
+The reconciliation protocol prevents collisions **between reviews**. It has no
+mechanism for collisions **between repairs**. That is the single most transferable
+lesson of the campaign and it should be built into the next one.
