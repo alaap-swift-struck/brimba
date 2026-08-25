@@ -842,3 +842,24 @@ Every one was mine. Every one looked like a passing check.
 Four written during the campaign, by the author of the rule against them. The
 count is the argument for `LESSONS.md`'s first law: **a check is not admissible
 until you have watched it fail.**
+
+
+---
+
+# PROVEN END TO END, 2026-08-25
+
+Not asserted — run, and the exit codes recorded.
+
+| Claim | How it was proven | Result |
+|---|---|---|
+| A fresh clone of `main` builds | cloned the remote into a scratch dir, `npm install`, `npm run check` | **exit 0** |
+| A FORK of the base builds | fresh clone → `node scripts/fork.mjs acrymold` → install → check | **exit 0**, 152 files swept, 688 occurrences, zero mentions of the old name left |
+| The instrumentation is real | `curl -I` staging | `server-timing: gateway;dur=26` + `x-request-id` |
+| The write amplification is closed | `GET /media/%zz` on both environments | **400**, not a 500 with a log row |
+| Every operation is inside budget | `node scripts/timings.mjs` on staging AND production | workers answer in 3–9 ms; all four inside budget |
+| A signed-out visit costs one call | browser, cold load | one request: `GET /api/auth/me` → 401, sign-in shown |
+| Staging and production both serve | browser screenshot, both hosts | the sign-in screen renders on both |
+| Staging holds no test data | `reset-all.mjs staging` | RESET OK — every table empty, schema intact, team databases gone |
+| Production holds nothing | queried `brimba-core` and `brimba-ops` | 0 users, 0 teams, 0 error rows |
+
+**27 commits · 162 files · 646 tests · gate green · everything on GitHub.**
