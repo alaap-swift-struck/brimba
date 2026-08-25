@@ -297,6 +297,21 @@ JSON beside the human sentence, so a change can be reconstructed as data.
 The rule for what belongs in which, and what is deliberately not logged at all,
 is stated once in `shared/workers/activity.ts` (LAW R25).
 
+**One INSERT, two ways to reach it.** The `activity` table has two writers and
+still exactly one author. `activityStatement(actor, entry)` builds the row's SQL
+and hands it back as a string; `logActivity` executes that same string. So a door
+that is *already* sending a batch to the team database can carry the trail inside
+the crossing it was making anyway, instead of paying for a second one — which is
+how raising a support ticket went from four HTTPS crossings to one. The obvious
+way to fold that fourth trip would have been to re-type the INSERT in the module
+doing the batching, and that is exactly what is refused: two column lists and two
+sets of escaping decisions, with nothing keeping them in step. An audit trail's
+whole value is that it has one author.
+
+There is therefore **exactly one `INSERT INTO activity` in the codebase**, and
+that is machine-checked (`workers/content/test/ticket-create-batch.test.ts`) —
+a second one appearing is a red build, not a review note.
+
 ### selectable_data — KEEP (built, per-team)
 Real data: audit block + `type`, `value`, `is_default`. Per-team dropdown
 values, seeded from Base v3 defaults on team creation.

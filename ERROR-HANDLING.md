@@ -38,6 +38,28 @@ trick as the swappable AI-import interface).
   so a worker can't quietly stop recording. `GuardError`s map to clean 4xx and are NEVER
   logged (an expected refusal is not an error); unexpected errors become a
   generic 500 (never leak internals to the user).
+- **A failed outbound call — including a change ping that never landed.** A
+  central catch only sees what a worker THREW. A call that leaves the worker and
+  fails quietly throws nothing, so it needs its own way in: `recordOutbound`
+  (`shared/workers/error-log.ts`) files those under an integration name. The
+  live layer is one of them. `publish()` (`shared/workers/realtime.ts`) hands
+  `callService` a recorder and now READS its answer, filing under
+  **`realtime-publish`** — a `null` (the realtime worker never answered) is
+  recorded by `callService` on the way past, and a refusal (it answered, with a
+  400 or a 5xx) is recorded by `publish` itself, with the status in the message
+  because that is the whole diagnosis: 400 is a bug in the caller, 5xx a bug in
+  the live layer. Until this existed a publish failure had never reached
+  `error_logs` at all, so a wedged live layer was a silent outage lasting as long
+  as the console lines did — and the one fault class nobody reports, because a
+  screen that has quietly stopped updating looks exactly like a quiet one.
+  **Throttled: one row per minute, per integration, per kind** (`timeout` /
+  `upstream` / `credential`) — a dependency that is down fails every call that
+  reaches it, and the error store must not become the outage's second casualty.
+  The rows held back are counted and said out loud on the next row that gets
+  through, so "it happened once" can never hide "it happened forty thousand
+  times". The recorder is optional and trailing: a publisher with a database
+  handle passes `publishRecorder(env)`, one without passes nothing and behaves
+  exactly as it always has.
 
 ## The central error store (BUILT 2026-07-03; MOVED to the operations db 2026-08-12)
 
@@ -55,8 +77,8 @@ environment (staging and production errors never mix), cross-team by design
   the client's `where`), `message`, `stack` (capped), `team_id` / `user_id` / `url`
   when known, `request_id`, and the resolve-workflow fields: `status` (`open` →
   `resolved`), `resolved_at`, `resolution_note`.
-- **The sources — eight of them: all seven workers, plus the browser.** `auth`,
-  `tenancy`, `realtime`, `gateway`, `content`, `data-ops` and `mcp` each record
+- **The sources that report a CRASH — eight of them: all seven workers, plus the
+  browser.** `auth`, `tenancy`, `realtime`, `gateway`, `content`, `data-ops` and `mcp` each record
   from their own central catch; `web` is the browser's beacon
   (`POST /api/log/client`, which the gateway verifies is signed in before it
   forwards). Six of the seven workers call `recordWorkerError(opsDatabase(env), …)`
@@ -65,6 +87,12 @@ environment (staging and production errors never mix), cross-team by design
   to auth's `/internal/log-error`, which writes the same table. A worker with no
   central catch, or one that catches without recording, fails the `error-seam`
   suite (`workers/data-ops/test/error-seam.test.ts`).
+- **Plus the outbound recorders, named for the SEAM that made the call rather
+  than the worker that was holding it** — because the useful question about a
+  failed outbound call is *which dependency broke*, not which of our workers
+  happened to be waiting on it. Two are wired today: **`d1-rest`** (the data
+  door's `recordFailure`) and **`realtime-publish`** (a change ping that did not
+  land). Both throttle to one row a minute per kind, as above.
 - **NOT captured:** clean `GuardError` refusals (4xx — working as designed).
   Recording is best-effort by contract — a logging hiccup never changes a
   response.

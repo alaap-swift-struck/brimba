@@ -68,7 +68,9 @@ thrown errors into clean responses. It contains **no business logic**.
 ```ts
 // workers/content/src/index.ts
 type RouteKind = "read" | "mutation" | "housekeeping"
-type Handler = (request: Request, env: Env) => Promise<Response>
+// `ctx` is here so a handler can DEFER work past the response — specifically the
+// change ping (Law R1, §7). A read handler simply ignores it.
+type Handler = (request: Request, env: Env, ctx: ExecutionContext) => Promise<Response>
 
 export const ROUTES: Record<string, { handler: Handler; kind: RouteKind }> = {
   "GET  /api/content/learning":         { handler: getLearning,        kind: "read" },
@@ -108,7 +110,7 @@ The `fetch` handler is small and identical across workers:
 ```ts
 // workers/content/src/index.ts
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const { pathname } = new URL(request.url)
     const route = `${request.method} ${pathname}`
     try {
@@ -125,8 +127,8 @@ export default {
       // A mutation goes through `withIdempotency` so a client that retries a
       // dropped POST with the same `Idempotency-Key` replays the first outcome
       // instead of writing twice. No header → a pass-through that costs nothing.
-      if (def.kind !== "mutation") return await def.handler(request, env)
-      return await withIdempotency(request, env.DB, route, () => def.handler(request, env))
+      if (def.kind !== "mutation") return await def.handler(request, env, ctx)
+      return await withIdempotency(request, env.DB, route, () => def.handler(request, env, ctx))
     } catch (e) {
       // A 5xx GuardError IS an outage and must leave a row; a 403 is the system
       // working, and recording it would fill the table with correct behaviour.
@@ -223,14 +225,19 @@ a fixed order. Deviating is a smell; matching it is how the next reader knows wh
 they're looking at before they read a line.
 
 ```ts
-export async function postCreateLearning(request: Request, env: Env): Promise<Response> {
+export async function postCreateLearning(
+  request: Request, env: Env, ctx: ExecutionContext
+): Promise<Response> {
   const { actor, cfg, guard } = await teamContext(request, env)     // 1 · who + where
   await requireRight(cfg, guard, "learning", "create")               // 2 · may they?
   const body = (await request.json().catch(() => ({}))) as LearningInput  // 3 · read body
   requireText(body.title, "Title", TEXT_LIMITS.short)                // 4 · validate at boundary
   const id = await createLearning(cfg, guard, actor, body)           // 5 · CRUD via lib
-  await publishChange(env.REALTIME, guard.teamId, "learning", id, "add")  // 6 · publish live
-  return json({ learning: await listLearning(cfg, guard) })          // 7 · respond
+  ctx.waitUntil(publishChange(env.REALTIME, guard.teamId, "learning", id, "add"))  // 6 · publish live
+  const [created, total] = await Promise.all([                       // 7 · the created ROW
+    oneLearning(cfg, guard, id), countLearning(cfg, guard),
+  ])
+  return json({ created, total })                                    // 8 · respond
 }
 ```
 
@@ -244,8 +251,15 @@ export async function postCreateLearning(request: Request, env: Env): Promise<Re
    promise the fields are valid — that's step 4's job.
 4. **Validate at the boundary** — `requireText` / `optionalText` (§5).
 5. **CRUD through the lib layer** — never inline SQL in a route (§3, §6).
-6. **Publish the live change** — one row-level ping per changed row (Law R1, §7).
-7. **Respond via `json`**.
+6. **Publish the live change** — one row-level ping per changed row (Law R1, §7),
+   handed to **`ctx.waitUntil`**. That is why a mutation handler takes a third
+   parameter, `ctx: ExecutionContext`: the ping is best-effort and bounded, so it
+   belongs *after* the response rather than in front of it, and `waitUntil` keeps
+   the isolate alive until it settles. A read handler needs no `ctx` and does not
+   take one.
+7. **Read back what the door owes its caller** — the created row and the exact
+   total (Law R21). Independent reads, so `Promise.all` them.
+8. **Respond via `json`**.
 
 Reads collapse to steps 1–2 then the query and `json`:
 
@@ -269,7 +283,7 @@ database:
 | Database | How you reach it | Helper |
 |----------|------------------|--------|
 | **Global core** (`users`, `teams`, `team_members`, login codes, import registry) | the native `env.DB` binding | `env.DB.prepare(sql).bind(…).first()/.run()/.all()` |
-| **Per-team** (roles, learning, help, activity, selectable data, …) | the Cloudflare D1 **REST door** | `d1Query` / `d1ExecScript` in `shared/workers/d1-rest.ts` |
+| **Per-team** (roles, learning, help, activity, selectable data, …) | the Cloudflare D1 **REST door** | `d1Query` / `d1ExecScript` / `d1Batch` in `shared/workers/d1-rest.ts` |
 
 Per-team databases are created at *runtime*, so they can't be pre-wired bindings — the
 REST door (`d1-rest.ts`) is the *one file* every team-data touch goes through, which is
@@ -287,7 +301,7 @@ const recent = await env.DB.prepare(
 ).bind(email, hourAgo).first<{ n: number }>()
 ```
 
-### REST door — `d1Query` for reads, `d1ExecScript` for writes
+### REST door — `d1Query` for reads, `d1ExecScript` for writes, `d1Batch` to fold a crossing
 
 - **`d1Query<Row>(cfg, databaseId, sql, params)`** runs one parameterized statement and
   returns typed rows. Use it for every read (and single-statement writes where params
@@ -313,6 +327,31 @@ const recent = await env.DB.prepare(
      VALUES (${sqlString(id)}, ${sqlString(title)}, ${sqlString(body)}, ${sqlString(now)},
              ${sqlString(actor.id)}, ${sqlString(actor.email)}, ${sqlString(actor.name)});`)
   ```
+
+- **`d1Batch<Rows>(cfg, databaseId, statements)`** runs SEVERAL statements in ONE call
+  and hands back every result set, in order. Reach for it when a door makes more than
+  one trip to the SAME team database: every statement in this app executes in
+  0.1–0.3ms, so what a door actually costs is the number of HTTPS crossings in front
+  of them. Raising a support ticket used to be **four** — the insert, the read-back,
+  the counts and the activity row — and folding them into one took it from **1457 ms
+  to 894 ms** measured against staging from the same colo, a 39% saving on the
+  operation (`workers/content/src/lib/help.ts`).
+
+  The activity row is the fourth statement and is **not written there**: it comes from
+  `activityStatement` (§6), so folding the crossing does not fork the audit trail's
+  one author.
+
+  ```ts
+  const [, rows, counts] = await d1Batch<[unknown[], TicketRow[], CountRow[], unknown[]]>(
+    cfg, guard.databaseId,
+    [insertSql, readBackSql, countSql, activityStatement(actor, entry)]
+  )
+  ```
+
+  **Params are not available here, and that is the whole risk.** Script mode forbids
+  them, so every value is inlined and every inlined value goes through `sqlString` —
+  including values that were bound parameters before the fold. An INSERT contributes
+  an empty array, so the positions still line up with the statements you sent.
 
 ### `sqlString` / `sqlValue` / `ulid` — the three primitives
 
@@ -536,6 +575,26 @@ Activity rows point at the changed record through a **generic** `(related_table,
 related_row_id)` pair — never a per-module column. That generic pair is what lets one
 read path (Law R5) serve any module's history.
 
+**Two ways in, one writer — pick by whether you are already crossing.** The seam
+exposes its INSERT as a string, `activityStatement(actor, entry)`, beside the function
+that executes it:
+
+- **`logActivity(cfg, databaseId, actor, entry)`** — the default. It makes its own
+  crossing to the team database and swallows its own failures, so a logging hiccup can
+  never break the action it describes.
+- **`activityStatement(actor, entry)`** — for a door that is *already* sending a batch
+  to that same database. Hand the statement to `d1Batch` alongside the others and the
+  trail rides the crossing the write was making anyway, instead of paying for one of
+  its own.
+
+`logActivity` writes through `activityStatement`, so there is exactly **one**
+`INSERT INTO activity` in the codebase however you reach it. Choosing the batched form
+does change one thing, and it is worth naming: a statement carried inside someone
+else's batch cannot swallow its own failure — it shares the crossing, so a call that
+fails takes the write with it as well as the trail. What it removes is the opposite
+failure, the one that actually happened: the row landing and a second, separate call
+failing on its own, leaving a record with no history.
+
 ---
 
 ## 7 · Publish the live change (Law R1)
@@ -557,8 +616,20 @@ Two conventions matter:
   the row through the permission-checked endpoint, so a live ping can never leak data.
   `op` (`add | edit | remove | session`) is *advisory*; the client verifies by re-pull.
 
-Like `logActivity`, publishing is best-effort — a realtime hiccup logs but never throws,
-so it can't break the write it announces.
+- **Hold the ping with `ctx.waitUntil(...)`.** Three shapes are possible and only two
+  are safe. `await` blocks the response on a message addressed to everybody except
+  the person waiting; `ctx.waitUntil()` lets the response go and keeps the isolate
+  alive until the ping settles; a **bare** `publishChange(...)` is a promise nobody
+  holds, so the isolate finishes and the platform cancels the fetch mid-flight — the
+  ping never arrives and every other screen stays stale. Prefer `waitUntil`. The seam
+  test reads the *disposition*, not just the call, and names the bare form
+  (`shared/test/publish-seam.ts`), so this is a red build rather than a review note.
+
+Like `logActivity`, publishing is best-effort — a realtime hiccup can't break the write
+it announces. Best-effort is not unwatched, though: the seam reads what the realtime
+worker answered and records a ping that did not land, under the `realtime-publish`
+integration ([ERROR-HANDLING.md](ERROR-HANDLING.md)). A publisher with a database handle
+passes `publishRecorder(env)` as the trailing argument; one without passes nothing.
 
 ---
 
@@ -610,7 +681,7 @@ line exists*:
 
 ```ts
 // Row-level: carry the new item's id so open learning lists patch just that row.
-await publishChange(env.REALTIME, guard.teamId, "learning", id, "add")
+ctx.waitUntil(publishChange(env.REALTIME, guard.teamId, "learning", id, "add"))
 
 // A missing item is skipped, not fatal — the rest of the batch still applies.
 if (e instanceof GuardError && e.status === 404) { skipped++; continue }

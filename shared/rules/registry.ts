@@ -20,7 +20,8 @@ export const RULES_REGISTRY: Rule[] = [
   {
     id: "R1",
     dimension: "arch",
-    law: "Every mutation route publishes a live change ping.",
+    law:
+      "Every mutation route publishes a live change ping — and HOLDS it: await or ctx.waitUntil(...), never a bare publishChange(...), which the platform cancels when the isolate finishes with the response. ctx.waitUntil is the usual shape, because publishing is best-effort by contract and bounded, so the person should not wait on a ping nobody reads. Best-effort is not unwatched: the publish seam reads its answer and records a ping that did not land under the realtime-publish integration.",
     checkId: "publish-seam",
     status: "enforced",
   },

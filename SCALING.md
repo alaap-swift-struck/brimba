@@ -331,6 +331,26 @@ Nothing joins to either. Every read of either is by one tagged column. So they
 moved to a database of their own, and the shared one keeps its space for
 identity, membership and sessions — the rows every single request depends on.
 
+**`error_logs` has since gained a second kind of row, and it is bounded by
+design.** Beyond a crash, the table now also records a call that LEFT a worker
+and failed — the data door, and a live change ping that never landed. Those have
+a growth shape a crash does not: a dependency that is down fails *every* call
+that reaches it, and the data door is on every team read, so an unthrottled row
+per failure would make the error store the second casualty of the outage. Hence
+the throttle: **one row per minute, per integration, per kind** (`timeout` /
+`upstream` / `credential`), counted per isolate. The rows held back are counted
+and reported on the next row that gets through, so the arithmetic loses nothing
+that matters — the first failure of a kind carries the information and the
+ten-thousandth repeats it.
+
+That bound is what keeps this out of the size story entirely. The two wired
+integrations can produce five kinds between them — the data door can fail on a
+credential, a timeout or a broken upstream, a change ping on the latter two — so
+a total outage of both writes at most **five rows a minute per isolate**, against
+a table already swept at 90 days (§4). It is a cheap way to buy the one signal
+the store was missing: a wedged live layer generates no bug report, because a
+screen that has quietly stopped updating looks exactly like a quiet one.
+
 **What did NOT move.** Per-team databases are untouched; the tenancy model is
 exactly as it was. And `agent_credits` — the BALANCE the quota gate reads on the
 request path — stays in the core database with the team record. Only the spend

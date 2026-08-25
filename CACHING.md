@@ -53,8 +53,10 @@ module = one entry in `TEAM_RESOURCES` (`web/lib/live-resources.ts` — moved ou
 app-shell so the R15 `live-collections` check imports it as data). Two channels:
 
 ```ts
-// worker, after a successful write — carry the affected row id:
-await publishChange(env.REALTIME, guard.teamId, "member_roles", roleId, "edit")
+// worker, after a successful write — carry the affected row id, and HOLD the
+// ping with ctx.waitUntil so it settles after the response rather than in front
+// of it (rule 4). A bare call would be cancelled with the isolate.
+ctx.waitUntil(publishChange(env.REALTIME, guard.teamId, "member_roles", roleId, "edit"))
 
 // client registry (app-shell.tsx) — one line per module, generic handler:
 member_roles: {
@@ -104,6 +106,26 @@ discipline. In the tenancy worker each route is classified `read` / `mutation` /
 or a new route is left unclassified. The only writes that broadcast nothing are
 the explicit housekeeping deny-list (a private session pointer, ops-only admin
 actions) — matching login_codes / sessions / db_alerts / the nightly size cron.
+
+**The ping is HELD, not awaited — and not fired and forgotten either.** Handlers
+take `ctx: ExecutionContext` and pass the publish to `ctx.waitUntil(...)`, so the
+response goes back the moment the write lands and the runtime keeps the isolate
+alive until the ping settles. Awaiting it made the person who saved something
+wait on a service hop to a Durable Object for a message addressed to everyone
+else. What is refused is the third shape: a bare `publishChange(...)` is a
+promise nobody holds, the isolate finishes with the response, and the platform
+cancels the fetch — so everyone else's screen stays stale, which is the exact
+failure this rule exists to prevent. The seam names and fails that shape, so all
+three are not equivalent and the build knows it.
+
+**And the ping's answer is read.** Publishing is best-effort by contract — a live
+layer hiccup must never break the write it describes — but best-effort is not
+unwatched. The seam reads what the realtime worker said and records a ping that
+did not land, under the `realtime-publish` integration
+([ERROR-HANDLING.md](ERROR-HANDLING.md)). That matters more now than it did while
+every caller awaited: a held ping settles after the response has gone, so nobody
+is watching, and a live layer that has quietly stopped fanning out looks exactly
+like a system where nothing has changed yet.
 
 ### 5 · Identity scope — your changes follow YOU everywhere
 Identity is read fresh from one global `users` row wherever it's shown, so a
@@ -291,8 +313,9 @@ last page, `undefined` = nothing loaded yet).
 
 ## Checklist for a new screen / module
 1. Read with `useCached("<resource>:<scopeId>", fetcher)`.
-2. On every server write, `publishChange(env.REALTIME, teamId, "<resource>", id, op)`
-   **with the affected row id** (classify the route `mutation` so the seam test passes).
+2. On every server write, `ctx.waitUntil(publishChange(env.REALTIME, teamId, "<resource>", id, op))`
+   **with the affected row id** (classify the route `mutation` so the seam test passes,
+   and hold the ping — rule 4).
 3. Add ONE `TEAM_RESOURCES` entry (key / idField / fetchOne / fetchList / deps) — the
    generic handler does row-level patch + reconnect catch-up; no bespoke code.
 4. After a client mutation, `primeCache` the fresh result.
