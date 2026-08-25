@@ -791,3 +791,54 @@ caching (~$273/month), `scripts/fork.mjs` guarded by a law (base_fork 78 → 95.
 the in-flight request de-dup (round_trip's criterion 1 is the gate), retention
 that can remove more than 5,000 rows a night, and the 5xx `GuardError` that still
 reaches no error row.
+
+
+---
+
+# PHASE 4 — the owner's decisions, and the second repair wave
+
+Four decisions, 2026-08-25:
+
+| Decision | What happened |
+|---|---|
+| Screen-override subsystem | **Removed**, not finished. ~300 net lines gone, plus one network request per team screen and four permission switches that governed nothing |
+| Size alarm 65% vs 80% | **80%** — the master document wins; the cost (2 GB headroom instead of 3.5) is recorded in the constant rather than lost |
+| `AGENT_FREE_DAILY = 50` | **Stays.** A business call, not a bug. Prompt caching has since cut it from $24.20 to $15.89/team/month |
+| The secrets vault | **Owner-only.** I declined to read a passphrase from a file — querying it puts the secret in my context, and the location is not what needs protecting |
+
+## What the second wave repaired
+
+Six agents on disjoint files, then round 3 measured by agents that wrote none of it,
+then round 3's own findings repaired. Shipped to staging AND production.
+
+**Prompt caching** ($273.20/month, confirmed to the cent by two independent
+routes) · **retention that can finish** (it removed at most 5,000 rows a night
+against tables an anonymous caller can fill) · **in-flight de-duplication** (six
+components asking the same question six times) · **per-module permission rights**
+(28 cells, 22 gated, 5 dead removed, `teams.read` KEPT after it was found to gate a
+real screen) · **a connection dot** · **a first-run block on `/home`** · **Law R26 +
+`scripts/fork.mjs`** · **`ROUTE-CENSUS.md`** · **`scripts/timings.mjs` and written
+budgets** · **the operations database under the size alarm** · **account creation
+logged** · **a 5xx GuardError recorded in all four workers**.
+
+## Round 3 found four faults in the repair pass itself
+
+That is what the round is for, and it is the campaign's whole argument:
+
+1. **A fresh clone of `main` did not compile.** Both manifests pinned v0.16.0;
+   `package-lock.json` still resolved the SHA of v0.4.0, and `npm install` obeys the
+   lockfile. R26's check read the manifests and never opened the lockfile.
+2. **The privilege guard was closed and completely unlocked.** Fourteen attacks
+   could not defeat it; deleting the call from both doors left tenancy at 119/119.
+3. **`vault-claims-match-reality` was written about three sentences and matched
+   none of them** — it sat green while three documents claimed the vault existed.
+4. **The 5xx recorder check was two regexes over a fixed window**, and the generic
+   catch's recorder sat inside that window, so deleting the 5xx one stayed green.
+
+Every one was mine. Every one looked like a passing check.
+
+## Blind checks found across the campaign: fifteen
+
+Four written during the campaign, by the author of the rule against them. The
+count is the argument for `LESSONS.md`'s first law: **a check is not admissible
+until you have watched it fail.**
