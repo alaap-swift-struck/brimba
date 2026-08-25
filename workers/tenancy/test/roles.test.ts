@@ -25,10 +25,8 @@ import {
   setRolePermissions,
 } from "../src/lib/roles"
 import { GuardError } from "../src/lib/permissions"
-import { readdirSync, readFileSync } from "node:fs"
-import { join } from "node:path"
 
-import { declarationBody, stripComments } from "../../../shared/test/source"
+import { declarationBody, stripComments, workerSources } from "../../../shared/test/source"
 import { TEAM_MODULE_CATALOG } from "../src/team-schema"
 import { assertCanAssignRole } from "../src/lib/roles"
 
@@ -305,44 +303,68 @@ describe("getRolePermissions", () => {
 // import path, whatever comes next — fails this the day it is written, rather than
 // the day someone audits it.
 describe("every door that assigns a role calls the guard", () => {
-  // BOTH directories. `src/routes/` already exists with six files and was never
-  // scanned, so a role-assigning door written there would have walked straight
-  // past this check — a next-door hole rather than a live one, which is exactly
-  // the kind that is live by the time anyone looks again. (security round 4.)
-  const sources = ["lib", "routes"].flatMap((dir) => {
-    const d = join(__dirname, "..", "src", dir)
-    try {
-      return readdirSync(d)
-        .filter((f) => f.endsWith(".ts"))
-        .map((f) => [`${dir}/${f}`, stripComments(readFileSync(join(d, f), "utf8"))] as const)
-    } catch {
-      return []
-    }
-  })
+  // THE WHOLE WORKER, RECURSIVELY — `src/**/*.ts`, not a hand-listed pair of
+  // directories. Naming `["lib", "routes"]` fixed the case that had been found and
+  // left two more of the same shape: `readdirSync` does not descend, so a door in
+  // `src/routes/bulk/add.ts` was invisible, and `src/*.ts` — the worker's own entry
+  // point, where `ROUTES` and its handlers live — was never in either list at all.
+  // Both were proven live on 2026-08-25: a fixture door in `src/index.ts` and one in
+  // `src/routes/bulk/add.ts`, each writing `team_members` with no guard call, left
+  // this file at 24/24. A subject list a check writes down is a subject list that
+  // goes stale; this one is derived from the directory tree. (security round 5.)
+  //
+  // Scoped to tenancy because tenancy owns both the membership tables and the
+  // guard — but scoped by a WALK, so every future file under it is covered the day
+  // it is written rather than the day someone remembers to extend an array.
+  const sources = workerSources()
+    .filter(([p]) => p.replace(/\\/g, "/").startsWith("workers/tenancy/src/"))
+    .map(([p, src]) => [p, stripComments(src)] as const)
 
   it("found the library at all", () => {
-    expect(sources.length, "no tenancy lib sources found — this scan has gone blind").toBeGreaterThan(3)
+    expect(sources.length, "no tenancy sources found — this scan has gone blind").toBeGreaterThan(3)
+    // Reaching PAST lib/ and routes/ is the property that was missing, so it is
+    // asserted rather than assumed: the entry point is a top-level `src/*.ts`, and
+    // a scan that cannot see it cannot see a handler declared there either.
+    expect(
+      sources.map(([p]) => p),
+      "the scan never reached workers/tenancy/src/index.ts — it is not walking src/** and a door in the entry point would be invisible"
+    ).toContain("workers/tenancy/src/index.ts")
   })
 
   for (const [file, src] of sources) {
     // A door assigns a role if it writes `role_id` or hands one to an invite.
-    // `export async function` AND `export const x = async (…) =>`. An arrow export
-    // is the same door written differently, and walked past the first version.
-    for (const m of src.matchAll(/export (?:async function (\w+)|const (\w+)\s*(?::[^=\n]*)?=\s*async)/g)) {
-      const fnName = m[1] ?? m[2]
+    //
+    // EVERY EXPORTED DECLARATION, of either form. The previous pattern demanded the
+    // literal `= async` after a `const`, so it read `export const x = async (…) =>`
+    // but not `export const x = (req, env): Promise<Response> => …` — a handler that
+    // returns a promise without the keyword, which is the same door written in a way
+    // TypeScript is perfectly happy with. Proven live on 2026-08-25: that exact form,
+    // writing `team_members` with no guard call, left this file at 24/24.
+    //
+    // Deliberately broad — it matches plain constants too, and their bodies simply
+    // fail the SQL predicate below and are skipped. A narrow subject pattern is how
+    // the last three escapes got in; the SQL predicate is where the narrowing belongs.
+    for (const m of src.matchAll(/export (?:async function|const) (\w+)/g)) {
+      const fnName = m[1]
       const body = declarationBody(src, m.index!)
       // WRITES only. The first version matched `role_id)` and `role_id =`, which
       // appear in every SELECT and WHERE in these files, so it demanded the guard
       // from `listMembers` and `getRolePermissions`. A predicate that over-matches
       // is not the safe direction: it makes the check noisy, and a noisy check
       // gets loosened rather than fixed.
+      //
+      // WHITESPACE IS `\s+`, NOT A SPACE. The previous pattern hardcoded single
+      // spaces between the keywords, so it read `INSERT OR REPLACE INTO team_members`
+      // on one line and missed the identical statement wrapped the way every other
+      // multi-line SQL string in this repo is wrapped — `INSERT OR REPLACE\n INTO
+      // team_members`. Proven live on 2026-08-25: that form, with no guard call,
+      // left this file at 24/24. SQL formatting is not a security boundary.
       const assigns =
-        /INSERT (?:OR \w+ )?INTO team_members\b/i.test(body) ||
-        /INSERT (?:OR \w+ )?INTO invite_index\b/i.test(body) ||
+        /INSERT(?:\s+OR\s+\w+)?\s+INTO\s+(?:team_members|invite_index)\b/i.test(body) ||
         // Up to WHERE only — `[^;]*` reached into the WHERE clause, so
         // `removeMember`'s `... WHERE ... role_id = ?` read as an assignment. A
-        // filter is not a write.
-        /UPDATE team_members SET(?:(?!WHERE)[\s\S])*?\brole_id\s*=/i.test(body)
+        // filter is not a write. Same `\s+` treatment for the same reason.
+        /UPDATE\s+team_members\s+SET(?:(?!WHERE)[\s\S])*?\brole_id\s*=/i.test(body)
       if (!assigns) continue
       // The doors where a role is assigned but the ASSIGNER is not choosing it.
       // Each is a reviewed exception with its reason, on the same bargain every

@@ -25,18 +25,60 @@
 // (`shared/workers/retention.ts`), which is a documented policy, not code
 // rewriting history.
 //
-// WHAT IS DELIBERATELY NOT LOGGED, and why — so the gaps are decisions:
+// WHAT IS DELIBERATELY NOT LOGGED, and why — so the gaps are decisions.
 //
-//   • sessions, login codes, email-change codes — short-lived secrets and
-//     machinery. Signing in is identity, not a record change: it goes to
-//     `account_activity` in the global database (see "the two tables" below).
-//   • idempotency keys, error rows, AI-usage rows — ledgers and exhaust. Each is
-//     already its own log; logging a log is noise.
-//   • `learning_progress` (marking an article read) and `mcp_tokens.last_used_at`
-//     — per-view telemetry. One row per read would drown the feed the trail
-//     exists to make readable.
-//   • the active-team pointer (`users.current_team_id`) — which team you are
-//     LOOKING at, not a change to any record.
+// FIRST, what only LOOKS unlogged. A child row is logged against its PARENT
+// record, because the parent is the feed a person actually reads:
+// `help_threads` and `help_stakeholders` under `help`, `role_permissions` under
+// `member_roles`, `invite_index` under the team-local `invite_logs`. Each writes
+// an activity row; none names its own table.
+//
+// SECRETS AND MACHINERY — nothing points at them and they expire:
+//   • sessions, login codes, email-change codes. Signing in is identity, not a
+//     record change: it goes to `account_activity` in the global database (see
+//     "the two tables" below).
+//
+// LEDGERS AND EXHAUST — each is already its own log; logging a log is noise:
+//   • idempotency keys, error rows, AI-usage rows, and the AI credit BALANCE
+//     (`agent_credits`) those rows draw down.
+//   • `email_change_logs` — auth's own audit row for the very event that already
+//     writes an `account_activity` row.
+//   • `activity` and `account_activity` themselves. A trail does not trail itself.
+//
+// PER-VIEW TELEMETRY — one row per read would drown the feed the trail exists to
+// make readable: `learning_progress` (marking an article read),
+// `mcp_tokens.last_used_at`.
+//
+// THE ACTIVE-TEAM POINTER (`users.current_team_id`) — which team you are LOOKING
+// at, not a change to any record.
+//
+// WIZARD PROGRESS, not records. The row is a half-finished form, and the work it
+// describes is logged where it actually lands:
+//   • `data_import_sessions` / `data_import_batches` (workers/data-ops) —
+//     started, previewed, planned, claimed. Every imported ROW goes through its
+//     module's own gated create door and logs with origin `import`, and the
+//     finished run adds one summary row. Logging the wizard's own steps would
+//     stack noise in front of the rows that matter.
+//   • `agent_threads` / `agent_messages` (workers/data-ops) — the chat
+//     transcript is its own record of itself and is readable in the app. Anything
+//     the assistant CHANGES goes through the same gated doors a person uses and
+//     logs with origin `agent`.
+//
+// THE PLATFORM, not the product. These describe the machine, and most live in the
+// core/operations database, which no team feed can reach:
+//   • `importable_databases` (workers/data-ops) — the import catalogue, DERIVED
+//     from code and self-healing on read (R13). Nobody authored it.
+//   • `db_alerts`, `db_sizes`, `cron_runs` (workers/tenancy) — size and spend
+//     alarms, the nightly size meter, and the jobs' own cursors.
+//   • `teams.shard_count` (workers/tenancy) — how many objects a team's live
+//     channel is spread across. A capacity knob, invisible in the product.
+//   • the migration robot (`workers/tenancy/src/routes/admin.ts`) — applies team
+//     schema migrations and stamps `teams.schema_version`. Schema versions are
+//     not records, and every team database keeps its own `_migrations` audit.
+//
+// THIS LIST IS MACHINE-CHECKED, so a new unlogged table cannot arrive
+// undocumented: `workers/content/test/activity-seam.test.ts` derives the tables
+// no activity row is able to name and fails if one of them is missing above.
 //
 // THE TWO TABLES. `activity` is per-team and holds record history.
 // `account_activity` is global and holds identity events — account created, email

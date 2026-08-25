@@ -319,11 +319,52 @@ export const FORM_DIALOGS = [
   "selectable-form-dialog",
 ] as const
 
-/** R26 — shipped files that carry the product name and are deliberately NOT
- * swept by `scripts/fork.mjs`, with the reason. Empty today, and it should stay
- * that way: the honest fix for a missed file is almost always to teach the sweep
- * its type, not to write it an excuse. */
-export const FORK_SWEEP_EXEMPT: Record<string, string> = {}
+/** R26 — the REGISTER of identity a fork does not inherit correctly from
+ * `npm run fork <name>` alone, and why. Two hazards live here, both of them
+ * things a TEXT sweep genuinely cannot finish:
+ *
+ *   1. an asset the sweep cannot read at all — a binary, where the product name
+ *      is pixels rather than a literal;
+ *   2. an ACCOUNT-scoped deploy host, where the sweep rewrites the app half of
+ *      `<app>.<account>.workers.dev` and leaves the author's account half — more
+ *      dangerous than an unswept literal, because a fork then reads its OWN name
+ *      in a URL it does not own and smoke-tests against somebody else's edge.
+ *
+ * It was `{}` until 2026-08-25, which asserted NOTHING: the check only validated
+ * entries that existed, so an empty map passed vacuously while four brand PNGs
+ * and seven files naming the author's subdomain shipped unregistered. The check
+ * now scans for both hazards and fails on an unregistered one, and rejects an
+ * entry that is no longer either — so the map cannot rot in either direction.
+ *
+ * `scripts/fork.mjs` PRINTS this map when it finishes, so a forker is told what
+ * is left to do by hand. Adding a line here adds a line to that closing report —
+ * write the reason for the person reading it. */
+export const FORK_SWEEP_EXEMPT: Record<string, string> = {
+  // 1 · Generated binaries. No text sweep can rewrite pixels — so these are not
+  // swept, they are REDRAWN: `scripts/gen-icons.mjs` derives the monogram from
+  // `brand.name`, and `scripts/fork.mjs` runs it as its final step. Nothing to
+  // do by hand unless a real logo replaces the monogram.
+  "web/public/icons/icon-192.png": "Generated binary: the PWA install icon. Redrawn from shared/brand.ts by scripts/gen-icons.mjs, which scripts/fork.mjs runs last.",
+  "web/public/icons/icon-512.png": "Generated binary: the PWA icon at splash size. Redrawn from shared/brand.ts by scripts/gen-icons.mjs, which scripts/fork.mjs runs last.",
+  "web/public/icons/icon-maskable-512.png": "Generated binary: the Android adaptive (maskable) icon. Redrawn from shared/brand.ts by scripts/gen-icons.mjs, which scripts/fork.mjs runs last.",
+  "web/public/icons/apple-touch-icon.png": "Generated binary: the iOS home-screen icon. Redrawn from shared/brand.ts by scripts/gen-icons.mjs, which scripts/fork.mjs runs last.",
+
+  // 2 · The author's Cloudflare account subdomain. `brimba.swift-struck.workers.dev`
+  // sweeps to `acme.swift-struck.workers.dev`: the app half is right and the
+  // account half is still ours. No rename can guess a fork's own subdomain — the
+  // same reason fork.mjs BLANKS the account id and the D1 database ids rather
+  // than renaming them — so each of these must be pointed at the fork's own
+  // account by hand, from BOOTSTRAP.md §2. Documents naming the host are left to
+  // the docs pass; these are the files that actually deploy, test or link to it.
+  "workers/auth/wrangler.jsonc": "Account-scoped deploy host: the routes still point at the author's workers.dev subdomain. Repoint to the fork's own account (BOOTSTRAP.md §2).",
+  "workers/tenancy/wrangler.jsonc": "Account-scoped deploy host: the routes still point at the author's workers.dev subdomain. Repoint to the fork's own account (BOOTSTRAP.md §2).",
+  "scripts/smoke-staging.mjs": "Account-scoped deploy host: the default SMOKE_BASE is the author's staging edge, so an unedited fork smoke-tests somebody else's app. Repoint it, or pass SMOKE_BASE.",
+  "scripts/timings.mjs": "Account-scoped deploy host: the staging + production URLs it measures are the author's. Repoint them to the fork's own account.",
+  "timings.json": "Account-scoped deploy host: recorded timings, stamped with the author's staging URL. Re-record against the fork's own edge; the numbers are not the fork's.",
+  "web/playwright.config.ts": "Account-scoped deploy host: the default e2e BASE_URL is the author's staging edge. Repoint it, or pass BASE_URL.",
+  "web/components/access-tokens.tsx": "Account-scoped deploy host: the MCP connection snippet falls back to the author's production URL when rendered server-side. Repoint the fallback.",
+  "web/e2e/live-sync.spec.ts": "Account-scoped deploy host: the live-sync e2e run defaults to the author's staging edge and asserts against the author's production host. Repoint both, or pass BASE_URL.",
+}
 
 /** R21 — create doors that legitimately return something OTHER than the created
  * row. Keyed by handler name, with the reason, so every exception is a visible

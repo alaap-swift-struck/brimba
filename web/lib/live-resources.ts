@@ -277,9 +277,11 @@ export const SIMPLE_INVALIDATIONS: Record<string, (teamId: string) => string[]> 
   // visible (who imported what, into which tables, with the totals), unlike the
   // working batch, which stays creator-scoped.
   //
-  // NOTE: nothing publishes `data_import_batches` yet, so this listener is ready
-  // and idle. The worker half is one line beside the publishes already in
-  // workers/data-ops/src/routes/import.ts — until it lands, an import's progress
-  // is invisible to everyone (the runner included) until someone refreshes.
+  // The publisher is `postBatchConfirm` in workers/data-ops/src/routes/import.ts.
+  // It was missing until 2026-08-25, and this listener sat ready and idle for
+  // months with a note in this spot explaining that it did — which is the reason
+  // Law R15 is only half a law: its check proves every PUBLISHER reaches a
+  // listener, and never that every listener has a publisher. A listener with no
+  // publisher fails silently and forever, and documents itself while doing it.
   data_import_batches: (t) => [`import-batches:${t}`],
 }

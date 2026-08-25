@@ -150,6 +150,91 @@ describe("a logging failure is loud in the record, not silent", () => {
     // The contract: a logging hiccup must never break the action it describes.
     await expect(logActivity(cfg, "db1", actor, { type: "x", description: "y" })).resolves.toBeUndefined()
   })
+
+  // THE GAP MARKER HAS TO OUTLIVE THE CONSOLE. Until now a failed log line went
+  // to `traceError` and nowhere else — Cloudflare keeps those for about a week,
+  // so after seven days the fact that a record's history has a HOLE in it was
+  // gone, while the history itself still looked complete. The one thing an audit
+  // trail must never do is lose the record of its own failure.
+  const failing = async () => {
+    const { d1ExecScript } = await import("../../../shared/workers/d1-rest")
+    vi.mocked(d1ExecScript).mockRejectedValueOnce(new Error("database on fire"))
+  }
+  type Gap = { place: string; message: string }
+  const collector = () => {
+    const seen: Gap[] = []
+    return {
+      seen,
+      record: (place: string, e: unknown) => {
+        seen.push({ place, message: e instanceof Error ? e.message : String(e) })
+      },
+    }
+  }
+
+  it("hands the gap to the recorder, NAMING the record whose history now has a hole", async () => {
+    const { seen, record } = collector()
+    await failing()
+    await logActivity(
+      cfg,
+      "db1",
+      actor,
+      { type: "x", description: "y", relatedTable: "help", relatedRowId: "help-42" },
+      record
+    )
+    expect(seen, "the failure must reach the durable store, not just the console").toHaveLength(1)
+    expect(seen[0].place, "a gap nobody can locate is not a repair list").toContain("help")
+    expect(seen[0].place).toContain("help-42")
+    expect(seen[0].message, "and it must carry what actually went wrong").toContain("database on fire")
+  })
+
+  it("the account logger follows the SAME contract", async () => {
+    const { logAccountActivity } = await import("../../../shared/workers/account-activity")
+    const { seen, record } = collector()
+    const env = {
+      DB: {
+        prepare: () => ({
+          bind: () => ({
+            run: async () => {
+              throw new Error("core database on fire")
+            },
+          }),
+        }),
+      },
+    }
+    await expect(
+      logAccountActivity(env, "user-1", { type: "Email changed", description: "z" }, record)
+    ).resolves.toBeUndefined()
+    expect(seen).toHaveLength(1)
+    expect(seen[0].place).toContain("Email changed")
+    expect(seen[0].message).toContain("core database on fire")
+  })
+
+  it("records NOTHING when the write succeeds", async () => {
+    // A gap marker that fires on the happy path is a gap marker nobody reads.
+    const { seen, record } = collector()
+    await logActivity(cfg, "db1", actor, { type: "x", description: "y" }, record)
+    expect(seen).toEqual([])
+  })
+
+  it("with NO recorder, behaves exactly as it did before — swallow, never throw", async () => {
+    // The seam is OPTIONAL on purpose: a worker with no way to record must get
+    // "not recorded", never a crash inside the error path.
+    await failing()
+    await expect(
+      logActivity(cfg, "db1", actor, { type: "x", description: "y" })
+    ).resolves.toBeUndefined()
+  })
+
+  it("a recorder that ITSELF throws still cannot break the caller", async () => {
+    // The error path is the one place a second failure is most likely — the
+    // store it writes to is often the thing that just went down.
+    await failing()
+    await expect(
+      logActivity(cfg, "db1", actor, { type: "x", description: "y" }, () => {
+        throw new Error("the error store is down too")
+      })
+    ).resolves.toBeUndefined()
+  })
 })
 
 describe("the verbs are a closed set", () => {

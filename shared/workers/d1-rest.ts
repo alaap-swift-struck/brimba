@@ -134,7 +134,11 @@ async function cf<T>(
   } finally {
     const ms = Date.now() - started
     cfg.trace?.spans.push({ op, ms, tries })
-    traceHop({ req: cfg.trace?.req, worker: "d1-rest", op, ms, tries })
+    // The running tally rides on the line, so ONE log entry answers "how many
+    // trips did this request make through this door, and what have they cost?" —
+    // the question a per-call duration on its own cannot answer.
+    const so_far = cfg.trace && d1Cost(cfg)
+    traceHop({ req: cfg.trace?.req, worker: "d1-rest", op, ms, tries, nth: so_far?.calls, soFarMs: so_far?.ms })
   }
 }
 

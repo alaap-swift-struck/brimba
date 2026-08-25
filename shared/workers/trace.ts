@@ -283,6 +283,13 @@ export function traceHop(fields: {
   ms: number
   /** how many attempts the hop actually took, when it retried */
   tries?: number
+  /** WHICH call of this request this was, and what the seam has cost SO FAR.
+   * The pair is the diagnosis a single duration cannot give: `nth:4 soFarMs:830`
+   * says a request made four round trips and they are the request, where one
+   * 830ms line would have read as a slow query. Only the data door fills these
+   * in — it is the only seam a request calls repeatedly. */
+  nth?: number
+  soFarMs?: number
 }): void {
   if (fields.ms < HOP_SLOW_MS) return
   console.warn(JSON.stringify({ level: "warn", event: "hop", ...fields }))
