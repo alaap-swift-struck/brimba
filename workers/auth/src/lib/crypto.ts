@@ -11,14 +11,6 @@ export async function sha256Hex(input: string): Promise<string> {
     .join("")
 }
 
-export async function sha256Bytes(input: string): Promise<Uint8Array> {
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(input)
-  )
-  return new Uint8Array(digest)
-}
-
 export function base64Url(bytes: Uint8Array): string {
   let binary = ""
   for (const b of bytes) binary += String.fromCharCode(b)

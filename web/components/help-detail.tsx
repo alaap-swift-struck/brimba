@@ -81,7 +81,25 @@ export function HelpDetailScreen({
   const ticketsQ = useCached<HelpTicket[]>(`help:${teamId}`, () =>
     content.help("all").then((r) => r.tickets)
   )
-  const ticket = ticketsQ.data?.find((t) => t.id === helpId) ?? null
+  const fromList = ticketsQ.data?.find((t) => t.id === helpId) ?? null
+
+  // THE DEEP LINK PAST PAGE ONE. Reading a detail out of the list cache is the
+  // locked optimisation in EDGE-CASES 2 / CACHING 3, and it was sound while help
+  // returned every ticket. R14 made help a PAGED collection, and the two rules
+  // stopped composing: a ticket beyond the loaded page is simply absent from the
+  // cache, so pasting its URL into a fresh tab rendered "That ticket no longer
+  // exists" about a ticket that exists.
+  //
+  // The single-row door has been there the whole time (it is what live-sync uses
+  // to patch a row in). This asks it ONLY when the list genuinely does not have
+  // the ticket — `null` key means no request — so the common path still costs
+  // nothing and the locked decision is untouched. (Round-trip review, 2026-08-25.)
+  const listSettled = ticketsQ.data !== undefined
+  const oneQ = useCached<HelpTicket | null>(
+    listSettled && !fromList ? `help-one:${helpId}` : null,
+    () => content.helpOne(helpId)
+  )
+  const ticket = fromList ?? oneQ.data ?? null
 
   const repliesQ = useCached<HelpMessage[]>(`help-thread:${helpId}`, () =>
     content.helpThread(helpId).then((r) => {
@@ -180,6 +198,9 @@ export function HelpDetailScreen({
 
   if (ticketsQ.error) return <p className="text-destructive text-sm">Couldn&apos;t load the ticket.</p>
   if (ticketsQ.data === undefined) return <Skeleton variant="list" lines={4} />
+  // Only once the fallback has settled too — otherwise a deep-linked ticket
+  // flashes "no longer exists" while its own read is still in flight.
+  if (!ticket && oneQ.loading) return <Skeleton variant="list" lines={4} />
   if (!ticket) return <p className="text-muted-foreground text-sm">That ticket no longer exists.</p>
 
   // self-tag fix: you can't @mention yourself

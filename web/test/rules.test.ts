@@ -901,14 +901,33 @@ describe("RULES — the laws of the base", () => {
     const shell = read(join(WEB, "components", "app-shell.tsx"))
     expect(shell, "the shell must fan every ping into the bus").toContain('emitLive({ kind: "ping"')
     expect(shell, "the shell must replay on reconnect").toContain('emitLive({ kind: "reconnect" })')
-    const offenders = componentFiles().filter((f) => {
-      const src = read(f)
-      return /\/search\?|usePagedList/.test(src) && !src.includes("useLiveRefetch")
-    })
+    // THE PAGED HALF, pointed at the paging this app actually has. This filter
+    // read `/search?|usePagedList` and NO component in the repo contains either —
+    // all fetching is wrapped in `web/lib/api.ts` — so its offender list was
+    // always empty and the check could not fail. It had never once been capable
+    // of catching anything. (Realtime review, 2026-08-25.)
+    //
+    // What actually delivers liveness to a paged screen here is not a subscription
+    // but the CACHE KEY: `use-screen-data.ts` reads every collection through
+    // `useCached` under the same key the shell patches on a ping, and `LoadMore`
+    // appends into that same key. So a page-two row is patched exactly like a
+    // page-one row. That is the mechanism R15 needs on this surface, so that is
+    // what is asserted — and if paging ever moves off the shared cache, this goes
+    // red instead of staying silent.
+    const paging = read(join(WEB, "lib", "use-screen-data.ts"))
     expect(
-      offenders,
-      `paged screen without a live subscription (R15 — useLiveRefetch): ${offenders.join(", ")}`
-    ).toEqual([])
+      paging,
+      "paged screens must read through useCached, or a live ping cannot reach page two"
+    ).toContain("useCached")
+    expect(
+      stripComments(paging),
+      "paged screens must key off live-resources, so their key is the one the shell patches"
+    ).toMatch(/from "@\/lib\/live-resources"/)
+    const pagers = componentFiles().filter((f) => /LoadMore|nextCursor/.test(stripComments(read(f))))
+    expect(
+      pagers.length,
+      "no paging surface found at all — this check has gone blind, as its predecessor was"
+    ).toBeGreaterThan(0)
   })
 
   // R16 — every screen showing a collection shows its count exactly once: the
