@@ -52,34 +52,42 @@ export async function getSelectableExport(request: Request, env: Env): Promise<R
   return csvResponse("dropdown-values.csv", csv, truncated)
 }
 
-export async function postCreateSelectable(request: Request, env: Env): Promise<Response> {
+export async function postCreateSelectable(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const { actor, cfg, guard, body } = await gatedBody<{ type?: string; value?: string }>(request, env, "selectable_data", "create")
   const type = requireText(body.type, "Group", TEXT_LIMITS.short)
   const value = requireText(body.value, "Option", TEXT_LIMITS.short)
   const id = await createSelectable(cfg, guard, actor, type, value)
   // Row-level: carry the new value's id so open lists can patch just that row.
-  await publishChange(env.REALTIME, guard.teamId, "selectable_data", id, "add")
+  ctx.waitUntil(publishChange(env.REALTIME, guard.teamId, "selectable_data", id, "add"))
   // R21: the CREATED ROW, not the collection.
   return json({ created: await oneSelectable(cfg, guard, id), total: await countSelectable(cfg, guard) })
 }
 
-export async function postUpdateSelectable(request: Request, env: Env): Promise<Response> {
-  const { actor, cfg, guard, body } = await gatedBody<{ id?: string; value?: string; expectedVersion?: string }>(request, env, "selectable_data", "edit")
+export async function postUpdateSelectable(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const { actor, cfg, guard, body } = await gatedBody<{ id?: string; value?: string; type?: string; expectedVersion?: string }>(request, env, "selectable_data", "edit")
   if (!body.id) return fail(400, "invalid_input", "id and value are required.")
   const value = requireText(body.value, "Option", TEXT_LIMITS.short)
-  await updateSelectable(cfg, guard, actor, body.id, value, body.expectedVersion)
-  await publishChange(env.REALTIME, guard.teamId, "selectable_data", body.id)
+  // The destination group. ABSENT leaves the value where it is (the Dropdown-values
+  // screen renames inline and posts no type at all); SENT moves it. There is no
+  // third case — a group can't be cleared — so a present-but-blank one is a caller
+  // mistake and `requireText` answers it with the clean 400, rather than passing a
+  // blank through as "don't move" and leaving the caller believing it moved.
+  const type = body.type === undefined ? undefined : requireText(body.type, "Group", TEXT_LIMITS.short)
+  // `type` is LAST: it was added after `expectedVersion` on purpose, so the
+  // positional callers that predate it keep passing the version where they always did.
+  await updateSelectable(cfg, guard, actor, body.id, value, body.expectedVersion, type)
+  ctx.waitUntil(publishChange(env.REALTIME, guard.teamId, "selectable_data", body.id))
   // R23: the affected ROW, and no count — an edit cannot move a total. See RULES.md.
   return json({ updated: await oneSelectable(cfg, guard, body.id) })
 }
 
-export async function postSetSelectableActive(request: Request, env: Env): Promise<Response> {
+export async function postSetSelectableActive(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const { actor, cfg, guard, body } = await gatedBody<{ id?: string; active?: boolean }>(request, env, "selectable_data", "delete")
   if (!body.id || typeof body.active !== "boolean")
     return fail(400, "invalid_input", "id and active are required.")
   // R17: no-op repeat → no ping, no duplicate history (see setSelectableActive).
   const changed = await setSelectableActive(cfg, guard, actor, body.id, body.active)
-  if (changed) await publishChange(env.REALTIME, guard.teamId, "selectable_data", body.id)
+  if (changed) ctx.waitUntil(publishChange(env.REALTIME, guard.teamId, "selectable_data", body.id))
   // R23: the affected ROW, and no count — an edit cannot move a total. See RULES.md.
   return json({ updated: await oneSelectable(cfg, guard, body.id) })
 }
@@ -88,12 +96,12 @@ export async function postSetSelectableActive(request: Request, env: Env): Promi
  * validates its id list at the boundary, and publishes ONE row-level ping per
  * CHANGED row (never a list refetch). Declared `together`: no row here depends
  * on what another row left behind. */
-export async function postBulkSetSelectableActive(request: Request, env: Env): Promise<Response> {
+export async function postBulkSetSelectableActive(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const { actor, cfg, guard, body } = await gatedBody<{ ids?: unknown; active?: unknown }>(request, env, "selectable_data", "delete")
   const ids = requireIdList(body.ids)
   if (typeof body.active !== "boolean")
     return fail(400, "invalid_input", "active must be true or false.")
   const { changed, skipped } = await bulkSetSelectableActive(cfg, guard, actor, ids, body.active)
-  for (const id of changed) await publishChange(env.REALTIME, guard.teamId, "selectable_data", id)
+  for (const id of changed) ctx.waitUntil(publishChange(env.REALTIME, guard.teamId, "selectable_data", id))
   return json({ updated: changed.length, skipped })
 }

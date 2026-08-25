@@ -3,8 +3,13 @@
 // caller's session cookie to the content / tenancy workers), so every import respects
 // the caller's permissions + each module's validation. Only the gateway is public —
 // this worker is reachable only via service bindings.
-// Secrets (wrangler secret put): CF_D1_TOKEN (reach per-team DBs), INTERNAL_KEY
-// (worker-to-worker), ADMIN_KEY (owner-only import-catalog seeding).
+// Secrets (wrangler secret put): CF_D1_TOKEN (reach per-team DBs), ADMIN_KEY
+// (owner-only import-catalog seeding). NO INTERNAL_KEY: this worker neither
+// presents nor verifies one — it is reached only through the gateway, and the
+// doors it calls act as the signed-in person. It was declared and documented
+// here for months, and the /health binding report is what surfaced that: it
+// answered `internalKey: false` on a healthy staging deployment, which is a
+// secret an operator had been told to set for nothing.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "brimba-data-ops",

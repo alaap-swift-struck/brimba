@@ -51,19 +51,34 @@ async function lookupUsers(
   return out
 }
 
-/** Send one branded email through the auth worker (it owns the Resend key). */
+/**
+ * Send one branded email through the auth worker (it owns the Resend key).
+ *
+ * IT ANSWERS WHETHER THE MAIL ACTUALLY WENT — the same contract tenancy's
+ * `sendMail` carries, for the same reason. Auth's `/internal/send-email` returns
+ * `{ sent: false }` on a clean 200 whenever `RESEND_API_KEY` is unset, so a
+ * caller that discarded the response (as this one did) could not tell a
+ * delivered email from a mailer that has never been configured. Here that is
+ * survivable — the reply itself already saved and is on the ticket — but it must
+ * not be SILENT: a team whose mailer is unset gets no reply notices and no
+ * mention pings at all, and nothing anywhere says why.
+ *
+ * TRUE only when auth answered AND confirmed. A null (auth never answered), a
+ * non-2xx, an unparseable body and an explicit `{ sent: false }` are all FALSE —
+ * the caller cannot tell them apart because for a caller there is no difference.
+ */
 async function send(
   env: Env,
   to: string,
   subject: string,
   content: Pick<BrandedEmail, "heading" | "intro" | "footnote">
-): Promise<void> {
+): Promise<boolean> {
   const { html, text } = brandedEmail(content)
   // Bounded and guarded. Email is best-effort by design — every caller already
   // wraps this in a try/catch so a mail failure never fails the write it describes
   // — but "best-effort" without a timeout still means a wedged mail hop holds the
   // user's request open for as long as the platform allows.
-  await callService(
+  const res = await callService(
     env.AUTH,
     "https://auth/internal/send-email",
     {
@@ -73,6 +88,9 @@ async function send(
     },
     { worker: "content", place: "send-email" }
   )
+  if (!res || !res.ok) return false
+  const answer = (await res.json().catch(() => null)) as { sent?: boolean } | null
+  return answer?.sent === true
 }
 
 /** A short, safe preview of the reply text for the email body. */
@@ -115,11 +133,21 @@ export async function notifyReplyAndMentions(
         const intro = isMention
           ? `${who} mentioned you in a support ticket reply on ${name} (${brand.name}): "${preview}"`
           : `${who} replied to your support ticket on ${name} (${brand.name}): "${preview}"`
-        await send(env, u.email, subject, {
+        const sent = await send(env, u.email, subject, {
           heading,
           intro,
           footnote: "Open the ticket in Help to read the full conversation and reply.",
-        }).catch((e) => console.error("help reply notice failed:", e))
+        }).catch((e) => {
+          console.error("help reply notice failed:", e)
+          return false
+        })
+        // The second half of the same honesty: `send` now answers, so this
+        // listens. The reply is on the ticket either way — but "nobody was
+        // emailed" must not look identical to "everybody was".
+        if (!sent)
+          console.error(
+            `help ${isMention ? "mention" : "reply"} notice was NOT sent (mailer unconfigured, unreachable or refused)`
+          )
       })
     )
   } catch (e) {

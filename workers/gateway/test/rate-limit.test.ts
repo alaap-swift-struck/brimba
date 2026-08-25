@@ -108,9 +108,33 @@ describe("where the two ceilings sit", () => {
     expect(limitAt, "the ceiling must come BEFORE the first route, not after").toBeLessThan(firstRoute)
   })
 
-  it("covers the API and the machine surface, not cached assets", () => {
-    const guard = gateway.slice(gateway.indexOf("if (pathname.startsWith(\"/api/\")"))
-    expect(guard.slice(0, 120)).toContain('pathname === "/mcp"')
+  it("covers the API, the machine surface AND media — everything the worker runs for", () => {
+    // /media/* was excluded until 2026-08-25 because it "is served from cache".
+    // It is not: `run_worker_first` lists it, so the worker executes and R2 is
+    // read on every request, and `immutable` only helps a browser that already
+    // has the object. That made it the one anonymous, unauthenticated, unlimited
+    // door in the base. Genuinely asset-served paths stay exempt — they are not
+    // in run_worker_first, so this worker never sees them at all.
+    const guard = gateway.slice(gateway.indexOf('if (pathname.startsWith("/api/")'))
+    expect(guard.slice(0, 160)).toContain('pathname === "/mcp"')
+    expect(
+      guard.slice(0, 160),
+      "/media/* runs the worker on every request, so it must be inside the ceiling"
+    ).toContain('pathname.startsWith("/media/")')
+  })
+
+  it("keeps the exclusion claim out of the source, in both places that made it", () => {
+    // The code and its explanation must not disagree. Two comments justified the
+    // exclusion with the cache premise; if either survives, someone will read it
+    // and re-derive the wrong conclusion.
+    expect(
+      /OUTSIDE the surge ceiling/.test(gateway),
+      "a comment still says /media/* is outside the ceiling, but it is inside it"
+    ).toBe(false)
+    expect(
+      /deliberately covers \/api\/\* only/.test(gateway),
+      "a comment still says the ceiling covers /api/* only"
+    ).toBe(false)
   })
 
   it("puts the per-TEAM ceiling where the team is actually known", () => {
@@ -135,6 +159,59 @@ describe("where the two ceilings sit", () => {
   })
 })
 
+// MEDIA IS ITS OWN BUDGET.
+//
+// Two properties, both of which fail silently if they regress: a picture must
+// not spend an API request, and a wobbling limiter must not break every image
+// in the app.
+describe("the media ceiling", () => {
+  const media = (init?: { cookie?: string; ip?: string }) =>
+    req({ ...init, url: "https://app.example/media/learning/t_1/01H.png" })
+
+  it("spends the MEDIA budget, never the caller's API budget", async () => {
+    // The load-bearing one. A how-to article with fifty images is ONE page view;
+    // charged against USER_LIMITER it would spend fifty of that caller's 600 and
+    // a media-heavy screen could starve the app's own calls.
+    let userAsked = false
+    const res = await rateLimit(media(), {
+      USER_LIMITER: { limit: async () => { userAsked = true; return { success: false } } },
+      MEDIA_LIMITER: limiter(true),
+    })
+    expect(res, "the media limiter said yes, so the request proceeds").toBeNull()
+    expect(userAsked, "a picture must not cost an API request").toBe(false)
+  })
+
+  it("still refuses a media flood", async () => {
+    const res = await rateLimit(media(), { MEDIA_LIMITER: limiter(false) })
+    expect(res?.status).toBe(429)
+  })
+
+  it("keys an anonymous reader by the address Cloudflare observed", async () => {
+    // /media/* is reachable signed-out, so the unauthenticated case must key,
+    // not exempt. Same-origin <img> requests do carry the session cookie.
+    const keys: string[] = []
+    const spy = { limit: async (o: { key: string }) => { keys.push(o.key); return { success: true } } }
+    await rateLimit(media({ ip: "203.0.113.7" }), { MEDIA_LIMITER: spy })
+    await rateLimit(media({ cookie: "brimba_session=abc123" }), { MEDIA_LIMITER: spy })
+    expect(keys).toEqual(["m:ip:203.0.113.7", "m:s:abc123"])
+  })
+
+  it("FAILS OPEN when the media limiter throws — every image in the app depends on it", async () => {
+    // This is why the ceiling is asked inside rateLimit's try/catch and NOT
+    // inline in the gateway's route table. Inline, the throw would reach the
+    // CENTRAL catch instead: a 500 for every image, plus one recorded error row
+    // per request on the anonymous unauthenticated path — the exact
+    // amplification decodeKey's 400 exists to prevent.
+    const broken = { limit: async () => { throw new Error("limiter down") } }
+    expect(await rateLimit(media(), { MEDIA_LIMITER: broken })).toBeNull()
+  })
+
+  it("FAILS OPEN when the binding is absent", async () => {
+    // A fork, `wrangler dev` and every test run land here.
+    expect(await rateLimit(media(), {})).toBeNull()
+  })
+})
+
 describe("the bindings are actually declared", () => {
   // A limiter the runtime never receives is code that reads as protection and
   // is not. The seam fails open by design, so this is the ONLY thing standing
@@ -148,6 +225,31 @@ describe("the bindings are actually declared", () => {
     const cfg = parse("gateway")
     expect(cfg.ratelimits?.map((r) => r.name)).toContain("USER_LIMITER")
     expect(cfg.env.staging.ratelimits?.map((r) => r.name)).toContain("USER_LIMITER")
+  })
+
+  it("gives the gateway a MEDIA limiter in BOTH environments", () => {
+    // The seam fails open, so a missing binding is silent: images keep loading
+    // and the ceiling simply is not there. Only this test notices.
+    const cfg = parse("gateway")
+    expect(cfg.ratelimits?.map((r) => r.name), "production").toContain("MEDIA_LIMITER")
+    expect(cfg.env.staging.ratelimits?.map((r) => r.name), "staging").toContain("MEDIA_LIMITER")
+  })
+
+  it("sets the media ceiling above real use and below a flood", () => {
+    // 1200/60s = 20/s. The heaviest realistic page is a ~50-image article, and a
+    // video seek issues many small Range requests on top — so roughly 4x that,
+    // while still stopping the 500 req/s scenario the gateway's own comment
+    // describes. A separate namespace from USER_LIMITER, so a gallery cannot
+    // starve the app's API budget.
+    const cfg = parse("gateway") as unknown as {
+      ratelimits: { name: string; namespace_id: string; simple: { limit: number } }[]
+    }
+    const byName = (n: string) => cfg.ratelimits.find((r) => r.name === n)!
+    expect(byName("MEDIA_LIMITER").simple.limit).toBe(1200)
+    expect(
+      byName("MEDIA_LIMITER").namespace_id,
+      "sharing USER_LIMITER's namespace would put media back on the API budget"
+    ).not.toBe(byName("USER_LIMITER").namespace_id)
   })
 
   it("gives every team-data worker a per-team limiter in BOTH environments", () => {

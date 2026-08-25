@@ -288,7 +288,7 @@ fail — a green check that cannot go red is worse than no check, because it is
 reported as a pass:
 
 ```bash
-grep -L "stripComments" workers/*/test/gating-seam.test.ts web/test/rules.test.ts
+grep -L "stripComments" workers/*/test/gating-seam.test.ts web/test/rules/*.test.ts
 ```
 **Patch:** every file listed reads COMMENTS AS CODE. This is the worst of the
 three, because this repo comments densely about the very seams being scanned and
@@ -335,7 +335,7 @@ sabotage-proven; the rest are security/agent/UI fixes. 342 tests (up from 302).
 |---|---|---|
 | DESIGN | **A capability shipped in code was invisible until a catalogue ROW existed** — staging could import modules production (byte-identical code) could not. | R13 widened: the import catalogue reconciles itself against the code on READ (INSERT-only; an owner's OFF stays off; the picker filters is_active in memory). Shipping the code now ships the capability. (`catalog-coverage`) |
 | SCALE | **Unbounded list reads** would stall a worker at 100k rows. | R14: every `list*`/`search*` carries a hard cap from `shared/workers/limits.ts` with its comment (`bounded-lists`). *Widened in the follow-up round above: a GROWING collection must page, not cap.* |
-| BUG | **Deaf publishers / stale paged screens** — a worker pinged `selectable_data` and nothing listened; paged rows live outside the row caches. | R15: the live registry (`web/lib/live-resources.ts`) + a ping bus + `useLiveRefetch`; every published resource reaches a listener or a reasoned `DEAF_EXEMPT`. (`live-collections`) |
+| BUG | **Deaf publishers / stale paged screens** — a worker pinged `selectable_data` and nothing listened; paged rows live outside the row caches. | R15: the live registry (`web/lib/live-resources.ts`); every published resource reaches a listener there or a reasoned `DEAF_EXEMPT` entry whose named cache keys are themselves machine-checked, and a paged screen stays live by reading the SAME cache keys the shell patches rather than by subscribing. (`live-collections`) *A `useLiveRefetch` ping bus was written for this and deleted on 2026-08-25 with zero call sites — see CACHING.md.* |
 | BUG | **A 24,011-row catalogue advertised "1000"** (a capped list's length) and the same count showed twice on one screen. | R16: exact server COUNT(*) through the one `formatCount` seam; tab-vs-heading arbitration by React context. (`counted-collections`) |
 | BUG | **A double-clicked Deactivate wrote two history rows** 2s apart. | R17: the current-status predicate rides the UPDATE; zero rows moved = no activity, no ping. (`idempotent-transitions`) |
 | LEAK | **The team activity feed showed every module's before/after behind one gate.** | R18: it subtracts the caller's denied modules through one clause; every relatedTable resolves through `ACTIVITY_GATE_MAP` or a pinned exemption. (`activity-gate-coverage`) |
@@ -405,12 +405,18 @@ A sweep of real bugs surfaced by the team exercising the AI co-pilot on staging.
 
 ## Open — ranked (the "three moves that each kill several findings" first)
 
+> **Reconciled 2026-08-25 against the code.** Several entries below had been fixed
+> and never struck through, so this list was recommending work already done. Items
+> struck through are closed with the evidence beside them; the history is kept
+> rather than deleted, because what a finding SAID is how you tell whether the fix
+> answered it. Anything still plain text is still open.
+
 ### P1 · resilience + leanness — high leverage, real refactors
-1. **One `callInternal(path, {cookie, timeout})` seam** (`shared/workers/`). Kills THREE findings at once: the cookie-forward internal-fetch dance is copy-pasted 5+ times (DRY), **no `fetch` has an `AbortSignal`** anywhere — the D1 REST door (`cf()`), cross-worker calls, and the agent's model calls all lack a timeout, so one hung socket stalls a whole worker (resilience) — and the forward executors flatten 403/409/500 into one generic string (status preservation; also the cause of the agent's "stuck pending step"). **Highest-leverage single change.**
+1. ~~**One `callInternal(path, {cookie, timeout})` seam**~~ **DONE.** As written it read: kills THREE findings at once — the cookie-forward internal-fetch dance is copy-pasted 5+ times (DRY), **no `fetch` has an `AbortSignal`** anywhere, so one hung socket stalls a whole worker, and the forward executors flatten 403/409/500 into one generic string. **The timeout half is now Law R11 and enforced.** The D1 REST door carries `AbortSignal.timeout(15_000)` (`shared/workers/d1-rest.ts`) and every service-binding call goes through the one `callService` seam in `shared/workers/trace.ts`, which bounds it, never throws, and returns NULL for "did not answer" as distinct from a refusal. Two deliberate exemptions, each with a written reason (the gateway proxy and `forwardToDoor` carry responses of unbounded legitimate length).
 2. ~~**Unify the two tool catalogs.**~~ **DONE 2026-07-10** — one `shared/workers/tool-catalog.ts` both surfaces project from (see Fixed above).
-3. **Idempotency + partial-failure cleanup on the fleet writes.** `import-confirm` has no idempotency (retry → duplicate rows); `migrateTeams` aborts the whole fleet on the first bad team and leaves schema drift; the module-mover can orphan a DB / double-count on interruption. Add an idempotency guard + per-item try/catch + cleanup.
-4. **Close the two error-log blind spots.** The nightly cron catch and the agent model-call catch swallow unexpected errors (console-only / nothing) — invisible in the 90-day `error_logs` table meant to catch exactly those. Add `recordWorkerError` in both.
-5. **`d1QueryAcross` uses `Promise.all`** → one slow/failed shard fails an entire split-module read. Use `allSettled` + record the degraded shard.
+3. **Idempotency + partial-failure cleanup on the fleet writes.** ~~`import-confirm` has no idempotency (retry → duplicate rows)~~ **DONE** — the confirm door claims its session atomically (`UPDATE … WHERE import_initiated = 0 RETURNING id`, `workers/data-ops/src/lib/import.ts`), so a second caller gets a 409 rather than a duplicate write, and the claim is RELEASED on failure so a genuine retry still works. Locked by `workers/data-ops/test/import-idempotency.test.ts`. **STILL OPEN:** `migrateTeams` aborts the whole fleet on the first bad team and leaves schema drift; the module-mover can orphan a DB / double-count on interruption. Add per-item try/catch + cleanup.
+4. ~~**Close the two error-log blind spots.**~~ **DONE.** As written: the nightly cron catch and the agent model-call catch swallow unexpected errors, invisible in the `error_logs` table meant to catch exactly those. All three sites now call `recordWorkerError` — `cron/size-check` and `cron/retention` in tenancy, `agent/model-call` in data-ops — and **Law R12 (a cron records its failures) is enforced**, so a future cron cannot quietly go silent.
+5. ~~**`d1QueryAcross` uses `Promise.all`**~~ **DONE.** It uses `Promise.allSettled` (`shared/workers/d1-rest.ts`) and names which shards failed, rather than throwing the first raw error and hiding the rest. It still fails LOUD on any error by design — a sharded read that silently dropped a shard's rows would under-report a count. Tolerating a degraded shard is a deliberate per-query opt-in, not the default.
 
 ### P2 · deploy + docs
 6. **realtime↔auth cold-start cut.** A genuinely fresh-account first deploy dies `code 10143` (realtime binds auth, auth binds realtime). Document the one-time binding cut as a first-class BOOTSTRAP step AND make `deploy:*` tolerate it — not the current footnote ("in practice auth already exists" — false for `new-app`).

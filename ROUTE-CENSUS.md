@@ -3,11 +3,18 @@
 **Generated — do not edit by hand.** `node scripts/route-census.mjs --write`.
 
 Every door this app has, with the gate each one opens with, derived from the
-source. It exists because a security sweep once measured 45 state-changing
-routes when there were 61, and scored the app on the 45 it happened to find.
-A reviewer should inherit the surface, not rediscover it.
+source. It exists because a security sweep once counted 45 state-changing
+routes, scored the app on the 45 it happened to find, and never saw the rest —
+including the one door with no caller check at all. A reviewer should inherit
+the surface, not rediscover it. The count above is the only one: it is
+generated, and the rules test compares this table to the code door for door.
 
-**108 routes · 60 state-changing · 2 with no gate detected.**
+**111 routes · 68 state-changing · 2 with no gate detected.**
+
+A route whose method reads `ANY` is a router branch with no method test. It
+counts as state-changing when its branch carries non-GET requests onward (a
+proxy, a socket upgrade) and not when it answers inline (a health probe, a
+static shell) — behaviour, because the router did not say.
 
 | Worker | Method | Path | Handler | Kind | Gate |
 |---|---|---|---|---|---|
@@ -24,6 +31,7 @@ A reviewer should inherit the surface, not rediscover it.
 | auth | POST | `/internal/log-error` | `internalLogError` | — | INTERNAL_KEY |
 | auth | POST | `/internal/mcp-session` | `internalMcpSession` | — | INTERNAL_KEY |
 | auth | POST | `/internal/send-email` | `internalSendEmail` | — | INTERNAL_KEY |
+| content | GET | `/api/content/health` | `fetch` | — | INTERNAL_KEY |
 | content | GET | `/api/content/help` | `getHelp` | read | gated |
 | content | POST | `/api/content/help` | `postCreateHelp` | mutation | gated |
 | content | POST | `/api/content/help/bulk-status` | `postBulkHelpStatus` | mutation | gated |
@@ -53,6 +61,7 @@ A reviewer should inherit the surface, not rediscover it.
 | data-ops | GET | `/api/data-ops/agent/threads` | `getAgentThreads` | read | requireRight, teamContext |
 | data-ops | GET | `/api/data-ops/agent/usage` | `getAgentUsage` | read | requireRight, teamContext |
 | data-ops | GET | `/api/data-ops/agent/usage-log` | `getAgentUsageLog` | read | requireRight, teamContext |
+| data-ops | GET | `/api/data-ops/health` | `fetch` | — | **none detected** |
 | data-ops | POST | `/api/data-ops/import` | `postImportStart` | housekeeping | requireRight, teamContext |
 | data-ops | POST | `/api/data-ops/import/batch` | `postBatchStart` | housekeeping | requireAnyImportRight, teamContext |
 | data-ops | GET | `/api/data-ops/import/batch` | `getBatch` | read | teamContext |
@@ -66,14 +75,14 @@ A reviewer should inherit the surface, not rediscover it.
 | data-ops | GET | `/api/data-ops/import/preview` | `getImportPreview` | read | requireRight, teamContext |
 | data-ops | GET | `/api/data-ops/import/sample` | `getImportSample` | read | teamContext |
 | data-ops | GET | `/api/data-ops/import/targets` | `getImportTargets` | read | teamContext |
-| gateway | ANY | `/api/auth/` | `fetch` | — | **none detected** |
-| gateway | ANY | `/api/content/` | `fetch` | — | **none detected** |
-| gateway | ANY | `/api/data-ops/` | `fetch` | — | **none detected** |
+| gateway | ANY | `/api/auth/` | `fetch` | — | proxied |
+| gateway | ANY | `/api/content/` | `fetch` | — | proxied |
+| gateway | ANY | `/api/data-ops/` | `fetch` | — | proxied |
 | gateway | POST | `/api/log/client` | `fetch` | — | INTERNAL_KEY |
-| gateway | ANY | `/api/mcp/` | `fetch` | — | **none detected** |
-| gateway | ANY | `/api/realtime` | `fetch` | — | **none detected** |
-| gateway | ANY | `/api/tenancy/` | `fetch` | — | **none detected** |
-| gateway | ANY | `/mcp` | `fetch` | — | **none detected** |
+| gateway | ANY | `/api/mcp/` | `fetch` | — | proxied |
+| gateway | ANY | `/api/realtime` | `fetch` | — | proxied |
+| gateway | ANY | `/api/tenancy/` | `fetch` | — | proxied |
+| gateway | ANY | `/mcp` | `fetch` | — | proxied |
 | gateway | GET | `/media/` | `fetch` | — | **none detected** |
 | gateway | GET | `/media/learning/` | `fetch` | — | **none detected** |
 | gateway | ANY | `/t/` | `fetch` | — | **none detected** |
@@ -91,6 +100,7 @@ A reviewer should inherit the surface, not rediscover it.
 | tenancy | POST | `/api/tenancy/admin/migrate-teams` | `migrateTeams` | housekeeping | adminGuard |
 | tenancy | POST | `/api/tenancy/admin/move-module` | `moveModule` | housekeeping | adminGuard |
 | tenancy | POST | `/api/tenancy/bootstrap` | `bootstrap` | mutation | whoAmI |
+| tenancy | GET | `/api/tenancy/health` | `fetch` | — | **none detected** |
 | tenancy | GET | `/api/tenancy/invitations` | `getReceivedInvitations` | read | whoAmI |
 | tenancy | POST | `/api/tenancy/invitations/accept` | `postAcceptInvitation` | mutation | whoAmI |
 | tenancy | GET | `/api/tenancy/invites` | `getInvites` | read | gated |
@@ -115,7 +125,7 @@ A reviewer should inherit the surface, not rediscover it.
 | tenancy | GET | `/api/tenancy/selectable/export` | `getSelectableExport` | read | gated |
 | tenancy | POST | `/api/tenancy/selectable/update` | `postUpdateSelectable` | mutation | gated |
 | tenancy | POST | `/api/tenancy/switch-team` | `switchActiveTeam` | housekeeping | whoAmI |
-| tenancy | GET | `/api/tenancy/team-meta` | `getTeamMetaFeed` | read | teamContext |
+| tenancy | GET | `/api/tenancy/team-meta` | `getTeamMetaFeed` | read | gated |
 | tenancy | POST | `/api/tenancy/teams` | `createNamedTeam` | mutation | whoAmI |
 | tenancy | GET | `/api/tenancy/teams` | `myTeams` | read | whoAmI |
 | tenancy | POST | `/api/tenancy/teams/update` | `postUpdateTeam` | mutation | gated |

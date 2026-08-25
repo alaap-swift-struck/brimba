@@ -24,3 +24,8 @@ out/
 
 # Claude Code skills live globally in ~/.claude/skills/ — never vendored here
 /skills/
+
+# Playwright writes screenshots and traces here on a failing e2e run. They are
+# build output, not source — and an untracked binary here fails the fork sweep.
+web/test-results/
+web/playwright-report/

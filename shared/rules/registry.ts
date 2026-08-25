@@ -1,8 +1,8 @@
 // THE LAWS OF THE BASE, as data. This is the single source of truth the human
 // RULES.md and the machine-checks (shared/rules + the per-worker publish-seam
-// tests + web/test/rules.test.ts) are both pinned to. A law may not be added
+// tests + web/test/rules/*.test.ts) are both pinned to. A law may not be added
 // without a check; a check may not exist without a law (enforced by L0 in
-// web/test/rules.test.ts). Deny-lists are DATA here, so every exception is a
+// web/test/rules/*.test.ts). Deny-lists are DATA here, so every exception is a
 // reviewed, visible line — never a silent bypass (the proven publish-seam pattern).
 
 export type Dimension = "arch" | "ui" | "workflow" | "ai"
@@ -20,7 +20,8 @@ export const RULES_REGISTRY: Rule[] = [
   {
     id: "R1",
     dimension: "arch",
-    law: "Every mutation route publishes a live change ping.",
+    law:
+      "Every mutation route publishes a live change ping — and HOLDS it: await or ctx.waitUntil(...), never a bare publishChange(...), which the platform cancels when the isolate finishes with the response. ctx.waitUntil is the usual shape, because publishing is best-effort by contract and bounded, so the person should not wait on a ping nobody reads. Best-effort is not unwatched: the publish seam reads its answer and records a ping that did not land under the realtime-publish integration.",
     checkId: "publish-seam",
     status: "enforced",
   },
@@ -90,7 +91,7 @@ export const RULES_REGISTRY: Rule[] = [
   {
     id: "R11",
     dimension: "arch",
-    law: "Every call that leaves a worker is bounded and guarded. EXTERNAL (a bare global fetch() to the internet — the D1 REST door, the email sender, the AI model call): an AbortSignal timeout, so a hung socket can never stall a worker. INTERNAL (a service binding): through the one seam, shared/workers/trace.ts — callService bounds it, never throws, returns NULL for \"did not answer\" as distinct from a Response that says no, and carries the request id. The internal half was added 2026-08-18; the law previously EXEMPTED service bindings as \"Cloudflare-bounded\", which the architecture review disproved — the platform bounds the worker, nothing bounds the call, and a caller could not tell an outage from a refusal. Two exceptions, each with a written reason: the gateway proxy and forwardToDoor are guarded but deliberately NOT bounded, because both carry responses of unbounded legitimate duration (the agent's streamed reply, an import batch) and a bound that truncates working output is worse than none.",
+    law: "Every call that leaves a worker is bounded and guarded. EXTERNAL (a bare global fetch() to the internet — the D1 REST door, the email sender, the AI model call): an AbortSignal timeout, so a hung socket can never stall a worker. INTERNAL (a service binding): through the one seam, shared/workers/trace.ts — callService bounds it, never throws, returns NULL for \"did not answer\" as distinct from a Response that says no, and carries the request id. The internal half was added 2026-08-12; the law previously EXEMPTED service bindings as \"Cloudflare-bounded\", which the architecture review disproved — the platform bounds the worker, nothing bounds the call, and a caller could not tell an outage from a refusal. Two exceptions, each with a written reason: the gateway proxy and forwardToDoor are guarded but deliberately NOT bounded, because both carry responses of unbounded legitimate duration (the agent's streamed reply, an import batch) and a bound that truncates working output is worse than none. SCOPE, settled 2026-08-25 after three rounds each derived a different hop count from the same code: this law governs the two shapes named above — a bare global fetch and a SERVICE BINDING. A Durable Object RPC stub is OUT of scope. There are three, all in workers/realtime/src/index.ts: the broadcast() stub call and the two WebSocket-upgrade fetches. None leaves the platform for a third party; `broadcast(message: string): void` is a typed RPC method rather than a fetch, so the mechanism this law mandates — an AbortSignal — does not exist at that call site; broadcast() already swallows per-socket failures rather than propagating them (index.ts:47-55), so one dead socket can neither fail nor stall a publish; bounding a WebSocket upgrade would defeat the socket it is opening; and realtime's central catch records anything the RPC itself throws. So the honest count of hops this law governs is 21 service-binding hops, not 24.",
     checkId: "fetch-timeout",
     status: "enforced",
   },
@@ -118,7 +119,7 @@ export const RULES_REGISTRY: Rule[] = [
   {
     id: "R15",
     dimension: "arch",
-    law: "Every paged screen reads through the caches the shell patches (use-screen-data.ts keys off live-resources, so a page-two row is patched exactly like a page-one row) — AND no deaf publishers: every resource string any worker publishes must reach a listener (TEAM_RESOURCES / SIMPLE_INVALIDATIONS) or a reasoned DEAF_EXEMPT entry whose named cache keys are themselves checked. Earned by: a server-paged screen going stale on a teammate's change, the dropdown manager staling because its worker pinged a resource nothing listened to, and a DEAF_EXEMPT reason that described a refresh mechanism which did not exist.",
+    law: "The live registry pairs up BOTH WAYS. No deaf publishers: every resource string any worker publishes must reach a listener (TEAM_RESOURCES / SIMPLE_INVALIDATIONS) or a reasoned DEAF_EXEMPT entry whose named cache keys are themselves checked. And no DEAD LISTENERS: every registered listener must have a publisher naming it — the one shape allowed without one is a second server SCOPE of a resource that has a publisher, and that is DERIVED, not written down (the scope's cache key must appear in that resource's own deps, which is the same thing as saying its pings really do reach the key). Every list fetcher the screens read through must also be a registry entry, because that map is what the reconnect catch-up walks. And every paged screen reads through the caches the shell patches (use-screen-data.ts keys off live-resources, so a page-two row is patched exactly like a page-one row). Earned by: a server-paged screen going stale on a teammate's change; the dropdown manager staling because its worker pinged a resource nothing listened to; a DEAF_EXEMPT reason that described a refresh mechanism which did not exist; the My-tickets list, which was a dep and never an entry, so a dropped socket left it stale for good; and data_import_batches, registered and idle for months with a comment politely explaining that nothing published it — the check ran one way only, and a live listener that never fires looks exactly like nothing having changed yet.",
     checkId: "live-collections",
     status: "enforced",
   },
@@ -167,7 +168,7 @@ export const RULES_REGISTRY: Rule[] = [
   {
     id: "R20",
     dimension: "ui",
-    law: "Every navigable destination resolves in a FRESH TAB. The app is a static export, so a top-level `/<segment>` exists only if a page source emits it, and `/<segment>/<id>` resolves only if the gateway serves that module's shell for it — two requirements, in two workspaces, both INVISIBLE from inside the app (the client router never leaves the page, so the nav always works and the missing page shows up only when someone pastes the url). Both are DERIVED from the nav registries (NAV + TEAM_SECTIONS placement:\"sidebar\"), never hand-listed. Earned by: three modules in one fork shipping a sidebar entry with no page behind it, three separate times, with nothing red.",
+    law: "Every navigable destination resolves in a FRESH TAB. The app is a static export, so THREE separate lists in three workspaces have to agree, and all three are INVISIBLE from inside the app (the client router never leaves the page, so the nav always works and the missing page shows up only when someone pastes the url): a top-level `/<segment>` exists only if a page source emits it (web/app), soft navigation to it only stays soft if TOP_LEVEL_MODULES names it (web/components/deep-link/route.ts — otherwise the framework router takes it and the static export makes that a full RELOAD that tears the shell down), and `/<segment>/<id>` resolves only if the gateway serves that module's shell for it (MODULE_SHELLS in workers/gateway). All three are DERIVED from the nav registries (NAV + TEAM_SECTIONS placement:\"sidebar\"), never hand-listed. Earned by: three modules in one fork shipping a sidebar entry with no page behind it, three separate times, with nothing red.",
     checkId: "static-destinations",
     status: "enforced",
   },
@@ -207,7 +208,7 @@ export const CATALOG_EXEMPT: Record<string, string> = {
   teams: "team metadata is created by the team factory (one row per team), never imported",
   team_members: "membership arrives through invites (an identity flow) — a CSV cannot consent for a person",
   help: "tickets are conversations raised in-app; importing them would forge authorship and timelines",
-  screens: "screen recipes are app furniture (config), not team data",
+  screens: "the screen-override subsystem was REMOVED on 2026-08-25 (no caller on any surface). The `screens` table itself remains — team migration 0002_screens is applied to every live database and migrations are append-only — so the module key still resolves and still needs a line here. It was never team data; now nothing reads it at all.",
   agent: "the assistant's threads/usage are system records, not importable content",
 }
 
@@ -282,7 +283,7 @@ export const DEAF_EXEMPT: Record<string, string> = {
  * or earn a visible line here — never a silent bypass. */
 export const ACTIVITY_TABLE_EXEMPT: Record<string, string> = {
   teams: "team metadata (name/logo) is member-wide — the team screen itself has no module gate",
-  screens: "screen-recipe changes are app furniture every member renders; the rows carry no record content",
+  screens: "the screen-override subsystem was REMOVED on 2026-08-25, so nothing writes this relatedTable any more; the entry stays because the table (team migration 0002_screens) does, and a historical row in an existing team's feed must still resolve. It never carried record content — only which recipe a screen rendered.",
   import: "an import summary names only counts + the target module; the imported rows' own activity is gated by their module",
   team_module_databases:
     "the module MOVER relocating a module to its own database — owner-only maintenance about where data lives, never about what any record says. It names a module and a row count, both of which every member already sees in the nav. Written by the SYSTEM actor (R25), so there is no person's rights to subtract.",
@@ -319,11 +320,53 @@ export const FORM_DIALOGS = [
   "selectable-form-dialog",
 ] as const
 
-/** R26 — shipped files that carry the product name and are deliberately NOT
- * swept by `scripts/fork.mjs`, with the reason. Empty today, and it should stay
- * that way: the honest fix for a missed file is almost always to teach the sweep
- * its type, not to write it an excuse. */
-export const FORK_SWEEP_EXEMPT: Record<string, string> = {}
+/** R26 — the REGISTER of identity a fork does not inherit correctly from
+ * `npm run fork <name>` alone, and why. Two hazards live here, both of them
+ * things a TEXT sweep genuinely cannot finish:
+ *
+ *   1. an asset the sweep cannot read at all — a binary, where the product name
+ *      is pixels rather than a literal;
+ *   2. an ACCOUNT-scoped deploy host, where the sweep rewrites the app half of
+ *      `<app>.<account>.workers.dev` and leaves the author's account half — more
+ *      dangerous than an unswept literal, because a fork then reads its OWN name
+ *      in a URL it does not own and smoke-tests against somebody else's edge.
+ *
+ * It was `{}` until 2026-08-25, which asserted NOTHING: the check only validated
+ * entries that existed, so an empty map passed vacuously while four brand PNGs
+ * and seven files naming the author's subdomain shipped unregistered. The check
+ * now scans for both hazards and fails on an unregistered one, and rejects an
+ * entry that is no longer either — so the map cannot rot in either direction.
+ *
+ * `scripts/fork.mjs` PRINTS this map when it finishes, so a forker is told what
+ * is left to do by hand. Adding a line here adds a line to that closing report —
+ * write the reason for the person reading it. */
+export const FORK_SWEEP_EXEMPT: Record<string, string> = {
+  // 1 · Generated binaries. No text sweep can rewrite pixels — so these are not
+  // swept, they are REDRAWN: `scripts/gen-icons.mjs` derives the monogram from
+  // `brand.name`, and `scripts/fork.mjs` runs it as its final step. Nothing to
+  // do by hand unless a real logo replaces the monogram.
+  "web/public/icons/icon-192.png": "Generated binary: the PWA install icon. Redrawn from shared/brand.ts by scripts/gen-icons.mjs, which scripts/fork.mjs runs last.",
+  "web/public/icons/icon-512.png": "Generated binary: the PWA icon at splash size. Redrawn from shared/brand.ts by scripts/gen-icons.mjs, which scripts/fork.mjs runs last.",
+  "web/public/icons/icon-maskable-512.png": "Generated binary: the Android adaptive (maskable) icon. Redrawn from shared/brand.ts by scripts/gen-icons.mjs, which scripts/fork.mjs runs last.",
+  "web/public/icons/apple-touch-icon.png": "Generated binary: the iOS home-screen icon. Redrawn from shared/brand.ts by scripts/gen-icons.mjs, which scripts/fork.mjs runs last.",
+
+  // 2 · The author's Cloudflare account subdomain. An `<app>.<account>.workers.dev`
+  // host sweeps its APP label to the new name and keeps the ACCOUNT label: the
+  // first half is right and the second is still ours. No rename can guess a
+  // fork's own subdomain — the
+  // same reason fork.mjs BLANKS the account id and the D1 database ids rather
+  // than renaming them — so each of these must be pointed at the fork's own
+  // account by hand, from BOOTSTRAP.md §2. Documents naming the host are left to
+  // the docs pass; these are the files that actually deploy, test or link to it.
+  "workers/auth/wrangler.jsonc": "Account-scoped deploy host: the routes still point at the author's workers.dev subdomain. Repoint to the fork's own account (BOOTSTRAP.md §2).",
+  "workers/tenancy/wrangler.jsonc": "Account-scoped deploy host: the routes still point at the author's workers.dev subdomain. Repoint to the fork's own account (BOOTSTRAP.md §2).",
+  "scripts/smoke-staging.mjs": "Account-scoped deploy host: the default SMOKE_BASE is the author's staging edge, so an unedited fork smoke-tests somebody else's app. Repoint it, or pass SMOKE_BASE.",
+  "scripts/timings.mjs": "Account-scoped deploy host: the staging + production URLs it measures are the author's. Repoint them to the fork's own account.",
+  "timings.json": "Account-scoped deploy host: recorded timings, stamped with the author's staging URL. Re-record against the fork's own edge; the numbers are not the fork's.",
+  "web/playwright.config.ts": "Account-scoped deploy host: the default e2e BASE_URL is the author's staging edge. Repoint it, or pass BASE_URL.",
+  "web/components/access-tokens.tsx": "Account-scoped deploy host: the MCP connection snippet falls back to the author's production URL when rendered server-side. Repoint the fallback.",
+  "web/e2e/live-sync.spec.ts": "Account-scoped deploy host: the live-sync e2e run defaults to the author's staging edge and asserts against the author's production host. Repoint both, or pass BASE_URL.",
+}
 
 /** R21 — create doors that legitimately return something OTHER than the created
  * row. Keyed by handler name, with the reason, so every exception is a visible

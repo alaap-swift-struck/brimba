@@ -32,7 +32,7 @@ Do not relitigate any "LOCKED" item without the user.
 - Every row: globally-unique, team-stamped IDs (rows can move homes without
   collisions). Every worker reads/writes through ONE data-access layer.
 
-### 1a · The operations database (2026-08-18)
+### 1a · The operations database (2026-08-12)
 
 A THIRD kind of database, alongside the global core and the per-team ones.
 
@@ -77,6 +77,51 @@ connected when the count was N' sits on a shard below N'; every later count is
 connected listener can be stranded. Lowering it would strand every socket above
 the new value, so lowering is a deliberate manual act. SCALING.md §3.
 
+### 1c · Three shared tables now have a named owner (2026-08-25)
+
+Almost every table in this base is written by exactly one worker, which is why
+nobody wrote the rule down. Three are not, and an unowned table is how a schema
+drifts: two components each change it for their own reasons, and neither is
+answerable for the shape.
+
+**One worker OWNS a table** — it defines the columns, it is where a change to
+them is decided, and it is the one that must be consulted before another
+component writes. Owning is not exclusivity: a second component may write, if
+the writes are narrow and the reason is written down here.
+
+- **`error_logs` → data-ops owns it.** It owns the operations database's other
+  table, it serves the only read surface (`admin/errors`) and the resolve door,
+  and it is not on the request path for ordinary traffic, so a change to the
+  table cannot slow down anything a person is waiting for. Six workers *append*
+  to it, and that is not co-ownership: they all go through one function
+  (`recordWorkerError` / `logError` in `shared/workers/error-log.ts`), so the row
+  format cannot drift no matter how many callers there are. **What is genuinely
+  unowned is the LIFECYCLE.** The nightly retention sweep lives in *tenancy*
+  (`runRetention` in `workers/tenancy/src/lib/`, on tenancy's cron) and deletes
+  rows six other components created — and when it cannot keep up it reports its
+  own shortfall by writing a new row into the very table it is failing to drain.
+  That is not broken today, and moving
+  the ops sweep to data-ops so that one worker owns both the table's shape and
+  its ageing is a **recommendation, not a decision taken** — it is a real
+  operational change (a cron moves between workers) and needs the owner's call.
+- **`users` → auth owns it, and the split is by COLUMN.** Auth writes identity:
+  the row itself at first sign-in, names/photo/`onboarding_completed_at` on the
+  profile door, and `email` on the verified change flow. Tenancy writes exactly
+  **one** column, `current_team_id` (with `updated_at`) — the caller's own
+  active-team pointer, which is tenancy's fact and nobody else's. Every tenancy
+  write today is that one column. **The rule: anything else on `users` routes
+  through an auth door.** A second worker reaching for a name or an email is the
+  change to stop, not the pointer.
+- **`selectable_data` → tenancy is the primary.** The table is created and
+  seeded by the team schema (`workers/tenancy/src/team-schema.ts`) and its whole
+  life — create, rename, deactivate, reactivate, the bulk twin — lives in
+  `workers/tenancy/src/lib/selectable.ts` behind the `/api/tenancy/selectable*`
+  doors. Content makes exactly **one** write, and it is the reviewed exception:
+  pick-or-create of a learning CATEGORY (`ensureCategory` in
+  `workers/content/src/lib/learning.ts`), which inserts one row of one type when
+  it is absent and logs its own activity row. It never edits, never deactivates,
+  and never touches another type. A second exception is a decision, not a patch.
+
 
 ## 2 · The machine — workers (LOCKED)
 
@@ -91,7 +136,7 @@ workers and runs the full unit/integration suite (web + the workers).
 | Worker | Owns |
 |---|---|
 | **auth** | Strict email-OTP login — 6-digit codes via Resend (NO Clerk, NO Google; parked 2026-06-12), sessions, email-change flow (code to the NEW email) |
-| **tenancy** | teams, team members, Member roles (module key `member_roles`) + permissions, invites; also the per-team screen-recipe config store (`GET/POST /api/tenancy/config/screens`) |
+| **tenancy** | teams, team members, Member roles (module key `member_roles`) + permissions, invites, dropdown values (`selectable_data`), the team activity feed, and the nightly housekeeping cron (size alarms, retention, shard counts, orphaned uploads). *(The per-team screen-recipe config store that used to live here was removed on 2026-08-25 — the door had no caller on any surface. See MCP.md.)* |
 | **content** *(BUILT 2026-06-23; `brimba-content`)* | **Learning** (how-to articles, in-app body, manual sequence, pick-or-create category → `selectable_data`, per-user `mark done` progress, deactivate-not-delete) + **Help** (team-wide tickets + threaded replies, fixed status lifecycle `open/in_progress/resolved/reopened`, raiser-can-reopen, @mention + reply email notify, source screen/record capture). Routes under `/api/content/*`. Binds AUTH (whoami) + REALTIME (live pings) + the core DB (gating) + per-module R2 (`LEARNING_MEDIA`, `HELP_MEDIA`). Gated by the `learning` / `help` permission modules; not public (`workers_dev:false`) |
 | **data-ops** *(BUILT 2026-06-23; `brimba-data-ops`)* | **(a) CSV import** — the 3-stage session (file → mapping → confirm) against the GLOBAL owner-maintained `importable_databases` catalog, **INSERT-ONLY**, gated by the **target's `create` right** (no key of its own), writing **act-as-user** through the gated create endpoints (three targets today: `selectable_data` + `member_roles` + `learning`), PLUS the agentic multi-file **batch** import (AGENTIC-IMPORT.md — analyze → plan → ordered run with foreign-key resolution). **(b) the AI agent** — a swappable model seam, an opt-in tool catalog, an act-as-user executor, the confirm rule, identity-act blocks, fenced tool results, a step cap, saved per-team threads (audit), and a credit-based quota (the quota tables + rules live in DATA-MODEL.md `agent_usage`/`agent_credits` + EDGE-CASES.md §8). Routes under `/api/data-ops/*`. Binds AUTH/REALTIME/CONTENT/TENANCY + Workers AI (`AI`) + the core DB; not public (`workers_dev:false`) |
 | **realtime** | the live "switchboard" (LOCKED 2026-06-13; ROW-LEVEL 2026-06-22): one **TeamChannel Durable Object** per channel holds its open WebSockets (hibernatable → idle channels cost ~nothing) and fans out tiny **row-level** change pings `{resource, id, op}` so screens patch just the changed row — no refetch. Holds NO app data — the databases stay the source of truth. **Two channel scopes**, both gated like the API: `team:<id>` (every active member; gated by active membership of THAT team) and `user:<id>` (one person's devices — identity/membership events + a forced sign-out; gated to your OWN id, open even when teamless). Channels are created on-demand by name, unlimited, reusable as-is. Workers publish via `publishChange` / `publishUserChange` / `publishSignOut`; the client re-pulls the one changed row through the normal permission-checked endpoint. The ping carries no row CONTENT (just `{resource,id,op}`), and the socket is gated at connect, so a listener never receives data it couldn't already fetch. |
@@ -242,7 +287,7 @@ failure a user cannot detect. So every non-GET route must publish, and a test
 reads every handler's source to prove it (`workers/*/test/publish-seam.test.ts`).
 The two reviewed exceptions are named in CACHING rule 5.
 
-### 2b · The single point of failure is `auth` — stated, not discovered (2026-08-18)
+### 2b · The single point of failure is `auth` — stated, not discovered (2026-08-12)
 
 Every architecture has one component whose loss is not survivable. Pretending
 otherwise is how a 3am incident becomes a two-hour incident, so this says which
@@ -274,10 +319,10 @@ Already-open live sockets keep running; new ones are refused. Static pages and
 valid", which would let a brief auth wobble pass unnoticed. It is not built
 because it buys resilience with revocation: a session you revoked — a departing
 employee, a stolen laptop — would keep working for the length of the cache.
-Revocation is instant today, and the owner's decision (2026-08-18) is to keep it
+Revocation is instant today, and the owner's decision (2026-08-12) is to keep it
 that way. This is a trade that can be revisited; it must not be made by accident.
 
-**Why the failure is at least honest now.** Until 2026-08-18 `whoAmI` could not
+**Why the failure is at least honest now.** Until 2026-08-12 `whoAmI` could not
 tell "auth says this person is not signed in" from "auth did not answer" — both
 returned null, so an auth outage silently signed every working user out and sent
 them to a login screen that could not help either. LAW R11's internal half

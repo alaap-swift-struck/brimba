@@ -1,12 +1,22 @@
 "use client"
 
-// The LIVE-LISTENER registry (R15): every resource string any worker publishes
-// must REACH a listener here — a row-level entry (TEAM_RESOURCES), a coarse
-// invalidation (SIMPLE_INVALIDATIONS), or a reasoned DEAF_EXEMPT entry in the
-// rules registry. Publishing to nobody is the silent half of the stale-screen
-// bug, so the check derives the publisher set by scanning publishChange calls
-// and fails the build on any resource no listener claims. Lives in lib (not the
-// shell component) so the check can import it as data.
+// The LIVE-LISTENER registry (R15), which pairs up BOTH WAYS.
+//
+// Every resource string any worker publishes must REACH a listener here — a
+// row-level entry (TEAM_RESOURCES), a coarse invalidation (SIMPLE_INVALIDATIONS),
+// or a reasoned DEAF_EXEMPT entry in the rules registry. Publishing to nobody is
+// the silent half of the stale-screen bug.
+//
+// And every listener here must have a PUBLISHER, which for a long time nothing
+// checked. That half is the quieter one: a listener nothing pings is dead for
+// ever, and a live listener that never fires looks exactly like nothing having
+// changed yet, so nobody notices. Both sets are derived by scanning the publish
+// call sites, so neither is a list anyone keeps by hand.
+//
+// This map is ALSO what the reconnect catch-up walks, so an entry here is the
+// difference between a list that comes back after a dropped socket and one that
+// does not. Lives in lib (not the shell component) so the checks can import it
+// as data.
 //
 // The list fetchers here ALSO prime the `total:` sidecar each door now returns
 // (R16): a badge shows the server COUNT(*), never rows.length, so whoever pulls
@@ -182,7 +192,12 @@ export const TEAM_RESOURCES: Record<
     idField: "id",
     fetchOne: (id) => tenancy.role(id),
     fetchList: (t) => listFetch.roles(t),
-    deps: (t, id) => [`my-perms:${t}`, `role-perms:${id}`],
+    // `activity:record:member_roles:` was missing: a role's row and its access
+    // rights refreshed live, but the Activity tab RIGHT BESIDE THEM did not — so
+    // two admins editing one role each saw only their own history until they
+    // navigated away and back. R2 gives every record an Activity tab; R15 is what
+    // makes it true a second time.
+    deps: (t, id) => [`my-perms:${t}`, `role-perms:${id}`, `activity:record:member_roles:${id}`],
   },
   invites: {
     key: (t) => `invites:${t}`,
@@ -210,6 +225,19 @@ export const TEAM_RESOURCES: Record<
     idField: "id",
     fetchOne: (id) => contentApi.learningOne(id),
     fetchList: (t) => listFetch.learning(t),
+    // This entry had no `deps` at all, which cost two live screens:
+    //
+    // `learning-one:` — the article detail reads the LIST cache when it holds the
+    // record and this single-row key otherwise, which is every deep link and every
+    // fresh tab. `patchRow` above only touches the list, so on that path the ping
+    // landed on a key nobody was reading and the screen sat still.
+    //
+    // `activity:record:learning:` — the Activity tab beside it. Help has always
+    // refreshed its record feed on a ping and learning never did, so "who changed
+    // this, and when" went stale under a teammate's edit. An article is the one
+    // record a whole team reads at once, so that is the version of this bug most
+    // people would actually meet.
+    deps: (_t, id) => [`learning-one:${id}`, `activity:record:learning:${id}`],
   },
   // Help tickets — row-level live. A status change / new reply (postHelpReply
   // pings `help` too) patches just that ticket in the cached "all" set.
@@ -230,13 +258,41 @@ export const TEAM_RESOURCES: Record<
     // until they navigated away and back, and the reply-count badge was stale with
     // it. An exemption that describes a mechanism has to name a mechanism that
     // exists. (Realtime review, 2026-08-25.)
+    //
+    // `help-one:` is the same shape of gap one layer down: the ticket detail
+    // reads the loaded list when it holds the ticket and this single-row key
+    // otherwise — a deep link, a fresh tab, or (since R14 paged this list) any
+    // ticket past the loaded page, which is an ordinary case now rather than a
+    // rare one. `patchRow` only reaches the list, so without this the ping
+    // arrived and the open ticket did not move.
     deps: (t, id) => [
       `activity:record:help:${id}`,
       `help-stakeholders:${id}`,
       `help-mine:${t}`,
       `help-thread:${id}`,
       `total:help-thread:${id}`,
+      `help-one:${id}`,
     ],
+  },
+  // MY TICKETS — the same `help` resource under its other SERVER scope. R14 made
+  // My/All two doors rather than one list filtered twice, so this is a second
+  // cache KEY, not a second resource: no worker publishes "help:mine", and the
+  // colon means none ever could (a published resource name is `[a-z_]+`). Its
+  // pings arrive on `help`, whose deps drop this key — which is why `fetchOne`
+  // is never called here, and is the same gated single-row door regardless.
+  //
+  // It is registered because THIS MAP IS WHAT THE RECONNECT CATCH-UP WALKS. Being
+  // a dep of `help` covered it while the socket was up and not for one moment
+  // after a drop: a dep carries the TEAM id, not a row id, so the record-prefix
+  // pass skips it (rightly — it is a list), and `reconcile` only ever visits an
+  // entry's own `key`. So this was the one cache key in the app that a dropped
+  // socket left stale for good, and the dot went cheerfully back to "Live" over
+  // the top of it. (Realtime review, round 5, 2026-08-25.)
+  "help:mine": {
+    key: (t) => helpKey(t, "mine"),
+    idField: "id",
+    fetchOne: (id) => contentApi.helpOne(id),
+    fetchList: (t) => listFetch.helpMine(t),
   },
 }
 
@@ -245,4 +301,18 @@ export const TEAM_RESOURCES: Record<
 export const SIMPLE_INVALIDATIONS: Record<string, (teamId: string) => string[]> = {
   // Team name/logo — the shell also refreshes the active context (see app-shell).
   team: (t) => [`team-meta:${t}`],
+  // Import history. A batch has no row-shaped cache — the import screen reads the
+  // whole summary list under one key — so a ping just drops it and the next read
+  // refetches. TEAM-wide is right: `listBatchSummaries` is deliberately team
+  // visible (who imported what, into which tables, with the totals), unlike the
+  // working batch, which stays creator-scoped.
+  //
+  // The publisher is `postBatchConfirm` in workers/data-ops/src/routes/import.ts.
+  // It was missing until 2026-08-25, and this listener sat ready and idle for
+  // months with a note in this spot explaining that it did. R15's check proved
+  // every PUBLISHER reached a listener and never once the other way round, so a
+  // listener with no publisher failed silently and for ever — and documented
+  // itself while doing it. The check now runs BOTH ways, which is why this
+  // comment can no longer be the only thing standing guard.
+  data_import_batches: (t) => [`import-batches:${t}`],
 }

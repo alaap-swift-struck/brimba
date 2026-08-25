@@ -48,11 +48,32 @@ export function HomeScreen({ active }: { active: ActiveTeam }) {
   }, [teamId, alone])
   // R16: the exact server COUNT the fetcher above primed. A pure cache read that
   // never fetches, and one that a create ping bumps — so the block disappears the
-  // moment the first article exists, without a refresh. `undefined` = not known
-  // yet, which shows nothing rather than a welcome that flashes and vanishes.
+  // moment the first article exists, without a refresh.
   const learningTotal = useCachedValue<number>(alone && teamId ? totalKey("learning", teamId) : null)
-  const firstRun = alone && learningTotal === 0
+  // `undefined` means two different things, and treating them as one is how this
+  // broke: still in flight, or never coming. Waiting forever on the second reads
+  // `undefined === 0` → false, so a brand-new owner whose count fell over (a
+  // swallowed cache failure, an offline first load) got NO guidance at all, and
+  // nothing said so. Answering instantly on the first would flash the welcome at
+  // every solo owner who already has articles, which is the flicker the original
+  // deliberately avoided.
+  //
+  // So: wait a beat for an answer, then stop waiting. The healthy path never
+  // reaches the timer (a new team's count comes back 0 and the block appears at
+  // once); the broken path FAILS OPEN a second later. Still keyed on `alone`, so
+  // an established team never asks the question at all.
+  const [countLate, setCountLate] = React.useState(false)
+  React.useEffect(() => {
+    if (!alone || learningTotal !== undefined) return
+    const t = setTimeout(() => setCountLate(true), 1500)
+    return () => clearTimeout(t)
+  }, [alone, learningTotal])
+  const firstRun = alone && (learningTotal !== undefined ? learningTotal === 0 : countLate)
 
+  // Unreachable at runtime (the shell renders Home only once `active.ctx` is
+  // loaded) but NOT dead: it is what narrows `ctx` from `ActiveContext | null`,
+  // so every read below would otherwise need optional chaining. Removing it
+  // costs more code than it saves.
   if (!ctx) return null
 
   const FIRST_RUN = [

@@ -22,7 +22,7 @@ end-to-end checklist. If you are changing something foundational,
 ```bash
 git clone https://github.com/alaap-swift-struck/brimba.git
 cd brimba && npm install
-npm run check                    # 518 tests, ~13s — this must be green BEFORE you start
+npm run check                    # the full suite, ~13s — this must be green BEFORE you start
 git checkout -b your-branch      # never commit to main
 # ... make the change ...
 npm run check                    # and green again after

@@ -1,6 +1,6 @@
 // THE BEHAVIOURAL HALF OF LAW R24.
 //
-// The source scan in `web/test/rules.test.ts` proves two things: every write
+// The source scan in `web/test/rules/doors.test.ts` proves two things: every write
 // door decided about bulk, and no door declared `in-order` hands its rows to
 // Promise.all. Neither of those can prove the thing that actually matters —
 // whether a door declared `together` secretly depends on the row before it.

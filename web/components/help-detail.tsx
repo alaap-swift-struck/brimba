@@ -20,7 +20,6 @@ import {
 import {
   ActivityFeed,
   defaultActivityFeedConfig,
-  type ActivityItem as ActivityFeedItem,
 } from "@swift-struck/ui/registry/collections/activity-feed/activity-feed"
 import {
   TicketThread,
@@ -37,13 +36,14 @@ import type {
   SelectableValue,
   TeamMember,
 } from "@shared/types"
+import { activityFeedItems } from "@/components/activity-changes"
 import { ApiFailure, content, tenancy } from "@/lib/api"
 import { auditItems } from "@/lib/audit-overview"
-import { formatActivityWhen, formatRelative } from "@/lib/format"
+import { formatRelative } from "@/lib/format"
 import { personName } from "@/lib/identity"
 import { usePermissions } from "@/lib/perms"
-import { applyUpdated, totalKey } from "@/lib/live-resources"
-import { invalidate, primeCache, useCached, useCachedValue } from "@/lib/store"
+import { applyUpdated, helpKey } from "@/lib/live-resources"
+import { invalidate, primeCache, readCache, useCached, useCachedValue } from "@/lib/store"
 import { formatCount } from "@/lib/format-count"
 import { HelpFormDialog } from "@/components/help-form-dialog"
 import { HelpStakeholders } from "@/components/help-stakeholders"
@@ -78,27 +78,23 @@ export function HelpDetailScreen({
   helpId: string
   myUserId: string | null
 }) {
-  const ticketsQ = useCached<HelpTicket[]>(`help:${teamId}`, () =>
-    content.help("all").then((r) => r.tickets)
-  )
-  const fromList = ticketsQ.data?.find((t) => t.id === helpId) ?? null
-
-  // THE DEEP LINK PAST PAGE ONE. Reading a detail out of the list cache is the
-  // locked optimisation in EDGE-CASES 2 / CACHING 3, and it was sound while help
-  // returned every ticket. R14 made help a PAGED collection, and the two rules
-  // stopped composing: a ticket beyond the loaded page is simply absent from the
-  // cache, so pasting its URL into a fresh tab rendered "That ticket no longer
-  // exists" about a ticket that exists.
+  // ONE RECORD IS READ AS ONE RECORD. Reading a detail out of the list cache is
+  // the locked optimisation in EDGE-CASES 2 / CACHING 3 — but this screen also
+  // FETCHED `help("all")` to fill that cache, so opening a ticket cost a whole
+  // page of tickets, every field, to render one of them.
   //
-  // The single-row door has been there the whole time (it is what live-sync uses
-  // to patch a row in). This asks it ONLY when the list genuinely does not have
-  // the ticket — `null` key means no request — so the common path still costs
-  // nothing and the locked decision is untouched. (Round-trip review, 2026-08-25.)
-  const listSettled = ticketsQ.data !== undefined
-  const oneQ = useCached<HelpTicket | null>(
-    listSettled && !fromList ? `help-one:${helpId}` : null,
-    () => content.helpOne(helpId)
-  )
+  // The list cache is still the first answer, because arriving from the ticket
+  // list means the row is already in hand and costs nothing: `useCachedValue`
+  // READS that cache (and re-renders when live-sync patches it) but never FETCHES
+  // it. The single-row door — the one live-sync has used all along to patch a row
+  // in — answers everything else: a deep link, a fresh tab, or a ticket past the
+  // loaded page, which R14's paging made an ordinary case rather than a rare one.
+  // `null` key means no request, so neither path pays for the other.
+  // (Round-trip review, 2026-08-25.)
+  const listKey = helpKey(teamId, "all")
+  const oneKey = `help-one:${helpId}`
+  const fromList = useCachedValue<HelpTicket[]>(listKey)?.find((t) => t.id === helpId) ?? null
+  const oneQ = useCached<HelpTicket | null>(fromList ? null : oneKey, () => content.helpOne(helpId))
   const ticket = fromList ?? oneQ.data ?? null
 
   const repliesQ = useCached<HelpMessage[]>(`help-thread:${helpId}`, () =>
@@ -134,11 +130,21 @@ export function HelpDetailScreen({
     .filter((v) => v.type === "Help type")
     .map((v) => v.value)
 
+  /** Fold the ONE row a mutation handed back (R23) into whichever cache is holding
+   * this ticket — the list when we came in from it, the single-row entry on a deep
+   * link. Patching only the list would leave a deep-linked screen showing the
+   * values you had just changed away from. Both are patched only if LOADED, the
+   * same "nothing visible to patch" rule `patchRow` follows. */
+  async function applyTicket(updated: HelpTicket | null) {
+    await applyUpdated({ listKey, id: helpId, row: updated })
+    if (readCache(oneKey) !== undefined) primeCache(oneKey, updated)
+  }
+
   async function changeStatus(next: HelpStatusValue) {
     setStatusBusy(true)
     try {
       const { updated } = await content.setHelpStatus(helpId, next)
-      await applyUpdated({ listKey: `help:${teamId}`, id: helpId, row: updated })
+      await applyTicket(updated)
       invalidate(`activity:record:help:${helpId}`)
       toast.success("Status updated.")
     } catch (err) {
@@ -156,7 +162,7 @@ export function HelpDetailScreen({
       expectedVersion: ticket?.updatedAt ?? ticket?.createdAt ?? null,
     })
     // R23: one row back, patched in (CACHING rule 3) — not the whole page.
-    await applyUpdated({ listKey: `help:${teamId}`, id: helpId, row: updated })
+    await applyTicket(updated)
     invalidate(`activity:record:help:${helpId}`)
     toast.success("Ticket updated.")
   }
@@ -189,18 +195,27 @@ export function HelpDetailScreen({
       // R21: the door returns the CREATED REPLY — swap the optimistic echo for it
       // rather than re-pulling the whole thread to add one message.
       primeCache(`help-thread:${helpId}`, created ? [...prev, created] : prev)
-      invalidate(`help:${teamId}`)
+      // A reply moves the TICKET row too (its "updated" stamp). The reply door
+      // publishes a `help` ping carrying this ticket's id, so the list row is
+      // patched by live-sync exactly as it is for everyone else (CACHING rule 3) —
+      // dropping the whole list here would have re-read a page of tickets to
+      // refresh one. The single-row entry has no such ping-patch, so a deep-linked
+      // screen re-reads just its own row.
+      if (readCache(oneKey) !== undefined) invalidate(oneKey)
     } catch (err) {
       primeCache(`help-thread:${helpId}`, prev) // rollback the echo
       toast.error(err instanceof ApiFailure ? err.message : "Couldn't post your reply.")
     }
   }
 
-  if (ticketsQ.error) return <p className="text-destructive text-sm">Couldn&apos;t load the ticket.</p>
-  if (ticketsQ.data === undefined) return <Skeleton variant="list" lines={4} />
-  // Only once the fallback has settled too — otherwise a deep-linked ticket
-  // flashes "no longer exists" while its own read is still in flight.
-  if (!ticket && oneQ.loading) return <Skeleton variant="list" lines={4} />
+  // The single-row read is the only thing that can be in flight now: with the
+  // ticket in hand from the list cache there is nothing to wait for at all.
+  // `undefined` is "still asking", `null` is the door's answer that it is gone —
+  // without that distinction a deep-linked ticket flashes "no longer exists"
+  // while its own read is still open.
+  if (!ticket && oneQ.error)
+    return <p className="text-destructive text-sm">Couldn&apos;t load the ticket.</p>
+  if (!ticket && oneQ.data === undefined) return <Skeleton variant="list" lines={4} />
   if (!ticket) return <p className="text-muted-foreground text-sm">That ticket no longer exists.</p>
 
   // self-tag fix: you can't @mention yourself
@@ -229,12 +244,7 @@ export function HelpDetailScreen({
     { label: "Resolved", value: ticket.resolvedAt ? formatRelative(ticket.resolvedAt) : "" },
   ]
 
-  const activityItems: ActivityFeedItem[] = (activityQ.data ?? []).map((a) => ({
-    id: a.id,
-    description: a.description,
-    actor: a.actorName ?? undefined,
-    timestamp: formatActivityWhen(a.createdAt),
-  }))
+  const activityItems = activityFeedItems(activityQ.data ?? [])
 
   const tabsConfig = {
     ...defaultTabsConfig,

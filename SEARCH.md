@@ -12,8 +12,9 @@ the engine picks the right layer automatically.
 - **Library** owns the *presentation + pure logic*: the search box, the filter
   UI, and the in-memory filter/search math, all wired into the existing
   config-driven collection system (`CollectionConfig` + `selectRows`). It exposes
-  a **server-side seam** (`serverSide` + `onQueryChange`) but never queries a
-  database itself. (The exact library build is tracked in [UI-GAPS.md](UI-GAPS.md)
+  a server-side seam (`serverSide` + `onQueryChange`) but never queries a
+  database itself. **This base does not use that seam** — see Layer 2 below.
+  (The exact library build is tracked in [UI-GAPS.md](UI-GAPS.md)
   #7; the ready-to-paste prompt for the library session lives with that work.)
 - **App / workers** own the *data*: which fields are searchable/filterable per
   recipe, the query endpoints (`?q=` + filter params), and the per-team
@@ -30,14 +31,24 @@ Right for members, roles, invites, dropdown values: lists that are bounded per
 team. This is `selectRows` (limit → filter + facets → search → sort → paginate)
 running in the browser. No worker work at all.
 
-### Layer 2 — server-side query (growing lists)
-When a list can outgrow "fetch it all" (hundreds+ of rows), the recipe sets
-`serverSide: true`. The collection then **does not** filter in memory: it
-debounces the typed query + chosen facets and calls the module's list endpoint
-with `?q=` + filter params; the worker returns a filtered **page**. Reads stay
-cache-first (the cache key includes the query/facets); the live channel still
-invalidates on writes. The worker does the filtering with ordinary indexed
-`WHERE`/`LIKE` over the per-team database.
+### Layer 2 — server-side query (growing lists) · **SUPERSEDED — do not use**
+The design was: a recipe sets `serverSide: true`, the collection stops filtering
+in memory, and it calls the module's list endpoint with `?q=` + filter params for
+a filtered page.
+
+**Law R14 took this job instead, and did it better.** A collection that grows with
+use is now named in `GROWING_COLLECTIONS` and must PAGE by key — an opaque cursor,
+an exact total and `hasMore` through the `pagedJson` seam in
+`shared/workers/http.ts` — with the query and facets travelling as ordinary
+endpoint parameters on the same door. That is a machine-checked law with a test
+behind it, where `serverSide` was a flag nothing enforced.
+
+**`serverSide` is set by no recipe and should be set by none.** It appears nowhere
+in `web/lib`, `web/components`, `workers/` or `shared/` — zero occurrences on
+2026-08-25, and this document is the only file in the repository that still names
+it at all. It survives as a seam the UI library exposes, not as something this base
+uses. Building a growing collection? Use R14's paging. See
+[RULES.md](RULES.md) R14 and [CACHING.md](CACHING.md).
 
 ### Layer 3 — full-text "search anything" (FTS5)
 For record modules where Glide-style "match anything on the detail screen" is
@@ -94,21 +105,23 @@ Rules for FTS5 here:
 
 Each field in a screen recipe carries `searchable` / `filterable`; the collection
 declares `searchPlaceholder`, `userFilter`, `filterFacets`, and a size hint that
-maps to a layer (`serverSide` off = Layer 1; on = Layer 2; a `fullText` flag =
-Layer 3). The engine wires `searchable` fields → the library `searchKeys`,
-`filterable` fields → filter facets, and chooses client vs server by the hint —
-so turning on search for a new screen is a recipe edit, not new plumbing.
+maps to a layer (`fullText` = Layer 3; everything else is Layer 1 today — the
+`serverSide` hint that once selected Layer 2 is superseded, see above, and a
+growing collection pages under R14 instead). The engine wires `searchable` fields
+→ the library `searchKeys` and `filterable` fields → filter facets, so turning on
+search for a new screen is a recipe edit, not new plumbing.
 
-## Status (updated 2026-07-02)
+## Status (updated 2026-08-25)
 
 - **Layer 1 + the library search/filter UI**: SHIPPED — the library search/filter
   bar landed and the app turned it on across the collections (members / roles /
   invites / dropdowns / learning / help) via the recipes (`listCollection` +
   `withDataDrivenCollection`, which hides search/filters when a list is empty or
   a facet has no options). See UI-CONVENTIONS §6.
-- **Layer 2 (server-side filters)**: available through the recipes' hints where a
-  list is bounded; nothing needed beyond the shipped client-side layer at today's
-  data sizes.
+- **Layer 2 (server-side filters)**: **SUPERSEDED, never built.** No recipe sets
+  `serverSide` and none should — Law R14's keyset paging (`pagedJson`) is how a
+  growing collection is read now. Kept in this document as the record of a
+  decision, not as an option.
 - **Layer 3 (FTS5 full-text)**: designed here, NOT BUILT — the content/data-ops
   workers shipped (2026-06-23) without it because client-side search over the
   cached list covers current volumes. The FTS5 migration ships with the first

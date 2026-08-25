@@ -43,17 +43,19 @@ collections later. Not urgent.
 > audit measured a pinned v0.9.1 and reported a gap that was already closed, which
 > is its own lesson about auditing the version you actually run.
 
-Four library gaps the host cannot work around. Each caps a review's score in the
-app and is unfixable there: `CLAUDE.md` forbids the host from forking the library,
-so these are raised rather than worked around. Full prompt in
-`reviews/PROMPT-FOR-UI-LIBRARY.md`.
+Four library gaps the host could not work around. Each capped a review's score in
+the app and was unfixable there: `CLAUDE.md` forbids the host from forking the
+library, so they were raised rather than worked around. Full prompt in
+`reviews/PROMPT-FOR-UI-LIBRARY.md`. All four are struck through below — the rows
+are kept, rather than deleted, because what a gap COST is the argument for raising
+the next one.
 
-| # | Gap | What it costs the app |
+| # | Gap (as raised) | What it cost — and what closed it |
 |---|---|---|
-| 8 | `CollectionFrame` empty states cannot hold an action — `collection-frame.tsx:241` renders `{config.emptyText}` and nothing else, and `emptyText` is typed `string` | 19 of 21 empty states are absences ("No learning yet."). A new team is told what it does not have and never what to do. Caps `first_run` at 91. |
-| 9 | `PermissionMatrix` hard-codes four rights columns for every module | 9 of 32 switches are live toggles that enforce nothing — an admin ticks a box, sees it stick, and believes they restricted something. Caps `dead_end`'s criterion 2 at 73.75. |
-| 10 | No connection-state primitive (live / reconnecting / offline) | The realtime layer is the strongest subsystem in the base and is completely invisible: a stale screen and a live one look identical. Caps `realtime` at 92. |
-| 11 | No list virtualisation | Every row renders. The scaling target is 250,000 people in one tenant, and client rendering is the first thing that breaks. Caps `scaling`'s client-volume criterion at 75. |
+| 8 | ~~`CollectionFrame` empty states cannot hold an action — it renders `{config.emptyText}` and nothing else, and `emptyText` is typed `string`~~ | 19 of 21 empty states were absences ("No learning yet."). A new team was told what it did not have and never what to do. Capped `first_run` at 91. **SHIPPED in the library (v0.16.0, 2026-08-25)** — `CollectionFrame` takes an `emptyAction` node, rendered under the empty text and only when there is nothing to show; a recipe names one of its own actions. |
+| 9 | ~~`PermissionMatrix` hard-codes four rights columns for every module~~ | 9 of 32 switches were live toggles that enforced nothing — an admin ticked a box, saw it stick, and believed they had restricted something. Capped `dead_end`'s criterion 2 at 73.75. **SHIPPED in the library (v0.16.0, 2026-08-25)** — columns are now derived from the rights the modules actually declare (`modules[].rights` / `rightsOf`), so a right no module has gets no column. |
+| 10 | ~~No connection-state primitive (live / reconnecting / offline)~~ | The realtime layer is the strongest subsystem in the base and was completely invisible: a stale screen and a live one looked identical. Capped `realtime` at 92. **SHIPPED in the library (v0.16.0, 2026-08-25)** — `registry/primitives/connection-status`. |
+| 11 | ~~No list virtualisation~~ | Every row rendered. The scaling target is 250,000 people in one tenant, and client rendering is the first thing that breaks. Capped `scaling`'s client-volume criterion at 75. **ALREADY IN THE LIBRARY since v0.10.0** (`registry/primitives/use-virtual-rows`) — confirmed present at v0.16.0. The audit measured a pinned v0.9.1 and reported a gap that had been closed for six versions, which is its own lesson: audit the version you actually run. |
 
 Also requested with them: an assembly law-book (`UI-RULES.md`) **with a lint**, so
 the library's own composition rules are machine-checked rather than remembered.

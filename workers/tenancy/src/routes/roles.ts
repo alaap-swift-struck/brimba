@@ -104,7 +104,7 @@ export async function getRolePerms(request: Request, env: Env): Promise<Response
   return json(await getRolePermissions(cfg, guard, roleId))
 }
 
-export async function postRolePerms(request: Request, env: Env): Promise<Response> {
+export async function postRolePerms(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const { actor, cfg, guard } = await teamContext(request, env)
   await requireRight(cfg, guard, "member_roles", "edit")
   const body = (await request.json().catch(() => ({}))) as {
@@ -114,11 +114,11 @@ export async function postRolePerms(request: Request, env: Env): Promise<Respons
   if (!body.roleId || !body.value)
     return fail(400, "invalid_input", "roleId and value are required.")
   await setRolePermissions(cfg, guard, actor, body.roleId, body.value)
-  await publishChange(env.REALTIME, guard.teamId, "member_roles", body.roleId)
+  ctx.waitUntil(publishChange(env.REALTIME, guard.teamId, "member_roles", body.roleId))
   return json({ ok: true })
 }
 
-export async function postCreateRole(request: Request, env: Env): Promise<Response> {
+export async function postCreateRole(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const { actor, cfg, guard } = await teamContext(request, env)
   await requireRight(cfg, guard, "member_roles", "create")
   const body = (await request.json().catch(() => ({}))) as {
@@ -135,13 +135,13 @@ export async function postCreateRole(request: Request, env: Env): Promise<Respon
   const roleId = await createRole(cfg, guard, actor, title, (optionalText(body.description, "Description", TEXT_LIMITS.long) ?? ""))
   if (withMatrix) await setRolePermissions(cfg, guard, actor, roleId, body.permissions as PermissionValue)
   // Row-level: carry the new role's id so open role lists patch just that row.
-  await publishChange(env.REALTIME, guard.teamId, "member_roles", roleId, "add")
+  ctx.waitUntil(publishChange(env.REALTIME, guard.teamId, "member_roles", roleId, "add"))
   // R21: the CREATED ROW, not the collection — the caller patches this one row in
   // (CACHING rule 3) and now knows the new id without a follow-up search.
   return json({ created: await oneRole(env, cfg, guard, roleId), total: await countRoles(cfg, guard) })
 }
 
-export async function postUpdateRole(request: Request, env: Env): Promise<Response> {
+export async function postUpdateRole(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const { actor, cfg, guard } = await teamContext(request, env)
   await requireRight(cfg, guard, "member_roles", "edit")
   const body = (await request.json().catch(() => ({}))) as {
@@ -152,15 +152,26 @@ export async function postUpdateRole(request: Request, env: Env): Promise<Respon
   }
   if (!body.roleId) return fail(400, "invalid_input", "roleId and title are required.")
   const title = requireText(body.title, "Name", TEXT_LIMITS.short)
-  await updateRole(cfg, guard, actor, body.roleId, title, (optionalText(body.description, "Description", TEXT_LIMITS.long) ?? ""), body.expectedVersion)
-  await publishChange(env.REALTIME, guard.teamId, "member_roles", body.roleId)
+  // AN OMITTED FIELD IS NOT AN EMPTY ONE. `?? ""` flattened the two callers into
+  // one: a machine renaming the role (no description key at all) looked exactly
+  // like a person who emptied the box, and the lib wrote NULL over the stored
+  // text. The split is made HERE, on the raw body, because `optionalText` maps
+  // both null and "" to undefined — so it can validate the value but can no
+  // longer say whether one was sent. `=== undefined` is the whole distinction;
+  // `== null` cannot express it. (Correctness review, round 5.)
+  const description =
+    body.description === undefined
+      ? undefined // absent → the lib keeps what is stored
+      : optionalText(body.description, "Description", TEXT_LIMITS.long) ?? null // present → written, blank clears
+  await updateRole(cfg, guard, actor, body.roleId, title, description, body.expectedVersion)
+  ctx.waitUntil(publishChange(env.REALTIME, guard.teamId, "member_roles", body.roleId))
   // R23: the affected ROW, and no count — an edit cannot move a total. See RULES.md.
   return json({ updated: await oneRole(env, cfg, guard, body.roleId) })
 }
 
 /** Deactivate / reactivate a role — never deleted (holders keep access). Gated
  * by member_roles:delete (deactivate is our "delete" in the deactivate-only model). */
-export async function postSetRoleActive(request: Request, env: Env): Promise<Response> {
+export async function postSetRoleActive(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const { actor, cfg, guard } = await teamContext(request, env)
   await requireRight(cfg, guard, "member_roles", "delete")
   const body = (await request.json().catch(() => ({}))) as {
@@ -172,7 +183,7 @@ export async function postSetRoleActive(request: Request, env: Env): Promise<Res
   // R17: a repeat (double click / retry) moves zero rows — then nothing is
   // published and no duplicate history exists; the response is still the list.
   const changed = await setRoleActive(cfg, guard, actor, body.roleId, body.active)
-  if (changed) await publishChange(env.REALTIME, guard.teamId, "member_roles", body.roleId)
+  if (changed) ctx.waitUntil(publishChange(env.REALTIME, guard.teamId, "member_roles", body.roleId))
   // R23: the affected ROW, and no count — an edit cannot move a total. See RULES.md.
   return json({ updated: await oneRole(env, cfg, guard, body.roleId) })
 }

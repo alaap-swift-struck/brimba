@@ -25,12 +25,15 @@ import { GuardError, requireRight, teamContext } from "../../../../shared/worker
 import { forwardToDoor } from "../../../../shared/workers/http"
 import { BULK_IDS_LIMIT } from "../../../../shared/workers/limits"
 import { publishChange } from "../../../../shared/workers/realtime"
-import { isPrivilegeWrite,
+import { bool,
+  isPrivilegeWrite,
   obj,
   roleLabel,
   S,
   SHARED_TOOLS,
   str,
+  version,
+  VERSION_FIELD,
   type SharedTool,
 } from "../../../../shared/workers/tool-catalog"
 import { confirmBatch, getBatchView, planModules } from "./import-batch"
@@ -98,13 +101,19 @@ const AGENT_ONLY: AgentTool[] = [
   {
     name: "update_team",
     description: "Edit the active team's details (its name).",
-    schema: obj({ name: S }, ["name"]),
+    // The lost-update guard, like every other edit door's tool. This door has
+    // always taken `expectedVersion` and the web client has always sent it; the
+    // tool didn't, because it's declared HERE rather than in the shared catalog —
+    // so the one edit tool living outside the shared file was the one edit tool
+    // without the protection. Optional: a caller that hasn't read the row first
+    // can't supply one, and supplying it is how it opts in.
+    schema: obj({ name: S, ...VERSION_FIELD }, ["name"]),
     binding: "TENANCY",
     method: "POST",
     path: "/api/tenancy/teams/update",
     write: true,
     confirm: false, // constructive: renaming the team is reversible
-    buildBody: (i) => ({ name: str(i, "name") }),
+    buildBody: (i) => ({ name: str(i, "name"), expectedVersion: version(i) }),
     summarize: (i) => `Rename the team to "${str(i, "name")}"`,
   },
   {
@@ -210,7 +219,13 @@ const AGENT_ONLY: AgentTool[] = [
     path: "/api/content/learning/done",
     write: true,
     confirm: false,
-    buildBody: (i) => ({ id: str(i, "id"), done: i.done === true }),
+    // `done` goes through the SHARED bool() guard, like every other required
+    // boolean in the catalogue. It used to read `i.done === true`, which quietly
+    // decided for the caller: omit the field and the assistant sent "not done",
+    // marking an article UNdone that the person had finished — while the same
+    // omission from the web form is a clean 400 at the door. Same door, same
+    // field, two answers, which is the divergence the parity law exists to stop.
+    buildBody: (i) => ({ id: str(i, "id"), done: bool(i, "done") }),
     summarize: (i) =>
       `Mark learning article ${str(i, "id")} ${i.done === true ? "done" : "not done"}`,
   },
@@ -246,29 +261,25 @@ async function runImportBatchTool(
   request: Request,
   input: Record<string, unknown>
 ): Promise<ToolResult> {
-  try {
-    const { actor, cfg, guard } = await teamContext(request, env)
-    const batchId = str(input, "batchId")
-    if (!batchId) return { ok: false, status: 400, data: null, error: "A batchId is required." }
-    const view = await getBatchView(cfg, guard, batchId)
-    if (!view.plan) return { ok: false, status: 409, data: null, error: "That import hasn't been planned." }
-    for (const m of planModules(view.plan)) await requireRight(cfg, guard, m, "create")
-    const { report, modules } = await confirmBatch(env, request, cfg, guard, actor, batchId)
-    for (const m of modules) await publishChange(env.REALTIME, guard.teamId, m)
-    return {
-      ok: true,
-      status: 200,
-      data: {
-        created: report.created,
-        skipped: report.skipped,
-        failed: report.failed,
-        perTarget: report.perTarget,
-        rejections: report.rejections.slice(0, 10),
-      },
-    }
-  } catch (e) {
-    if (e instanceof GuardError) return { ok: false, status: e.status, data: null, error: e.message }
-    throw e
+  // No GuardError catch here — executeTool owns that for every tool (see below).
+  const { actor, cfg, guard } = await teamContext(request, env)
+  const batchId = str(input, "batchId")
+  if (!batchId) return { ok: false, status: 400, data: null, error: "A batchId is required." }
+  const view = await getBatchView(cfg, guard, batchId)
+  if (!view.plan) return { ok: false, status: 409, data: null, error: "That import hasn't been planned." }
+  for (const m of planModules(view.plan)) await requireRight(cfg, guard, m, "create")
+  const { report, modules } = await confirmBatch(env, request, cfg, guard, actor, batchId)
+  for (const m of modules) await publishChange(env.REALTIME, guard.teamId, m)
+  return {
+    ok: true,
+    status: 200,
+    data: {
+      created: report.created,
+      skipped: report.skipped,
+      failed: report.failed,
+      perTarget: report.perTarget,
+      rejections: report.rejections.slice(0, 10),
+    },
   }
 }
 
@@ -300,36 +311,51 @@ export function requiresConfirm(tool: AgentTool, input: Record<string, unknown> 
 export type ToolResult = { ok: boolean; status: number; data: unknown; error?: string }
 
 /** Run a tool AS the caller: forward their cookie to the gated endpoint so the real door
- * enforces permissions + validation. Identity-blocked tools are always refused. */
+ * enforces permissions + validation. Identity-blocked tools are always refused.
+ *
+ * EVERY refusal leaves here as a ToolResult, including a GuardError thrown on THIS
+ * side of the wire — by a tool's own buildBody (a required boolean the caller
+ * omitted) or by the SELF import runner's gate. Those used to escape as exceptions
+ * through the two agent loops, which don't catch: the turn died as a stream-level
+ * error with no step row, no persisted outcome and no wrap-up — so one class of 400
+ * behaved unlike every other 400 the same tool could produce. The handling belongs
+ * HERE, once, because the loops call this and nothing else; a try/catch copied into
+ * each of the two call sites would be the same fix written twice, and the second
+ * copy is the one that gets forgotten. */
 export async function executeTool(
   env: Env,
   request: Request,
   tool: AgentTool,
   input: Record<string, unknown>
 ): Promise<ToolResult> {
-  if (tool.identityBlocked)
-    return { ok: false, status: 403, data: null, error: "That action can only be done by you, in person." }
-  if (tool.run) return tool.run(env, request, input)
-
-  const fetcher = tool.binding === "CONTENT" ? env.CONTENT : env.TENANCY
-  const res = await forwardToDoor(fetcher, {
-    path: tool.path,
-    method: tool.method,
-    cookie: request.headers.get("Cookie") ?? "",
-    requestId: request.headers.get(REQUEST_ID_HEADER),
-    origin: "agent",
-    query: tool.method === "GET" && tool.buildQuery ? tool.buildQuery(input) : "",
-    body: tool.buildBody ? tool.buildBody(input) : {},
-  })
-  const text = await res.text()
-  let data: unknown = text
   try {
-    data = JSON.parse(text)
-  } catch {
-    /* leave as text */
+    if (tool.identityBlocked)
+      return { ok: false, status: 403, data: null, error: "That action can only be done by you, in person." }
+    if (tool.run) return await tool.run(env, request, input)
+
+    const fetcher = tool.binding === "CONTENT" ? env.CONTENT : env.TENANCY
+    const res = await forwardToDoor(fetcher, {
+      path: tool.path,
+      method: tool.method,
+      cookie: request.headers.get("Cookie") ?? "",
+      requestId: request.headers.get(REQUEST_ID_HEADER),
+      origin: "agent",
+      query: tool.method === "GET" && tool.buildQuery ? tool.buildQuery(input) : "",
+      body: tool.buildBody ? tool.buildBody(input) : {},
+    })
+    const text = await res.text()
+    let data: unknown = text
+    try {
+      data = JSON.parse(text)
+    } catch {
+      /* leave as text */
+    }
+    const error = res.ok
+      ? undefined
+      : (data as { message?: string })?.message ?? `Action failed (HTTP ${res.status}).`
+    return { ok: res.ok, status: res.status, data, error }
+  } catch (e) {
+    if (e instanceof GuardError) return { ok: false, status: e.status, data: null, error: e.message }
+    throw e // a genuine fault still surfaces — this seam converts refusals, not bugs
   }
-  const error = res.ok
-    ? undefined
-    : (data as { message?: string })?.message ?? `Action failed (HTTP ${res.status}).`
-  return { ok: res.ok, status: res.status, data, error }
 }

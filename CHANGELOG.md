@@ -1,7 +1,12 @@
 # Changelog
 
-What changed, newest first. Derived from the commit history — 215 substantive
-commits between 2026-06-12 and 2026-08-12, one author.
+What changed, newest first. Derived from the commit history — one author, from the
+first commit on 2026-06-12 onwards. There is deliberately no commit count written
+here: it would be wrong again by the next commit, and `git log --oneline | wc -l`
+is the honest answer.
+
+The dated sections below run to 2026-08-12. What landed after that is recorded
+finding by finding in [BASE-IMPROVEMENTS.md](BASE-IMPROVEMENTS.md).
 
 Brimba is not released as versioned packages; it is deployed. So the milestones
 below are the ones a successor actually needs: what shipped to production, and
@@ -74,8 +79,9 @@ resolves in a fresh tab), **R21** (a create returns the created record) and
 
 ## 2026-07-03 — first production rollout
 
-All workers live on production for the first time. The AI agent, Learning, Help,
-CSV import and the MCP surface shipped together.
+The base went live on production for the first time — six workers, and with them
+the AI agent, Learning, Help and CSV import. The seventh worker, the external MCP
+surface, was built four days later on 2026-07-07 (commit `acda6a5`).
 
 ## 2026-06-12 — first commit
 

@@ -14,7 +14,7 @@ import {
 } from "../../../../shared/workers/d1-rest"
 import { ulid } from "../../../../shared/workers/id"
 import { MAX_IMAGE_BYTES, parseDataUrl } from "../../../../shared/workers/image"
-import { publishChange, publishUserChange } from "../../../../shared/workers/realtime"
+import { publishChange, publishRecorder, publishUserChange } from "../../../../shared/workers/realtime"
 import { d1ConfigFrom } from "../../../../shared/workers/gating"
 import type { Env } from "../env"
 import { GuardError } from "./permissions"
@@ -107,7 +107,13 @@ export async function createTeam(
   env: Env,
   actor: Actor,
   name: string,
-  logoUrl: string | null
+  logoUrl: string | null,
+  /** The route's `ctx`, so the ping below leaves AFTER the response rather than in
+   * front of it. Creating a team is already the slowest thing in the base — a real
+   * database, a schema, a seed — and holding it open for one more service hop to a
+   * Durable Object nobody is waiting on made it slower still (LAW R1's best-effort
+   * contract). Same reason, same shape as `acceptInvite`. */
+  ctx: ExecutionContext
 ): Promise<{ teamId: string }> {
   const cfg = d1Config(env)
   const teamId = ulid()
@@ -156,7 +162,15 @@ export async function createTeam(
     // Cross-team live event: the creator's OTHER devices should see the new team
     // appear in their switcher without a refetch. Rides the per-user channel
     // (the team channel doesn't exist for them yet). The client reacts in B.
-    await publishUserChange(env.REALTIME, actor.id, "teams", teamId, "add")
+    //
+    // HELD BY `waitUntil`, NOT FIRED AND FORGOTTEN: a bare call here would be
+    // cancelled when the isolate finishes with the response, so the ping would
+    // never arrive — the publish seam fails that shape by name. And the recorder
+    // is what makes a ping that never landed leave a row instead of a console
+    // line that dies within the week.
+    ctx.waitUntil(
+      publishUserChange(env.REALTIME, actor.id, "teams", teamId, "add", publishRecorder(env))
+    )
 
     return { teamId }
   } catch (e) {
@@ -227,7 +241,12 @@ export async function updateTeamDetails(
  */
 export async function acceptPendingInvites(
   env: Env,
-  actor: Actor
+  actor: Actor,
+  /** The route's `ctx`. This runs inside onboarding — the very first screen a new
+   * person sees — and publishes once per invite plus once per team plus one
+   * cross-device ping, so awaiting them stacked N+M+1 Durable Object hops in front
+   * of a response that does not depend on any of them (LAW R1). */
+  ctx: ExecutionContext
 ): Promise<number> {
   const now = new Date().toISOString()
   const pending = await env.DB.prepare(
@@ -268,15 +287,21 @@ export async function acceptPendingInvites(
     // open update instantly (best-effort; publishChange swallows errors). Row-
     // level: the new member is this user (actor.id); each invite flips to
     // 'accepted' in place (carry its own id).
+    //
+    // ONE recorder for the whole batch rather than one per ping: it is a closure
+    // over the same database handle either way, and `recordOutbound` throttles by
+    // integration, so a live layer that is down writes one row for the batch
+    // rather than one per invite.
+    const record = publishRecorder(env)
     for (const invite of invites) {
-      await publishChange(env.REALTIME, invite.team_id, "invites", invite.id, "edit")
+      ctx.waitUntil(publishChange(env.REALTIME, invite.team_id, "invites", invite.id, "edit", record))
     }
     const affected = [...new Set(invites.map((i) => i.team_id))]
     for (const teamId of affected) {
-      await publishChange(env.REALTIME, teamId, "members", actor.id, "add")
+      ctx.waitUntil(publishChange(env.REALTIME, teamId, "members", actor.id, "add", record))
     }
     // Cross-team: the joiner's other devices pick up the newly-joined team(s).
-    await publishUserChange(env.REALTIME, actor.id, "teams", affected[0], "add")
+    ctx.waitUntil(publishUserChange(env.REALTIME, actor.id, "teams", affected[0], "add", record))
   }
   return invites.length
 }
@@ -336,7 +361,11 @@ export async function listReceivedInvites(
 export async function acceptInvite(
   env: Env,
   actor: Actor,
-  inviteId: string
+  inviteId: string,
+  /** The route's `ctx`, so the three pings below leave AFTER the response rather
+   * than in front of it — three service hops to a Durable Object that nothing in
+   * this function's answer depends on (LAW R1's best-effort contract). */
+  ctx: ExecutionContext
 ): Promise<string | null> {
   const now = new Date().toISOString()
   // Validate the invite is theirs (email), still pending, unexpired, to a live
@@ -383,10 +412,10 @@ export async function acceptInvite(
 
   // Row-level: the joiner becomes a member (added) and the invite flips to
   // 'accepted' in place — carry both ids so open lists patch just those rows.
-  await publishChange(env.REALTIME, invite.team_id, "members", actor.id, "add")
-  await publishChange(env.REALTIME, invite.team_id, "invites", inviteId, "edit")
+  ctx.waitUntil(publishChange(env.REALTIME, invite.team_id, "members", actor.id, "add"))
+  ctx.waitUntil(publishChange(env.REALTIME, invite.team_id, "invites", inviteId, "edit"))
   // Cross-team: the joiner's OTHER devices add the new team to their switcher.
-  await publishUserChange(env.REALTIME, actor.id, "teams", invite.team_id, "add")
+  ctx.waitUntil(publishUserChange(env.REALTIME, actor.id, "teams", invite.team_id, "add"))
   return invite.team_id
 }
 

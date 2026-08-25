@@ -12,10 +12,37 @@ import type { SelectableValue } from "../../../../shared/types"
 import { GuardError, type MemberGuard } from "./permissions"
 import { EXPORT_HARD_CAP, LIST_HARD_CAP } from "../../../../shared/workers/limits"
 
-type Row = { id: string; type: string; value: string; is_default: number; deactivated_at: string | null }
+// The projection every reader that hands a row to a CLIENT shares. The two
+// timestamps are the row's VERSION (`updatedAt ?? createdAt` — the same fallback
+// `versionPredicate` applies): without them nobody could send `expectedVersion`,
+// so `updateSelectable`'s lost-update guard sat there unreachable and two people
+// renaming the same value silently lost one edit.
+type Row = {
+  id: string
+  type: string
+  value: string
+  is_default: number
+  deactivated_at: string | null
+  created_at: string
+  updated_at: string | null
+}
+const ROW_COLUMNS = "id, type, value, is_default, deactivated_at, created_at, updated_at"
+
+/** What the writers read for themselves — the identity of the row they are about
+ * to change. Narrower than `Row` on purpose: it says what is actually selected
+ * rather than claiming a projection it does not have. */
+type WriteRow = Pick<Row, "id" | "type" | "value" | "is_default">
 
 function toValue(r: Row): SelectableValue {
-  return { id: r.id, type: r.type, value: r.value, isDefault: r.is_default === 1, active: r.deactivated_at == null }
+  return {
+    id: r.id,
+    type: r.type,
+    value: r.value,
+    isDefault: r.is_default === 1,
+    active: r.deactivated_at == null,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at ?? null,
+  }
 }
 
 /** Every dropdown value in the team — ACTIVE first, then deactivated — grouped by
@@ -28,7 +55,7 @@ export async function listSelectable(cfg: D1Rest, guard: MemberGuard): Promise<S
     cfg,
     guard.databaseId,
     // R14 hard cap — never unbounded; move to real paging before this bites.
-    `SELECT id, type, value, is_default, deactivated_at FROM selectable_data ORDER BY type ASC, (deactivated_at IS NULL) DESC, value ASC LIMIT ${LIST_HARD_CAP}`,
+    `SELECT ${ROW_COLUMNS} FROM selectable_data ORDER BY type ASC, (deactivated_at IS NULL) DESC, value ASC LIMIT ${LIST_HARD_CAP}`,
     []
   )
   return rows.map(toValue)
@@ -67,7 +94,7 @@ export async function oneSelectable(
   const rows = await d1Query<Row>(
     cfg,
     guard.databaseId,
-    "SELECT id, type, value, is_default, deactivated_at FROM selectable_data WHERE id = ? LIMIT 1",
+    `SELECT ${ROW_COLUMNS} FROM selectable_data WHERE id = ? LIMIT 1`,
     [id]
   )
   return rows[0] ? toValue(rows[0]) : null
@@ -152,7 +179,7 @@ export async function createSelectable(
   return id
 }
 
-/** Rename a value (its type/group stays). Needs a non-empty value. */
+/** Rename a value and/or MOVE it to another type group. Needs a non-empty value. */
 export async function updateSelectable(
   cfg: D1Rest,
   guard: MemberGuard,
@@ -161,12 +188,27 @@ export async function updateSelectable(
   value: string,
   /** The `updated_at` the caller was shown. Given one, the write refuses to land
    * on a row that has moved on since — see shared/workers/concurrency.ts. */
-  expectedVersion?: string | null
+  expectedVersion?: string | null,
+  /**
+   * The type group this value should live in. `undefined` = LEAVE IT WHERE IT IS.
+   *
+   * A value typed into the wrong group used to be unfixable: the update wrote
+   * only `value`, so the only route back was to deactivate and re-create, which
+   * abandons the row's audit block and its history. `type` is now writable — but
+   * the omitted case has to stay a no-op, because the Dropdown-values screen
+   * renames inline and posts `{ id, value }` with no type at all. If `type` rode
+   * the SET unconditionally, every rename in the app would blank the group. Same
+   * update-door rule as everywhere else: omitted keeps, explicit writes.
+   *
+   * Deliberately LAST in the signature so the existing positional callers keep
+   * passing `expectedVersion` where they always did.
+   */
+  type?: string
 ): Promise<void> {
   const v = value.trim()
   if (!v) throw new GuardError(400, "invalid_input", "A dropdown value can't be empty.")
 
-  const rows = await d1Query<Row>(
+  const rows = await d1Query<WriteRow>(
     cfg,
     guard.databaseId,
     "SELECT id, type, value, is_default FROM selectable_data WHERE id = ? AND deactivated_at IS NULL",
@@ -175,19 +217,55 @@ export async function updateSelectable(
   const row = rows[0]
   if (!row) throw new GuardError(404, "not_found", "That dropdown value doesn't exist.")
 
+  // The destination group. `undefined` never reaches the SET clause below.
+  let destination: string | null = null
+  if (type !== undefined) {
+    const t = type.trim()
+    if (!t) throw new GuardError(400, "invalid_input", "A dropdown value needs a type.")
+    if (t !== row.type) destination = t
+  }
+
+  // R17-shaped: a move that isn't a move (same group) doesn't reach the SET
+  // clause at all, so it writes no history and says nothing happened.
+  if (destination) {
+    // The same (type, value) pair `createSelectable` refuses — moving into a
+    // group that already has this option would create the duplicate the create
+    // door exists to prevent, just by a different door.
+    const clash = await d1Query<{ id: string }>(
+      cfg,
+      guard.databaseId,
+      "SELECT id FROM selectable_data WHERE type = ? AND value = ? AND deactivated_at IS NULL AND id != ?",
+      [destination, v, id]
+    )
+    if (clash[0]) throw new GuardError(409, "duplicate", `"${v}" is already in ${destination}.`)
+  }
+
   const now = new Date().toISOString()
   // RETURNING turns the write into its own answer: no rows came back means
   // the predicate did not match, i.e. someone else changed this row first.
   const landed = await d1Query<{ id: string }>(
     cfg,
     guard.databaseId,
-    `UPDATE selectable_data SET value = ${sqlString(v)}, updated_at = ${sqlString(now)}, editor_id = ${sqlString(actor.id)}, editor_email = ${sqlString(actor.email)}, editor_name = ${sqlString(actor.name)} WHERE id = ${sqlString(id)}${versionPredicate(expectedVersion)} RETURNING id`
+    `UPDATE selectable_data SET value = ${sqlString(v)}${destination ? `, type = ${sqlString(destination)}` : ""}, updated_at = ${sqlString(now)}, editor_id = ${sqlString(actor.id)}, editor_email = ${sqlString(actor.email)}, editor_name = ${sqlString(actor.name)} WHERE id = ${sqlString(id)}${versionPredicate(expectedVersion)} RETURNING id`
   )
   assertNotConflicted(landed.length, expectedVersion)
+
+  // A move and a rename are different events, and the history has to say which
+  // happened. NOTHING IS ORPHANED BY A MOVE: the modules that consume dropdown
+  // values store the chosen TEXT (learning.category, learning.content_type,
+  // help.help_type), never this row's id, so a value that changes group keeps
+  // every record that already picked it. What changes is which picker offers it
+  // from now on — which is exactly what the person asked for.
+  const renamed = v !== row.value
+  const description = destination
+    ? renamed
+      ? `${actor.name} moved "${row.value}" from ${row.type} to ${destination} and renamed it "${v}"`
+      : `${actor.name} moved "${v}" from ${row.type} to ${destination}`
+    : `${actor.name} renamed a ${row.type} value: "${row.value}" → "${v}"`
   await logActivity(cfg, guard.databaseId, actor, {
-    type: "Dropdown value edited",
+    type: destination ? "Dropdown value moved" : "Dropdown value edited",
       verb: "edited",
-    description: `${actor.name} renamed a ${row.type} value: "${row.value}" → "${v}"`,
+    description,
     relatedTable: "selectable_data",
     relatedRowId: id,
   })
@@ -201,7 +279,7 @@ export async function setSelectableActive(
   id: string,
   active: boolean
 ): Promise<boolean> {
-  const rows = await d1Query<Row>(
+  const rows = await d1Query<WriteRow>(
     cfg,
     guard.databaseId,
     "SELECT id, type, value, is_default FROM selectable_data WHERE id = ?",

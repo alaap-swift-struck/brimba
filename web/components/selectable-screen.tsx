@@ -85,14 +85,27 @@ export function SelectableScreen({
     toast.success(`Added "${value}".`)
   }
 
-  async function saveRename(id: string) {
+  // Takes the ROW, not just the id, because the rename has to send back the
+  // version it was shown — `updatedAt ?? createdAt`, the same derivation the
+  // article and ticket screens use, and the same fallback `versionPredicate`
+  // applies so a never-edited value still has one. Without it the door's
+  // lost-update guard was unreachable: two people renaming the same value both
+  // "succeeded" and one edit vanished with nothing said to either of them.
+  async function saveRename(v: SelectableValue) {
     if (!editValue.trim()) return
     try {
-      const { updated } = await tenancy.updateSelectable(id, editValue)
-      await applyUpdated({ listKey: `selectable:${teamId}`, id, row: updated })
+      const { updated } = await tenancy.updateSelectable(
+        v.id,
+        editValue,
+        v.updatedAt ?? v.createdAt ?? null
+      )
+      await applyUpdated({ listKey: `selectable:${teamId}`, id: v.id, row: updated })
       setEditingId(null)
       toast.success("Renamed.")
     } catch (err) {
+      // A 409 lands here with the door's own words ("Someone else changed this
+      // while you had it open…"), and the row stays in edit mode so the typed
+      // text is not thrown away.
       toast.error(err instanceof ApiFailure ? err.message : "Couldn't rename that option.")
     }
   }
@@ -223,7 +236,7 @@ export function SelectableScreen({
                         <Button
                           size="sm"
                           variant="ghost"
-                          onClick={() => void saveRename(v.id)}
+                          onClick={() => void saveRename(v)}
                           aria-label="Save"
                         >
                           <Check className="size-4" />

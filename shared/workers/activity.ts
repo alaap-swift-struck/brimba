@@ -20,23 +20,65 @@
 //
 // APPEND-ONLY, BY LAW. Nothing in this codebase updates or deletes an activity
 // row in the request path. A trail that can be edited is not a trail, so the
-// absence is enforced by `activity-append-only` in web/test/rules.test.ts rather
+// absence is enforced by `activity-birth-to-death` in web/test/rules/activity.test.ts rather
 // than left to habit. Ageing rows are swept by the retention rule
 // (`shared/workers/retention.ts`), which is a documented policy, not code
 // rewriting history.
 //
-// WHAT IS DELIBERATELY NOT LOGGED, and why — so the gaps are decisions:
+// WHAT IS DELIBERATELY NOT LOGGED, and why — so the gaps are decisions.
 //
-//   • sessions, login codes, email-change codes — short-lived secrets and
-//     machinery. Signing in is identity, not a record change: it goes to
-//     `account_activity` in the global database (see "the two tables" below).
-//   • idempotency keys, error rows, AI-usage rows — ledgers and exhaust. Each is
-//     already its own log; logging a log is noise.
-//   • `learning_progress` (marking an article read) and `mcp_tokens.last_used_at`
-//     — per-view telemetry. One row per read would drown the feed the trail
-//     exists to make readable.
-//   • the active-team pointer (`users.current_team_id`) — which team you are
-//     LOOKING at, not a change to any record.
+// FIRST, what only LOOKS unlogged. A child row is logged against its PARENT
+// record, because the parent is the feed a person actually reads:
+// `help_threads` and `help_stakeholders` under `help`, `role_permissions` under
+// `member_roles`, `invite_index` under the team-local `invite_logs`. Each writes
+// an activity row; none names its own table.
+//
+// SECRETS AND MACHINERY — nothing points at them and they expire:
+//   • `sessions`, `login_codes`, `email_change_codes`. Signing in is identity,
+//     not a record change: it goes to `account_activity` in the global database
+//     (see "the two tables" below).
+//
+// LEDGERS AND EXHAUST — each is already its own log; logging a log is noise:
+//   • `idempotency_keys`, `error_logs`, and the AI meter — `agent_usage`,
+//     `agent_usage_log` and the `agent_credits` balance those rows draw down.
+//   • `email_change_logs` — auth's own audit row for the very event that already
+//     writes an `account_activity` row.
+//   • `activity` and `account_activity` themselves. A trail does not trail itself.
+//
+// PER-VIEW TELEMETRY — one row per read would drown the feed the trail exists to
+// make readable: `learning_progress` (marking an article read),
+// `mcp_tokens.last_used_at`.
+//
+// THE ACTIVE-TEAM POINTER (`users.current_team_id`) — which team you are LOOKING
+// at, not a change to any record.
+//
+// WIZARD PROGRESS, not records. The row is a half-finished form, and the work it
+// describes is logged where it actually lands:
+//   • `data_import_sessions` / `data_import_batches` (workers/data-ops) —
+//     started, previewed, planned, claimed. Every imported ROW goes through its
+//     module's own gated create door and logs with origin `import`, and the
+//     finished run adds one summary row. Logging the wizard's own steps would
+//     stack noise in front of the rows that matter.
+//   • `agent_threads` / `agent_messages` (workers/data-ops) — the chat
+//     transcript is its own record of itself and is readable in the app. Anything
+//     the assistant CHANGES goes through the same gated doors a person uses and
+//     logs with origin `agent`.
+//
+// THE PLATFORM, not the product. These describe the machine, and most live in the
+// core/operations database, which no team feed can reach:
+//   • `importable_databases` (workers/data-ops) — the import catalogue, DERIVED
+//     from code and self-healing on read (R13). Nobody authored it.
+//   • `db_alerts`, `db_sizes`, `cron_runs` (workers/tenancy) — size and spend
+//     alarms, the nightly size meter, and the jobs' own cursors.
+//   • `teams.shard_count` (workers/tenancy) — how many objects a team's live
+//     channel is spread across. A capacity knob, invisible in the product.
+//   • the migration robot (`workers/tenancy/src/routes/admin.ts`) — applies team
+//     schema migrations and stamps `teams.schema_version`. Schema versions are
+//     not records, and every team database keeps its own `_migrations` audit.
+//
+// THIS LIST IS MACHINE-CHECKED, so a new unlogged table cannot arrive
+// undocumented: `workers/content/test/activity-seam.test.ts` derives the tables
+// no activity row is able to name and fails if one of them is missing above.
 //
 // THE TWO TABLES. `activity` is per-team and holds record history.
 // `account_activity` is global and holds identity events — account created, email
@@ -53,6 +95,7 @@
 // way to do that is in DATA-MODEL.md § "Reading one person's whole history".
 
 import { d1ExecScript, sqlString, type D1Rest } from "./d1-rest"
+import type { OutboundRecorder } from "./error-log"
 import { ulid } from "./id"
 import { traceError } from "./trace"
 
@@ -103,14 +146,24 @@ export type ActivityOrigin = "ui" | "api" | "mcp" | "agent" | "import" | "job"
  * person acting through the app. */
 export const ORIGIN_HEADER = "x-brimba-origin"
 
-const ORIGINS: ActivityOrigin[] = ["ui", "api", "mcp", "agent", "import", "job"]
+/** The closed set, EXPORTED — the reader filters on this column too, and a second
+ * hand-written copy of these six strings is how a filter and a writer drift into
+ * disagreeing about what a valid origin is. */
+export const ACTIVITY_ORIGINS: readonly ActivityOrigin[] = [
+  "ui",
+  "api",
+  "mcp",
+  "agent",
+  "import",
+  "job",
+]
 
 /** Read the origin off a request, defaulting to the app. Validated against the
  * known set: this value reaches a log row, and an unchecked header would let a
  * caller write whatever it liked into the audit trail. */
 export function originFrom(request: { headers: { get(n: string): string | null } }): ActivityOrigin {
   const raw = request.headers.get(ORIGIN_HEADER)?.trim().toLowerCase()
-  return (ORIGINS as string[]).includes(raw ?? "") ? (raw as ActivityOrigin) : "ui"
+  return (ACTIVITY_ORIGINS as readonly string[]).includes(raw ?? "") ? (raw as ActivityOrigin) : "ui"
 }
 
 /**
@@ -144,13 +197,13 @@ export type ActivityEntry = {
   changes?: FieldDiff[]
 }
 
-export type FieldDiff = {
-  label: string
-  from?: string | null
-  to?: string | null
-  /** long/rich fields (an article body) log "<label> updated" without the values */
-  hideValues?: boolean
-}
+// ONE declaration, in shared/types.ts — imported for use here and re-exported so
+// the callers that already name it through this module keep working. It lived
+// here as a second copy while the diff was produced by a reader and consumed by
+// nothing; now that the Activity tab renders it, the same shape crosses the wire,
+// and two structurally identical types with different comments is how they drift.
+import type { FieldDiff } from "../types"
+export type { FieldDiff }
 
 /** Name exactly WHAT changed in an edit, old → new — so the activity feed answers
  * "which fields, from what, to what" instead of just "X edited Y". Unchanged
@@ -204,23 +257,80 @@ function renderChanges(fields: FieldDiff[]): string {
  * swallow stays; the silence does not. A failure now writes a DURABLE, filterable
  * gap marker through the trace seam, carrying the request id, so "is this
  * record's history complete?" has an answer.
+ *
+ * `record` (2026-08-25) is the second half of that. A trace line lives about a
+ * week; after that the hole is still in the history and the only evidence of it
+ * is gone. `record` is the OPTIONAL channel to the owned error store —
+ * `dbRecorder(opsDatabase(env), "activity")` in a database-bound worker. It is a
+ * CALLBACK and not a database handle on purpose: this is the base's most-copied
+ * signature, and taking a `CoreDb` here would both force a required argument
+ * onto two dozen call sites and marry the activity seam to the operations
+ * database. Omit it and this behaves exactly as it did — the no-argument path is
+ * unchanged, and a missing channel means "not recorded", never a crash inside
+ * the error path. (Same reasoning, same shape as `recordOutbound`.)
  */
 export async function logActivity(
   cfg: D1Rest,
   databaseId: string,
   actor: Actor,
-  entry: ActivityEntry
+  entry: ActivityEntry,
+  record?: OutboundRecorder
 ): Promise<void> {
   try {
-    const now = new Date().toISOString()
-    // The diff travels as JSON. NULL rather than "[]" when there is nothing to
-    // say, so a reader can tell "no fields changed" from "this door does not send
-    // diffs yet" — two different facts an empty array would merge into one.
-    const diff = entry.changes?.length ? JSON.stringify(entry.changes) : null
-    await d1ExecScript(
-      cfg,
-      databaseId,
-      `INSERT INTO activity
+    await d1ExecScript(cfg, databaseId, activityStatement(actor, entry))
+  } catch (e) {
+    // THE GAP MARKER, in both places it needs to be. Structured and filterable by
+    // `event` for a live tail, carrying the request id like every other trace
+    // line — and then DURABLE, because a silent hole in an audit trail is worse
+    // than a loud one and a hole nobody can still see is worse again.
+    const place = `${entry.relatedTable ?? "?"}/${entry.relatedRowId ?? "?"}`
+    traceError({ worker: "activity", place, event: "activity_log_gap", detail: e })
+    await recordGap(record, place, e)
+  }
+}
+
+/**
+ * THE ACTIVITY ROW AS A STATEMENT — the same SQL `logActivity` writes, handed back
+ * as a string so a caller that is ALREADY crossing to the same database can carry
+ * it rather than pay a second crossing for it.
+ *
+ * WHY THIS IS A BUILDER AND NOT A COPY. Every statement in this app executes in
+ * 0.1–0.3ms; the cost of writing an activity row is the HTTPS round trip to
+ * api.cloudflare.com in front of it. Raising a support ticket was four such trips
+ * for four such statements, and `d1Batch` folds them into one — but only for the
+ * statements the caller can produce. The obvious way to fold the fourth is to
+ * re-type this INSERT in the module doing the batching, and that would give the
+ * audit trail TWO authors: two lists of columns, two escaping decisions, and
+ * nothing to keep them in step. The trail's whole value is that it has one.
+ *
+ * So the seam exposes its statement and `logActivity` writes through the same
+ * builder. There is exactly one `INSERT INTO activity` in the codebase, and it is
+ * below.
+ *
+ * EVERY VALUE IS INLINE THROUGH `sqlString`, which is not new but now matters
+ * more. The REST door rejects `params` alongside multiple statements (a hard 400),
+ * so a batched caller has no bound-parameter option at all — inlining is the only
+ * shape available, and `sqlString` (which coerces to string first, then doubles
+ * every apostrophe) is the only thing between a person's own name and the SQL it
+ * lands in.
+ *
+ * WHAT A BATCHED CALLER TAKES ON. `logActivity` swallows its own failures: a
+ * logging hiccup never breaks the action it describes. A statement carried inside
+ * someone else's batch cannot have that property — it shares the crossing with the
+ * statements beside it, so a call that fails takes the write with it instead of
+ * only the trail. What it REMOVES is the two-crossing failure: the row landing and
+ * a second call to the same database failing on its own. (What the engine does
+ * with a statement that fails PART-WAY through a batch is D1's business, and
+ * nothing here relies on an answer either way.) It is a different contract, and a
+ * caller folding this in is choosing it deliberately.
+ */
+export function activityStatement(actor: Actor, entry: ActivityEntry): string {
+  const now = new Date().toISOString()
+  // The diff travels as JSON. NULL rather than "[]" when there is nothing to
+  // say, so a reader can tell "no fields changed" from "this door does not send
+  // diffs yet" — two different facts an empty array would merge into one.
+  const diff = entry.changes?.length ? JSON.stringify(entry.changes) : null
+  return `INSERT INTO activity
          (id, type, description, related_table, related_row_id,
           created_at, creator_id, creator_email, creator_name, origin, before_after, verb)
        VALUES (
@@ -229,16 +339,31 @@ export async function logActivity(
           ${sqlString(now)}, ${sqlString(actor.id)}, ${sqlString(actor.email)}, ${sqlString(actor.name)},
           ${sqlString(entry.origin ?? actor.origin ?? "ui")} /* "ui" is the FALLBACK, not a default anyone should rely on: every non-UI surface sets its own via ORIGIN_HEADER or the actor */, ${sqlString(diff)}, ${sqlString(entry.verb ?? null)}
        );`
-    )
-  } catch (e) {
-    // THE GAP MARKER. Structured and filterable by `event`, and it carries the
-    // request id like every other trace line — a silent hole in an audit trail is
-    // worse than a loud one, because people trust what they are reading.
-    traceError({
-      worker: "activity",
-      place: `${entry.relatedTable ?? "?"}/${entry.relatedRowId ?? "?"}`,
-      event: "activity_log_gap",
-      detail: e,
-    })
+}
+
+/**
+ * Hand a logging failure to the durable store, and never let that become a
+ * second failure.
+ *
+ * `account-activity.ts` carries its own five-line copy of this rather than
+ * importing it, and that is deliberate: importing from here would pull `d1-rest`
+ * into the mcp bundle, and mcp holds no `CF_D1_TOKEN` precisely so the externally
+ * reachable worker cannot reach a team database at all. The REASONING is stated
+ * once — here — and pointed at from there.
+ *
+ * NOT throttled, unlike `recordOutbound` — and the difference is the point.
+ * There, a storm writes one fact over and over, so collapsing it loses nothing.
+ * Here, each row names a DIFFERENT record whose history is now incomplete, and
+ * that list IS the repair list: throwing away the duplicates would throw away
+ * the only account of what needs fixing. The volume is bounded by the mutation
+ * rate, which the rate ceilings already bound (SCALING.md §4.6).
+ */
+async function recordGap(record: OutboundRecorder | undefined, place: string, e: unknown): Promise<void> {
+  if (!record) return
+  try {
+    const err = e instanceof Error ? e : new Error(String(e))
+    await record(`activity ${place}`, err)
+  } catch {
+    /* the error store can be down too — recording must never break the request */
   }
 }

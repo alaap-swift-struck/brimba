@@ -127,11 +127,17 @@ tabs: [
 ]
 ```
 
-Recipes are **overridable per team at runtime**: a team's JSON override (from the
-config store) wins over the in-code base. `resolveRecipe()` merges override-over-base
-and — critically — is **defensive**: a missing, unparseable, or shape-incomplete
-override falls back to the base via `isScreenRecipe()`, so a bad override can never
-blank a screen team-wide.
+Recipes live **in code, one shipped default for every team**. `resolveRecipe(key)`
+is a plain lookup in `BASE_RECIPES` — it hands back that recipe, or `null` when the
+key has none (roles detail, for instance, which is bespoke). Changing a screen means
+changing its recipe here and shipping.
+
+Recipes used to be overridable per team at runtime, from a config store. That whole
+subsystem — a table, a migration, a gate, a validator, a permission row, a renderer
+and the merge — had no surface anywhere that could write an override, so every team's
+map was permanently empty. The owner removed it on 2026-08-25 rather than build the
+missing half, which also bought one fewer network request on every screen in the team
+area. If per-team screens ever come back, they come back with the door that writes them.
 
 ### 2b. Not engine-expressible → a host-composed component
 
@@ -201,7 +207,7 @@ URL-driven (`?panel` / `?confirm`) so Back closes it and links are shareable.
 ## 3. The Laws of the Base that touch the UI
 
 These live in **RULES.md** (the human table) pinned to **`shared/rules/registry.ts`**
-(the same laws as data), and are enforced by **`web/test/rules.test.ts`**, which reads
+(the same laws as data), and are enforced by the **`web/test/rules/`** suite, which reads
 the source *straight off disk* — so a check can't be fooled by anything but the real
 code. The UI laws:
 
@@ -212,13 +218,14 @@ code. The UI laws:
 | **R4** | Every form/dialog renders through the shared **`FormShell`**. | `forms-use-formshell` |
 | **R6** | Product terms live in **ONE glossary** — the app speaks one dictionary. | `glossary-wellformed` |
 | **R7** | Every form dialog persists its draft per session (**`useFormDraft`**). | `forms-persist-drafts` |
-| **R8** | Every team collection tab derives its **count from its loaded rows** (declares a `countCacheKey`). | `tab-counts-derived` |
-| **R20** | Every navigable destination **resolves in a fresh tab** — a page source AND the gateway's module shell, both derived from the nav registries. | `static-destinations` |
+| **R8** | Every team collection tab declares **which collection its badge describes** (a `countCacheKey`), derived from the registry and never hand-listed. | `tab-counts-derived` |
+| **R16** | Every collection shows its count **exactly once**, and the number is an exact server `COUNT(*)` through the one **`formatCount`** seam — never a loaded list's length. A counted tab badge wins; the `CollectionHeading` stands down. | `counted-collections` |
+| **R20** | Every navigable destination **resolves in a fresh tab** — a page source, the client's `TOP_LEVEL_MODULES`, AND the gateway's module shell: three lists in three workspaces, all derived from the nav registries. | `static-destinations` |
 | **R22** | **Creating a master record through a form opens that record** — in the shared form seam, not per screen. | `create-opens-record` |
 
 (`R1` and `R5` are the arch/data laws — mutations publish a live change; activity is
 read through one generic path — covered in CACHING.md / DATA-MODEL.md. `R5`'s web half
-does show up in `rules.test.ts`: the app must read record activity through the one
+does show up in the suite (`rules/activity.test.ts`): the app must read record activity through the one
 `recordActivity` fetcher.)
 
 ### R2 — record detail = Overview + Activity, via `TabsView` + `ActivityFeed`
@@ -229,8 +236,8 @@ these as recipe data (see §2a). The **bespoke** details must render them themse
 and the check verifies exactly that, reading the source for the two library names:
 
 ```ts
-// web/test/rules.test.ts
-for (const c of RECORD_DETAIL_COMPONENTS) {          // ["help-detail", "learning-detail"]
+// web/test/rules/ui.test.ts
+for (const c of RECORD_DETAIL_COMPONENTS) {          // ["help-detail", "learning-detail", "role-detail"]
   const src = read(join(WEB, "components", `${c}.tsx`))
   expect(src, `${c} must use library TabsView`).toContain("TabsView")
   expect(src, `${c} must render an ActivityFeed (the Activity tab)`).toContain("ActivityFeed")
@@ -255,7 +262,7 @@ The check hunts the tell-tale of a fake toggle — a `Button` whose variant flip
 comparison — across *every* `.tsx` under `web/components`:
 
 ```ts
-// web/test/rules.test.ts
+// web/test/rules/ui.test.ts
 const offenders = componentFiles().filter((f) => /variant=\{[^}]*===[^}]*\?/.test(read(f)))
 expect(offenders, `use the library TabsView instead of hand-rolled toggles`).toEqual([])
 ```
@@ -272,9 +279,11 @@ action**. `FormShell` (`web/components/form-shell.tsx`) is that layout, assemble
 library primitives. The check asserts each form dialog imports it:
 
 ```ts
-// web/test/rules.test.ts — FORM_DIALOGS is the enforced list
-for (const d of FORM_DIALOGS) {                       // help-form-dialog, learning-form-dialog,
-  const src = read(join(WEB, "components", `${d}.tsx`))//  role-form-dialog, invite-dialog, team-edit-dialog
+// web/test/rules/ui.test.ts — FORM_DIALOGS is the enforced list: help-form-dialog,
+// learning-form-dialog, role-form-dialog, invite-dialog, team-edit-dialog,
+// selectable-form-dialog
+for (const d of FORM_DIALOGS) {
+  const src = read(join(WEB, "components", `${d}.tsx`))
   expect(src, `${d} must use FormShell`).toContain("form-shell")
 }
 ```
@@ -343,7 +352,7 @@ uses **these** words; you never invent a synonym for a concept already there. Th
 proves the dictionary stays well-formed:
 
 ```ts
-// web/test/rules.test.ts
+// web/test/rules/ui.test.ts
 expect(entry.def.length, `${key}.def must be brief (≤140 chars), never over-explained`)
   .toBeLessThanOrEqual(140)
 expect(terms.has(entry.term), `duplicate term "${entry.term}"`).toBe(false)
@@ -364,21 +373,26 @@ back filled. Every form dialog persists via **`useFormDraft`** (backed by
 dismiss (Esc / backdrop / close); *preserved* on navigation. The check mirrors R4 —
 each `FORM_DIALOGS` entry must contain `useFormDraft`. See CACHING.md §11.
 
-### R8 — tab counts derive from rows
+### R8 — tab counts are derived, never hand-listed
 
-A team collection tab's badge is the length of the rows it shows — never a hand-typed
-number that can drift. Any `placement: "tab"` section that leads with a collection
-must declare a **`countCacheKey`** (`web/lib/pages.ts`), and the host builds every
-badge by *iterating* that field:
+R8 owns **which** collection a tab's badge describes; R16 owns **what number** it
+shows. Any `placement: "tab"` section that leads with a collection must declare a
+**`countCacheKey`** (`web/lib/pages.ts`), and the host builds every badge by
+*iterating* that field:
 
 ```ts
 // web/components/deep-link-screen.tsx
 for (const s of TEAM_SECTIONS) {
   if (!s.countCacheKey) continue
-  const rows = loadedByCacheKey[s.countCacheKey]
-  if (rows !== undefined) sectionCounts[s.key] = rows.length
+  const total = totalByCacheKey[s.countCacheKey]
+  if (total !== undefined) sectionCounts[s.key] = total
 }
 ```
+
+`totalByCacheKey` holds an **exact server total** per collection — never the loaded
+rows' length, because a capped list's length is a ceiling, not a total (that is R16,
+and where the two disagree R16 wins). Undefined means still loading, and the badge
+renders nothing.
 
 The check enforces both halves — every collection tab declares a `countCacheKey` (or is
 a reasoned `TAB_COUNT_EXCEPTIONS` entry), *and* `deep-link-screen.tsx` still derives the
@@ -392,7 +406,7 @@ You **cannot add a law without its check, and cannot add a check without its law
 keystone test asserts RULES.md lists *exactly* the law ids in `RULES_REGISTRY`:
 
 ```ts
-// web/test/rules.test.ts — L0, the keystone
+// web/test/rules/meta.test.ts — L0, the keystone
 const ids   = RULES_REGISTRY.map((r) => r.id)
 const inDoc = [...md.matchAll(/^\|\s*(R\d+[a-z]?)\s*\|/gm)].map((m) => m[1])
 expect(new Set(inDoc)).toEqual(new Set(ids))
@@ -400,12 +414,12 @@ expect(new Set(inDoc)).toEqual(new Set(ids))
 
 And a companion test asserts every *enforced* law maps to a known check id. So the flow
 to add a UI law is fixed: **RULES.md row ⇄ `registry.ts` entry ⇄ a real check in
-`rules.test.ts`** — all three or the build is red.
+`web/test/rules/`** — all three or the build is red.
 
 ```
  RULES.md (the human table)  ⇄  shared/rules/registry.ts (the law as data)
                               ⇘   ⇙
-                    web/test/rules.test.ts (the check that reads source off disk)
+                    web/test/rules/*.test.ts (the checks that read source off disk)
                     keystoned by  registry-integrity (L0)
 ```
 
@@ -603,7 +617,7 @@ alive underneath — that's the "immovable, contentless page" feel.
 - [ ] Search/filters are wired through `listCollection` + `withDataDrivenCollection` so
       they **hide when empty**.
 - [ ] `npm run check` is green (TypeScript + the full test suite, including
-      `web/test/rules.test.ts`).
+      the `web/test/rules/` suite).
 
 ## Collection counts — one number, one place, one seam (LAW R16)
 Every screen that shows a collection shows its count **exactly once**:

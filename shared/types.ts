@@ -65,6 +65,13 @@ export type SelectableValue = {
   /** false = deactivated (retired). The manager shows these greyed with an Activate
    * button; form pickers filter to active. Always present. */
   active: boolean
+  /** The audit block's two timestamps — carried so an editor can send back the
+   * version it was shown (`updatedAt ?? createdAt`, the same fallback
+   * `versionPredicate` applies, so a never-edited row still has a version).
+   * Without these the door's lost-update guard was unreachable from any client:
+   * two people renaming the same value silently lost one edit. */
+  createdAt: string
+  updatedAt: string | null
 }
 
 /** A role's permission matrix as the tenancy worker returns it: the module rows
@@ -149,6 +156,34 @@ export type ActiveContext = {
   teams: TeamSummary[]
 }
 
+/**
+ * ONE FIELD THAT CHANGED, old → new — the data half of an edit's activity row,
+ * beside the human sentence.
+ *
+ * WHY IT LIVES HERE and not beside the writer. The writer's copy
+ * (`shared/workers/activity.ts`) is server-only: it sits in a file that imports
+ * the D1 door, and the browser workspace deliberately does not typecheck
+ * `shared/workers/**` (see web/tsconfig.json). This is the shape as it reaches a
+ * SCREEN, so it belongs in the types both sides agree on.
+ *
+ * VALUES ARRIVE ALREADY CLIPPED (200 characters, server-side) and `hideValues` is
+ * already honoured on read — a hidden field arrives with its label and nothing
+ * else. The client's job is to print what it was given: never re-derive a value,
+ * never re-expand a clipped one, and never show the values of a field the writer
+ * chose to withhold.
+ */
+export type FieldDiff = {
+  /** the field's name as a person knows it, e.g. "Category" */
+  label: string
+  /** `null` is a real answer here — the wire carries it for a value that was
+   * blank — so it is in the type rather than smoothed over into `undefined`. */
+  from?: string | null
+  to?: string | null
+  /** long/rich fields (an article body) are recorded as CHANGED without their
+   * values ever travelling. Show the field name; show no values. */
+  hideValues?: boolean
+}
+
 /** One row of a record's Activity tab (and the team-wide feed). The same row
  * surfaces in the team / user / role scopes by the relation it carries. */
 export type ActivityItem = {
@@ -166,6 +201,12 @@ export type ActivityItem = {
   /** WHAT KIND of change — "created", "edited", "deactivated", "activated",
    * "removed", "status". NULL on rows written before migration 0008. */
   verb?: string | null
+  /** WHICH FIELDS changed, old → new. Present only on a RECORD-scoped feed: the
+   * team feed returns every module's rows behind one gate, and shipping raw
+   * before/after values through it is exactly the leak R18 exists to prevent.
+   * ABSENT (not `[]`) when a door sends no diff — "nothing changed" and "this
+   * door does not diff yet" stay two different facts. */
+  changes?: FieldDiff[]
 }
 
 /** A team's Overview-tab metadata (who made it + when). */

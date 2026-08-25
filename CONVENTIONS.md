@@ -68,7 +68,9 @@ thrown errors into clean responses. It contains **no business logic**.
 ```ts
 // workers/content/src/index.ts
 type RouteKind = "read" | "mutation" | "housekeeping"
-type Handler = (request: Request, env: Env) => Promise<Response>
+// `ctx` is here so a handler can DEFER work past the response — specifically the
+// change ping (Law R1, §7). A read handler simply ignores it.
+type Handler = (request: Request, env: Env, ctx: ExecutionContext) => Promise<Response>
 
 export const ROUTES: Record<string, { handler: Handler; kind: RouteKind }> = {
   "GET  /api/content/learning":         { handler: getLearning,        kind: "read" },
@@ -108,17 +110,36 @@ The `fetch` handler is small and identical across workers:
 ```ts
 // workers/content/src/index.ts
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const { pathname } = new URL(request.url)
     const route = `${request.method} ${pathname}`
     try {
-      if (route === "GET /api/content/health") return json({ ok: true })
+      // A health check that can only ever say "yes" is not a health check: it
+      // answers with the BOOLEANS for the bindings this worker needs, never a
+      // value and never which secret is missing (the door is unauthenticated).
+      if (route === "GET /api/content/health")
+        return json({
+          ok: true,
+          bindings: { d1Token: !!env.CF_D1_TOKEN, internalKey: !!env.INTERNAL_KEY, ops: !!env.OPS },
+        })
       const def = ROUTES[route]
       if (!def) return fail(404, "not_found", "No such content action.")
-      return await def.handler(request, env)
+      // A mutation goes through `withIdempotency` so a client that retries a
+      // dropped POST with the same `Idempotency-Key` replays the first outcome
+      // instead of writing twice. No header → a pass-through that costs nothing.
+      if (def.kind !== "mutation") return await def.handler(request, env, ctx)
+      return await withIdempotency(request, env.DB, route, () => def.handler(request, env, ctx))
     } catch (e) {
-      if (e instanceof GuardError) return fail(e.status, e.code, e.message)
+      // A 5xx GuardError IS an outage and must leave a row; a 403 is the system
+      // working, and recording it would fill the table with correct behaviour.
+      // So the branch splits on the STATUS, not on the type.
+      if (e instanceof GuardError) {
+        if (e.status >= 500)
+          await recordWorkerError(opsDatabase(env), "content", route, e, request)
+        return fail(e.status, e.code, e.message)
+      }
       console.error("content worker error:", e)
+      await recordWorkerError(opsDatabase(env), "content", route, e, request)
       const message = e instanceof Error ? e.message : ""
       if (message.startsWith("cloud_key_missing:"))
         return fail(503, "cloud_key_missing", `${brand.name}'s cloud key isn't set up yet — content is paused.`)
@@ -143,8 +164,9 @@ The rules that follow from this:
     json({ error, message } satisfies ApiError, status)
   ```
 - **The catch never leaks internals.** An unexpected throw logs the real error server-side
-  (`console.error`) and returns a generic `500 internal` with a warm, user-safe message.
-  A missing cloud key is the one special-cased operator condition. This mirrors the
+  (`console.error`), RECORDS it through `recordWorkerError` so it lands in the central
+  error store, and returns a generic `500 internal` with a warm, user-safe message. A
+  missing cloud key is the one special-cased operator condition. This mirrors the
   never-swallow rule in [ERROR-HANDLING.md](ERROR-HANDLING.md).
 
 ### `GuardError` is the currency of failure
@@ -176,11 +198,20 @@ async scheduled(_controller, env): Promise<void> {
   try {
     const result = await checkDatabaseSizes(env, d1Config(env))
     console.log(`size check: ${result.checked} team DBs, ${result.alerted.length} alarm(s)`)
+    // …the rest of the nightly work (retention, shard counts, orphaned uploads)
   } catch (e) {
+    // LAW R12: unattended work has no user watching, so a swallowed failure would be
+    // invisible — record it to the error store, not just the console.
     console.error("nightly size check failed:", e)
+    await recordWorkerError(opsDatabase(env), "tenancy", "cron/size-check", e)
   }
 },
 ```
+
+**`console.error` alone is not enough, and this is a law, not a preference.** A cron
+failure has nobody watching it, so the only trace it can leave is a row: `recordWorkerError`
+(through `opsDatabase(env)`) is what R12 checks for, and a `scheduled` handler that only
+logs to the console turns the build red.
 
 Only add a cron when there's real housekeeping — `content` has none, and says so in a
 comment rather than shipping an empty stub.
@@ -194,14 +225,19 @@ a fixed order. Deviating is a smell; matching it is how the next reader knows wh
 they're looking at before they read a line.
 
 ```ts
-export async function postCreateLearning(request: Request, env: Env): Promise<Response> {
+export async function postCreateLearning(
+  request: Request, env: Env, ctx: ExecutionContext
+): Promise<Response> {
   const { actor, cfg, guard } = await teamContext(request, env)     // 1 · who + where
   await requireRight(cfg, guard, "learning", "create")               // 2 · may they?
   const body = (await request.json().catch(() => ({}))) as LearningInput  // 3 · read body
   requireText(body.title, "Title", TEXT_LIMITS.short)                // 4 · validate at boundary
   const id = await createLearning(cfg, guard, actor, body)           // 5 · CRUD via lib
-  await publishChange(env.REALTIME, guard.teamId, "learning", id, "add")  // 6 · publish live
-  return json({ learning: await listLearning(cfg, guard) })          // 7 · respond
+  ctx.waitUntil(publishChange(env.REALTIME, guard.teamId, "learning", id, "add"))  // 6 · publish live
+  const [created, total] = await Promise.all([                       // 7 · the created ROW
+    oneLearning(cfg, guard, id), countLearning(cfg, guard),
+  ])
+  return json({ created, total })                                    // 8 · respond
 }
 ```
 
@@ -215,8 +251,15 @@ export async function postCreateLearning(request: Request, env: Env): Promise<Re
    promise the fields are valid — that's step 4's job.
 4. **Validate at the boundary** — `requireText` / `optionalText` (§5).
 5. **CRUD through the lib layer** — never inline SQL in a route (§3, §6).
-6. **Publish the live change** — one row-level ping per changed row (Law R1, §7).
-7. **Respond via `json`**.
+6. **Publish the live change** — one row-level ping per changed row (Law R1, §7),
+   handed to **`ctx.waitUntil`**. That is why a mutation handler takes a third
+   parameter, `ctx: ExecutionContext`: the ping is best-effort and bounded, so it
+   belongs *after* the response rather than in front of it, and `waitUntil` keeps
+   the isolate alive until it settles. A read handler needs no `ctx` and does not
+   take one.
+7. **Read back what the door owes its caller** — the created row and the exact
+   total (Law R21). Independent reads, so `Promise.all` them.
+8. **Respond via `json`**.
 
 Reads collapse to steps 1–2 then the query and `json`:
 
@@ -240,7 +283,7 @@ database:
 | Database | How you reach it | Helper |
 |----------|------------------|--------|
 | **Global core** (`users`, `teams`, `team_members`, login codes, import registry) | the native `env.DB` binding | `env.DB.prepare(sql).bind(…).first()/.run()/.all()` |
-| **Per-team** (roles, learning, help, activity, selectable data, …) | the Cloudflare D1 **REST door** | `d1Query` / `d1ExecScript` in `shared/workers/d1-rest.ts` |
+| **Per-team** (roles, learning, help, activity, selectable data, …) | the Cloudflare D1 **REST door** | `d1Query` / `d1ExecScript` / `d1Batch` in `shared/workers/d1-rest.ts` |
 
 Per-team databases are created at *runtime*, so they can't be pre-wired bindings — the
 REST door (`d1-rest.ts`) is the *one file* every team-data touch goes through, which is
@@ -258,7 +301,7 @@ const recent = await env.DB.prepare(
 ).bind(email, hourAgo).first<{ n: number }>()
 ```
 
-### REST door — `d1Query` for reads, `d1ExecScript` for writes
+### REST door — `d1Query` for reads, `d1ExecScript` for writes, `d1Batch` to fold a crossing
 
 - **`d1Query<Row>(cfg, databaseId, sql, params)`** runs one parameterized statement and
   returns typed rows. Use it for every read (and single-statement writes where params
@@ -284,6 +327,31 @@ const recent = await env.DB.prepare(
      VALUES (${sqlString(id)}, ${sqlString(title)}, ${sqlString(body)}, ${sqlString(now)},
              ${sqlString(actor.id)}, ${sqlString(actor.email)}, ${sqlString(actor.name)});`)
   ```
+
+- **`d1Batch<Rows>(cfg, databaseId, statements)`** runs SEVERAL statements in ONE call
+  and hands back every result set, in order. Reach for it when a door makes more than
+  one trip to the SAME team database: every statement in this app executes in
+  0.1–0.3ms, so what a door actually costs is the number of HTTPS crossings in front
+  of them. Raising a support ticket used to be **four** — the insert, the read-back,
+  the counts and the activity row — and folding them into one took it from **1457 ms
+  to 894 ms** measured against staging from the same colo, a 39% saving on the
+  operation (`workers/content/src/lib/help.ts`).
+
+  The activity row is the fourth statement and is **not written there**: it comes from
+  `activityStatement` (§6), so folding the crossing does not fork the audit trail's
+  one author.
+
+  ```ts
+  const [, rows, counts] = await d1Batch<[unknown[], TicketRow[], CountRow[], unknown[]]>(
+    cfg, guard.databaseId,
+    [insertSql, readBackSql, countSql, activityStatement(actor, entry)]
+  )
+  ```
+
+  **Params are not available here, and that is the whole risk.** Script mode forbids
+  them, so every value is inlined and every inlined value goes through `sqlString` —
+  including values that were bound parameters before the fold. An INSERT contributes
+  an empty array, so the positions still line up with the statements you sent.
 
 ### `sqlString` / `sqlValue` / `ulid` — the three primitives
 
@@ -463,6 +531,29 @@ The actor comes from `teamContext`'s `actor` (`{ id, email, name }`) — store t
 and name too, not just the id, so history reads without a join even if the user record
 later changes.
 
+**Four of those columns are FORENSIC, and are deliberately never surfaced.** Only the
+`*_name` columns are read: `creator_name`, `editor_name` and `deactivator_name` feed the
+Overview audit block and the CSV exports. `editor_id`, `editor_email`, `deactivator_id`
+and `deactivator_email` are written on every edit and deactivate and read by **no query
+in the base** — the only statement that touches them is the module mover's verbatim
+row copy, which carries them along rather than looking at them. The same is true of the
+`email_change_logs` table: `workers/auth/src/lib/email-change.ts` writes a row on every
+verified email change and nothing anywhere reads it.
+
+That is not dead weight and it is not an oversight, so do not "clean it up". A display
+name is what a person changed it to and is not an identifier; an id and the address on
+the account at the time are what let someone reconstruct, months later and possibly for
+a regulator or a lawyer, exactly which account made a change — after the person has been
+renamed, has changed their email, or has left. **A record written for the day you need to
+prove something has to be written before you know you need it.** They are stamped by the
+same `actor` every write already has, so they cost one column each and no extra read.
+
+They stay off every screen. If a future requirement ever calls for showing who edited or
+deactivated something beyond what the audit block already says, it must show the
+person's **name** — never their id or their email address. Putting an email on a record
+detail hands every member of the team a directory of everyone's addresses, which is a
+disclosure decision, not a formatting one.
+
 ### Log it to the activity feed
 
 Every meaningful write also appends one row to the team's `activity` table via the *one*
@@ -483,6 +574,26 @@ await logActivity(cfg, guard.databaseId, actor, {
 Activity rows point at the changed record through a **generic** `(related_table,
 related_row_id)` pair — never a per-module column. That generic pair is what lets one
 read path (Law R5) serve any module's history.
+
+**Two ways in, one writer — pick by whether you are already crossing.** The seam
+exposes its INSERT as a string, `activityStatement(actor, entry)`, beside the function
+that executes it:
+
+- **`logActivity(cfg, databaseId, actor, entry)`** — the default. It makes its own
+  crossing to the team database and swallows its own failures, so a logging hiccup can
+  never break the action it describes.
+- **`activityStatement(actor, entry)`** — for a door that is *already* sending a batch
+  to that same database. Hand the statement to `d1Batch` alongside the others and the
+  trail rides the crossing the write was making anyway, instead of paying for one of
+  its own.
+
+`logActivity` writes through `activityStatement`, so there is exactly **one**
+`INSERT INTO activity` in the codebase however you reach it. Choosing the batched form
+does change one thing, and it is worth naming: a statement carried inside someone
+else's batch cannot swallow its own failure — it shares the crossing, so a call that
+fails takes the write with it as well as the trail. What it removes is the opposite
+failure, the one that actually happened: the row landing and a second, separate call
+failing on its own, leaving a record with no history.
 
 ---
 
@@ -505,8 +616,20 @@ Two conventions matter:
   the row through the permission-checked endpoint, so a live ping can never leak data.
   `op` (`add | edit | remove | session`) is *advisory*; the client verifies by re-pull.
 
-Like `logActivity`, publishing is best-effort — a realtime hiccup logs but never throws,
-so it can't break the write it announces.
+- **Hold the ping with `ctx.waitUntil(...)`.** Three shapes are possible and only two
+  are safe. `await` blocks the response on a message addressed to everybody except
+  the person waiting; `ctx.waitUntil()` lets the response go and keeps the isolate
+  alive until the ping settles; a **bare** `publishChange(...)` is a promise nobody
+  holds, so the isolate finishes and the platform cancels the fetch mid-flight — the
+  ping never arrives and every other screen stays stale. Prefer `waitUntil`. The seam
+  test reads the *disposition*, not just the call, and names the bare form
+  (`shared/test/publish-seam.ts`), so this is a red build rather than a review note.
+
+Like `logActivity`, publishing is best-effort — a realtime hiccup can't break the write
+it announces. Best-effort is not unwatched, though: the seam reads what the realtime
+worker answered and records a ping that did not land, under the `realtime-publish`
+integration ([ERROR-HANDLING.md](ERROR-HANDLING.md)). A publisher with a database handle
+passes `publishRecorder(env)` as the trailing argument; one without passes nothing.
 
 ---
 
@@ -558,7 +681,7 @@ line exists*:
 
 ```ts
 // Row-level: carry the new item's id so open learning lists patch just that row.
-await publishChange(env.REALTIME, guard.teamId, "learning", id, "add")
+ctx.waitUntil(publishChange(env.REALTIME, guard.teamId, "learning", id, "add"))
 
 // A missing item is skipped, not fatal — the rest of the batch still applies.
 if (e instanceof GuardError && e.status === 404) { skipped++; continue }
@@ -667,7 +790,7 @@ the build red:
   `housekeeping` deny-list drifts from the reviewed set.
 - **`workers/content/test/validate.test.ts`** — locks the boundary-validation contract
   (non-string / blank / over-long / NUL → clean 400) so the 500 bugs can't return.
-- **`web/test/rules.test.ts`** — the UI + registry laws (record-detail tabs, `FormShell`,
+- **`web/test/rules/`** (split by dimension: `worker` / `ui` / `doors` / `activity` / `live` / `count` / `meta` / `doc-facts`) — the UI + registry laws (record-detail tabs, `FormShell`,
   `TabsView`, one generic activity path, glossary well-formed, `registry-integrity`).
 
 A law without a passing check is not a law — you cannot add one to `RULES.md` and the
@@ -694,12 +817,30 @@ code that does the job, and keep `npm run check` green.
 ## Navigating after the identity changes
 
 Ordinary in-app navigation is a SOFT transition — the one-shell engine swaps the screen
-and the URL without a reload (CACHING.md "Navigation never reloads"). But a transition
-that changes **who is signed in** is different: sign-in, sign-out, and the moment
-onboarding creates the first team. Those use `softNavigate()` from `web/lib/nav.ts`,
-which performs a real document navigation, because the whole shell — session, active
-team, live channel, every cache — must re-initialise for the new identity. A client-side
-`router.replace()` there carries the previous identity's state across.
+and the URL without a reload (CACHING.md "Navigation never reloads"). That is what
+`softNavigate()` in `web/lib/nav.ts` is for, and it is worth being precise about what it
+does, because it is easy to read backwards: it hands the path to the mounted deep-link
+shell's History-API `go()` so the shell **survives**, and only falls back to a real
+`window.location.assign` when no host is mounted (a pre-auth screen, or the very first
+paint). It is the soft bus, not the hard one.
+
+**A transition that changes who is signed in must not go through it.** The whole shell —
+session, active team, live channel, every cache — has to re-initialise for the new
+identity, and `softNavigate` is built to keep it alive. So the identity transitions use
+something else, and it differs by case:
+
+- **Signing out** (`web/components/profile-menu.tsx`) clears the form drafts, then
+  `router.replace("/login")` — the deep-link shell is left behind and the login page
+  mounts fresh.
+- **The teamless / not-onboarded / session-lost bounces** (`web/lib/use-active-team.ts`)
+  do the same: clear the cached session, then `router.replace("/onboarding")` or
+  `"/login"`.
+- **A FORCED sign-out** — the live layer says this device's session is gone
+  (`web/components/app-shell.tsx`) — is the one true hard navigation:
+  `window.location.assign("/login")`. Nothing of the old identity may survive it, and a
+  full document load is the only way to be certain.
+
+Adding a new identity transition means picking one of those three, never `softNavigate`.
 
 A hard navigation is also structurally immune to a failure mode a soft one has: the
 client router fetches an RSC payload for the target route, and if that fetch fails it

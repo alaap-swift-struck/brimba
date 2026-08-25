@@ -2,7 +2,7 @@
 // plain, brief definition (correct word, explained simply, never over-explained).
 // Audience: 45–55yo managers who want things simple. The whole app speaks THESE
 // words; copy should never invent a synonym for a concept that's already here.
-// Enforced well-formed by web/test/rules.test.ts (R6: glossary-wellformed).
+// Enforced well-formed by web/test/rules/ui.test.ts (R6: glossary-wellformed).
 
 export interface GlossaryEntry {
   term: string

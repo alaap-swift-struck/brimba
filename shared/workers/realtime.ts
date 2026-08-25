@@ -19,7 +19,9 @@
 // is invisible from here — a publisher still names `team:<id>` and the realtime
 // worker expands it. One resolver, in one place, instead of every caller.
 
-import { callService } from "./trace"
+import { dbRecorder, recordOutbound, type CoreDb, type OutboundRecorder } from "./error-log"
+import { opsDatabase } from "./ops-db"
+import { callService, traceError, traceHop } from "./trace"
 
 // ---------------------------------------------------------------------------
 // SHARD ADDRESSING — the shared vocabulary, so the two sides cannot disagree.
@@ -95,14 +97,48 @@ export type ChangeEvent = {
   op?: "add" | "edit" | "remove" | "session"
 }
 
+/** The name this seam records under. One string, so every row about a ping that
+ * never landed groups together rather than under whichever worker happened to be
+ * writing at the time — and so the `recordOutbound` throttle keys on the live
+ * layer as a whole, which is what is actually broken when any of this fails. */
+const PUBLISH_INTEGRATION = "realtime-publish"
+
 /** The ONE place a change ping leaves a worker — which is why guarding it here
- * covers all ~53 publish call sites in the base at once, and why bounding it here
+ * covers every publish call site in the base at once, and why bounding it here
  * matters: without a timeout a wedged live layer would hold open every write that
  * had just succeeded, turning a cosmetic outage into a total one. `callService`
  * swallows the failure (best-effort, as the contract above promises) and records
- * a structured line carrying the request id. */
-async function publish(realtime: Fetcher, channel: string, event: ChangeEvent): Promise<void> {
-  await callService(
+ * a structured line carrying the request id.
+ *
+ * IT READS THE ANSWER. It used to discard `callService`'s return value entirely —
+ * neither `res.ok` nor `null` — which made the two ways this can fail invisible in
+ * two different ways. A 500 from the realtime worker is an ANSWER, so it never
+ * reached `callService`'s catch and produced no line at all; a no-answer produced
+ * one console line, and Cloudflare keeps those about a week. A publish failure had
+ * therefore never reached `error_logs` — not once, in the store that exists to
+ * hold exactly this.
+ *
+ * That was survivable while every caller awaited the ping: the write in front of
+ * it was still on the wire and a human was still watching. It is not now. 36 of
+ * the 42 publish sites hand this to `ctx.waitUntil`, so it settles after the
+ * response has gone, and nobody is watching at all. A wedged live layer shows up
+ * as screens that quietly stop updating — the one fault class that generates no
+ * bug report, because a stale screen looks exactly like a quiet one.
+ *
+ * `record` is the OPTIONAL durable channel, the same shape and the same throttle
+ * the D1 REST door (`recordFailure`) and `proxyService` (`opts.record`) already
+ * take. Absent, this behaves exactly as it did. */
+async function publish(
+  realtime: Fetcher,
+  channel: string,
+  event: ChangeEvent,
+  record?: OutboundRecorder
+): Promise<void> {
+  // TIMED, because every mutation waits on it (LAW R1) and nothing knew what it
+  // cost. A Durable Object is a single addressed instance, so this hop's price is
+  // where that object lives — a fact no amount of reading the code reveals.
+  const started = Date.now()
+  const res = await callService(
     realtime,
     "https://realtime/publish",
     {
@@ -110,8 +146,51 @@ async function publish(realtime: Fetcher, channel: string, event: ChangeEvent): 
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ channel, event }),
     },
-    { worker: "realtime-publish", place: channel }
+    { worker: PUBLISH_INTEGRATION, place: channel, record }
   )
+  traceHop({ worker: PUBLISH_INTEGRATION, op: `publish:${event.resource}`, ms: Date.now() - started })
+  // NULL means the live layer did not answer, and `callService` has already
+  // logged AND recorded that on the way past — recording it twice would double
+  // every outage in the store.
+  if (!res || res.ok) return
+  // A refusal, on the other hand, belongs to this caller. The realtime worker
+  // answered — with a 400 (this seam sent something /publish could not parse) or
+  // a 5xx (it broke while fanning out) — and either way the ping did not land and
+  // nothing else in the system was going to say so. The status is in the message
+  // because it is the whole diagnosis: 400 is a bug here, 5xx is a bug there.
+  const err = new Error(`realtime /publish answered ${res.status}`)
+  traceError({ worker: PUBLISH_INTEGRATION, place: channel, event: "publish_refused", detail: err })
+  await recordOutbound(record, PUBLISH_INTEGRATION, channel, "upstream", err)
+}
+
+/**
+ * THE DURABLE CHANNEL, threaded but not yet universal — stated here so nobody has
+ * to discover it by grepping.
+ *
+ * `record` is the last parameter of all three helpers: a worker that has a
+ * database handle passes `dbRecorder(opsDatabase(env), "realtime-publish")` and a
+ * ping that never landed leaves a row; a worker that passes nothing behaves
+ * exactly as it always has. It is trailing and optional for the same reason
+ * `recordOutbound`, `logActivity`'s `record` and `d1-rest`'s `recordFailure` are:
+ * this is the base's most-copied call, and a required argument here would have to
+ * be invented at every call site, several of which have no database of their own.
+ *
+ * FIVE of those 42 pass one today — the tenancy team lifecycle. The rest are one
+ * token away and are listed in the round-5 report; they were left because they sit
+ * in files outside this repair's territory, not because they should not have it.
+ * The throttle means partial wiring still surfaces a wedged live layer (the fault
+ * is systemic, and one row a minute is all it would write anyway); what partial
+ * wiring costs is how QUICKLY it is noticed.
+ */
+
+/** The durable channel, built the one way it should be built: `opsDatabase(env)`
+ * rather than a named binding (the table moved out of the core database and falls
+ * back to it when a fork has no `OPS`), and the integration name from the constant
+ * above rather than a string retyped at every wiring site. A publisher that has a
+ * database handle passes `publishRecorder(env)`; one that does not passes nothing.
+ * Exactly the shape `d1ConfigFrom` uses to build the data door's `recordFailure`. */
+export function publishRecorder(env: { DB: CoreDb; OPS?: CoreDb }): OutboundRecorder {
+  return dbRecorder(opsDatabase(env), PUBLISH_INTEGRATION)
 }
 
 /** Tell a TEAM's channel that one row in `resource` changed. */
@@ -120,9 +199,10 @@ export async function publishChange(
   teamId: string,
   resource: string,
   id?: string,
-  op?: ChangeEvent["op"]
+  op?: ChangeEvent["op"],
+  record?: OutboundRecorder
 ): Promise<void> {
-  await publish(realtime, `team:${teamId}`, { resource, id, op })
+  await publish(realtime, `team:${teamId}`, { resource, id, op }, record)
 }
 
 /** Tell ONE user's channel (all their devices) that one identity row changed. */
@@ -131,14 +211,19 @@ export async function publishUserChange(
   userId: string,
   resource: string,
   id?: string,
-  op?: ChangeEvent["op"]
+  op?: ChangeEvent["op"],
+  record?: OutboundRecorder
 ): Promise<void> {
-  await publish(realtime, `user:${userId}`, { resource, id, op })
+  await publish(realtime, `user:${userId}`, { resource, id, op }, record)
 }
 
 /** Force-sign-out one user's OTHER devices (e.g. after an email change). Carries
  * no id — the client re-checks auth and, if its session is dead, redirects to
  * login. The acting device keeps its (still-valid) session. */
-export async function publishSignOut(realtime: Fetcher, userId: string): Promise<void> {
-  await publish(realtime, `user:${userId}`, { resource: "session", op: "session" })
+export async function publishSignOut(
+  realtime: Fetcher,
+  userId: string,
+  record?: OutboundRecorder
+): Promise<void> {
+  await publish(realtime, `user:${userId}`, { resource: "session", op: "session" }, record)
 }

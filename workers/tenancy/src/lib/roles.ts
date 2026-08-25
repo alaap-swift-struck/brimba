@@ -290,9 +290,43 @@ export async function setRolePermissions(
   const sheet = (rows: PermRow[]) => new Map(rows.map((r) => [r.module, r]))
   const mineBy = sheet(mine)
   const nowBy = sheet(current)
+
+  /**
+   * OMITTED KEEPS, EXPLICIT WRITES — the update-door rule, applied per module.
+   *
+   * This door writes a row for EVERY module in the catalogue, so a `value` that
+   * named one module used to zero the other six. The UI never noticed: its
+   * matrix always posts all seven. `set_role_permissions` is reachable from the
+   * assistant and from MCP, where "give this role learning access" is naturally
+   * answered with a one-key object — and that call silently stripped every other
+   * right the role held. (Same class as the learning update door, 2026-08-25.)
+   *
+   * `undefined` (the module is absent from `value`) means LEAVE IT ALONE; an
+   * explicit RightSet — including one that is all-false — is a real instruction
+   * and still revokes. That distinction is the whole fix, so it is `undefined`
+   * that is tested for, never a loose null check.
+   *
+   * ONE function computes it, read by both the amplification check below and the
+   * statements built after it, so the rights we VET can never drift from the
+   * rights we WRITE.
+   */
+  const effective = (moduleKey: string): RightSet => {
+    const sent = value?.[moduleKey]
+    if (sent !== undefined) return normalizeRights(sent)
+    const stored = nowBy.get(moduleKey)
+    return normalizeRights(
+      stored && {
+        read: stored.can_read === 1,
+        create: stored.can_create === 1,
+        edit: stored.can_edit === 1,
+        delete: stored.can_delete === 1,
+      }
+    )
+  }
+
   const amplified: string[] = []
   for (const m of TEAM_MODULE_CATALOG) {
-    const want = normalizeRights(value?.[m.key])
+    const want = effective(m.key)
     for (const right of ["read", "create", "edit", "delete"] as const) {
       const adding = want[right] && nowBy.get(m.key)?.[`can_${right}`] !== 1
       if (adding && mineBy.get(m.key)?.[`can_${right}`] !== 1)
@@ -307,7 +341,7 @@ export async function setRolePermissions(
     )
 
   const statements = TEAM_MODULE_CATALOG.map((m) => {
-    const n = normalizeRights(value?.[m.key])
+    const n = effective(m.key)
     const bit = (b: boolean) => (b ? 1 : 0)
     return `INSERT INTO role_permissions (id, role_id, module, can_read, can_create, can_edit, can_delete)
 VALUES (${sqlString(ulid())}, ${sqlString(roleId)}, ${sqlString(m.key)}, ${bit(n.read)}, ${bit(n.create)}, ${bit(n.edit)}, ${bit(n.delete)})
@@ -335,7 +369,19 @@ export async function updateRole(
   actor: Actor,
   roleId: string,
   title: string,
-  description: string,
+  /**
+   * The role's description. `undefined` = the caller never mentioned it, so it
+   * KEEPS what is stored; `null` or "" = the field was PRESENT and empty, so it
+   * really does clear.
+   *
+   * It used to be a plain `string`, which made those two callers indistinguishable
+   * by the time they arrived: the assistant's `update_role` needs only roleId +
+   * title, so "rename this role" wrote NULL over a description nobody had asked
+   * to remove — behind a confirm card that said only "Rename X to Y", which is
+   * worse than an unconfirmed write, not better. Same update-door rule as the
+   * content libs. (Correctness review, round 5.)
+   */
+  description: string | null | undefined,
   /** The `updated_at` the caller was shown. Given one, the write refuses to land
    * on a row that has moved on since — see shared/workers/concurrency.ts. */
   expectedVersion?: string | null
@@ -345,6 +391,8 @@ export async function updateRole(
     throw new GuardError(409, "locked_role", "The Admin role is locked — it can't be renamed.")
   const cleanTitle = title.trim()
   if (!cleanTitle) throw new GuardError(400, "invalid_input", "A role needs a name.")
+  const nextDescription =
+    description === undefined ? role.description : description?.trim() || null
 
   const now = new Date().toISOString()
   // RETURNING turns the write into its own answer: no rows came back means
@@ -352,15 +400,18 @@ export async function updateRole(
   const landed = await d1Query<{ id: string }>(
     cfg,
     guard.databaseId,
-    `UPDATE member_roles SET title = ${sqlString(cleanTitle)}, description = ${sqlString(description.trim() || null)}, updated_at = ${sqlString(now)}, editor_id = ${sqlString(actor.id)}, editor_email = ${sqlString(actor.email)}, editor_name = ${sqlString(actor.name)} WHERE id = ${sqlString(roleId)}${versionPredicate(expectedVersion)} RETURNING id`
+    `UPDATE member_roles SET title = ${sqlString(cleanTitle)}, description = ${sqlString(nextDescription)}, updated_at = ${sqlString(now)}, editor_id = ${sqlString(actor.id)}, editor_email = ${sqlString(actor.email)}, editor_name = ${sqlString(actor.name)} WHERE id = ${sqlString(roleId)}${versionPredicate(expectedVersion)} RETURNING id`
   )
   assertNotConflicted(landed.length, expectedVersion)
 
   // Name exactly what changed, old -> new (the activity ruleset: edits carry
-  // their field diffs, not just "edited").
+  // their field diffs, not just "edited"). Every `to` is the value actually
+  // WRITTEN above, never the raw incoming one — a diff computed a second,
+  // different way reports a PRESERVED field as cleared, which is history
+  // describing a change that never happened.
   const diff = [
     { label: "Name", from: role.title, to: cleanTitle },
-    { label: "Description", from: role.description, to: description.trim() || null },
+    { label: "Description", from: role.description, to: nextDescription },
   ]
   const changes = describeChanges(diff)
   await logActivity(cfg, guard.databaseId, actor, {

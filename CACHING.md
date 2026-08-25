@@ -53,8 +53,10 @@ module = one entry in `TEAM_RESOURCES` (`web/lib/live-resources.ts` — moved ou
 app-shell so the R15 `live-collections` check imports it as data). Two channels:
 
 ```ts
-// worker, after a successful write — carry the affected row id:
-await publishChange(env.REALTIME, guard.teamId, "member_roles", roleId, "edit")
+// worker, after a successful write — carry the affected row id, and HOLD the
+// ping with ctx.waitUntil so it settles after the response rather than in front
+// of it (rule 4). A bare call would be cancelled with the isolate.
+ctx.waitUntil(publishChange(env.REALTIME, guard.teamId, "member_roles", roleId, "edit"))
 
 // client registry (app-shell.tsx) — one line per module, generic handler:
 member_roles: {
@@ -78,8 +80,17 @@ one `web/lib/format-count.ts` seam. Never `rows.length`.
 worker publishes must reach a listener: a `TEAM_RESOURCES` row-level entry, a
 coarse `SIMPLE_INVALIDATIONS` entry (team meta, screen recipes), or a reasoned
 `DEAF_EXEMPT` line in the rules registry (today: `help_threads`, `agent_usage`).
-The `selectable_data` manager was a deaf listener before R15 — its worker pinged
-and nothing heard — so it now has a row-level entry. A server-PAGED screen's rows
+The `selectable_data` manager was a deaf publisher before R15 — its worker pinged
+and nothing heard — so it now has a row-level entry.
+
+**And no dead listeners — the check runs both ways.** A listener nothing
+publishes to is dead for ever, and it fails silently: a live listener that never
+fires looks exactly like nothing having changed yet. `data_import_batches` sat
+registered and idle for months with a comment in the registry politely explaining
+that nothing published it. So every registered listener must have a publisher
+naming it, and the one shape allowed without one is a second server SCOPE of a
+resource that has one — proved by the scope's cache key appearing in that
+resource's own `deps`, never by a note. A server-PAGED screen's rows
 live in page state outside these caches, so the shell fans every team ping (and a
 reconnect) through the SAME cache keys a paged screen reads. `use-screen-data.ts`
 keys every collection off `live-resources`, and `LoadMore` appends into that key,
@@ -96,6 +107,26 @@ or a new route is left unclassified. The only writes that broadcast nothing are
 the explicit housekeeping deny-list (a private session pointer, ops-only admin
 actions) — matching login_codes / sessions / db_alerts / the nightly size cron.
 
+**The ping is HELD, not awaited — and not fired and forgotten either.** Handlers
+take `ctx: ExecutionContext` and pass the publish to `ctx.waitUntil(...)`, so the
+response goes back the moment the write lands and the runtime keeps the isolate
+alive until the ping settles. Awaiting it made the person who saved something
+wait on a service hop to a Durable Object for a message addressed to everyone
+else. What is refused is the third shape: a bare `publishChange(...)` is a
+promise nobody holds, the isolate finishes with the response, and the platform
+cancels the fetch — so everyone else's screen stays stale, which is the exact
+failure this rule exists to prevent. The seam names and fails that shape, so all
+three are not equivalent and the build knows it.
+
+**And the ping's answer is read.** Publishing is best-effort by contract — a live
+layer hiccup must never break the write it describes — but best-effort is not
+unwatched. The seam reads what the realtime worker said and records a ping that
+did not land, under the `realtime-publish` integration
+([ERROR-HANDLING.md](ERROR-HANDLING.md)). That matters more now than it did while
+every caller awaited: a held ping settles after the response has gone, so nobody
+is watching, and a live layer that has quietly stopped fanning out looks exactly
+like a system where nothing has changed yet.
+
 ### 5 · Identity scope — your changes follow YOU everywhere
 Identity is read fresh from one global `users` row wherever it's shown, so a
 name/photo edit fans out on **two** axes: `publishUserChange(userId, "profile")`
@@ -107,10 +138,34 @@ channel (other devices re-check auth, dead ones bounce to login).
 
 ### 6 · Reconnect re-syncs (no missed changes after a drop)
 After a dropped socket reconnects, the client doesn't trust that it saw every
-ping: it **diff-patches** each on-screen list back in place (`reconcile` re-pulls
-the list, updates changed rows, adds new ones, drops gone ones, keeping unchanged
-rows' identity so only real changes re-render) and refreshes the small derived
-caches. No page reload.
+ping. It catches up on **two** things, and both are derived from the same
+registry — so a new screen gets them by declaring what it already declares, and
+gets neither by leaving that out.
+
+**The lists are diff-patched.** Every entry in `TEAM_RESOURCES` is re-pulled and
+patched back in place (`reconcile` updates the rows that changed, adds the ones
+that appeared, drops the ones that went, and keeps unchanged rows' identity so
+only real changes re-render); the total-priming fetchers re-prime the badges as
+they run. That map is what the shell walks, so a list that is not an entry is not
+caught up at all — including a second SERVER scope of a resource that is one. My
+tickets (`help-mine:<teamId>`) has its own entry for exactly that reason: it was
+only ever a dep of `help`, and a dep is not a list the catch-up visits.
+
+**The record-scoped keys are dropped** (since 2026-08-25). `reconcile` does
+nothing for a list that was never loaded, which is every deep link — so someone
+sitting on one ticket through a blip caught up on nothing at all: the record, its
+conversation and its Activity tab kept whatever they had, under a dot that had
+gone cheerfully back to "Live". The shell can't name those keys, because it
+doesn't know which record is open, so it drops them by **prefix** — and the
+prefixes come from each resource's own `deps`. Every dep carrying a row id is a
+key `reconcile` cannot reach, so every one of them goes. **Declare your deps and
+your record screens catch up for free; leave them out and they never do.** Only
+keys already loaded are touched, and they are invalidated rather than refetched:
+whatever is on screen re-reads itself, and a record nobody is looking at is simply
+fresh next time it's opened, instead of one blip becoming a stampede.
+
+The small derived caches (the team feed, your permissions) are refreshed too. No
+page reload.
 
 ### 7 · Mutations prime the cache (instant for the actor)
 After a write, drop the fresh result straight in, so the person who made the
@@ -207,7 +262,7 @@ input lived only in component state. **Rule: every form dialog persists its draf
   unmounts from navigation — the case we protect. All drafts drop on sign-out
   (`clearAllFormDrafts`).
 - Machine-enforced: every dialog in `FORM_DIALOGS` (`shared/rules/registry.ts`) must
-  route its state through `useFormDraft` — checked by `web/test/rules.test.ts`.
+  route its state through `useFormDraft` — checked by `web/test/rules/ui.test.ts`.
 
 ## The agent-modules resources (BUILT 2026-06-23)
 
@@ -258,8 +313,9 @@ last page, `undefined` = nothing loaded yet).
 
 ## Checklist for a new screen / module
 1. Read with `useCached("<resource>:<scopeId>", fetcher)`.
-2. On every server write, `publishChange(env.REALTIME, teamId, "<resource>", id, op)`
-   **with the affected row id** (classify the route `mutation` so the seam test passes).
+2. On every server write, `ctx.waitUntil(publishChange(env.REALTIME, teamId, "<resource>", id, op))`
+   **with the affected row id** (classify the route `mutation` so the seam test passes,
+   and hold the ping — rule 4).
 3. Add ONE `TEAM_RESOURCES` entry (key / idField / fetchOne / fetchList / deps) — the
    generic handler does row-level patch + reconnect catch-up; no bespoke code.
 4. After a client mutation, `primeCache` the fresh result.

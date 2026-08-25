@@ -43,6 +43,22 @@ Actor email+name are **snapshots at the time of the action** (so the trail
 stays truthful even if that person later changes their name/email). "Archived"
 in Glide = our `deactivated_at` (non-null = archived/deactivated).
 
+**Four of these columns are FORENSIC-ONLY, on purpose.** `editor_id`,
+`editor_email`, `deactivator_id` and `deactivator_email` are written on every edit
+and every deactivate, and **no query in the base reads them** — only the `*_name`
+columns are surfaced (the Overview audit block and the CSV exports), and the sole
+statement that touches the other four is the module mover's verbatim row copy,
+which carries them along without looking at them. Their job is to answer a
+question you cannot answer with a display name months later: which ACCOUNT made
+this change, when the person has since been renamed, changed their email, or left.
+They are stamped from the same `actor` every write already carries, so they cost a
+column each and no read. They are deliberately not surfaced anywhere, and if that
+ever changes, what a screen shows is the person's **name** — never an id or an
+email address, which would turn a record detail into a directory of everyone's
+addresses. Do not delete them as dead weight; the point of a forensic column is
+that it is written before anyone knows it is needed. (`email_change_logs`, below,
+is the same decision at table scale.)
+
 ---
 
 ## GLOBAL core (the card catalog — `brimba-core`)
@@ -57,7 +73,7 @@ Dropped: all transformer/onboarding-JSON/tab-view/device columns.
 that case; with no `image_url`, show initials (or a placeholder avatar when even
 initials aren't derivable).
 
-**Who owns this row (2026-08-18).** Two workers write here, which is normally the
+**Who owns this row (2026-08-12).** Two workers write here, which is normally the
 start of a bug — so the split is stated rather than left to be discovered:
 
 | column(s) | written by | why |
@@ -84,15 +100,26 @@ role change is a direct server action. Membership is global (answers "which
 teams am I in?" before we open any team DB).
 
 ### email_change_logs — KEEP (BUILT 2026-06-17, GLOBAL — no team key in the export; `db/core/0005_email_change.sql`)
-Purpose: change a user's email safely. Real data: audit block + `current_email`,
-`new_email`, `expires_at`, `verification_code` (numeric OTP to the NEW email),
-`user_input_code`, `email_change_successful`, `email_change_timestamp`. Flow:
-request → OTP to new email → match → swap on the user row.
-**UPDATED 2026-06-21:** shipped in Phase 2 (`db/core/0005_email_change.sql`).
-The login/email-change codes were **split out into a separate hashed
-`email_change_codes` table** (the OTP is stored hashed, not in clear on the log
-row); `email_change_logs` remains the human-readable security record (old/new
-email, outcome, timestamps). The old address is warned on change.
+Purpose: change a user's email safely, and keep the record of it. Flow: request →
+OTP to the NEW email → match → swap on the user row.
+**UPDATED 2026-06-21:** shipped in Phase 2. The one-time codes were **split out
+into a separate hashed `email_change_codes` table** (the OTP is stored hashed, not
+in clear beside the log row), so the Glide export's `verification_code` /
+`user_input_code` / `email_change_successful` columns were never built. What ships
+is deliberately four columns and a timestamp: `id`, `user_id`, `old_email`,
+`new_email`, `created_at`. The old address is warned on change, the person's other
+devices are signed out, and the swap + the log row land in one batch.
+
+**FORENSIC-ONLY, like the four audit columns above.** `workers/auth/src/lib/email-change.ts`
+writes a row on every verified change and **nothing in the base reads this table**.
+What a person sees in Settings → Account is the `account_activity` row ("Changed
+your sign-in email to …"), which names the new address only. That is the split,
+and it is deliberate: the account feed is for the person, and this table is the
+record that outlives them. It is the only place the OLD address survives the swap,
+so it is the only thing that can answer "which address did this account have when
+it did X" once `users.email` has moved on. Not a candidate for deletion, and not a
+candidate for a screen either — it holds two email addresses per row, so surfacing
+it is a disclosure decision, not a formatting one.
 
 ### account_activity — KEEP (BUILT 2026-06-18, GLOBAL — `db/core/0007`)
 Purpose: the person's OWN identity history, shown in Settings → Account. NOT
@@ -154,7 +181,7 @@ later against this same balance (the grant action is the seam). Lives in the
 global core DB so the gate can spend a unit without opening a team database.
 
 ### agent_usage_log — KEEP (BUILT 2026-07-01; now in the OPERATIONS db — `db/ops/0001`)
-> MOVED to the OPERATIONS database 2026-08-18 — `db/ops/0001_operations.sql`. Nothing joins to it, so it left the shared core database to stop crowding out identity and membership against D1's 10 GB cap. Reached through `opsDatabase(env)`, which falls back to the core database when no `OPS` binding is present. See SCALING.md §4.9.
+> MOVED to the OPERATIONS database 2026-08-12 — `db/ops/0001_operations.sql`. Nothing joins to it, so it left the shared core database to stop crowding out identity and membership against D1's 10 GB cap. Reached through `opsDatabase(env)`, which falls back to the core database when no `OPS` binding is present. See SCALING.md §4.9.
 
 Purpose: the usage TRAIL behind the panel's "where did my credits go" view.
 Real data: `id`, `team_id`, `actor_id`, `actor_name`, `created_at`, `credits`
@@ -184,8 +211,10 @@ balance drop (fixed 2026-07-10: a confirmed command used to split into a row +
 a cryptic "(continued)" row). The fold **APPENDS** its actions to the row's title,
 never replaces — one command can pause for confirmation more than once, and
 replacing left a 10-credit turn titled by its last step alone. Read newest-first, team-scoped, via
-`GET /api/data-ops/agent/usage-log`. Lives in the global core DB beside the
-quota tables it explains.
+`GET /api/data-ops/agent/usage-log`. Lives in the OPERATIONS database
+(`db/ops/0001_operations.sql`), reached through `opsDatabase(env)`. The BALANCE it
+explains (`agent_credits`) stayed in the core DB with the team record, because the
+quota gate reads it on the request path — only the spend history moved.
 
 ### mcp_tokens — KEEP (BUILT 2026-07-07, GLOBAL — `db/core/0013`)
 
@@ -198,7 +227,7 @@ short-lived, never slid), so a token can never act outside the team it was
 created for.
 
 ### error_logs — KEEP (BUILT 2026-07-03; now in the OPERATIONS db — `db/ops/0001`)
-> MOVED to the OPERATIONS database 2026-08-18 — `db/ops/0001_operations.sql`. Nothing joins to it, so it left the shared core database to stop crowding out identity and membership against D1's 10 GB cap. Reached through `opsDatabase(env)`, which falls back to the core database when no `OPS` binding is present. See SCALING.md §4.9.
+> MOVED to the OPERATIONS database 2026-08-12 — `db/ops/0001_operations.sql`. Nothing joins to it, so it left the shared core database to stop crowding out identity and membership against D1's 10 GB cap. Reached through `opsDatabase(env)`, which falls back to the core database when no `OPS` binding is present. See SCALING.md §4.9.
 
 Purpose: the central error store (ERROR-HANDLING.md) — one row per UNEXPECTED
 failure (worker crash or client-side error), never a clean GuardError refusal.
@@ -206,8 +235,9 @@ Real data: `id`, `at`, `source`, `place`, `message`, `stack` (capped), optional
 `team_id`/`user_id`/`url`, and the resolve workflow (`status` open→resolved,
 `resolved_at`, `resolution_note`). Owner-only doors (x-admin-key):
 `GET /api/data-ops/admin/errors` + `POST /api/data-ops/admin/errors/resolve`.
-Lives in the global core DB — system health is cross-team; each environment has
-its own core DB so staging/production histories never mix.
+Lives in the OPERATIONS database (`db/ops/0001_operations.sql`), reached through
+`opsDatabase(env)` — system health is cross-team, and each environment has its own
+operations DB so staging/production histories never mix.
 
 ### selectable_data_types — KEEP (TO BUILD) — Q2 RESOLVED (see Resolutions:
 global standard GROUPS + per-team VALUES)
@@ -267,11 +297,26 @@ JSON beside the human sentence, so a change can be reconstructed as data.
 The rule for what belongs in which, and what is deliberately not logged at all,
 is stated once in `shared/workers/activity.ts` (LAW R25).
 
+**One INSERT, two ways to reach it.** The `activity` table has two writers and
+still exactly one author. `activityStatement(actor, entry)` builds the row's SQL
+and hands it back as a string; `logActivity` executes that same string. So a door
+that is *already* sending a batch to the team database can carry the trail inside
+the crossing it was making anyway, instead of paying for a second one — which is
+how raising a support ticket went from four HTTPS crossings to one. The obvious
+way to fold that fourth trip would have been to re-type the INSERT in the module
+doing the batching, and that is exactly what is refused: two column lists and two
+sets of escaping decisions, with nothing keeping them in step. An audit trail's
+whole value is that it has one author.
+
+There is therefore **exactly one `INSERT INTO activity` in the codebase**, and
+that is machine-checked (`workers/content/test/ticket-create-batch.test.ts`) —
+a second one appearing is a red build, not a review note.
+
 ### selectable_data — KEEP (built, per-team)
 Real data: audit block + `type`, `value`, `is_default`. Per-team dropdown
 values, seeded from Base v3 defaults on team creation.
 
-**Owner: tenancy** (2026-08-18). It holds every deliberate write — create, edit,
+**Owner: tenancy** (2026-08-12). It holds every deliberate write — create, edit,
 retire, the bulk twin, and the seed on team creation — and the dropdown
 management screens are its doors. **content** appends here too, in exactly one
 place: `learning.ts` auto-creates a `Learning category` value when an author types
@@ -360,6 +405,67 @@ these rows are a record of intent, never a separate set of powers.
 
 ---
 
+## Indexes — and the ones deliberately NOT built
+
+An index is not free. It is a second b-tree written on every insert and update,
+and this base runs **one database per team**, so the cost of a per-team index is
+multiplied by the tenant count. So an index earns its place against a real query
+shape, and one that was considered and rejected is written down here — otherwise
+the same plausible-looking index gets proposed, measured and quietly dropped
+again by the next person.
+
+**Core database (`db/core/0018_speed_indexes.sql`, 2026-08-25).**
+
+- `teams` GAINS **`idx_teams_creator (creator_id)`** — the create-team cap counts
+  how many teams the caller has already made, on a door a signed-in person can
+  knock on. That count had no index, so it scanned `teams`, the one table that
+  grows with every tenant on the account rather than with one tenant's use. The
+  index is covering: the count never touches the table.
+- `team_members` GAINS **`idx_team_members_active (deactivated_at, team_id)`** —
+  and `deactivated_at` LEADS on purpose, even though it is the less selective
+  column. Both orders were considered. This one is what the nightly shard recount
+  constrains, so it turns a full scan into a **seek** straight to the active rows,
+  with `team_id` second delivering them already grouped (no temporary b-tree for
+  the `GROUP BY`). The reverse order avoids the temp b-tree too but has to walk
+  the deactivated rows to get there — a covering scan where this is a covering
+  seek. It still serves the per-team reads ("how many active members?", the
+  last-admin guard), which constrain both columns and seek either way.
+- `team_members` LOSES **`idx_team_members_team (team_id)`** — a strict prefix of
+  `idx_team_members_team_created` since `0015`, so every query that could use it
+  has had a better one to reach for. Checked, not assumed: with all five real
+  query shapes planned by `EXPLAIN QUERY PLAN`, SQLite chose it for **none** of
+  them even while it existed. Dropping it is a free write saving on the core
+  table that carries every tenant at once. `idx_team_members_user` stays —
+  `user_id` leads nothing else.
+
+**Team databases (`0009_speed_indexes`, rolled by `migrate-teams`).**
+
+- `agent_threads` GAINS **`idx_agent_threads_mine (creator_id, COALESCE(last_message_at, created_at) DESC)`**
+  — the one list door for your own chats filters by creator and sorts by exactly
+  that expression, so this removes a temporary b-tree sort on every read.
+- `agent_threads` LOSES **`idx_agent_threads_creator`** — a strict prefix of the
+  composite above.
+- `help` LOSES **`idx_help_creator`** — subsumed by `idx_help_mine_recent` (0007),
+  which leads with `creator_id`.
+- `help` KEEPS **`idx_help_status`**, and this is worth a sentence because it
+  looks like the same case and is not. `idx_help_recent` does not contain
+  `status` at ALL, so it cannot stand in; and the bulk move-by-filter door counts
+  tickets by status facet against a table that grows for ever. Without this index
+  that door scans the whole of `help`.
+- Still current from earlier migrations: `idx_activity_actor (creator_id,
+  created_at DESC, id DESC)` (team `0008`), which is what makes "what has this
+  person done" a seek rather than a scan of the largest table in the database.
+
+**Considered and DECLINED — do not re-propose without new evidence.**
+
+| Proposed | Why it was left out |
+|---|---|
+| `teams(db_status)` | SQLite declines to use it even when offered: `db_status = 'ready'` matches essentially every row, so it separates almost nothing — and both real callers (the migration robot, the nightly orphan sweep) want all those rows anyway. The per-team lookups that also name `db_status` already seek on the primary key. |
+| `member_roles(is_default)` | The query is real ("which role is Admin?"), but `member_roles` is a tiny bounded collection — two seeded rows, living in one page — and `is_default` has two values. Scanning the page beats an index seek plus a row lookup, and this is a PER-TEAM table, so the write cost multiplies by every tenant. |
+| re-leading `idx_db_alerts_open` as `(resolved_at, database_id)` | Its current lead, `database_id`, is the selective one, and it is what both hot callers filter on ("is this database already alerting?" / "resolve this one"). Only the operator's open-alerts list leads with `resolved_at`, and it reads a table holding one row per over-threshold database. Re-leading would slow two readers to speed one. |
+
+---
+
 ## Status: what's built vs. to build
 
 - **Built**: users, teams, team_members, invite_index, member_roles,
@@ -372,7 +478,7 @@ these rows are a record of intent, never a separate set of powers.
   data_import_sessions, agent_threads, agent_messages (per-team `0004_modules`).
   **Since:** agent_usage_log (BUILT 2026-07-01) and error_logs (the central error
   store, BUILT 2026-07-03) — both created in core, both MOVED to the operations
-  database 2026-08-18 (`db/ops/0001`),
+  database 2026-08-12 (`db/ops/0001`),
   data_import_batches (per-team `0006_import_batches`, the agentic multi-file
   import, BUILT 2026-07-04).
 - **To build (tables)**: selectable_data_types (the only remaining one) — the

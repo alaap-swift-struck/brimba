@@ -38,7 +38,12 @@ import type { McpTokenSummary } from "@shared/types"
 import { FormShell, fieldSpacing } from "@/components/form-shell"
 import { ApiFailure, mcp } from "@/lib/api"
 import { formatActivityWhen } from "@/lib/format"
-import { useCached, primeCache } from "@/lib/store"
+import { applyCreated, applyUpdated } from "@/lib/live-resources"
+import { useCached } from "@/lib/store"
+
+/** Your tokens are IDENTITY data, not team data — one key across every team you
+ * belong to, keyed by nothing (CACHING rule 2's identity scope). */
+const TOKENS_KEY = "mcp-tokens"
 
 // A ready-to-paste connect prompt for ANY AI (Claude, Gemini, GPT, …) — endpoint,
 // the Bearer header, and a Claude-Desktop-style stdio config. Built from the LIVE
@@ -77,7 +82,7 @@ function copyInstructions(token: string) {
 }
 
 export function AccessTokensSection({ teamName }: { teamName: string | null }) {
-  const tokensQ = useCached<McpTokenSummary[]>("mcp-tokens", () =>
+  const tokensQ = useCached<McpTokenSummary[]>(TOKENS_KEY, () =>
     mcp.tokens().then((r) => r.tokens)
   )
   const tokens = tokensQ.data ?? []
@@ -93,10 +98,20 @@ export function AccessTokensSection({ teamName }: { teamName: string | null }) {
     if (!label.trim() || busy) return
     setBusy(true)
     try {
-      const r = await mcp.createToken(label.trim())
-      setSecret(r.secret)
+      const { token, secret: created } = await mcp.createToken(label.trim())
+      // The show-once secret lives in component state and never in the cache —
+      // it is the one thing here that could not be re-read even if we wanted to.
+      setSecret(created)
       setLabel("")
-      primeCache("mcp-tokens", await mcp.tokens().then((x) => x.tokens))
+      // R21: the door already handed back the row it had just written, so re-reading
+      // the entire token list to find it asked the same question twice. The two
+      // fields the response leaves out are not guesses — a token created a moment
+      // ago has never been used and is not revoked, which is exactly the row the
+      // server inserted. (Round-trip review, 2026-08-25.)
+      await applyCreated<McpTokenSummary>({
+        listKey: TOKENS_KEY,
+        created: { ...token, lastUsedAt: null, revokedAt: null },
+      })
     } catch (err) {
       toast.error(err instanceof ApiFailure ? err.message : "Couldn't create the token.")
     } finally {
@@ -109,7 +124,17 @@ export function AccessTokensSection({ teamName }: { teamName: string | null }) {
     setBusy(true)
     try {
       await mcp.revokeToken(revoking.id)
-      primeCache("mcp-tokens", await mcp.tokens().then((x) => x.tokens))
+      // Revoking is a KNOWN, total transition on a row we are already holding, so
+      // nothing in the rest of the list changed and nothing in it needed re-reading.
+      // The door answers `{ ok: true }` rather than the affected row (R23 does not
+      // reach these identity-gated doors), so the stamp below is this device's
+      // clock rather than the server's: it is read only as "is this revoked",
+      // never rendered, and the next full read replaces it with the real one.
+      await applyUpdated<McpTokenSummary>({
+        listKey: TOKENS_KEY,
+        id: revoking.id,
+        row: { ...revoking, revokedAt: new Date().toISOString() },
+      })
       toast.success("Token revoked.")
       setRevoking(null)
     } catch (err) {

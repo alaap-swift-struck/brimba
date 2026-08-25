@@ -118,11 +118,11 @@ agent_confirm, plan_import) use the team's AI quota.
 Confirm the live list with `tools/list` (it's generated, so it's always current).
 Today it covers:
 
-- **Read:** `whoami`, `list_members`, `list_roles`, `list_dropdown_values`,
-  `list_learning`, `list_help_tickets`, `list_imports`. Each list tool that sits on a
-  door with an `?id=` filter now EXPOSES + FORWARDS it (R19 parity) — pass `id` to fetch
-  one record instead of pulling the whole collection (`list_help_tickets` also takes
-  `scope`).
+- **Read:** `whoami`, `list_members`, `list_roles`, `list_invites`,
+  `list_dropdown_values`, `list_learning`, `list_help_tickets`, `list_imports`. Each
+  list tool that sits on a door with an `?id=` filter now EXPOSES + FORWARDS it (R19
+  parity) — pass `id` to fetch one record instead of pulling the whole collection
+  (`list_help_tickets` also takes `scope`).
 
   **One asymmetry worth stating plainly.** The in-app assistant now stops for a yes/no
   panel before every write that decides who-can-do-what — derived from the gate map,
@@ -139,6 +139,23 @@ Today it covers:
   value as `cursor`; never construct or mutate one — a cursor the server didn't issue
   is refused with a 400. When `hasMore` is false you have reached the end. A client
   that ignores the cursor still works: it simply sees the newest page.
+  **An edit is a PARTIAL update: a field you omit is KEPT.** Send only the fields you
+  mean to change. (Until 2026-08-25 the content doors wrote every column
+  unconditionally, so "rename this article" also wiped its body, category, link and
+  type. If you have been sending a whole object to work around that, you can stop.)
+  **One honest limit that follows:** these tools drop an empty string exactly as they
+  drop an absent field, so an edit tool cannot currently CLEAR an optional field — it
+  can only set it to something else. The doors themselves distinguish the two; the
+  tools do not yet expose the difference.
+
+  **Every edit tool takes an optional `expectedVersion`** — the `updated_at` you were
+  shown when you read the record (a row that has never been edited uses its
+  `created_at`). Send it back and the door refuses to land on a row that has moved on
+  since, answering `409 changed_elsewhere` instead of silently overwriting someone's
+  work; omit it and your edit wins any concurrent race. It is optional because a
+  caller that genuinely hasn't read the row first has nothing to send — supplying it
+  is how a machine caller opts INTO the protection the web app gets by default.
+
 - **Export (full-field CSV):** `export_roles_csv`, `export_learning_csv`,
   `export_dropdown_values_csv`.
 - **Write — deterministic create / edit / deactivate** (free, no AI; each needs the
@@ -153,14 +170,15 @@ Today it covers:
   `plan_import` → `run_import`.
 - **The in-app assistant:** `agent_chat`, `agent_confirm`.
 
-**Intentionally NOT on the machine surface (a reasoned exclusion, not a gap):** the
+**Intentionally NOT on the MCP surface (a reasoned exclusion, not a gap):** the
 multi-row *mutation* tools the in-app assistant uses — `bulk_set_help_status`,
-`bulk_set_learning_active`, and the set-shaped `set_help_status_by_filter` — are
-agent-only. They're built around the app's yes/no CONFIRM panel (a person approves the
-true count before a high-blast write runs); a headless MCP client has no such panel, so
-exposing them would be a blind mass-write. A machine client that needs the same effect
-composes the single-record writes above (each gated + audited identically). The bulk
-READ path — filtering a list to one record via `id` — IS on MCP (R19 parity).
+`bulk_set_learning_active`, `bulk_set_dropdown_active`, and the set-shaped
+`set_help_status_by_filter` — are agent-only. They're built around the app's yes/no
+CONFIRM panel (a person approves the true count before a high-blast write runs); a
+headless MCP client has no such panel, so exposing them would be a blind mass-write. A
+machine client that needs the same effect composes the single-record writes above (each
+gated + audited identically). The bulk READ path — filtering a list to one record via
+`id` — IS on MCP (R19 parity).
 
 Every tool is a thin forward to the **same gated door the app's own screens use** — so
 input is validated, **your live role is re-checked** (a Viewer's `create_role` is
@@ -235,28 +253,66 @@ The catalogue is opt-in, so an absence is a decision. Here is every one, named �
 because an undocumented absence is indistinguishable from an oversight, and the
 next person maintaining this needs to tell them apart.
 
-**Every row below is machine-checked** against `MCP_TOOLS` by
-`workers/mcp/test/catalog.test.ts`. Until 2026-08-25 it was not, and this table
-was wrong: it claimed that creating an invite, revoking an invite and setting
-role permissions were "deliberately kept to the UI", while `create_invite`,
-`revoke_invite` and `set_role_permissions` had all been live tools since 8 July.
-`git log -S` traces those rows to the commit of an MCP-parity audit that scored
-98/100 — the audit had found a coverage gap and closed it by writing a doc saying
-the gap was intentional. The doc was false the day it shipped, and nothing could
-notice, because the claim and its evidence had the same author.
+**Every claim below is machine-checked** against BOTH machine catalogues by
+`workers/mcp/test/catalog.test.ts` — the MCP's own tools and the in-app
+assistant's. Until 2026-08-25 nothing checked it at all, and it was wrong: it
+claimed that creating an invite, revoking an invite and setting role permissions
+were "deliberately kept to the UI", while `create_invite`, `revoke_invite` and
+`set_role_permissions` had all been live tools since 8 July. `git log -S` traces
+those rows to the commit of an MCP-parity audit that scored 98/100 — the audit
+had found a coverage gap and closed it by writing a doc saying the gap was
+intentional. The doc was false the day it shipped, and nothing could notice,
+because the claim and its evidence had the same author. (Historical: those three
+are live tools today and are listed in §3.)
+
+The check written that day was narrower than the fault. It read one catalogue,
+so five rows stayed false for another fortnight: they said "not exposed" of
+endpoints an ASSISTANT tool forwards to. **So the list is split by surface**, and
+each half says which machine it is about. A capability withheld from a headless
+script is not the same decision as one withheld from every machine, and writing
+them in one table made both unreadable.
 
 That is the general lesson, and it is why the check exists: **a documented
-exclusion must be checked against the code it excludes.**
+exclusion must be checked against the code it excludes — on every surface that
+could contradict it.**
+
+#### Not on MCP — the in-app assistant has it
+
+These are live agent tools. The assistant runs inside a signed-in person's own
+session, in front of a screen that can stop and ask; a token is often held by an
+unattended script. Where that difference decides the matter, the capability sits
+on one surface and not the other.
 
 | Not exposed | Why |
 |---|---|
-| `admin/migrate-teams`, `admin/move-module`, `admin/db-sizes`, `admin/errors` | owner-only maintenance, gated by `ADMIN_KEY` rather than a role. A token holder is a USER; these are operator actions. |
-| `bootstrap`, `switch-team`, `invitations/accept` | identity-sensitive self-actions. A token is pinned to ONE team by design — letting it switch teams would defeat that. |
-| `teams` (create), `teams/update` | changing the shape of a tenant. |
-| `learning/upload` | binary upload; the raw-body wire format is not a good fit for a JSON-RPC tool. |
-| `learning/done`, `help/stakeholders` | per-person state on someone's behalf, which the act-as-you model makes ambiguous. |
-| `learning/bulk-active`, `help/bulk-status`, `help/bulk-status-by-filter` | bulk writes. `plan_import` is the supported machine path for changing many rows, because it shows what it will do first. |
-| `import/*` (the six session endpoints) | a stateful multi-step flow. `plan_import` is the single tool that wraps it. |
+| `learning/bulk-active`, `help/bulk-status`, `help/bulk-status-by-filter`, `selectable/bulk-active` | Bulk writes. Each is built around the app's yes/no confirm panel — a person approves the TRUE count before a high-blast write runs — and MCP has no panel to show, because the confirming UI belongs to your client, not to Brimba. A machine client composes the single-record writes, or uses `plan_import`, which shows what it will do first. |
+| `learning/done` | Per-person progress, written on someone's behalf. The assistant is driven by the person whose progress it is, so "mark this done" is unambiguous there. A token may belong to a service account, whose own learning progress means nothing — so MCP leaves this to the person. |
+| `teams/update` | Renaming the team. The assistant renames it for the person driving it. A token is PINNED to one team, and letting it rewrite that team's identity is a larger act than the token's purpose — so it is not on MCP. |
+| `get_role_permissions` (the read side of a role's matrix) | MCP already serves the same data more completely, through `export_roles_csv`: every role, full fields, the flattened permission matrix, in one call. A second door for one role would be a narrower duplicate, not a missing capability. |
+
+#### Not on any machine surface
+
+Neither the MCP catalogue nor the assistant's forwards to these.
+
+| Not exposed | Why |
+|---|---|
+| `help/thread` (a ticket's replies) | **A known gap, named as one rather than defended.** A machine caller can list tickets, move them along their lifecycle and ADD a reply — but cannot read the conversation it is replying to. The door is gated on `help:read`, the same right `list_help_tickets` already needs, so nothing is being withheld; the tool simply does not exist yet. Until it does, treat a machine ticket workflow as write-mostly. |
+| `admin/migrate-teams`, `admin/move-module`, `admin/db-sizes`, `admin/errors`, `admin/seed-targets`, `admin/grant-credits` | Owner-only maintenance, gated by `ADMIN_KEY` (`adminGuard`) rather than by a role — rolling team-schema migrations, relocating a module's database, sizing every tenant, reading and resolving the central error log, seeding the import catalogue, topping up a team's AI credits. A token holder is a USER; these are operator actions, and no tenant's rights can reach them. |
+| `admin/test-login` | A non-production test door with its own key, refused outright when the environment is production. |
+| `bootstrap`, `switch-team`, `invitations`, `invitations/accept`, `tenancy/teams`, `tenancy/active` | Identity-sensitive self-actions and the cross-team view. A token is pinned to ONE team by design; these doors either move the caller between teams or answer with EVERY team the person belongs to, which would tell a token about tenancies it may never read. |
+| `teams` (create) | Creating a tenant. A token is pinned to one team, so a door that makes a new one has nothing to pin to. |
+| `my-permissions` | The caller's own rights, which the app reads once to decide which screens to draw. A machine caller learns the same thing from the doors themselves — a refusal names the missing right ("your role is missing the `edit` right on …") — so a separate rights-introspection tool would be a second source of truth for something the gate already says out loud. |
+| `team-meta` | The team's Overview block (name, who created it, when it last changed) — a rendering convenience assembled for one panel, not a record with a life of its own. |
+| `tenancy/activity`, `auth/activity` | The activity feeds: the team's audit trail and a person's own account history. Handing any token a complete history of everyone's actions is a monitoring capability, and a different product decision from a record read — so it is named here as a decision not yet taken, rather than left as an absence. |
+| `help/stakeholders` | A ticket's stakeholders. The list is a HYBRID and mostly DERIVED at read time — the raiser, the current admins and everyone @mentioned in the thread — with only manual adds stored, and no remove path anywhere. A machine caller changes it by replying with a mention, which is the same thing a person does. |
+| `learning/progress` | The curator dashboard: every member's done state in one read. It is a management VIEW over the per-person write above, and that write is not on the machine surface either. |
+| `learning/upload` | Binary upload; the raw-body wire format is not a good fit for a JSON-RPC tool. |
+| `media/learning` (and the `/media` objects generally) | Not an API door at all — the gateway serves these to any GET that has the URL, so a machine client holding an article already holds its attachments. The URL is the only thing guarding the object, so a tool would add no access anyone did not already have. |
+| `auth/profile`, `auth/logout`, `auth/email/start`, `auth/email/verify`, `auth/email/change/start`, `auth/email/change/verify` | The person's own identity: signing in and out, their name and photo, and the email their account is keyed on. A token carries a person's RIGHTS, not their identity — a token that could change the email it authenticates against would outlive the person's control of the account. |
+| `mcp/tokens`, `tokens/revoke` | Minting, listing and revoking access tokens. These doors are session-gated (a signed-in browser, via `whoAmI`), so a bearer token structurally cannot reach them: you get a token by signing in, and no token can mint another or extend its own life. That is what makes "revoke bites immediately" true. |
+| `agent/thread`, `agent/threads`, `agent/usage`, `agent/usage-log` | The assistant's own bookkeeping. Conversations are scoped to the caller who had them (`creator_id`), and `agent_chat` already returns everything a machine caller needs from its own turn; the usage views are a billing screen for an admin, not an integration surface. |
+| `import/targets`, `import/sample` | The import wizard's scaffolding — the catalogue of importable targets and a blank sample CSV. `plan_import` is where a machine caller learns what a file will become: it reads the same catalogue and answers about the actual file rather than in the abstract. |
+| `import`, `import/file`, `import/mapping`, `import/preview`, `import/confirm` | The single-target import session — a stateful multi-step flow over the caller's own draft. The batch tools (`start_import` → `add_import_file` → `plan_import` → `run_import`) are the supported machine path and cover the same ground in one shape. |
 
 Everything else — reading and writing the actual records — is exposed, and each
 tool forwards to the same gated route the web app posts to.
@@ -265,9 +321,17 @@ tool forwards to the same gated route the web app posts to.
 here as an exclusion — "changes what every member of the team SEES" — but the door
 had no caller on ANY surface, so the row was describing something unreachable
 rather than a decision anyone had made. Offered the choice between finishing it and
-removing it, the owner chose removal on 2026-08-25: the table, the migration, the
-gate, the validator, the permission row, the renderer and the client merge all
-went. There is nothing to exclude.
+removing it, the owner chose removal on 2026-08-25: the routes, the gate, the
+validator, the permission row, the renderer and the client merge all went. There is
+nothing left to exclude.
+
+**What did NOT go, and must not: the `screens` TABLE.** Team migration
+`0002_screens` still creates it, and every team database still has it. Migrations
+are append-only — a migration already applied to hundreds of live databases cannot
+be un-run by deleting it from the list, and rewriting history there is how a fork
+and its parent end up with different schemas that both claim to be version N. The
+table is simply unread now. Removing the code was the decision; removing the
+migration would be a different and much worse one.
 
 *(This paragraph was itself broken for an hour. The edit that removed the deleted
 tool's name took out one line from the middle of a sentence and left the rest

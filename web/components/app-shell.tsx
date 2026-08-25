@@ -20,12 +20,12 @@ import { Home, Settings, GraduationCap, LifeBuoy, PanelLeftClose, PanelLeftOpen 
 import type { ActiveTeam } from "@/lib/use-active-team"
 import { auth } from "@/lib/api"
 import { softNavigate } from "@/lib/nav"
-import { useRealtime, useUserRealtime } from "@/lib/realtime"
+import { useRealtime, useUserRealtime, type ConnectionState } from "@/lib/realtime"
 // The row-level registry + coarse invalidations moved to lib (R15): they're DATA
 // the live-collections check imports, and the thread/help_threads + agent_usage
 // deaf-exemptions live beside them in the rules registry.
 import { SIMPLE_INVALIDATIONS, TEAM_RESOURCES, totalKey } from "@/lib/live-resources"
-import { invalidate, patchRow, primeCache, readCache, reconcile } from "@/lib/store"
+import { invalidate, invalidatePrefix, patchRow, primeCache, readCache, reconcile } from "@/lib/store"
 import { NAV, TEAM_SECTIONS, bottomNavItems, isNavActive, type Crumb } from "@/lib/pages"
 import { usePermissions } from "@/lib/perms"
 import { useTeamPrewarm } from "@/lib/use-team-prewarm"
@@ -61,6 +61,51 @@ function queueActivityRefresh(teamId: string): void {
     invalidate(`activity:team:${teamId}`)
   }, ACTIVITY_COALESCE_MS)
 }
+
+/** The literal head of every RECORD-SCOPED cache key a live ping refreshes —
+ * `help-one:`, `learning-one:`, `activity:record:help:`, `help-thread:`, … —
+ * read out of the registry's OWN `deps` by asking each one for a sentinel id.
+ *
+ * Reconnect could not reach these. It reconciles the LISTS, and `reconcile` is a
+ * no-op on a list that was never loaded — which is every deep link. So someone
+ * sitting on one ticket through a network blip caught up on nothing: the record,
+ * its conversation, its stakeholders and its Activity tab all stayed as they were,
+ * under a connection dot that had gone back to "Live". These are precisely the
+ * keys a ping would have dropped, so a reconnect drops them too.
+ *
+ * DERIVED, never a second list: a module that declares a record dep is caught up
+ * for free, and there is no parallel copy to fall out of step. Team-scoped deps
+ * (`my-perms:<teamId>`, `member_roles:<teamId>`) carry no id, so they fall out
+ * here — they are lists, and `reconcile` already owns them. `at > 0` also refuses
+ * an empty head, which would match every key in the cache.
+ *
+ * THE SENTINEL IS U+001F (unit separator), WRITTEN AS AN ESCAPE. It used to be a
+ * literal NUL byte, and a literal NUL is not a character in a source file — it is
+ * a switch that turns the file binary. `file(1)` called this module `data`, `grep`
+ * matched NOTHING in it (`grep ConnectionStatus app-shell.tsx` came back empty
+ * while the import sat on line 34), and `git diff` printed "Binary files differ"
+ * — on the file that owns the live-sync fan-out, both sockets, the coalescer and
+ * this reconnect catch-up. The one file most needing review was the one file that
+ * could not be reviewed.
+ *
+ * The irony is worth the line: `shared/workers/validate.ts` strips NUL out of
+ * every request body precisely because a NUL reaching D1 is a 500. We refused it
+ * at the front door and then typed it into our own source.
+ *
+ * `\x1f` keeps the property that mattered — a control character cannot occur in a
+ * ULID or in any cache-key literal, so a head is still unambiguous — while the
+ * file stays plain text end to end. */
+const RECORD_KEY_PREFIXES: string[] = (() => {
+  const TEAM = "\x1fteam\x1f"
+  const ID = "\x1fid\x1f"
+  const heads = new Set<string>()
+  for (const r of Object.values(TEAM_RESOURCES))
+    for (const dep of r.deps?.(TEAM, ID) ?? []) {
+      const at = dep.indexOf(ID)
+      if (at > 0) heads.add(dep.slice(0, at))
+    }
+  return [...heads]
+})()
 
 export function AppShell({
   active,
@@ -203,6 +248,12 @@ export function AppShell({
       if (!teamId) return
       for (const r of Object.values(TEAM_RESOURCES))
         void reconcile(r.key(teamId), r.idField, () => r.fetchList(teamId))
+      // …and the RECORD-scoped caches the lists cannot reach (see
+      // RECORD_KEY_PREFIXES). Only LOADED keys are touched, so this costs nothing
+      // on a screen holding none of them, and it INVALIDATES rather than refetches:
+      // whatever is on screen re-reads itself, and a record nobody is looking at
+      // is simply fresh the next time it is opened.
+      for (const prefix of RECORD_KEY_PREFIXES) invalidatePrefix(prefix)
       invalidate(`activity:team:${teamId}`)
       invalidate(`my-perms:${teamId}`)
       void active.refresh()
@@ -211,41 +262,70 @@ export function AppShell({
 
   // Your OWN identity channel — account events + a forced sign-out — open even
   // before you join a team (teamless users still get it).
-  const userLink = useUserRealtime(userId, (event) => {
-    if (event.resource === "session") {
-      // A sign-out signal reaches ALL your devices (e.g. you changed your email
-      // elsewhere). Only the devices whose session was actually dropped should
-      // bounce to login — the acting device keeps its still-valid session, so
-      // re-check first and redirect only if the session is dead.
-      auth.me().catch(() => window.location.assign("/login"))
-      return
-    }
-    if (event.resource === "account_activity") {
-      invalidate("account-activity") // your own account feed (small) refreshes live
-    }
-    if (event.resource === "profile") {
-      // You edited your name/photo on another device — refresh your identity so
-      // the sidebar/profile menu update here too (member rows others see update
-      // via each team's own channel).
+  const userLink = useUserRealtime(
+    userId,
+    (event) => {
+      if (event.resource === "session") {
+        // A sign-out signal reaches ALL your devices (e.g. you changed your email
+        // elsewhere). Only the devices whose session was actually dropped should
+        // bounce to login — the acting device keeps its still-valid session, so
+        // re-check first and redirect only if the session is dead.
+        auth.me().catch(() => window.location.assign("/login"))
+        return
+      }
+      if (event.resource === "account_activity") {
+        invalidate("account-activity") // your own account feed (small) refreshes live
+      }
+      if (event.resource === "profile") {
+        // You edited your name/photo on another device — refresh your identity so
+        // the sidebar/profile menu update here too (member rows others see update
+        // via each team's own channel).
+        void active.refresh()
+      }
+      if (event.resource === "teams") {
+        // Cross-team membership changed (you joined, were removed, or created a
+        // team). Refresh the switcher + active context. If this drops your LAST
+        // team, use-active-team routes you to onboarding; if it drops the team
+        // you're VIEWING, deep-link-screen routes you home (decision #8).
+        void active.refresh()
+      }
+    },
+    () => {
+      // Reconnect after a dropped IDENTITY link. The team channel has always
+      // caught up here; this one had no third argument at all, so anything that
+      // happened to YOU while the socket was down was simply missed — a forced
+      // sign-out you never bounced for, a name you changed on another device, a
+      // team you were added to or removed from that the switcher never showed.
+      // Re-read the three things the missed events would have told us. Cheap:
+      // one identity read, one small feed, one context refresh — and only after
+      // a real drop, never on the first connect.
+      void auth.me().catch(() => window.location.assign("/login"))
+      invalidate("account-activity")
       void active.refresh()
     }
-    if (event.resource === "teams") {
-      // Cross-team membership changed (you joined, were removed, or created a
-      // team). Refresh the switcher + active context. If this drops your LAST
-      // team, use-active-team routes you to onboarding; if it drops the team
-      // you're VIEWING, deep-link-screen routes you home (decision #8).
-      void active.refresh()
-    }
-  })
+  )
 
   // Is what you're looking at still true? The shell owns the sockets, so it owns
-  // the answer. Inside a team the TEAM channel is the one keeping the screen
-  // current; teamless, only your own channel is open. Deliberately a dot and not
-  // a banner — nobody needs reassurance every second, they need to notice when
-  // it is NOT live, and a bar across the top for every blip trains people to
-  // ignore bars across the top. The word is always in the DOM for screen
-  // readers, and `title` gives it to a mouse.
-  const link = teamId ? teamLink : userLink
+  // the answer. Deliberately a dot and not a banner — nobody needs reassurance
+  // every second, they need to notice when it is NOT live, and a bar across the
+  // top for every blip trains people to ignore bars across the top. The word is
+  // always in the DOM for screen readers, and `title` gives it to a mouse.
+  //
+  // THE WORSE OF THE TWO. Inside a team there are two sockets, and this read
+  // `teamId ? teamLink : userLink` — the team one only. So the identity channel
+  // could be dead (a forced sign-out that never arrives, a profile change, a
+  // membership you gained or lost elsewhere) while the dot cheerfully said
+  // "Live". A dot that is green when half the truth is missing is worse than no
+  // dot, because people act on it. Only channels we actually asked for count: an
+  // unopened one reports "offline" by design, and would otherwise hold the dot
+  // down for a teamless person whose own channel is perfectly healthy.
+  const SEVERITY: Record<ConnectionState, number> = { live: 0, reconnecting: 1, offline: 2 }
+  const opened: ConnectionState[] = []
+  if (teamId) opened.push(teamLink)
+  if (userId) opened.push(userLink)
+  const link: ConnectionState = opened.length
+    ? opened.reduce((worst, s) => (SEVERITY[s] > SEVERITY[worst] ? s : worst))
+    : "offline"
   const linkTitle =
     link === "live"
       ? "Live — this screen updates as your team works"

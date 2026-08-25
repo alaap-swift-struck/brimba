@@ -6,7 +6,7 @@
 // The session-shaping rules live in lib/import; the catalog code side in lib/targets.
 
 import { fail, json } from "../../../../shared/workers/http"
-import { optionalText, TEXT_LIMITS } from "../../../../shared/workers/validate"
+import { optionalText, requireText, TEXT_LIMITS } from "../../../../shared/workers/validate"
 import { publishChange } from "../../../../shared/workers/realtime"
 import { GuardError, hasRight, requireRight, teamContext } from "../../../../shared/workers/gating"
 import {
@@ -79,17 +79,21 @@ export async function postImportFile(request: Request, env: Env): Promise<Respon
     fileName?: string
     csv?: string
   }
-  if (!body.sessionId || typeof body.csv !== "string")
+  // Ids through the boundary seam like every other stored string: truthiness only
+  // proved presence, and the `sessionId?: string` above is erased before the request
+  // arrives. (Security round 5.)
+  const sessionId = requireText(body.sessionId, "sessionId", TEXT_LIMITS.short)
+  if (typeof body.csv !== "string")
     return fail(400, "invalid_input", "sessionId and csv are required.")
   if (body.csv.length > MAX_CSV_BYTES)
     return fail(413, "file_too_large", "That file is too large to import. Export a smaller CSV (up to about 5 MB).")
-  const { target } = await targetForSession(env, cfg, guard, body.sessionId)
+  const { target } = await targetForSession(env, cfg, guard, sessionId)
   await requireRight(cfg, guard, target.module, "create")
   // The filename is stored, so it goes through the boundary seam like every
   // other stored string: sqlString escapes quotes but does NOT strip NUL bytes
   // (SQLite rejects them → a 500) and does NOT cap length.
   const fileName = optionalText(body.fileName, "File name", TEXT_LIMITS.short) ?? ""
-  const out = await applyFile(env, cfg, guard, body.sessionId, fileName, body.csv)
+  const out = await applyFile(env, cfg, guard, sessionId, fileName, body.csv)
   return json({ session: out.summary, preview: out.preview })
 }
 
@@ -100,19 +104,19 @@ export async function postImportMapping(request: Request, env: Env): Promise<Res
     sessionId?: string
     mapping?: Record<string, string>
   }
-  if (!body.sessionId || typeof body.mapping !== "object" || body.mapping === null)
+  const sessionId = requireText(body.sessionId, "sessionId", TEXT_LIMITS.short)
+  if (typeof body.mapping !== "object" || body.mapping === null)
     return fail(400, "invalid_input", "sessionId and mapping are required.")
-  const { target } = await targetForSession(env, cfg, guard, body.sessionId)
+  const { target } = await targetForSession(env, cfg, guard, sessionId)
   await requireRight(cfg, guard, target.module, "create")
-  const out = await applyMapping(env, cfg, guard, body.sessionId, body.mapping)
+  const out = await applyMapping(env, cfg, guard, sessionId, body.mapping)
   return json({ session: out.summary, preview: out.preview })
 }
 
 /** GET /api/data-ops/import/preview?id= — the session's current preview. */
 export async function getImportPreview(request: Request, env: Env): Promise<Response> {
   const { cfg, guard } = await teamContext(request, env)
-  const id = new URL(request.url).searchParams.get("id")
-  if (!id) return fail(400, "invalid_input", "An import session id is required.")
+  const id = requireText(new URL(request.url).searchParams.get("id"), "An import session id", TEXT_LIMITS.short)
   const { target } = await targetForSession(env, cfg, guard, id)
   await requireRight(cfg, guard, target.module, "create")
   const view = await getSessionView(env, cfg, guard, id)
@@ -121,14 +125,14 @@ export async function getImportPreview(request: Request, env: Env): Promise<Resp
 
 /** POST /api/data-ops/import/confirm — write every mapped row (insert-only),
  * act-as-user through the gated create endpoint, then ONE list-ping for the table. */
-export async function postImportConfirm(request: Request, env: Env): Promise<Response> {
+export async function postImportConfirm(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const { actor, cfg, guard } = await teamContext(request, env)
   const body = (await request.json().catch(() => ({}))) as { sessionId?: string }
-  if (!body.sessionId) return fail(400, "invalid_input", "A sessionId is required.")
-  const { target } = await targetForSession(env, cfg, guard, body.sessionId)
+  const sessionId = requireText(body.sessionId, "sessionId", TEXT_LIMITS.short)
+  const { target } = await targetForSession(env, cfg, guard, sessionId)
   await requireRight(cfg, guard, target.module, "create")
-  const out = await confirmImport(env, request, cfg, guard, actor, body.sessionId)
-  await publishChange(env.REALTIME, guard.teamId, target.module)
+  const out = await confirmImport(env, request, cfg, guard, actor, sessionId)
+  ctx.waitUntil(publishChange(env.REALTIME, guard.teamId, target.module))
   return json({ session: out.summary, result: out.result })
 }
 
@@ -154,10 +158,11 @@ export async function postBatchFile(request: Request, env: Env): Promise<Respons
   const { cfg, guard } = await teamContext(request, env)
   await requireAnyImportRight(cfg, guard)
   const body = (await request.json().catch(() => ({}))) as { batchId?: string; name?: string; csv?: string }
-  if (!body.batchId || typeof body.csv !== "string")
+  const batchId = requireText(body.batchId, "batchId", TEXT_LIMITS.short)
+  if (typeof body.csv !== "string")
     return fail(400, "invalid_input", "batchId and csv are required.")
   const name = optionalText(body.name, "File name", TEXT_LIMITS.short) ?? "file"
-  return json({ batch: await addBatchFile(cfg, guard, body.batchId, name, body.csv) })
+  return json({ batch: await addBatchFile(cfg, guard, batchId, name, body.csv) })
 }
 
 /** POST /api/data-ops/import/batch/plan — the AGENT builds the plan. Metered on the
@@ -166,25 +171,39 @@ export async function postBatchPlan(request: Request, env: Env): Promise<Respons
   const { cfg, guard } = await teamContext(request, env)
   await requireAnyImportRight(cfg, guard)
   const body = (await request.json().catch(() => ({}))) as { batchId?: string }
-  if (!body.batchId) return fail(400, "invalid_input", "A batchId is required.")
+  const batchId = requireText(body.batchId, "batchId", TEXT_LIMITS.short)
   const c = await consumeAiUnit(env, guard.teamId)
   if (!c.ok)
     return fail(429, "over_quota", "You're out of AI requests for now — the plan step uses the assistant. They reset tomorrow, or an admin can add credits.")
-  return json({ batch: await planBatch(env, cfg, guard, body.batchId), quota: c.quota })
+  return json({ batch: await planBatch(env, cfg, guard, batchId), quota: c.quota })
 }
 
 /** POST /api/data-ops/import/batch/confirm — run the plan in dependency order. Gates
  * `create` on every target in the plan up front (fail fast), then publishes one
  * coarse ping per changed module. */
-export async function postBatchConfirm(request: Request, env: Env): Promise<Response> {
+export async function postBatchConfirm(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const { actor, cfg, guard } = await teamContext(request, env)
   const body = (await request.json().catch(() => ({}))) as { batchId?: string }
-  if (!body.batchId) return fail(400, "invalid_input", "A batchId is required.")
-  const view = await getBatchView(cfg, guard, body.batchId)
+  const batchId = requireText(body.batchId, "batchId", TEXT_LIMITS.short)
+  const view = await getBatchView(cfg, guard, batchId)
   if (!view.plan) return fail(409, "no_plan", "Plan the import before running it.")
   for (const m of planModules(view.plan)) await requireRight(cfg, guard, m, "create")
-  const { report, modules } = await confirmBatch(env, request, cfg, guard, actor, body.batchId)
-  for (const m of modules) await publishChange(env.REALTIME, guard.teamId, m)
+  const { report, modules } = await confirmBatch(env, request, cfg, guard, actor, batchId)
+  for (const m of modules) ctx.waitUntil(publishChange(env.REALTIME, guard.teamId, m))
+  // …AND THE BATCH ROW ITSELF. The imported tables were published and the import
+  // HISTORY never was: `import-batches:<teamId>` is a real subscribed screen (the
+  // Past imports list under the drop zone) and nothing in the base had ever
+  // pinged it, so a run stayed invisible to every teammate — and to the runner's
+  // other devices — until somebody reloaded. Two admins importing in parallel
+  // each saw only their own. The listener has been sitting ready and idle.
+  //
+  // `add` because that is what a listener OBSERVES: the row was inserted as a
+  // draft by /batch, which publishes nothing, so this ping is the first time the
+  // batch exists as far as anyone else's screen is concerned. (The coarse
+  // listener ignores `op` — it drops the one key and re-reads — so this is
+  // description, not instruction.) Awaited, like the module pings above: a bare
+  // publish is cancelled when the isolate finishes and never arrives (R1).
+  ctx.waitUntil(publishChange(env.REALTIME, guard.teamId, "data_import_batches", batchId, "add"))
   return json({ report })
 }
 
@@ -200,7 +219,6 @@ export async function getBatches(request: Request, env: Env): Promise<Response> 
 /** GET /api/data-ops/import/batch?id= — the batch (files + plan + report). */
 export async function getBatch(request: Request, env: Env): Promise<Response> {
   const { cfg, guard } = await teamContext(request, env)
-  const id = new URL(request.url).searchParams.get("id")
-  if (!id) return fail(400, "invalid_input", "A batch id is required.")
+  const id = requireText(new URL(request.url).searchParams.get("id"), "A batch id", TEXT_LIMITS.short)
   return json({ batch: await getBatchView(cfg, guard, id) })
 }

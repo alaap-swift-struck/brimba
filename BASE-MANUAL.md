@@ -29,7 +29,7 @@ service-binding calls (never a public hop).
 | Worker | Cloudflare name | Owns | Why it's its own worker |
 |---|---|---|---|
 | **auth** | `brimba-auth` | Email-OTP login (6-digit codes via Resend, no Clerk/Google), sessions, the email-change flow, profile, `/api/auth/me`, and `/internal/send-email` | Identity is the one thing every other worker trusts. It's the single session authority: everyone else asks it "who is this?" (`whoAmI`) rather than parsing cookies themselves. |
-| **tenancy** | `brimba-tenancy` | Teams, members, Member roles (`member_roles`) + the permission sheet, invites, per-team dropdown values, the screen-recipe config store, and the team-DB migration/sharding admin endpoints | This is the multi-tenancy engine — it owns the global "who's in which team, in which role" catalog and the per-team database lifecycle. The permission seam that every module gates against lives here. |
+| **tenancy** | `brimba-tenancy` | Teams, members, Member roles (`member_roles`) + the permission sheet, invites, per-team dropdown values, and the team-DB migration/sharding admin endpoints | This is the multi-tenancy engine — it owns the global "who's in which team, in which role" catalog and the per-team database lifecycle. The permission seam that every module gates against lives here. |
 | **realtime** | `brimba-realtime` | The live switchboard — one `TeamChannel` Durable Object per channel, fanning out row-level `{resource,id,op}` change pings over WebSockets | Live-sync is a cross-cutting concern with a stateful runtime (open sockets). It holds **no app data** — the databases stay the source of truth — so it can be a thin, hibernatable coordinator instead of a second copy of everything. |
 | **content** | `brimba-content` | **Learning** (how-to articles + per-user "done" progress) and **Help** (tickets + threaded replies) | These are the base's two real content modules. They're grouped because they share the same shape (team-DB CRUD gated on a permission module, deactivate-not-delete, R2 media) and neither is big enough to deserve its own worker. |
 | **data-ops** | `brimba-data-ops` | **CSV import** (the 3-stage single-target session + the agentic multi-file batch import, AGENTIC-IMPORT.md) and **the AI agent** | Both are "operations over the other modules' data" rather than modules of their own. Import writes act-as-user through a target's create endpoint; the agent acts-as-user through every gated endpoint. Neither owns a table of user content — they orchestrate. |
@@ -158,9 +158,10 @@ that team's DB and throws 403 `forbidden` if the bit isn't set.
 rows, not columns. A new module is *new rows*, never a schema change
 (DATA-MODEL.md — Glide's 24-boolean WIDE table became this TALL one). Members
 point at one role; editing a role applies instantly to every holder. The seeded
-modules today are in `TEAM_MODULES` (`workers/tenancy/src/team-schema.ts`):
+modules today are in `TEAM_MODULES` (`shared/team-modules.ts` — tenancy's
+`team-schema.ts` re-exports it, so both workers read one list and cannot drift):
 `teams`, `team_members`, `member_roles`, `learning`, `help`, `selectable_data`,
-`screens`, `agent`. Every team is born with an **Admin** (locked, full rights) and
+`agent`. Every team is born with an **Admin** (locked, full rights) and
 a **Viewer** (read-only) role.
 
 ### The locked security rules the gate enforces
@@ -391,10 +392,17 @@ A Law lives in three linked places:
   conscious line — never a silent bypass (e.g. `RECORD_DETAIL_EXCEPTIONS`,
   `TAB_COUNT_EXCEPTIONS`, `HOUSEKEEPING`).
 - **A test that reads source straight off disk** — a per-worker
-  `publish-seam.test.ts` or a case in `web/test/rules.test.ts`. Break a law and
+  `publish-seam.test.ts` or a case in `web/test/rules/`. Break a law and
   `npm run check` turns **red**.
 
-The laws today:
+**[RULES.md](RULES.md) is the list of laws — read it there, not here.** It carries
+every one, with what earned it and the check that enforces it, and it is kept in
+step with `shared/rules/registry.ts` by the `registry-integrity` check, so the two
+cannot drift apart. Restating them in this manual would give the base a second
+list to keep current, and the second list is always the one that goes stale.
+
+The first eight show the shape a law takes — an ID, one sentence, and a named
+check:
 
 | ID | Law | Enforced by |
 |---|---|---|
@@ -407,6 +415,11 @@ The laws today:
 | R7 | Every form dialog persists its draft per session (`useFormDraft`) | `forms-persist-drafts` |
 | R8 | Every team collection tab derives its count from its loaded rows | `tab-counts-derived` |
 
+The rest run on from there and cover the same ground this manual describes in
+prose: what the agent may do, how a route gates, how a call leaves a worker, how a
+list is bounded or paged, how a screen stays live, what a door returns, and how the
+base's own name is swept for a fork. RULES.md has them all.
+
 **Why "read off disk" matters.** The publish-seam test
 (`workers/content/test/publish-seam.test.ts`) doesn't trust the ROUTES table's
 labels — it pulls each handler's *source text* and checks that a `mutation`
@@ -416,14 +429,15 @@ state-changing route without consciously classifying it `read` / `mutation` /
 `housekeeping`. The classification *is* the reminder.
 
 **The registry can't drift from the doc.** A meta-check (`registry-integrity` in
-`web/test/rules.test.ts`) asserts RULES.md lists *exactly* the law ids in the
+`web/test/rules/meta.test.ts`) asserts RULES.md lists *exactly* the law ids in the
 registry. So: **you cannot add a Law without its check, and you cannot add a
 check without its Law.** To add one, do all three steps (registry row + test +
 RULES.md row) or the build fails — which is precisely the property that keeps an
 agreed rule from silently slipping over time.
 
-A natural next Law, once the tool catalogue stabilises, is `R9 (ai): every agent
-tool maps to a gated route` — the invariant §2 relies on, made machine-checked.
+That invariant §2 relies on — every agent tool maps to a gated route — is no
+longer a proposal. It became **Law R9** and is enforced (`agent-app-parity`), with
+R19 (agent/MCP filter parity) added beside it later. The next free id is **R27**.
 
 ---
 

@@ -24,7 +24,7 @@ are different again.
 
 | Thing | What it is | How many | Grows with teams? |
 |---|---|---|---|
-| **Worker** | Deployed code (auth, tenancy, realtime, gateway, content, data-ops) | 6 built | No |
+| **Worker** | Deployed code (auth, tenancy, realtime, gateway, content, data-ops, mcp) | 7 built | No |
 | **DO class** | A class *inside* a worker (`TeamChannel` in realtime) | 1 today | No |
 | **DO instance** | A *runtime* entity addressed by name (`team:<id>`, `team:<id>#<n>`, `user:<id>`) | Unlimited | Yes — one per CHANNEL and one per signed-in user. A team is one channel until it outgrows a single object, then up to 32 (SCALING.md §3) |
 

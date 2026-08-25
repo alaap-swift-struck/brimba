@@ -6,8 +6,8 @@
 //
 // For each environment it:
 //   1. finds that env's team databases — ONLY the ones its own global `teams`
-//      table points at (never touches databases from other projects in the
-//      account, e.g. acrymold), then DELETES those databases outright;
+//      table points at (never touches databases belonging to other projects in
+//      the same Cloudflare account), then DELETES those databases outright;
 //   2. blanks the global core database — every row from every table removed,
 //      but the schema (tables + columns) and migration history stay intact;
 //   3. reads everything back and TESTS it: all global tables must be empty,

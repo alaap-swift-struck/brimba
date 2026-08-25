@@ -68,7 +68,16 @@ import {
  *                      with no client-visible row). Adding one is a reviewed choice.
  */
 type RouteKind = "read" | "mutation" | "housekeeping"
-type Handler = (request: Request, env: Env) => Promise<Response>
+/**
+ * `ctx` is here so a handler can DEFER work past the response — specifically the
+ * change ping (LAW R1). `publishChange` is best-effort by contract and bounded,
+ * and awaiting it made every mutation pay a service hop to the Durable Object
+ * before the person saw their own write land. `ctx.waitUntil()` keeps the isolate
+ * alive until the ping settles, so the guarantee is unchanged and the wait is not
+ * the caller's. A bare, unheld `publishChange(...)` would be cancelled with the
+ * isolate — the publish seam fails that shape by name.
+ */
+type Handler = (request: Request, env: Env, ctx: ExecutionContext) => Promise<Response>
 export const ROUTES: Record<string, { handler: Handler; kind: RouteKind }> = {
   "GET /api/content/learning": { handler: getLearning, kind: "read" },
   "GET /api/content/learning/export": { handler: getLearningExport, kind: "read" },
@@ -94,20 +103,35 @@ export const ROUTES: Record<string, { handler: Handler; kind: RouteKind }> = {
 }
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const { pathname } = new URL(request.url)
     const route = `${request.method} ${pathname}`
 
     try {
-      if (route === "GET /api/content/health") return json({ ok: true })
+      // A health check that can only ever say "yes" is not a health check. This
+      // returned `{ ok: true }` unconditionally, so a worker deployed without
+      // CF_D1_TOKEN — which means every team-database read and write 503s —
+      // reported itself perfectly healthy, and the smoke run agreed. That is the
+      // exact failure BOOTSTRAP.md warns about: a fresh environment that skipped
+      // a secret looks fine until a person clicks something.
+      //
+      // BOOLEANS ONLY, and deliberately. This door is UNAUTHENTICATED, so it may
+      // say whether a thing is configured and nothing else — never a value,
+      // never a length, never which secret is the missing one. "Configured /
+      // not configured" is all an operator needs and all an attacker gets.
+      if (route === "GET /api/content/health")
+        return json({
+          ok: true,
+          bindings: { d1Token: !!env.CF_D1_TOKEN, internalKey: !!env.INTERNAL_KEY, ops: !!env.OPS },
+        })
       const def = ROUTES[route]
       if (!def) return fail(404, "not_found", "No such content action.")
       // A client may send `Idempotency-Key` on a mutation to make it safe to
       // retry: the first request does the work and its outcome is stored, and a
       // retry replays that outcome instead of writing again. Without the header
       // this is a pass-through and costs nothing (shared/workers/concurrency.ts).
-      if (def.kind !== "mutation") return await def.handler(request, env)
-      return await withIdempotency(request, env.DB, route, () => def.handler(request, env))
+      if (def.kind !== "mutation") return await def.handler(request, env, ctx)
+      return await withIdempotency(request, env.DB, route, () => def.handler(request, env, ctx))
     } catch (e) {
       // A 5xx GuardError IS an outage, and it was returning without a row.
       //

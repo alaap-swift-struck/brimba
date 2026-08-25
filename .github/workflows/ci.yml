@@ -1,9 +1,17 @@
 # CI safety net: every push re-checks types (web + all workers) and runs the
 # unit/integration tests. A red X here = do not deploy.
+#
+# TRIGGERS ON EVERY BRANCH, not just `main`. It used to say `branches: [main]`,
+# and all work here happens on feature branches that are merged rarely — `main`
+# sat seventeen commits behind while the whole test suite had only ever passed
+# on one laptop. A gate that runs on the branch nobody pushes to is not a gate.
+#
+# NODE 24, matching `engines` in the root package.json (>=24.0.0). It ran 22,
+# so the one environment meant to prove the build was the one environment the
+# project declares unsupported.
 name: CI
 on:
   push:
-    branches: [main]
   pull_request:
 jobs:
   check:
@@ -12,7 +20,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
       - run: npm ci
       - run: npm run check

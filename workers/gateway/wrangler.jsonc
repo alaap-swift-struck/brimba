@@ -4,7 +4,12 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "brimba",
   "main": "src/index.ts",
-  "ratelimits": [{"name": "USER_LIMITER", "namespace_id": "1001", "simple": {"limit": 600, "period": 60}}, { "name": "HEAVY_LIMITER", "namespace_id": "1003", "simple": { "limit": 60, "period": 60 } }],
+  // MEDIA_LIMITER is a SEPARATE namespace from USER_LIMITER, not a share of it:
+  // a 50-image article would otherwise spend 50 of the caller's 600 API requests
+  // and a gallery could starve the app's own calls. 1200/60s = 20/s, roughly 4x
+  // the heaviest realistic page plus the many small Range requests a video seek
+  // issues — comfortably above real use, far below the 500 req/s flood.
+  "ratelimits": [{"name": "USER_LIMITER", "namespace_id": "1001", "simple": {"limit": 600, "period": 60}}, { "name": "HEAVY_LIMITER", "namespace_id": "1003", "simple": { "limit": 60, "period": 60 } }, { "name": "MEDIA_LIMITER", "namespace_id": "1004", "simple": { "limit": 1200, "period": 60 } }],
   "compatibility_date": "2026-06-01",
   "observability": { "enabled": true },
   "assets": {
@@ -34,7 +39,7 @@
   ],
   "env": {
     "staging": {
-      "ratelimits": [{"name": "USER_LIMITER", "namespace_id": "1001", "simple": {"limit": 600, "period": 60}}, { "name": "HEAVY_LIMITER", "namespace_id": "1003", "simple": { "limit": 60, "period": 60 } }],
+      "ratelimits": [{"name": "USER_LIMITER", "namespace_id": "1001", "simple": {"limit": 600, "period": 60}}, { "name": "HEAVY_LIMITER", "namespace_id": "1003", "simple": { "limit": 60, "period": 60 } }, { "name": "MEDIA_LIMITER", "namespace_id": "1004", "simple": { "limit": 1200, "period": 60 } }],
       "name": "brimba-staging",
       "observability": { "enabled": true },
       "assets": {

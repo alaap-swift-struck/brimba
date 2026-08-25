@@ -1,32 +1,7 @@
 import type { ScreenRecipe } from "@swift-struck/ui/lib/recipe"
 import { describe, expect, it } from "vitest"
 
-import { BASE_RECIPES, isScreenRecipe, resolveRecipe, withoutActions } from "@/lib/screens"
-
-/** A minimal-but-valid recipe object the structural guard should accept. */
-const minimalRecipe = { type: "list", fields: [], actions: [], binding: {} }
-
-describe("isScreenRecipe", () => {
-  it("accepts a minimal valid recipe object", () => {
-    expect(isScreenRecipe(minimalRecipe)).toBe(true)
-  })
-
-  it("accepts the real base recipes", () => {
-    expect(isScreenRecipe(BASE_RECIPES["members.detail"])).toBe(true)
-  })
-
-  it("rejects null, numbers and an empty object", () => {
-    expect(isScreenRecipe(null)).toBe(false)
-    expect(isScreenRecipe(42)).toBe(false)
-    expect(isScreenRecipe({})).toBe(false)
-  })
-
-  it("rejects objects missing actions / fields / binding", () => {
-    expect(isScreenRecipe({ type: "list", fields: [], binding: {} })).toBe(false) // no actions
-    expect(isScreenRecipe({ type: "list", actions: [], binding: {} })).toBe(false) // no fields
-    expect(isScreenRecipe({ type: "list", fields: [], actions: [] })).toBe(false) // no binding
-  })
-})
+import { BASE_RECIPES, resolveRecipe, withoutActions } from "@/lib/screens"
 
 describe("resolveRecipe", () => {
   // The per-team OVERRIDE map is gone (owner decision, 2026-08-25): the whole

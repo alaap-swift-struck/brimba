@@ -24,7 +24,7 @@ export async function getMembers(request: Request, env: Env): Promise<Response> 
   return json({ members: await listMembers(env, cfg, guard) })
 }
 
-export async function postMemberRole(request: Request, env: Env): Promise<Response> {
+export async function postMemberRole(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const { actor, cfg, guard, body } = await gatedBody<{ userId?: string; roleId?: string }>(
     request, env, "team_members", "edit"
   )
@@ -33,22 +33,22 @@ export async function postMemberRole(request: Request, env: Env): Promise<Respon
   await changeMemberRole(env, cfg, guard, actor, body.userId, body.roleId)
   // Carry the affected userId so other clients can refresh that member's
   // activity feed (activity:user:<id>) in addition to the member + role lists.
-  await publishChange(env.REALTIME, guard.teamId, "members", body.userId, "edit")
+  ctx.waitUntil(publishChange(env.REALTIME, guard.teamId, "members", body.userId, "edit"))
   // R23: the affected ROW, never the collection. See RULES.md.
   return json({ updated: await oneMember(env, cfg, guard, body.userId) })
 }
 
-export async function postMemberRemove(request: Request, env: Env): Promise<Response> {
+export async function postMemberRemove(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const { actor, cfg, guard, body } = await gatedBody<{ userId?: string }>(
     request, env, "team_members", "delete"
   )
   if (typeof body.userId !== "string") return fail(400, "invalid_input", "userId is required.")
   await removeMember(env, cfg, guard, actor, body.userId)
   // Team channel: drop them from everyone else's member list (row-level).
-  await publishChange(env.REALTIME, guard.teamId, "members", body.userId, "remove")
+  ctx.waitUntil(publishChange(env.REALTIME, guard.teamId, "members", body.userId, "remove"))
   // Cross-team: the REMOVED person rides their own user channel — their other
   // devices update the team switcher and leave this team's screens (decision #8).
-  await publishUserChange(env.REALTIME, body.userId, "teams", guard.teamId, "remove")
+  ctx.waitUntil(publishUserChange(env.REALTIME, body.userId, "teams", guard.teamId, "remove"))
   // R23: the affected ROW, never the collection. See RULES.md.
   return json({ updated: await oneMember(env, cfg, guard, body.userId) })
 }

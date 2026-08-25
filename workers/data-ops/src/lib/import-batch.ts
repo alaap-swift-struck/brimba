@@ -319,7 +319,18 @@ export async function listBatchSummaries(
   const rows = await d1Query<BatchRow & { creator_name: string | null; completed_at: string | null }>(
     cfg,
     guard.databaseId,
-    `SELECT ${COLS}, creator_name, completed_at FROM data_import_batches ORDER BY created_at DESC LIMIT ?`,
+    // ONLY BATCHES THAT RAN. The screen is called "Past imports" and the three
+    // draft-shaping doors are classified `housekeeping` on the stated grounds
+    // that they shape "the caller's OWN batch" and touch nothing team-visible.
+    // That was untrue while this read was unfiltered: a `draft` row appeared in
+    // every teammate's list the instant someone opened the importer, showing
+    // their half-chosen filenames and reading as an import that had been left
+    // "not run". Filtering here is what makes the classification honest — and it
+    // aligns the list with its ping, because `confirm` is both the door that
+    // publishes and the door that moves a batch into these two states.
+    `SELECT ${COLS}, creator_name, completed_at FROM data_import_batches
+       WHERE overall_status IN ('running', 'complete')
+       ORDER BY created_at DESC LIMIT ?`,
     [Math.max(1, Math.min(100, limit))]
   )
   return rows.map((b) => {

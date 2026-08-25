@@ -66,7 +66,16 @@ import {
  *                      which actually creates rows in a shared table, broadcasts.
  */
 type RouteKind = "read" | "mutation" | "housekeeping"
-type Handler = (request: Request, env: Env) => Promise<Response>
+/**
+ * `ctx` is here so a handler can DEFER work past the response — specifically the
+ * change ping (LAW R1). `publishChange` is best-effort by contract and bounded,
+ * and awaiting it made every mutation pay a service hop to the Durable Object
+ * before the person saw their own write land. `ctx.waitUntil()` keeps the isolate
+ * alive until the ping settles, so the guarantee is unchanged and the wait is not
+ * the caller's. A bare, unheld `publishChange(...)` would be cancelled with the
+ * isolate — the publish seam fails that shape by name.
+ */
+type Handler = (request: Request, env: Env, ctx: ExecutionContext) => Promise<Response>
 export const ROUTES: Record<string, { handler: Handler; kind: RouteKind }> = {
   "GET /api/data-ops/import/targets": { handler: getImportTargets, kind: "read" },
   "GET /api/data-ops/import/sample": { handler: getImportSample, kind: "read" },
@@ -102,20 +111,31 @@ export const ROUTES: Record<string, { handler: Handler; kind: RouteKind }> = {
 }
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const { pathname } = new URL(request.url)
     const route = `${request.method} ${pathname}`
 
     try {
-      if (route === "GET /api/data-ops/health") return json({ ok: true })
+      // BOOLEANS ONLY — the door is unauthenticated, so it says whether a binding
+      // is configured and never what it holds. A bare `ok: true` reported a
+      // worker with no D1 token and no model key as perfectly healthy.
+      if (route === "GET /api/data-ops/health")
+        return json({
+          ok: true,
+          bindings: {
+            d1Token: !!env.CF_D1_TOKEN,
+            ops: !!env.OPS,
+            model: !!env.ANTHROPIC_API_KEY,
+          },
+        })
       const def = ROUTES[route]
       if (!def) return fail(404, "not_found", "No such data-ops action.")
       // A client may send `Idempotency-Key` on a mutation to make it safe to
       // retry: the first request does the work and its outcome is stored, and a
       // retry replays that outcome instead of writing again. Without the header
       // this is a pass-through and costs nothing (shared/workers/concurrency.ts).
-      if (def.kind !== "mutation") return await def.handler(request, env)
-      return await withIdempotency(request, env.DB, route, () => def.handler(request, env))
+      if (def.kind !== "mutation") return await def.handler(request, env, ctx)
+      return await withIdempotency(request, env.DB, route, () => def.handler(request, env, ctx))
     } catch (e) {
       // A 5xx GuardError IS an outage, and it was returning without a row.
       //

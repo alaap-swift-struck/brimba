@@ -22,7 +22,7 @@ import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 
 import { FORK_SWEEP_EXEMPT } from "@shared/rules/registry"
-import { ROOT, read } from "../../shared/test/source"
+import { ROOT, read, stripComments } from "../../shared/test/source"
 
 const run = (cmd: string, args: string[]) =>
   execFileSync(cmd, args, { cwd: ROOT, encoding: "utf8", maxBuffer: 64 << 20 }).split("\n").filter(Boolean)
@@ -30,6 +30,13 @@ const run = (cmd: string, args: string[]) =>
 /** What actually ships: tracked files PLUS untracked ones git would take. A new
  * file carrying a new hardcoded name must be visible before it is committed. */
 const shipped = () => run("git", ["ls-files", "-c", "-o", "--exclude-standard"])
+
+/** COMMITTED files only. The binary scan below uses this rather than `shipped()`
+ * on purpose: an untracked binary in the working tree is almost always machine
+ * output — a Playwright failure screenshot, a build artefact — and a law that
+ * turns red because somebody ran the e2e suite is a law people learn to ignore.
+ * A binary that actually ships is committed, and is covered the moment it is. */
+const tracked = () => run("git", ["ls-files", "-c"])
 
 /** What the sweep reaches — from the script itself, never re-implemented here. */
 const swept = () => new Set(run("node", ["scripts/fork.mjs", "--list"]))
@@ -40,12 +47,28 @@ const display = /name:\s*"([^"]+)"/.exec(read(join(ROOT, "shared/brand.ts")))?.[
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 const identity = new RegExp(`${esc(slug)}|${esc(display)}`, "i")
 
-/** Binary files are skipped, not exempted: no text sweep can rewrite them, and a
- * product name inside one is pixels, not a literal. */
-const carries = (f: string) => {
-  const buf = readFileSync(join(ROOT, f))
-  return !buf.includes(0) && identity.test(buf.toString("utf8"))
-}
+/** A file is BINARY when it holds a NUL byte AND the sweep does not understand
+ * its type. The NUL alone is not enough: two source files carry a legitimate NUL
+ * sentinel (app-shell.tsx's record-key prefix, import-plan.ts's fingerprint
+ * join), and a content-only test called both of them binary and skipped them. */
+const isBinary = (f: string, reach: Set<string>) => !reach.has(f) && readFileSync(join(ROOT, f)).includes(0)
+
+/** Does the file NAME us in text? NULs are stripped first, for the same reason. */
+const carries = (f: string) => identity.test(readFileSync(join(ROOT, f)).toString("utf8").replace(/\0/g, ""))
+
+/** An ACCOUNT-scoped deploy host: `<app>.<account>.workers.dev`. The sweep
+ * rewrites the app label and CANNOT know the account label, so every one of
+ * these survives a fork pointing at the author's edge. Derived as a shape, never
+ * as the author's literal subdomain — which would itself be an unswept name, and
+ * would keep asserting OUR account after somebody else forked this. */
+const ACCOUNT_HOST = /[a-z0-9-]+\.[a-z0-9-]+\.workers\.dev/i
+/** Prose naming the host is documentation drift, not a fork hazard — these are
+ * the files that actually deploy to it, test against it, or link a user to it.
+ * COMMENTS ARE STRIPPED for the same reason: a comment explaining the hazard (in
+ * the register, or right here) is not the hazard, and a scan that cannot tell
+ * the difference reports its own documentation. */
+const namesAccountHost = (f: string) =>
+  !f.endsWith(".md") && ACCOUNT_HOST.test(stripComments(readFileSync(join(ROOT, f)).toString("utf8")))
 
 describe("R26 — the fork sweep reaches every identity literal", () => {
   it("fork-sweep-complete: every shipped file carrying the product name is one scripts/fork.mjs rewrites", () => {
@@ -54,6 +77,38 @@ describe("R26 — the fork sweep reaches every identity literal", () => {
     expect(
       missed,
       `hardcoded "${slug}" where the fork sweep cannot reach it — add the file type to EXT/NAMES in scripts/fork.mjs, or give it a reasoned FORK_SWEEP_EXEMPT line: ${missed.join(", ")}`,
+    ).toEqual([])
+  })
+
+  // THE HALF THE TEXT SCAN CANNOT SEE. Above asks "does this file SAY our name?",
+  // which a PNG can never answer — `carries` used to return false for every
+  // binary, so four brand icons shipped invisibly to the one law that exists to
+  // find them. A binary outside the sweep's reach is brand-shaped by default: it
+  // is registered with a reason, or it is a finding.
+  it("every shipped BINARY outside the sweep's reach is registered — a text scan cannot read pixels", () => {
+    const reach = swept()
+    const unregistered = tracked().filter((f) => isBinary(f, reach) && !(f in FORK_SWEEP_EXEMPT))
+    expect(
+      unregistered,
+      `binary assets a fork inherits unchanged, with nothing saying so — give each a FORK_SWEEP_EXEMPT reason naming how a fork gets its own: ${unregistered.join(", ")}`,
+    ).toEqual([])
+  })
+
+  // AND THE HALF THE SWEEP GETS *HALF* RIGHT. An `<app>.<account>.workers.dev`
+  // host sweeps its APP label to the new name and keeps the author's ACCOUNT
+  // label — which reads as correct and is not.
+  //
+  // (The hosts here are written as placeholders on purpose. `stripComments` is
+  // desynchronised by a quote inside a template literal's interpolation — see
+  // the line above this suite — so comments downstream of one survive the strip
+  // and a spelled-out example host would report ITSELF. That only ever adds a
+  // false positive, never hides a real one, but a check reporting its own
+  // documentation is a check nobody trusts.)
+  it("every file naming an ACCOUNT-scoped workers.dev host is registered — the sweep renames the app, never the account", () => {
+    const unregistered = shipped().filter((f) => namesAccountHost(f) && !(f in FORK_SWEEP_EXEMPT))
+    expect(
+      unregistered,
+      `these deploy to, test against or link to an account subdomain no rename can guess — register each with what a fork must repoint: ${unregistered.join(", ")}`,
     ).toEqual([])
   })
 
@@ -69,11 +124,31 @@ describe("R26 — the fork sweep reaches every identity literal", () => {
     expect(shipped().filter(carries).length, "the identity regex must match real files").toBeGreaterThan(20)
   })
 
-  it("every fork-sweep exemption is a real file that really carries the name", () => {
-    for (const [f, why] of Object.entries(FORK_SWEEP_EXEMPT)) {
-      expect(why.length, `${f} needs a written reason`).toBeGreaterThan(20)
-      expect(carries(f), `${f} no longer carries the product name — drop the exemption`).toBe(true)
+  // The map must not rot in the OTHER direction either. An entry whose hazard is
+  // gone is a line telling a forker to do work that no longer exists, and — worse
+  // — a line the closing fork report prints as if it still mattered.
+  it("every fork-sweep exemption is a real shipped file that is still one of the two hazards", () => {
+    const reach = swept()
+    const ship = new Set(shipped())
+    const entries = Object.entries(FORK_SWEEP_EXEMPT)
+    expect(entries.length, "the register is empty, so every case above passes on nothing — see the R26 comment in shared/rules/registry.ts").toBeGreaterThan(0)
+    for (const [f, why] of entries) {
+      expect(ship.has(f), `${f} is registered but does not ship — drop the entry`).toBe(true)
+      expect(why.length, `${f} needs a written reason a forker can act on`).toBeGreaterThan(20)
+      expect(
+        isBinary(f, reach) || namesAccountHost(f) || (!reach.has(f) && carries(f)),
+        `${f} is no longer unsweepable — it carries no account host, is not a binary outside the sweep, and holds no identity literal. Drop the exemption.`,
+      ).toBe(true)
     }
+  })
+
+  // Both new scans must actually FIND their hazard. If the reach ever widened to
+  // swallow every binary, or the host shape stopped matching, the two cases above
+  // would go green on an empty set and nobody would know.
+  it("neither new scan can pass vacuously — both hazards are really present", () => {
+    const reach = swept()
+    expect(tracked().filter((f) => isBinary(f, reach)).length, "no committed binaries found at all — the binary scan has gone blind").toBeGreaterThan(0)
+    expect(shipped().filter(namesAccountHost).length, "no account-scoped host found at all — the host scan has gone blind").toBeGreaterThan(0)
   })
 })
 

@@ -1,0 +1,73 @@
+-- 0018 · SPEED: two indexes the core database's own hot reads need.
+--
+-- 0015 indexed the core table's SORTS and its retention SWEEPS. Two query
+-- shapes were still unindexed, and one of them sits on a door a signed-in
+-- person can knock on:
+--
+--   1. THE CREATE-TEAM CAP. Every create-team request counts how many teams the
+--      caller has already created, to enforce MAX_TEAMS_PER_USER. That count had
+--      no index, so a user-facing door scanned the whole teams table — and
+--      `teams` is the one table that grows with EVERY tenant on the account, not
+--      with any single tenant's use. The scan gets slower for everybody each
+--      time anyone anywhere creates a team.
+--   2. THE NIGHTLY SHARD RECOUNT. Counting active members per team read every
+--      membership row through an index that could not answer "is this one
+--      active?", so it fetched each row from the table to find out.
+--
+-- Found by the speed review, 2026-08-25.
+--
+-- WHAT IS DELIBERATELY NOT HERE. Three more indexes were proposed and measured
+-- with EXPLAIN QUERY PLAN before being left out — an index that serves no real
+-- query is not free, it is a second b-tree to write on every insert, and this
+-- repo runs one database PER TEAM, so the cost multiplies by tenant count:
+--
+--   · teams(db_status) — SQLite declines to use it even when offered. Every
+--     healthy team is 'ready', so the column separates almost nothing, and the
+--     two readers that filter on it (the migration robot and the nightly orphan
+--     sweep) want every one of those rows anyway. The per-team lookups that also
+--     name db_status already seek on the primary key.
+--   · member_roles(is_default) — a real query ("which role is Admin?"), but on a
+--     handful of rows that live in a single page. Scanning them is cheaper than
+--     the index, and is_default has exactly two values.
+--   · re-leading idx_db_alerts_open to (resolved_at, database_id) — its current
+--     lead, database_id, is the SELECTIVE one, and it is what both hot callers
+--     filter on ("is this database already alerting?" / "resolve this one").
+--     Only the operator's open-alerts list leads with resolved_at, and it reads a
+--     table that holds one row per over-threshold database. Re-leading would
+--     have slowed the two to speed the one.
+
+-- THE CREATE-TEAM CAP: SELECT COUNT(*) FROM teams WHERE creator_id = ?
+-- (workers/tenancy/src/routes/team.ts, createNamedTeam). Covering — the count is
+-- answered from the index without touching the table at all.
+CREATE INDEX IF NOT EXISTS idx_teams_creator ON teams (creator_id);
+
+-- THE NIGHTLY SHARD RECOUNT: SELECT team_id, COUNT(*) FROM team_members
+-- WHERE deactivated_at IS NULL GROUP BY team_id HAVING COUNT(*) > ?
+-- (workers/tenancy/src/lib/sharding.ts, recomputeShardCounts).
+--
+-- deactivated_at LEADS on purpose, even though it is the less selective column.
+-- It is the one the query constrains, so leading with it turns a full scan into a
+-- seek straight to the active rows; team_id second means those rows arrive
+-- already grouped, so the GROUP BY needs no temporary b-tree. Leading with
+-- team_id instead would still avoid the temp b-tree but would have to walk the
+-- deactivated rows too.
+--
+-- It serves the hot per-team reads as well — "how many active members does this
+-- team have?" (teams.ts) and the last-admin guard (members.ts) both constrain
+-- BOTH columns, so either order seeks; this one just also serves the sweep.
+CREATE INDEX IF NOT EXISTS idx_team_members_active ON team_members (deactivated_at, team_id);
+
+-- AND ONE THAT HAS BEEN DEAD SINCE 0015. idx_team_members_team is (team_id)
+-- alone, which is the leading column of idx_team_members_team_created — so every
+-- query that could use it has had a better index to reach for since 0015 added
+-- that composite. Checked rather than assumed: with all five real query shapes
+-- planned by EXPLAIN QUERY PLAN, against this migration chain, SQLite chooses it
+-- for NONE of them even while it exists. The per-team member lookup goes to the
+-- UNIQUE (team_id, user_id) auto-index, the members list to the composite, the
+-- active counts to the index above, and "which teams am I in?" to
+-- idx_team_members_user — which stays, because user_id leads nothing else.
+--
+-- Dropping it costs nothing and saves a b-tree write on every membership change,
+-- on the core table that carries every tenant at once. Same housekeeping 0007 did
+-- in the team schema when its composites absorbed three filter-only indexes.
+DROP INDEX IF EXISTS idx_team_members_team;

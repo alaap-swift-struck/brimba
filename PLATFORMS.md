@@ -23,11 +23,31 @@ code. A port = back these five with the target platform's primitives.
 
 | # | Pillar | What Brimba uses (Cloudflare) | The one seam file to swap |
 |---|--------|-------------------------------|----------------------------|
-| 1 | **Per-team data isolation** | one **D1** (SQLite) database *per team* + one core D1 for global identity/billing | `shared/workers/d1-rest.ts` (`d1Query` / `d1ExecScript` / `d1QueryAcross` / `sqlString`) — the ONLY place SQL runs |
+| 1 | **Per-team data isolation** | one **D1** (SQLite) database *per team* + one core D1 for global identity/billing, plus the operations D1 | `shared/workers/d1-rest.ts` (`d1Query` / `d1ExecScript` / `d1QueryAcross` / `sqlString`) — the only place **per-team** SQL runs (see below) |
 | 2 | **The live layer** | the `TeamChannel` **Durable Object** fans out change pings | `shared/workers/realtime.ts` (`publishChange`) — the ONLY broadcast seam |
 | 3 | **Compute** | **7 Workers** behind one public gateway | each `workers/*` + the gateway router (the shape ports; the runtime swaps) |
 | 4 | **File storage** | **R2**, keyed per team | the R2 `.put/.get` calls in `content` + `gateway` (`/media/*`) |
 | 5 | **Static web** | Next.js **static export** served at the edge | none — a static bundle any host can serve |
+
+**Pillar 1 is two doors, not one — a port has to move both.** `d1-rest.ts` is the
+only place SQL reaches a **per-team** database, because a team database is named
+at runtime and can only be reached over D1's REST API. The **core** and
+**operations** databases are different: they are fixed, so workers reach them
+through the native `env.DB` / `OPS` bindings and write SQL **inline, at well over a
+hundred `.prepare(` sites spread across more than two dozen files** in `workers/`
+and `shared/` — not behind any seam at all. No exact figure is pinned here on
+purpose: it changed twice on the day this paragraph was written. Count it when you
+need it:
+
+```
+grep -rno "\.prepare(" --include="*.ts" workers shared | grep -v "/test/" | wc -l
+```
+
+Sessions, invites, teams, memberships, credits, MCP tokens and the error log all
+live behind that second door. **Porting `d1-rest.ts` alone moves the tenant data
+and leaves identity behind** — and because the inline half has no seam, a port has
+to touch every one of those call sites by hand. That asymmetry is the real cost of
+pillar 1, and it is the thing to plan for first.
 
 Two more are **already provider-agnostic seams** (swap by config, no port):
 

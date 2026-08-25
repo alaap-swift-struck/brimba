@@ -59,6 +59,28 @@ function seedMembers(db: DatabaseSync, rows: { id: string; user: string; role: s
 const adminCount = (db: DatabaseSync) =>
   (db.prepare("SELECT COUNT(*) AS n FROM team_members WHERE role_id='ADMIN' AND deactivated_at IS NULL").get() as { n: number }).n
 
+/** An AUTH binding that answers the way auth's `/internal/send-email` REALLY
+ * answers — a JSON body carrying `sent`, on a 200 either way.
+ *
+ * The old stand-in here was `{ ok: true }`: an object with a status and no body
+ * at all. Nothing auth returns looks like that, and it is precisely the shape
+ * that hid the bug — a caller reading only `res.ok` passes against it whatever
+ * the mailer actually did. A fake that cannot express the failure cannot test
+ * for it. */
+const mailer = (sent: boolean) => ({
+  fetch: async () =>
+    new Response(JSON.stringify({ sent }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }),
+})
+/** The mail hop is DOWN — `callService` catches the throw and answers null. */
+const mailerDown = {
+  fetch: async () => {
+    throw new TypeError("no such service")
+  },
+}
+
 beforeEach(() => {
   d1Query.mockReset()
   d1Query.mockImplementation(async (_c: unknown, _db: unknown, sql: string, params?: string[]) => {
@@ -142,7 +164,7 @@ describe("createInvite against a real SQLite database (end-to-end write path)", 
       CREATE TABLE invite_index (id TEXT PRIMARY KEY, email TEXT NOT NULL, team_id TEXT NOT NULL, invite_row_id TEXT NOT NULL, role_id TEXT NOT NULL, expires_at TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL);
       CREATE UNIQUE INDEX idx_invite_pending_unique ON invite_index (team_id, email) WHERE status = 'pending';
       INSERT INTO teams (id, name) VALUES ('T', 'Acme');`)
-    const env = { DB: makeD1(db), AUTH: { fetch: async () => ({ ok: true }) }, INTERNAL_KEY: "" } as never
+    const env = { DB: makeD1(db), AUTH: mailer(true), INTERNAL_KEY: "" } as never
 
     const req = new Request("https://app/") // origin for the email link fallback (PUBLIC_APP_URL unset)
     await createInvite(env, cfg, guard, actor, "x@y.com", "R", req)
@@ -168,7 +190,7 @@ describe("createInvite against a real SQLite database (end-to-end write path)", 
     const count = () => (db.prepare("SELECT COUNT(*) AS n FROM invite_index WHERE status='pending'").get() as { n: number }).n
 
     // Inviting your OWN address is refused up front (case-insensitive) — no row, no email.
-    const env = { DB: makeD1(db), AUTH: { fetch: async () => ({ ok: true }) }, INTERNAL_KEY: "" } as never
+    const env = { DB: makeD1(db), AUTH: mailer(true), INTERNAL_KEY: "" } as never
     await expect(createInvite(env, cfg, guard, actor, actor.email.toUpperCase(), "R", req)).rejects.toMatchObject({
       code: "self_invite",
     })
@@ -179,11 +201,57 @@ describe("createInvite against a real SQLite database (end-to-end write path)", 
 
     // …and false when the branded email couldn't be sent — WITHOUT failing the invite
     // (the invite_index row still routes the acceptance; the invitee can accept in-app).
-    const envMailDown = { DB: makeD1(db), AUTH: { fetch: async () => ({ ok: false, status: 500 }) }, INTERNAL_KEY: "" } as never
+    const envMailDown = { DB: makeD1(db), AUTH: mailerDown, INTERNAL_KEY: "" } as never
     const res = await createInvite(envMailDown, cfg, guard, actor, "another@x.com", "R", req)
     expect(res.emailSent).toBe(false)
     expect(res.inviteId).toBeTruthy()
     expect(count()).toBe(2) // both invites created despite the mail outcome
+  })
+
+  // THE ONE THAT MATTERS. Auth's `/internal/send-email` answers a clean **200
+  // with `{ sent: false }`** whenever `RESEND_API_KEY` is unset — a healthy door
+  // saying "I did not send it". A door that reads only `res.ok` cannot tell that
+  // apart from a delivered email, so it reports the invite as SENT: to the admin
+  // on screen, to the agent that says so in a sentence, and by implication to the
+  // person waiting for an email that will never arrive. The invite is fine — the
+  // `invite_index` row still routes the acceptance — but the SENTENCE is a lie,
+  // and this flag exists for no other purpose than to keep it true.
+  describe("an unconfigured mailer is not a sent email", () => {
+    function bed() {
+      const db = new DatabaseSync(":memory:")
+      db.exec(`
+        CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT);
+        CREATE TABLE team_members (id TEXT PRIMARY KEY, team_id TEXT, user_id TEXT, role_id TEXT, deactivated_at TEXT);
+        CREATE TABLE teams (id TEXT PRIMARY KEY, name TEXT);
+        CREATE TABLE invite_index (id TEXT PRIMARY KEY, email TEXT NOT NULL, team_id TEXT NOT NULL, invite_row_id TEXT NOT NULL, role_id TEXT NOT NULL, expires_at TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL);
+        INSERT INTO teams (id, name) VALUES ('T', 'Acme');`)
+      return db
+    }
+    const req = new Request("https://app/")
+    const pending = (db: DatabaseSync) =>
+      (db.prepare("SELECT COUNT(*) AS n FROM invite_index WHERE status='pending'").get() as { n: number }).n
+
+    it("reports emailSent FALSE when the mailer answers 200 { sent: false }", async () => {
+      const db = bed()
+      const env = { DB: makeD1(db), AUTH: mailer(false), INTERNAL_KEY: "" } as never
+      const res = await createInvite(env, cfg, guard, actor, "nomail@x.com", "R", req)
+      expect(
+        res.emailSent,
+        "auth answered 200 and said it did NOT send — reporting that as sent is the exact dishonesty this flag was added to prevent"
+      ).toBe(false)
+      // …and the invite itself is untouched: mail is best-effort, the row is the truth.
+      expect(res.inviteId).toBeTruthy()
+      expect(pending(db)).toBe(1)
+    })
+
+    it("still reports emailSent TRUE when the mailer confirms the send", async () => {
+      const db = bed()
+      const env = { DB: makeD1(db), AUTH: mailer(true), INTERNAL_KEY: "" } as never
+      expect(
+        (await createInvite(env, cfg, guard, actor, "real@x.com", "R", req)).emailSent,
+        "the other direction matters just as much — a flag that is always false is no more honest than one that is always true"
+      ).toBe(true)
+    })
   })
 })
 
@@ -211,12 +279,18 @@ describe("acceptInvite / listReceivedInvites against a real SQLite database", ()
       .run(o.id, o.email ?? "invitee@x.com", o.team ?? "T1", o.id, o.expires ?? "2030-01-01", o.status ?? "pending")
   const members = (db: DatabaseSync) =>
     (db.prepare("SELECT COUNT(*) AS n FROM team_members WHERE team_id='T1' AND user_id='U'").get() as { n: number }).n
+  /** The route `ctx`. `acceptInvite` hands its three change pings to
+   * `ctx.waitUntil` rather than awaiting them (LAW R1 accepts either), so the
+   * response no longer waits on the live layer. A no-op stand-in is right here:
+   * `REALTIME` is a bare `{}`, and a live layer that cannot be reached is exactly
+   * what `callService` swallows — the best-effort contract these tests rely on. */
+  const CTX = { waitUntil: () => {}, passThroughOnException: () => {} } as never
 
   it("joins + switches when the caller accepts their own pending invite", async () => {
     const db = setup()
     addInvite(db, { id: "inv1" })
     const env = { DB: makeD1(db), REALTIME: {} } as never
-    expect(await acceptInvite(env, invitee, "inv1")).toBe("T1")
+    expect(await acceptInvite(env, invitee, "inv1", CTX)).toBe("T1")
     expect(members(db)).toBe(1)
     expect((db.prepare("SELECT status s FROM invite_index WHERE id='inv1'").get() as { s: string }).s).toBe("accepted")
     expect((db.prepare("SELECT current_team_id c FROM users WHERE id='U'").get() as { c: string }).c).toBe("T1")
@@ -226,7 +300,7 @@ describe("acceptInvite / listReceivedInvites against a real SQLite database", ()
     const db = setup()
     addInvite(db, { id: "inv2", email: "someone-else@x.com" })
     const env = { DB: makeD1(db), REALTIME: {} } as never
-    expect(await acceptInvite(env, invitee, "inv2")).toBeNull()
+    expect(await acceptInvite(env, invitee, "inv2", CTX)).toBeNull()
     expect(members(db)).toBe(0)
     expect((db.prepare("SELECT status s FROM invite_index WHERE id='inv2'").get() as { s: string }).s).toBe("pending")
   })
@@ -235,7 +309,7 @@ describe("acceptInvite / listReceivedInvites against a real SQLite database", ()
     const db = setup()
     addInvite(db, { id: "inv3", expires: "2000-01-01" })
     const env = { DB: makeD1(db), REALTIME: {} } as never
-    expect(await acceptInvite(env, invitee, "inv3")).toBeNull()
+    expect(await acceptInvite(env, invitee, "inv3", CTX)).toBeNull()
     expect(members(db)).toBe(0)
   })
 
@@ -243,8 +317,8 @@ describe("acceptInvite / listReceivedInvites against a real SQLite database", ()
     const db = setup()
     addInvite(db, { id: "inv4" })
     const env = { DB: makeD1(db), REALTIME: {} } as never
-    expect(await acceptInvite(env, invitee, "inv4")).toBe("T1")
-    expect(await acceptInvite(env, invitee, "inv4")).toBeNull() // already accepted
+    expect(await acceptInvite(env, invitee, "inv4", CTX)).toBe("T1")
+    expect(await acceptInvite(env, invitee, "inv4", CTX)).toBeNull() // already accepted
     expect(members(db)).toBe(1) // not two
   })
 
@@ -256,7 +330,7 @@ describe("acceptInvite / listReceivedInvites against a real SQLite database", ()
     ).run()
     addInvite(db, { id: "inv5" }) // role 'ROLE'
     const env = { DB: makeD1(db), REALTIME: {} } as never
-    expect(await acceptInvite(env, invitee, "inv5")).toBe("T1")
+    expect(await acceptInvite(env, invitee, "inv5", CTX)).toBe("T1")
     const row = db
       .prepare("SELECT role_id r, deactivated_at d FROM team_members WHERE team_id='T1' AND user_id='U'")
       .get() as { r: string; d: string | null }

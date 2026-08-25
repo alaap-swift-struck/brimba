@@ -221,8 +221,10 @@ exported.
 **The worked matrix case — member roles.** The roles export flattens the permission
 matrix to one `<module>.<right>` yes/no column each (built from
 `shared/team-modules.ts`, the ONE module list). The member_roles import target
-declares the same 32 optional columns, so an exported roles file imports straight
-back (**export ↔ import round-trip**) — and a hand-made file can carry permissions
+declares the same optional columns — one per module per right, which is seven
+modules × four rights = 28 today, and a new module adds four without anyone editing
+a list — so an exported roles file imports straight back (**export ↔ import
+round-trip**), and a hand-made file can carry permissions
 too (the sample shows the pattern). A row WITH matrix cells creates the role AND
 sets its matrix (the create door then demands create **and** edit — the same gate
 the Roles screen's matrix editor goes through); a row without stays a plain create

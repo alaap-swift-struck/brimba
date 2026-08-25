@@ -19,7 +19,11 @@ export type ProfileInput = {
 export async function updateProfile(
   env: Env,
   user: UserRow,
-  input: ProfileInput
+  input: ProfileInput,
+  /** The route's `ctx`, so the identity fan-out below leaves AFTER the response.
+   * A person editing their own name was waiting on one service hop per team they
+   * belong to, for pings that only ever refresh OTHER screens. */
+  ctx: ExecutionContext
 ): Promise<{ user: ReturnType<typeof toSessionUser> } | { error: string; message: string }> {
   const firstName = (input.firstName ?? "").trim()
   const lastName = (input.lastName ?? "").trim()
@@ -85,14 +89,14 @@ export async function updateProfile(
   //   • every team they're in re-pulls their member row, so OTHER members see the
   //     new name/photo (a row-level "members" edit on each team's channel).
   if (nameChanged || photoChanged) {
-    await publishUserChange(env.REALTIME, user.id, "profile", user.id, "edit")
+    ctx.waitUntil(publishUserChange(env.REALTIME, user.id, "profile", user.id, "edit"))
     const teams = await env.DB.prepare(
       "SELECT team_id FROM team_members WHERE user_id = ? AND deactivated_at IS NULL"
     )
       .bind(user.id)
       .all<{ team_id: string }>()
     for (const t of teams.results ?? [])
-      await publishChange(env.REALTIME, t.team_id, "members", user.id, "edit")
+      ctx.waitUntil(publishChange(env.REALTIME, t.team_id, "members", user.id, "edit"))
   }
 
   const updated = await env.DB.prepare("SELECT * FROM users WHERE id = ?")

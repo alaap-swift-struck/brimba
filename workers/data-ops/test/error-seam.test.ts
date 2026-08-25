@@ -15,7 +15,7 @@ import { readdirSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 
-import { catchBodies, stripComments } from "../../../shared/test/source"
+import { catchBodies, declarationBody, stripComments } from "../../../shared/test/source"
 
 const WORKERS = readdirSync(join(__dirname, "..", ".."), { withFileTypes: true })
   .filter((e) => e.isDirectory())
@@ -75,7 +75,28 @@ describe("error seam: every worker records crashes centrally", () => {
         entry = code.slice(start, i + 1)
       }
       expect(start, `${w} has no fetch handler — this scan has gone blind`).toBeGreaterThan(-1)
-      const catches = catchBodies(entry).join("\n")
+      const inline = catchBodies(entry).join("\n")
+
+      // A catch may DELEGATE to a helper in the same file, and on 2026-08-25 the
+      // gateway's started to: its central catch and its new downstream-failure
+      // recorder were writing the same row two different ways, which is how two
+      // copies of one body drift apart. Hoisting them into one `sendErrorRow`
+      // was right — and it turned this check red, because the check was reading
+      // for the literal INSIDE the catch rather than asking whether the request
+      // path reaches the recorder.
+      //
+      // So: follow the helpers the catch ACTUALLY CALLS, one level, and only
+      // ones declared in this same file. That is the honest widening. Searching
+      // the whole file instead would pass on a recorder the catch never calls —
+      // which is the exact fault the comment above records this check having had.
+      const called = new Set([...inline.matchAll(/\b([a-zA-Z_$][\w$]*)\s*\(/g)].map((m) => m[1]))
+      const helpers = [...called]
+        .map((name) => {
+          const decl = new RegExp(`(?:async\\s+)?function\\s+${name}\\s*\\(`).exec(code)
+          return decl ? declarationBody(code, decl.index) : ""
+        })
+        .join("\n")
+      const catches = `${inline}\n${helpers}`
 
       // TWO sanctioned routes, and only two.
       //

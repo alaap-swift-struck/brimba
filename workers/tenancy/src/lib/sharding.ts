@@ -1,3 +1,4 @@
+// WHERE A TENANT'S DATA LIVES, and what to do when one place has too much of it.
 // The sharding machinery (locked decision: built up front).
 //
 // Relief valves, in order of reach:
@@ -8,6 +9,18 @@
 //  3. SPLIT  — reads for a (team, module) can span several databases via
 //              resolveModuleDatabases() + d1QueryAcross() (the merged-read
 //              path modules will use).
+//  4. CHANNELS — the request-side valve: raise a team's live-channel shard count
+//              once it has outgrown a single Durable Object.
+//
+// FORGETTING is a different job and lives in `housekeeping.ts` — the retention
+// sweep over the log tables and the orphan sweep over object storage. The two
+// files share the nightly cron and nothing else; this one was 862 lines because
+// they used to share a file too.
+//
+// What DOES belong here alongside the valves is the nightly job's own state
+// (its heartbeat and the per-team cursor) and the account-wide spend alarm:
+// both are "is this account healthy", which is the same question the size
+// alarms ask, one meter down.
 
 import {
   d1CreateDatabase,
@@ -22,14 +35,6 @@ import { ulid } from "../../../../shared/workers/id"
 import { numberVar } from "../../../../shared/workers/limits"
 import { shardCount } from "../../../../shared/workers/realtime"
 import { opsDatabase } from "../../../../shared/workers/ops-db"
-import {
-  CORE_RETENTION,
-  OPS_RETENTION,
-  EXPIRED_SESSIONS_SQL,
-  TEAM_RETENTION,
-  cutoffFor,
-  type RetentionRule,
-} from "../../../../shared/workers/retention"
 import type { Env } from "../env"
 import { logActivity, SYSTEM_ACTOR } from "../../../../shared/workers/activity"
 import { recordWorkerError } from "../../../../shared/workers/error-log"
@@ -63,6 +68,180 @@ export const ALERT_THRESHOLD_BYTES = Math.floor(8 * 1024 * 1024 * 1024)
  * the shape of an alarm that reports all clear. (Scaling review, round 3.) */
 const CORE_DB_NAMES = /-(core|ops)(-staging)?$/
 const COPY_BATCH = 250
+/** How many nightly size rows go into one `batch()`. See `checkDatabaseSizes`. */
+const METER_BATCH = 500
+
+/* --------------------------- the nightly job's own state ------------------- */
+
+/** The one job this file's cron drives. A column rather than a table per job, so
+ * a second scheduled job is a row and not a migration. */
+const NIGHTLY_JOB = "tenancy-nightly"
+
+/** Two small tables the nightly job keeps for itself, created on first run.
+ *
+ * WHY HERE AND NOT IN A MIGRATION. They belong in `db/core` and a migration for
+ * them is reported alongside this change — but these are the job's OWN
+ * bookkeeping, not app records, and an ops job that crashes every night until
+ * someone remembers to run a migration is worse than an ops job that makes its
+ * own scratchpad. `IF NOT EXISTS` makes this a no-op every night after the
+ * first, it runs once per invocation on a cron rather than on any request path,
+ * and once the migration lands this simply stops being the thing that created
+ * them. (The same self-healing shape as the import catalogue under R13.)
+ *
+ * BOTH LIVE IN THE CORE DATABASE, beside `db_alerts` — the sizing and alarm
+ * state they belong with. They deliberately do NOT join `OPS_TABLES`: that list
+ * is pinned to the operations schema and to `OPS_RETENTION`, so a table added to
+ * it must be added in two files this change does not own. */
+export async function ensureNightlyTables(env: Env): Promise<void> {
+  // Where the nightly job got to: its heartbeat, and how far the per-team walk
+  // has cursored. One row, upserted — it is state, not history, so it cannot grow.
+  await env.DB.prepare(
+    `CREATE TABLE IF NOT EXISTS cron_runs (
+       job TEXT PRIMARY KEY,
+       last_run_at TEXT,
+       cursor TEXT
+     )`
+  ).run()
+  // The storage meter (below): a D1 file size per watched database, plus an
+  // `r2:`-prefixed row per team from the orphan sweep. HISTORY, so it is the one
+  // thing here that grows — its window is `CORE_RETENTION`'s, swept by
+  // `runRetention` on this same nightly pass.
+  await env.DB.prepare(
+    `CREATE TABLE IF NOT EXISTS db_sizes (
+       database_id TEXT NOT NULL,
+       name TEXT NOT NULL,
+       size_bytes INTEGER NOT NULL,
+       at TEXT NOT NULL
+     )`
+  ).run()
+  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_db_sizes_at ON db_sizes (at)").run()
+  await env.DB.prepare(
+    "CREATE INDEX IF NOT EXISTS idx_db_sizes_name_at ON db_sizes (name, at)"
+  ).run()
+  // `agent_usage`'s primary key is (team_id, period), which cannot serve the
+  // account-wide roll-up below — that predicate names only `period`, so without
+  // this the nightly SUM scans every team's every day. Additive and idempotent.
+  await env.DB.prepare(
+    "CREATE INDEX IF NOT EXISTS idx_agent_usage_period ON agent_usage (period)"
+  ).run()
+}
+
+/** When the nightly job last finished, or null if it never has. Read by the
+ * digest, which is the only thing that can act on the answer. */
+export async function lastCronRunAt(env: Env): Promise<string | null> {
+  const row = await env.DB.prepare("SELECT last_run_at FROM cron_runs WHERE job = ?")
+    .bind(NIGHTLY_JOB)
+    .first<{ last_run_at: string | null }>()
+  return row?.last_run_at ?? null
+}
+
+/** Where the per-team walk stopped last night. Empty (or never written) starts
+ * the rota from the top, which is also exactly what a fresh install wants. */
+export async function sweepCursor(env: Env): Promise<string> {
+  const row = await env.DB.prepare("SELECT cursor FROM cron_runs WHERE job = ?")
+    .bind(NIGHTLY_JOB)
+    .first<{ cursor: string | null }>()
+  return row?.cursor ?? ""
+}
+
+/** THE HEARTBEAT. A cron that stops firing is otherwise completely invisible:
+ * it raises no error, and its silence is indistinguishable from a quiet night.
+ * Written last, so it means "the whole pass completed", not "the pass started". */
+export async function noteCronHeartbeat(env: Env): Promise<void> {
+  await env.DB.prepare(
+    `INSERT INTO cron_runs (job, last_run_at) VALUES (?, ?)
+     ON CONFLICT(job) DO UPDATE SET last_run_at = excluded.last_run_at`
+  )
+    .bind(NIGHTLY_JOB, new Date().toISOString())
+    .run()
+}
+
+/** Where the per-team walk stopped tonight, so tomorrow starts there.
+ *
+ * SAVED IMMEDIATELY AFTER THE WALK, not at the end of the whole pass. If this
+ * rode along with the heartbeat, anything that threw between the two would leave
+ * the cursor unmoved — and a job that fails at the same step every night would
+ * re-sweep the same first page for ever while every team behind it went
+ * permanently unswept. A starved sweep that looks busy is worse than a loud one. */
+export async function noteSweepCursor(env: Env, cursor: string): Promise<void> {
+  await env.DB.prepare(
+    `INSERT INTO cron_runs (job, cursor) VALUES (?, ?)
+     ON CONFLICT(job) DO UPDATE SET cursor = excluded.cursor`
+  )
+    .bind(NIGHTLY_JOB, cursor)
+    .run()
+}
+
+/* ------------------------ the account-wide spend alarm --------------------- */
+
+/** Account-wide AI units per day past which somebody should look.
+ *
+ * THE GAP THIS CLOSES. Every AI quota read in the base is scoped
+ * `WHERE team_id = ?`, so each team is capped and the ACCOUNT is not: a hundred
+ * teams each politely inside a 50-unit free entitlement is five thousand units a
+ * day that nothing anywhere is counting. Per-tenant limits do not add up to a
+ * budget, and the first notice of that is the invoice.
+ *
+ * The number is a smoke alarm, not a cap — it stops nothing, it just makes the
+ * account-wide total something a person finds out about. Roughly a hundred teams
+ * at the production free allowance; raise it per environment with
+ * ACCOUNT_AI_DAILY_ALARM as the tenant count grows. */
+export const ACCOUNT_AI_DAILY_ALARM = 5_000
+
+/** The synthetic `db_alerts.database_id` this alarm files under. Real ones are
+ * UUIDs, so the prefix cannot collide with a database — and reusing `db_alerts`
+ * means this shows up in the existing admin alarm list with no new plumbing. */
+const ACCOUNT_SPEND_ALERT_ID = "account:ai-spend"
+
+/**
+ * Nightly: is the WHOLE ACCOUNT's AI spend past the line today?
+ *
+ * On the cron deliberately, and never on a request path: a per-request
+ * `SUM(used)` over every team would put a growing aggregate in front of every
+ * agent turn, which buys a number nobody reads at a cost everybody pays.
+ *
+ * Writes a `db_alerts` row rather than an activity row on purpose — this is an
+ * account-wide fact with no team behind it, so it has no `relatedTable` that
+ * could resolve through `ACTIVITY_GATE_MAP` (LAW R18) and no team whose feed it
+ * would belong in. It is an operator's alarm, not a customer's history.
+ */
+export async function checkAccountAiSpend(
+  env: Env
+): Promise<{ used: number; cap: number; alarmed: boolean }> {
+  const period = new Date().toISOString().slice(0, 10) // the daily metering window
+  const cap = numberVar(env.ACCOUNT_AI_DAILY_ALARM, ACCOUNT_AI_DAILY_ALARM)
+  // An aggregate, so it returns ONE row however many tenants exist — no cap is
+  // needed or meaningful (R14 is about rows returned, and this returns one).
+  const row = await env.DB.prepare("SELECT SUM(used) AS used FROM agent_usage WHERE period = ?")
+    .bind(period)
+    .first<{ used: number | null }>()
+  const used = row?.used ?? 0
+  if (used < cap) return { used, cap, alarmed: false }
+
+  // Same dedupe as the size alarm: one OPEN row per condition, so a month over
+  // budget is one alarm to resolve rather than thirty to wade through.
+  const open = await env.DB.prepare(
+    "SELECT id FROM db_alerts WHERE database_id = ? AND resolved_at IS NULL"
+  )
+    .bind(ACCOUNT_SPEND_ALERT_ID)
+    .first<{ id: string }>()
+  if (open) return { used, cap, alarmed: false }
+
+  await env.DB.prepare(
+    `INSERT INTO db_alerts (id, database_id, database_name, size_bytes, threshold_bytes, created_at)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  )
+    .bind(ulid(), ACCOUNT_SPEND_ALERT_ID, `account AI spend ${period}`, used, cap, new Date().toISOString())
+    .run()
+
+  const detail = `ACCOUNT AI SPEND ALARM: ${used} AI unit(s) used across every team on ${period}, past the ${cap}/day line. Every quota in the base is per-team, so nothing else would have noticed.`
+  console.error(detail)
+  // Into the store the nightly digest reads, so this reaches a person tonight
+  // rather than waiting for someone to open the alarm list. Once per episode,
+  // for the same reason the row above is deduped.
+  await recordWorkerError(opsDatabase(env), "tenancy", "cron/ai-spend", new Error(detail))
+  return { used, cap, alarmed: true }
+}
 
 /** Nightly: size every database this project owns, alarm on anything ≥ the
  * threshold.
@@ -72,7 +251,16 @@ const COPY_BATCH = 250
  * invites, the error log, account activity, agent usage — as the only one
  * nobody was watching. Per-team sharding does nothing for it: it holds the SUM
  * of all tenants, so it is the first shared thing to reach D1's 10 GB cap and it
- * has no mover to relieve it. (Scaling review, 2026-08-11.) */
+ * has no mover to relieve it. (Scaling review, 2026-08-11.)
+ *
+ * AND IT RECORDS EVERY SIZE, not only the alarming ones. `db_sizes` shipped with
+ * a table, two indexes, a migration whose comment promises "one row per database
+ * per night" and a retention rule — and the ONLY thing ever writing to it was the
+ * orphan sweep, filing R2 media bytes. So this pass held `db.file_size` for every
+ * database in the account and threw all of it away below the threshold, which is
+ * exactly the number the meter exists to trend. An alarm answers "is it full";
+ * only a history answers "when will it be", and that was the question `db_sizes`
+ * was created for. (Scaling review, round 5.) */
 export async function checkDatabaseSizes(
   env: Env,
   cfg: D1Rest
@@ -80,6 +268,26 @@ export async function checkDatabaseSizes(
   const all = await d1ListDatabases(cfg)
   const watched = all.filter((db) => db.name.startsWith("team-") || CORE_DB_NAMES.test(db.name))
   const alerted: string[] = []
+
+  // THE METER, before the alarm and unconditional — the value is already in hand,
+  // so a night's history costs one write per database and nothing else.
+  //
+  // `name` is the D1 database name (`team-…`, `<project>-core`, `<project>-ops`).
+  // The orphan sweep files ITS rows under `r2:learning-media/<team>`, so the two
+  // meters share a table and stay legible apart: a `r2:` prefix is object storage,
+  // anything else is a D1 file size. Retention is `CORE_RETENTION`'s job, on the
+  // same nightly pass (`shared/workers/retention.ts`).
+  const at = new Date().toISOString()
+  const meter = watched.map((db) =>
+    env.DB.prepare(
+      "INSERT INTO db_sizes (database_id, name, size_bytes, at) VALUES (?, ?, ?, ?)"
+    ).bind(db.uuid, db.name, db.file_size ?? 0, at)
+  )
+  // Chunked: this walks EVERY database the project owns, so at ten thousand
+  // tenants one batch would be ten thousand statements. A handful of round trips
+  // instead, whatever the tenant count.
+  for (let i = 0; i < meter.length; i += METER_BATCH)
+    await env.DB.batch(meter.slice(i, i + METER_BATCH))
 
   for (const db of watched) {
     if ((db.file_size ?? 0) < ALERT_THRESHOLD_BYTES) continue
@@ -104,9 +312,16 @@ export async function checkDatabaseSizes(
         new Date().toISOString()
       )
       .run()
-    console.error(
-      `D1 SIZE ALARM: ${db.name} is at ${db.file_size} bytes (>=${Math.round((ALERT_THRESHOLD_BYTES / (10 * 1024 ** 3)) * 100)}% of cap). Run the module mover.`
-    )
+    const detail = `D1 SIZE ALARM: ${db.name} is at ${db.file_size} bytes (>=${Math.round((ALERT_THRESHOLD_BYTES / (10 * 1024 ** 3)) * 100)}% of cap). Run the module mover.`
+    console.error(detail)
+    // AND INTO THE ONE STORE THAT HAS A READER. The `db_alerts` row above is the
+    // durable alarm state, but nothing mails it and no screen shows it — this is
+    // the same "recorded, never delivered" gap the nightly digest was built to
+    // close, so the alarm is routed into the store the digest actually reads.
+    // Written only on the transition to open (the dedupe check above returned
+    // nothing), so a database sitting at 80% for a month writes ONE row, not
+    // thirty: the alarm must not become the next unbounded writer.
+    await recordWorkerError(opsDatabase(env), "tenancy", "cron/db-size-alarm", new Error(detail))
     alerted.push(db.name)
   }
   return { checked: watched.length, alerted }
@@ -324,267 +539,3 @@ export async function moveModuleToOwnDatabase(
   return { databaseId: newDbId, movedRows }
 }
 
-/* ------------------------------- retention -------------------------------- */
-
-/** Delete what a rule says may be forgotten, one BOUNDED batch at a time.
- *
- * The batch matters. A first sweep of a table nobody has ever pruned could match
- * millions of rows, and one unbounded DELETE would sit inside D1's 30-second
- * statement limit and lose the lot. So each STATEMENT removes at most
- * `SWEEP_BATCH` rows. That part was always right and does not change. */
-const SWEEP_BATCH = 5000
-
-/** How many of those statements ONE rule may issue in ONE run.
- *
- * WHY THERE IS A LOOP AT ALL. Until 2026-08-25 this file issued exactly one
- * DELETE per rule per night and called it retention. It is not: it is a speed
- * limit, and it sat below the speed the tables grow at. `idempotency_keys` takes
- * a row per protected mutation (every form submit sets the key), `login_codes`
- * one per sign-in request, and `error_logs` one per crash — on a path an
- * anonymous caller can reach. All three live in shared databases capped at 10 GB
- * that every tenant is behind and that NO mover can relieve. A table inserting
- * more than 5,000 rows a day therefore grew without bound *while having a
- * retention rule*, and the old comment here — "the table drains over a few
- * nights" — was true of a one-off backlog and false in steady state.
- * (Scaling review, 2026-08-25, blocker 2.)
- *
- * WHY THE LOOP IS BOUNDED. A cron with an open-ended loop is its own outage. 20
- * passes × 5,000 rows = 100,000 rows per rule per night, twenty times the
- * fastest insert rate the review measured.
- *
- * WHAT THE BOUND COSTS, because this invocation is already near a ceiling. A
- * Worker invocation may make 10,000 subrequests and 1,000 D1 queries, and this
- * one cron shares a single invocation between the size check, retention and the
- * orphan sweep — whose O(teams) walk the review measured at roughly 3,333 teams.
- * The core and ops sweeps are FIXED cost: one database each, five rules switched
- * on today, so the loop adds at most 5 × (20 − 1) = 95 statements a night
- * however many tenants exist. That is under 1% of the subrequest ceiling and
- * about a tenth of the D1-query one, and it moves the team ceiling by ~32 teams
- * out of 3,333. */
-const SWEEP_MAX_PASSES = 20
-
-/** The same bound for a PER-TEAM rule, where the cost is NOT fixed: that pass
- * runs once per team inside the same invocation, so every extra pass is another
- * subrequest per team and lowers the ~3,333-team ceiling in direct proportion.
- * ONE, therefore — exactly today's behaviour — until the team walk itself has a
- * cursor and a subrequest budget to spend (scaling review, major 7). A team rule
- * that cannot keep up is not hidden by this: a bound that is hit is REPORTED
- * either way, so this is a stated limit rather than a silent one. Nothing is
- * swept per team today in any case — TEAM_RETENTION's one rule is KEEP_FOREVER. */
-const TEAM_SWEEP_MAX_PASSES = 1
-
-/** What one rule's sweep did — and, the part that matters, WHY IT STOPPED.
- *
- * Running out of rows and running out of budget look identical from outside and
- * mean opposite things: the first is a table kept clean, the second is retention
- * losing the race against the table it prunes. A partial sweep that reports like
- * a complete one is how the old ceiling stayed invisible for months. */
-type SweepResult = { table: string; days: number; removed: number; shortfall: boolean }
-
-async function sweep(
-  /** Runs one statement and answers HOW MANY ROWS IT REMOVED — however its own
-   * door reports that. The native binding counts with `meta.changes`; the REST
-   * door hands back rows and nothing else, so it appends `RETURNING rowid` and
-   * counts what came back. Same guarantee, two dialects (as in teams.ts). */
-  run: (sql: string, params: unknown[]) => Promise<number>,
-  rules: RetentionRule[],
-  env: Record<string, string | undefined>,
-  maxPasses: number
-): Promise<SweepResult[]> {
-  const swept: SweepResult[] = []
-  for (const rule of rules) {
-    const days = numberVar(env[rule.envVar], rule.days)
-    const cutoff = cutoffFor(rule, days)
-    if (!cutoff) continue // KEEP_FOREVER — the audit tables, until an owner says otherwise
-    let removed = 0
-    let shortfall = false
-    for (let pass = 1; ; pass++) {
-      const gone = await run(
-        `DELETE FROM ${rule.table} WHERE rowid IN (
-           SELECT rowid FROM ${rule.table} WHERE ${rule.column} < ? LIMIT ${SWEEP_BATCH}
-         )`,
-        [cutoff]
-      )
-      removed += gone
-      // A SHORT batch is the only honest way to stop: fewer rows came back than
-      // were asked for, so there are no more older than the cutoff.
-      if (gone < SWEEP_BATCH) break
-      // The other way is the bound, and it is the one that has to be heard.
-      if (pass >= maxPasses) {
-        shortfall = true
-        break
-      }
-    }
-    swept.push({ table: rule.table, days, removed, shortfall })
-  }
-  return swept
-}
-
-/** Nightly: forget what may be forgotten. Logs only — never a record. See
- * shared/workers/retention.ts for what that distinction means and why the audit
- * tables are off by default. */
-export async function runRetention(
-  env: Env,
-  cfg: D1Rest
-): Promise<{ core: number; teams: number; shortfalls: string[] }> {
-  const vars = env as unknown as Record<string, string | undefined>
-  const shortfalls: string[] = []
-  const note = (scope: string, results: SweepResult[]) => {
-    for (const r of results)
-      if (r.shortfall) shortfalls.push(`${scope}.${r.table} (${r.removed} removed, more remain)`)
-  }
-
-  // A native binding reports its own row count, so it needs no RETURNING.
-  const native = (db: D1Database) => async (sql: string, params: unknown[]) => {
-    const res = await db.prepare(sql).bind(...(params as string[])).run()
-    return res.meta.changes ?? 0
-  }
-
-  // An expired session cannot be used by anyone, so there is no window to pick.
-  await env.DB.prepare(EXPIRED_SESSIONS_SQL).bind(new Date().toISOString()).run()
-
-  const core = await sweep(native(env.DB), CORE_RETENTION, vars, SWEEP_MAX_PASSES)
-  note("core", core)
-
-  // The two exhaust tables moved to the operations database, so their sweep has
-  // to follow them. Without this the job would prune an empty table in the old
-  // database every night, report success, and let the real one grow unchecked —
-  // the worst shape a housekeeping bug can take.
-  const opsDb = opsDatabase(env)
-  const ops = await sweep(native(opsDb), OPS_RETENTION, vars, SWEEP_MAX_PASSES)
-  note("ops", ops)
-
-  let teams = 0
-  if (TEAM_RETENTION.some((r) => numberVar(vars[r.envVar], r.days) > 0)) {
-    // Only walk the team databases when a team rule is actually switched ON —
-    // otherwise this is a nightly listing of every database in the account for
-    // no reason at all.
-    const all = await d1ListDatabases(cfg)
-    for (const db of all.filter((d) => d.name.startsWith("team-"))) {
-      // The REST door answers with rows, so it asks for the ones it removed.
-      const swept = await sweep(
-        async (sql, params) =>
-          (await d1Query(cfg, db.uuid, `${sql} RETURNING rowid`, params as string[])).length,
-        TEAM_RETENTION,
-        vars,
-        TEAM_SWEEP_MAX_PASSES
-      )
-      note(`team ${db.name}`, swept)
-      teams++
-    }
-  }
-
-  // A BOUND THAT WAS HIT IS THE SIGNAL — say it where someone will find it.
-  //
-  // A rule that stopped because its budget ran out, rather than because the
-  // table was clean, means the table is growing faster than the job that prunes
-  // it and the shared 10 GB database behind it is filling. That is exactly the
-  // condition the loop exists to survive rather than hide, so it cannot be a
-  // console line: nothing in this cron's other failure paths outlives the log
-  // buffer, and nobody is watching a 3am tail. It goes to the ONE error store,
-  // which has history and a resolve workflow (LAW R12, ERROR-HANDLING.md).
-  //
-  // ONE row per run however many rules fell short: the sweep that could not keep
-  // up must not become the next unbounded writer.
-  if (shortfalls.length) {
-    const detail = `retention stopped on its per-run bound for ${shortfalls.length} rule(s) — those tables are growing faster than the sweep: ${shortfalls.slice(0, 8).join("; ")}`
-    console.error(`RETENTION SHORTFALL: ${detail}`)
-    await recordWorkerError(opsDatabase(env), "tenancy", "cron/retention", new Error(detail))
-  }
-  return { core: core.length + ops.length, teams, shortfalls }
-}
-
-/** How long an uploaded file may sit unreferenced before it is considered
- * abandoned. This is the whole safety of the sweep: someone who picks a file and
- * then takes an hour writing the article has an object in the bucket that no row
- * points at YET. A grace period measured in days makes that impossible to get
- * wrong; measured in minutes it would delete their attachment while they typed. */
-export const ORPHAN_GRACE_DAYS = 7
-
-/** Never walk more than this many objects for one team in one night. A sweep
- * that tries to list an unbounded bucket is the same mistake as an unbounded
- * list endpoint (R14) — it just fails at 3am instead of in front of someone. */
-const ORPHAN_SCAN_CAP = 10_000
-/** One page of the reference read. Keyset, so the pages cannot overlap or gap. */
-const ORPHAN_PAGE = 1_000
-
-/**
- * Nightly: delete uploaded files that no record points at.
- *
- * THE GAP THIS CLOSES. Every other kind of growth in this system is now bounded
- * — logs are swept, lists are capped, uploads are size-limited. Object storage
- * was not, and it grows in a way nobody sees: pick a file, change your mind,
- * pick another, and the first one stays in the bucket for ever. Nothing links to
- * it, nothing lists it, and no screen would ever show it to you. It is charged
- * for anyway.
- *
- * The reference set comes from the team's OWN database — an object survives if
- * any learning row's `content_link` names it. Deactivated rows count: the base
- * is deactivate-not-delete, so a retired article still has its attachment, and
- * reactivating it must not find a hole where the file was.
- */
-export async function sweepOrphanedUploads(
-  env: Env,
-  cfg: D1Rest
-): Promise<{ scanned: number; deleted: number }> {
-  const cutoff = Date.now() - ORPHAN_GRACE_DAYS * 86_400_000
-  let scanned = 0
-  let deleted = 0
-
-  const teams = await env.DB.prepare(
-    "SELECT id, database_id FROM teams WHERE db_status = 'ready' AND database_id IS NOT NULL"
-  ).all<{ id: string; database_id: string }>()
-
-  for (const team of teams.results ?? []) {
-    // What this team's records actually point at. Read FIRST: if this read
-    // fails, the sweep for this team is skipped entirely rather than running
-    // with an empty reference set and deleting everything it can see.
-    // PAGED, and fail-closed if it cannot be completed. The reference set must be
-    // WHOLE: the delete loop below walks objects in KEY order while this read
-    // returns rows in whatever order the database chooses, so a truncated
-    // reference set is not a smaller sweep — it is a set that disagrees with the
-    // one being deleted from, and every referenced object missing from it is
-    // deleted once the grace period passes. A single `LIMIT` here silently lost
-    // real attachments above the cap. (Scaling review, 2026-08-25.)
-    let referenced: Set<string>
-    try {
-      referenced = new Set<string>()
-      let after = ""
-      for (;;) {
-        const rows = await d1Query<{ id: string; content_link: string | null }>(
-          cfg,
-          team.database_id,
-          `SELECT id, content_link FROM learning
-             WHERE content_link LIKE '/media/learning/%'${after ? ` AND id > ${sqlValue(after)}` : ""}
-             ORDER BY id LIMIT ${ORPHAN_PAGE}`
-        )
-        for (const r of rows) {
-          const key = r.content_link?.split("?")[0].replace("/media/learning/", "") ?? ""
-          if (key) referenced.add(key)
-        }
-        if (rows.length < ORPHAN_PAGE) break
-        after = rows[rows.length - 1].id
-        // A bound, because an unbounded loop on a cron is its own fault. Hitting
-        // it means the set is incomplete, which is exactly the case that must
-        // NOT proceed to deletion.
-        if (referenced.size > ORPHAN_SCAN_CAP)
-          throw new Error(`more than ${ORPHAN_SCAN_CAP} referenced attachments`)
-      }
-    } catch (e) {
-      console.error(`orphan sweep: skipping team ${team.id}, could not read its references:`, e)
-      continue
-    }
-
-    const listed = await env.LEARNING_MEDIA.list({ prefix: `${team.id}/`, limit: ORPHAN_SCAN_CAP })
-    for (const object of listed.objects) {
-      scanned++
-      if (referenced.has(object.key)) continue
-      if (object.uploaded.getTime() > cutoff) continue // inside the grace period
-      await env.LEARNING_MEDIA.delete(object.key)
-      deleted++
-    }
-    if (listed.truncated)
-      console.warn(`orphan sweep: team ${team.id} has more than ${ORPHAN_SCAN_CAP} objects — the rest wait for tomorrow`)
-  }
-  return { scanned, deleted }
-}

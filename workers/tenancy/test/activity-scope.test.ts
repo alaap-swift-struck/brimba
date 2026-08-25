@@ -10,10 +10,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const queries: string[] = []
+/** the same reads, with their BOUND VALUES — a filter that reached the SQL as
+ * text rather than as a parameter would satisfy `queries` and still be an
+ * injection. */
+const calls: { sql: string; params: unknown[] }[] = []
+/** rows the next page read hands back, so a test can exercise the row MAPPING
+ * and not just the SQL that produced it. */
+let nextRows: Record<string, unknown>[] = []
 vi.mock("../../../shared/workers/d1-rest", () => ({
-  d1Query: vi.fn(async (_cfg: unknown, _db: string, sql: string) => {
+  d1Query: vi.fn(async (_cfg: unknown, _db: string, sql: string, params: unknown[] = []) => {
     queries.push(sql)
-    return sql.includes("COUNT(*)") ? [{ n: 0 }] : []
+    calls.push({ sql, params })
+    return sql.includes("COUNT(*)") ? [{ n: 0 }] : nextRows
   }),
 }))
 
@@ -27,7 +35,11 @@ const ALLOWED = ["learning"]
 /** true when a statement reads the feed with no WHERE at all. */
 const unfiltered = (sql: string) => /FROM activity(?!\s|\S)/.test(sql) || !/WHERE/i.test(sql)
 
-beforeEach(() => (queries.length = 0))
+beforeEach(() => {
+  queries.length = 0
+  calls.length = 0
+  nextRows = []
+})
 
 describe("activity scopes fail CLOSED (R18)", () => {
   it("the team feed always carries the visibility filter", async () => {
@@ -71,5 +83,245 @@ describe("activity scopes fail CLOSED (R18)", () => {
     queries.length = 0
     await getActivity(cfg, guard, "user", "user-9", undefined, null)
     expect(queries.every((q) => /related_table = 'users'/.test(q))).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// SERVER-SIDE FILTERS. Without them, narrowing a feed to "every deactivation
+// the assistant made last week" meant pulling pages and discarding them in the
+// browser — the client reading the whole table to show six rows of it. The
+// filters are validated HERE rather than in the route because three surfaces
+// call this reader (the screen, the agent, MCP) and a filter validated at only
+// one of them is validated nowhere.
+// ---------------------------------------------------------------------------
+
+/** every statement the reader issued — page read AND count. Both must carry a
+ * filter, or the badge counts rows the list will never show. */
+const both = () => calls
+
+describe("filters narrow the read on the SERVER (R14 stays intact)", () => {
+  it("verb rides both the page read and the COUNT, as a bound parameter", async () => {
+    await getActivity(cfg, guard, "team", undefined, undefined, ALLOWED, null, { verb: "deactivated" })
+    expect(both().length, "a page read and a count").toBe(2)
+    for (const c of both()) {
+      expect(c.sql, `verb missing from: ${c.sql}`).toContain("verb = ?")
+      expect(c.params, "the value must be BOUND, never interpolated").toContain("deactivated")
+      expect(c.sql, "and never spliced in as text").not.toContain("'deactivated'")
+    }
+  })
+
+  it("origin rides both, as a bound parameter", async () => {
+    await getActivity(cfg, guard, "team", undefined, undefined, ALLOWED, null, { origin: "agent" })
+    expect(both().length).toBe(2)
+    for (const c of both()) {
+      expect(c.sql).toContain("origin = ?")
+      expect(c.params).toContain("agent")
+      expect(c.sql).not.toContain("'agent'")
+    }
+  })
+
+  it("from and to bound the window on both", async () => {
+    await getActivity(cfg, guard, "team", undefined, undefined, ALLOWED, null, {
+      from: "2026-08-01",
+      to: "2026-08-31",
+    })
+    expect(both().length).toBe(2)
+    for (const c of both()) {
+      expect(c.sql).toContain("created_at >= ?")
+      expect(c.sql).toContain("created_at <= ?")
+      expect(c.params).toContain("2026-08-01")
+    }
+  })
+
+  it("a date-only `to` covers the WHOLE of that day", async () => {
+    // The stored value is a full `toISOString()` timestamp, so a bare
+    // `created_at <= '2026-08-31'` would silently drop everything that happened
+    // on the 31st after midnight — a filter that answers a different question
+    // than the one asked is worse than no filter.
+    await getActivity(cfg, guard, "team", undefined, undefined, ALLOWED, null, { to: "2026-08-31" })
+    expect(both()[0].params).toContain("2026-08-31T23:59:59.999Z")
+  })
+
+  it("filters compose with the record scope without losing it", async () => {
+    await getActivity(cfg, guard, "record", "row-1", "learning", null, null, { verb: "edited" })
+    for (const c of both()) {
+      expect(c.sql, "the record scope must survive").toContain("related_table = ?")
+      expect(c.sql, "and the filter must be added, not substituted").toContain("verb = ?")
+    }
+  })
+
+  it("filters compose with the R18 visibility clause, never replace it", async () => {
+    await getActivity(cfg, guard, "team", undefined, undefined, ALLOWED, null, { origin: "mcp" })
+    for (const c of both()) {
+      expect(c.sql, "R18 must still subtract denied modules").toContain("related_table")
+      expect(c.sql).toContain("origin = ?")
+    }
+  })
+
+  it("paging survives filtering — the cap and the keyset predicate both stand (R14)", async () => {
+    // `btoa` + the URL-safe swap, exactly as `encodeCursor` does it in
+    // shared/workers/paging.ts — NOT `Buffer.from(...).toString("base64url")`.
+    // A worker tsconfig carries only `@cloudflare/workers-types`, so `Buffer` is
+    // not declared here and the file did not typecheck; and a test that builds
+    // its fixture a different way from the code under test is testing its own
+    // encoder rather than the app's.
+    const cursor = btoa(JSON.stringify({ k: "2026-08-10T00:00:00.000Z", id: "z" }))
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "")
+    await getActivity(cfg, guard, "team", undefined, undefined, ALLOWED, cursor, { verb: "edited" })
+    const page = both().find((c) => !c.sql.includes("COUNT(*)"))!
+    expect(page.sql, "the hard cap must stay in the statement").toMatch(/LIMIT \d+/)
+    expect(page.sql, "the keyset predicate must stay").toContain("created_at <")
+    expect(page.sql, "and the filter rides alongside it").toContain("verb = ?")
+    const count = both().find((c) => c.sql.includes("COUNT(*)"))!
+    expect(count.sql, "the COUNT must NOT carry the cursor — it counts the whole filtered set").not.toContain(
+      "created_at <"
+    )
+  })
+
+  it("no filters at all issues exactly today's SQL", async () => {
+    await getActivity(cfg, guard, "team", undefined, undefined, ALLOWED, null)
+    for (const c of both()) {
+      expect(c.sql).not.toContain("verb = ?")
+      expect(c.sql).not.toContain("origin = ?")
+      expect(c.sql).not.toContain("created_at >=")
+    }
+  })
+})
+
+describe("filters are validated at the boundary — a bad one is a 400, never a 500", () => {
+  const bad = async (filters: Record<string, unknown>) => {
+    try {
+      await getActivity(cfg, guard, "team", undefined, undefined, ALLOWED, null, filters)
+      return null
+    } catch (e) {
+      return e as { status?: number; code?: string }
+    }
+  }
+
+  it("refuses a verb outside the closed set", async () => {
+    const e = await bad({ verb: "deleted" })
+    expect(e, "an unknown verb must be refused, not passed to the database").not.toBeNull()
+    expect(e!.status).toBe(400)
+    expect(e!.code).toBe("invalid_input")
+  })
+
+  it("refuses an origin outside the closed set", async () => {
+    const e = await bad({ origin: "root" })
+    expect(e).not.toBeNull()
+    expect(e!.status).toBe(400)
+  })
+
+  it("refuses a from/to that is not a date", async () => {
+    for (const v of ["yesterday", "2026-13-99x", "'; DROP TABLE activity--"]) {
+      const e = await bad({ from: v })
+      expect(e, `${v} must be refused`).not.toBeNull()
+      expect(e!.status).toBe(400)
+    }
+  })
+
+  it("refuses a NON-STRING filter rather than crashing on .trim()", async () => {
+    // The exact shape the validation seam exists for: `{verb: 42}` makes
+    // `.trim` undefined and a TypeError becomes a 500. Bad input is a 400.
+    for (const v of [42, [], {}, true]) {
+      const e = await bad({ verb: v })
+      expect(e, `${JSON.stringify(v)} must be a clean refusal`).not.toBeNull()
+      expect(e!.status).toBe(400)
+    }
+  })
+
+  it("treats blank/absent filters as no filter, not as an error", async () => {
+    await expect(
+      getActivity(cfg, guard, "team", undefined, undefined, ALLOWED, null, {
+        verb: "",
+        origin: null,
+        from: undefined,
+      })
+    ).resolves.toBeTruthy()
+    for (const c of both()) expect(c.sql).not.toContain("verb = ?")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// THE FIELD DIFF. `before_after` was written by learning, help and member_roles
+// and read by nobody: three modules paid to record exactly what changed, and the
+// feed threw it away and said "Ada edited it". These lock the two things that
+// make reading it safe rather than a leak — that the TEAM feed never carries it,
+// and that a value the writer chose to hide stays hidden.
+// ---------------------------------------------------------------------------
+
+const DIFF = JSON.stringify([
+  { label: "Title", from: "Old title", to: "New title" },
+  { label: "Body", from: "x".repeat(20_000), to: "y".repeat(20_000), hideValues: true },
+  { label: "Notes", from: "z".repeat(5_000), to: "short" },
+])
+const row = (extra: Record<string, unknown> = {}) => ({
+  id: "a1",
+  type: "Learning edited",
+  description: "Ada edited it",
+  created_at: "2026-08-20T00:00:00.000Z",
+  creator_name: "Ada",
+  origin: "ui",
+  verb: "edited",
+  ...extra,
+})
+
+describe("the field diff is read on a record, and never on the team feed", () => {
+  it("a record scope asks for before_after and returns the changed fields", async () => {
+    nextRows = [row({ before_after: DIFF })]
+    const out = await getActivity(cfg, guard, "record", "row-1", "learning", null)
+    const page = calls.find((c) => !c.sql.includes("COUNT(*)"))!
+    expect(page.sql, "the column has to be SELECTed to be read").toContain("before_after")
+    expect(out.rows[0].changes?.map((c) => c.label)).toEqual(["Title", "Body", "Notes"])
+    expect(out.rows[0].changes?.[0]).toMatchObject({ from: "Old title", to: "New title" })
+  })
+
+  it("the TEAM feed neither selects it nor returns it", async () => {
+    // R18's earned failure, exactly: one gate, every module's rows, raw
+    // before→after values. The hot read stays as it was.
+    nextRows = [row({ before_after: DIFF })]
+    const out = await getActivity(cfg, guard, "team", undefined, undefined, ALLOWED)
+    for (const c of calls) expect(c.sql, `team feed must not read the diff: ${c.sql}`).not.toContain("before_after")
+    expect(out.rows[0].changes, "and must not return it even if a row carries one").toBeUndefined()
+  })
+
+  it("a hidden field keeps its LABEL and loses its VALUES", async () => {
+    // `changedFields` filters unchanged fields but does not strip values, so the
+    // stored diff holds the whole article body twice. The sentence deliberately
+    // says "Body updated"; the data must not say more than the sentence.
+    nextRows = [row({ before_after: DIFF })]
+    const out = await getActivity(cfg, guard, "record", "row-1", "learning", null)
+    const body = out.rows[0].changes!.find((c) => c.label === "Body")!
+    expect(body.hideValues).toBe(true)
+    expect(body.from, "the hidden value must not travel").toBeUndefined()
+    expect(body.to).toBeUndefined()
+    expect(JSON.stringify(out.rows[0])).not.toContain("x".repeat(300))
+  })
+
+  it("a long visible value is clipped, so one page cannot become megabytes", async () => {
+    nextRows = [row({ before_after: DIFF })]
+    const out = await getActivity(cfg, guard, "record", "row-1", "learning", null)
+    const notes = out.rows[0].changes!.find((c) => c.label === "Notes")!
+    expect(notes.from!.length).toBeLessThanOrEqual(200)
+    expect(notes.from!.endsWith("…"), "and it says it was clipped").toBe(true)
+    expect(notes.to, "a short value is untouched").toBe("short")
+  })
+
+  it("a malformed diff loses one row's detail, never the whole feed", async () => {
+    for (const bad of ["not json", "{}", "[]", "null", '[{"nope":1}]']) {
+      nextRows = [row({ before_after: bad })]
+      const out = await getActivity(cfg, guard, "record", "row-1", "learning", null)
+      expect(out.rows, `${bad} must still return the row`).toHaveLength(1)
+      expect(out.rows[0].description).toBe("Ada edited it")
+    }
+  })
+
+  it("a row with no diff reports ABSENT, not an empty list", async () => {
+    // The writer keeps "no fields changed" and "this door does not diff yet"
+    // apart by writing NULL rather than "[]"; the reader must not merge them.
+    nextRows = [row({ before_after: null })]
+    const out = await getActivity(cfg, guard, "record", "row-1", "learning", null)
+    expect(out.rows[0].changes).toBeUndefined()
   })
 })

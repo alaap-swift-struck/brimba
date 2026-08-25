@@ -41,6 +41,21 @@ export type TokenUsage = { input: number; output: number; cacheWrite: number; ca
  *  when the provider reports it (Claude does; Workers AI doesn't). */
 export type ModelReply = { text: string; toolCalls: ToolCall[]; usage?: TokenUsage }
 
+/** WHICH JOB is asking the model — and it is REQUIRED, not defaulted.
+ *
+ *  Two very different callers share this seam. The agent's turn sends the big cached
+ *  prefix (SYSTEM + the whole tool catalogue), so it SHOULD hit the prompt cache and a
+ *  miss is a real regression worth chasing. The import planner sends a small, different
+ *  prompt that falls under the model's ~1,024-token cache minimum, so it reports a miss
+ *  EVERY time, by design, forever.
+ *
+ *  Both logged as `model.claude.complete`, so a guaranteed miss pooled in with the real
+ *  ones and dragged the hit rate down — the one number anyone reads to decide whether
+ *  the cache is working was measuring two things at once. Required rather than optional
+ *  because a default is how they got pooled in the first place. (Scaling review,
+ *  2026-08-25.) */
+export type ModelCaller = "agent" | "import"
+
 export interface Model {
   readonly name: string
   /** true if this provider can actually call tools (act); false = answers only. */
@@ -48,11 +63,16 @@ export interface Model {
   /** true if this provider can stream text deltas (implements stream()); when false
    *  callers fall back to complete() — the run still works, tokens just arrive at once. */
   readonly canStream: boolean
-  complete(messages: ChatMessage[], tools: ToolSpec[]): Promise<ModelReply>
+  complete(messages: ChatMessage[], tools: ToolSpec[], caller: ModelCaller): Promise<ModelReply>
   /** Stream the turn: fire onText for each text delta as it arrives, and return the
    *  FULL reply (accumulated text + any tool calls) when the turn ends — same shape as
    *  complete(), so the loop treats a streamed turn identically once it finishes. */
-  stream?(messages: ChatMessage[], tools: ToolSpec[], onText: (delta: string) => void): Promise<ModelReply>
+  stream?(
+    messages: ChatMessage[],
+    tools: ToolSpec[],
+    onText: (delta: string) => void,
+    caller: ModelCaller
+  ): Promise<ModelReply>
 }
 
 /* --------------------------------- Claude --------------------------------- */
@@ -235,7 +255,7 @@ class ClaudeModel implements Model {
     }
   }
 
-  async complete(messages: ChatMessage[], tools: ToolSpec[]): Promise<ModelReply> {
+  async complete(messages: ChatMessage[], tools: ToolSpec[], caller: ModelCaller): Promise<ModelReply> {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: this.headers(),
@@ -248,7 +268,7 @@ class ClaudeModel implements Model {
     }
     const data = (await res.json()) as { content?: AnthropicBlock[]; usage?: AnthropicUsage }
     const usage = toUsage(data.usage)
-    logCacheUsage(this.name, "model.claude.complete", usage)
+    logCacheUsage(this.name, `model.claude.complete:${caller}`, usage)
     const blocks = data.content ?? []
     const text = blocks
       .filter((b): b is Extract<AnthropicBlock, { type: "text" }> => b.type === "text")
@@ -269,7 +289,8 @@ class ClaudeModel implements Model {
   async stream(
     messages: ChatMessage[],
     tools: ToolSpec[],
-    onText: (delta: string) => void
+    onText: (delta: string) => void,
+    caller: ModelCaller
   ): Promise<ModelReply> {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -282,7 +303,7 @@ class ClaudeModel implements Model {
       throw new Error(`model_error: Claude returned ${res.status}. ${detail.slice(0, 200)}`)
     }
     const reply = await parseAnthropicStream(res.body, onText)
-    logCacheUsage(this.name, "model.claude.stream", reply.usage)
+    logCacheUsage(this.name, `model.claude.stream:${caller}`, reply.usage)
     return reply
   }
 }
@@ -403,7 +424,9 @@ class WorkersAiModel implements Model {
     readonly name: string
   ) {}
 
-  async complete(messages: ChatMessage[], tools: ToolSpec[]): Promise<ModelReply> {
+  // `caller` is part of the seam's shape, not used here: Workers AI reports no cache
+  // counters at all, so there is nothing for it to label.
+  async complete(messages: ChatMessage[], tools: ToolSpec[], _caller: ModelCaller): Promise<ModelReply> {
     // Workers AI reliably ACCEPTS a tool call on a turn (we pass `tools` + parse
     // `tool_calls` out of the reply), but its chat template REJECTS a replayed
     // assistant-tool-call + role:"tool" round-trip (verified live — the follow-up

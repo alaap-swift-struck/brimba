@@ -12,6 +12,8 @@
 
 import { opsDatabase } from "../../../shared/workers/ops-db"
 import { fail, json } from "../../../shared/workers/http"
+import { GuardError } from "../../../shared/workers/gating"
+import { optionalText, TEXT_LIMITS } from "../../../shared/workers/validate"
 import { logError, recordWorkerError } from "../../../shared/workers/error-log"
 import type { Env } from "./env"
 import { sha256Hex } from "./lib/crypto"
@@ -34,7 +36,14 @@ import {
 import { MAX_CODE_ATTEMPTS } from "./lib/constants"
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  /**
+   * `ctx` is threaded to the two handlers that broadcast a live change. Those
+   * pings are best-effort by contract and bounded, and awaiting them made the
+   * person editing their own profile wait on one service hop per team they belong
+   * to before their own screen settled. `ctx.waitUntil()` keeps the isolate alive
+   * until each one lands, so delivery is unchanged and the wait is not theirs.
+   */
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const { pathname } = new URL(request.url)
     const route = `${request.method} ${pathname}`
 
@@ -53,17 +62,26 @@ export default {
         case "POST /api/auth/email/change/start":
           return await emailChangeStart(request, env)
         case "POST /api/auth/email/change/verify":
-          return await emailChangeVerify(request, env)
+          return await emailChangeVerify(request, env, ctx)
         case "GET /api/auth/me":
           return await me(request, env)
         case "GET /api/auth/activity":
           return await activity(request, env)
         case "POST /api/auth/profile":
-          return await profile(request, env)
+          return await profile(request, env, ctx)
         case "POST /api/auth/logout":
           return await logout(request, env)
         case "GET /api/auth/health":
-          return json({ ok: true })
+          // BOOLEANS ONLY. This door is unauthenticated, so it may say whether a
+          // binding is configured and never what it holds — no values, and no
+          // naming of which secret is missing. Until 2026-08-25 it answered a
+          // bare `ok: true` whatever state the worker was in, so a deployment
+          // with no email key and no operations database reported itself
+          // perfectly healthy right up until someone tried to sign in.
+          return json({
+            ok: true,
+            bindings: { ops: !!env.OPS, internalKey: !!env.INTERNAL_KEY, email: !!env.RESEND_API_KEY },
+          })
         // Internal: other workers send branded emails THROUGH auth (it owns the
         // Resend key). NOT under /api/ — the gateway never routes it publicly;
         // only a service binding (env.AUTH.fetch) can reach it.
@@ -84,6 +102,18 @@ export default {
           return fail(404, "not_found", "No such auth action.")
       }
     } catch (e) {
+      // A CLEAN REFUSAL IS NOT A CRASH. Every other worker in the base has had
+      // this branch for months; auth alone did not, so a `GuardError` thrown by
+      // the shared validation seam would have arrived here as an unknown
+      // exception and become a recorded 500 — turning the boundary check into
+      // the very amplification it exists to stop. The split is on the STATUS,
+      // not the type: a 5xx GuardError is still a genuine incident and is still
+      // recorded. (Same shape as tenancy / content / data-ops.)
+      if (e instanceof GuardError) {
+        if (e.status >= 500)
+          await recordWorkerError(opsDatabase(env), "auth", `${request.method} ${new URL(request.url).pathname}`, e, request)
+        return fail(e.status, e.code, e.message)
+      }
       console.error("auth worker error:", e)
       // Record the crash in the central error log (core DB) — best-effort,
       // never blocks the response. Clean GuardError refusals never reach here.
@@ -155,6 +185,13 @@ async function internalLogError(request: Request, env: Env): Promise<Response> {
     message?: string
     stack?: string
     url?: string
+    // The gateway and the browser beacon have BOTH always sent this, and this
+    // door has always dropped it on the floor — so `request_id` was NULL on
+    // every row that came through here, which is every gateway crash and every
+    // error a person's browser reported. The one column that lets you follow a
+    // single click across seven workers, missing from exactly the rows where
+    // following it matters most.
+    requestId?: string
   }
   if (b.message)
     await logError(opsDatabase(env), {
@@ -163,6 +200,7 @@ async function internalLogError(request: Request, env: Env): Promise<Response> {
       message: b.message,
       stack: b.stack,
       url: b.url,
+      requestId: b.requestId,
     })
   return new Response(null, { status: 204 })
 }
@@ -171,8 +209,24 @@ async function internalLogError(request: Request, env: Env): Promise<Response> {
  * carries the code — a login code appears nowhere but the user's inbox, in any
  * environment (the old staging echo was deleted; tests use adminTestLogin). */
 async function emailStart(request: Request, env: Env): Promise<Response> {
-  const body = (await request.json().catch(() => ({}))) as { email?: string }
-  const email = normalizeEmail(body.email ?? "")
+  const body = (await request.json().catch(() => ({}))) as { email?: unknown }
+  // THROUGH THE BOUNDARY SEAM — and this is the door where it matters most.
+  // `body.email ?? ""` guards null and undefined and nothing else, so
+  // `{"email":123}` reached `normalizeEmail`, `(123).trim()` threw a TypeError,
+  // and the central catch dutifully recorded it: ONE row in the shared
+  // operations database per ANONYMOUS request, on the one write-shaped door
+  // nobody has to sign in to reach. Identical in shape to `GET /media/%zz`,
+  // whose fix in the gateway does the arithmetic — 500 req/s is 10 GB in under
+  // fifteen hours, into the database the size alarm does not watch, and on a
+  // deployment without the OPS binding into the CORE database, which stops
+  // sign-in for every tenant.
+  //
+  // `optionalText` (not `requireText`) so a missing or blank address keeps its
+  // existing, more specific `invalid_email` answer below rather than becoming a
+  // generic "required"; a non-string is a clean 400 from the seam. The `short`
+  // cap also stops a 50,000-character "address" — which the shape regex happily
+  // accepts — from being carried into a database write.
+  const email = normalizeEmail(optionalText(body.email, "Email", TEXT_LIMITS.short) ?? "")
   if (!isValidEmail(email))
     return fail(400, "invalid_email", "Enter a valid email address.")
 
@@ -203,8 +257,8 @@ async function adminTestLogin(request: Request, env: Env): Promise<Response> {
   if (env.ENVIRONMENT === "production") return fail(403, "forbidden", "Not available.")
   if (!env.TEST_LOGIN_KEY || request.headers.get("x-admin-key") !== env.TEST_LOGIN_KEY)
     return fail(403, "forbidden", "Not available.")
-  const body = (await request.json().catch(() => ({}))) as { email?: string }
-  const email = normalizeEmail(body.email ?? "")
+  const body = (await request.json().catch(() => ({}))) as { email?: unknown }
+  const email = normalizeEmail(optionalText(body.email, "Email", TEXT_LIMITS.short) ?? "")
   if (!isValidEmail(email))
     return fail(400, "invalid_email", "Enter a valid email address.")
   const minted = await mintLoginCode(env, email)
@@ -217,11 +271,13 @@ async function adminTestLogin(request: Request, env: Env): Promise<Response> {
 /** Step 2 of email login: check the code, create the session. */
 async function emailVerify(request: Request, env: Env): Promise<Response> {
   const body = (await request.json().catch(() => ({}))) as {
-    email?: string
-    code?: string
+    email?: unknown
+    code?: unknown
   }
-  const email = normalizeEmail(body.email ?? "")
-  const code = (body.code ?? "").trim()
+  // BOTH fields through the seam: `code` had the same `?? ""`-then-`.trim()`
+  // shape as `email`, on the same unauthenticated door.
+  const email = normalizeEmail(optionalText(body.email, "Email", TEXT_LIMITS.short) ?? "")
+  const code = optionalText(body.code, "Code", TEXT_LIMITS.short) ?? ""
   if (!isValidEmail(email) || !/^\d{6}$/.test(code))
     return fail(400, "invalid_input", "Enter your email and the 6-digit code.")
 
@@ -275,21 +331,24 @@ async function emailChangeStart(request: Request, env: Env): Promise<Response> {
   const user = await getSessionUser(env, request)
   if (!user) return fail(401, "signed_out", "Not signed in.")
 
-  const body = (await request.json().catch(() => ({}))) as { email?: string }
-  const r = await startEmailChange(env, user, body.email ?? "")
+  // Session-gated, so the amplification is bounded by who can sign in — but the
+  // fault is the same one and gets the same boundary. A gate is not a reason to
+  // trust a body.
+  const body = (await request.json().catch(() => ({}))) as { email?: unknown }
+  const r = await startEmailChange(env, user, optionalText(body.email, "Email", TEXT_LIMITS.short) ?? "")
   if ("error" in r) return fail(r.status, r.error, r.message)
   // Never a code in the response — same law as login (inbox only).
   return json({ ok: true })
 }
 
 /** Email change, step 2: verify the code, switch the email, log + secure it. */
-async function emailChangeVerify(request: Request, env: Env): Promise<Response> {
+async function emailChangeVerify(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const user = await getSessionUser(env, request)
   if (!user) return fail(401, "signed_out", "Not signed in.")
 
   const body = (await request.json().catch(() => ({}))) as {
-    email?: string
-    code?: string
+    email?: unknown
+    code?: unknown
   }
   // Keep THIS device signed in when we drop the others.
   const token = readCookie(request, SESSION_COOKIE)
@@ -297,9 +356,10 @@ async function emailChangeVerify(request: Request, env: Env): Promise<Response> 
   const r = await verifyEmailChange(
     env,
     user,
-    body.email ?? "",
-    (body.code ?? "").trim(),
-    currentTokenHash
+    optionalText(body.email, "Email", TEXT_LIMITS.short) ?? "",
+    optionalText(body.code, "Code", TEXT_LIMITS.short) ?? "",
+    currentTokenHash,
+    ctx
   )
   if ("error" in r) return fail(r.status, r.error, r.message)
   return json({ user: r.user })
@@ -320,12 +380,12 @@ async function activity(request: Request, env: Env): Promise<Response> {
 }
 
 /** Onboarding / profile edit: names + optional photo (stored in R2). */
-async function profile(request: Request, env: Env): Promise<Response> {
+async function profile(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const user = await getSessionUser(env, request)
   if (!user) return fail(401, "signed_out", "Not signed in.")
 
   const input = (await request.json().catch(() => ({}))) as ProfileInput
-  const result = await updateProfile(env, user, input)
+  const result = await updateProfile(env, user, input, ctx)
   if ("error" in result) return fail(400, result.error, result.message)
   return json(result)
 }

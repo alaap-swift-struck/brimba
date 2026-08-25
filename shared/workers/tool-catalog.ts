@@ -34,7 +34,7 @@ export const str = (input: Record<string, unknown>, key: string): string => {
 }
 /** THE LOST-UPDATE GUARD, for a machine caller.
  *
- * Four edit doors take `expectedVersion` — the `updated_at` the caller was shown —
+ * Five edit doors take `expectedVersion` — the `updated_at` the caller was shown —
  * and refuse to land on a row that has moved on since. The web client sends it.
  * No tool exposed it or forwarded it, so a machine edit ALWAYS won a concurrent
  * race: the assistant or an outside integration would silently overwrite a change
@@ -44,11 +44,16 @@ export const str = (input: Record<string, unknown>, key: string): string => {
  * Optional, because a machine caller that genuinely has not read the row first
  * cannot supply one, and refusing every such edit would break more than it fixes.
  * Supplying it is how a caller opts INTO the protection the UI gets by default.
- * (Interfacelessness review, 2026-08-25.) */
-const VERSION_FIELD = { expectedVersion: S }
-const version = (input: Record<string, unknown>): string | undefined => opt(input, "expectedVersion")
+ * (Interfacelessness review, 2026-08-25.)
+ *
+ * EXPORTED for the agent-only tools: `update_team` sits on a door that takes the
+ * guard, and being declared in a different file was the whole reason it didn't
+ * offer it. The pair travels together on purpose — expose the field without
+ * forwarding it and a caller believes it's protected when it isn't. */
+export const VERSION_FIELD = { expectedVersion: S }
+export const version = (input: Record<string, unknown>): string | undefined => opt(input, "expectedVersion")
 
-/** A REQUIRED boolean body field.
+/** A REQUIRED boolean body field — THE one coercion guard both surfaces share.
  *
  * The three `set_*_active` tools used to build `active: i.active === true`. That
  * reads as a coercion and behaves as a decision: an OMITTED field is `undefined`,
@@ -59,8 +64,14 @@ const version = (input: Record<string, unknown>): string | undefined => opt(inpu
  * already invented a value for it.
  *
  * Throwing here puts that 400 back within reach. (Interfacelessness review,
- * 2026-08-25.) */
-const bool = (input: Record<string, unknown>, key: string): boolean => {
+ * 2026-08-25.)
+ *
+ * EXPORTED because the agent-only tools need the same guard: `mark_learning_done`
+ * built `done: i.done === true` in its own file and so kept the old behaviour a
+ * fortnight after the shared ones were fixed — one required boolean out of four
+ * still inventing a value, which is how a divergence hides. A guard that lives in
+ * one place and is reachable from both is the only kind that can't drift. */
+export const bool = (input: Record<string, unknown>, key: string): boolean => {
   const v = input[key]
   if (typeof v !== "boolean")
     throw new GuardError(400, "invalid_input", `"${key}" must be true or false — it was ${v === undefined ? "not given" : JSON.stringify(v)}.`)
@@ -218,10 +229,24 @@ export const SHARED_TOOLS: SharedTool[] = [
     summary: "Rename or re-describe an existing team role (by id).",
     binding: "TENANCY", method: "POST", path: "/api/tenancy/roles/update",
     schema: obj({ roleId: S, title: S, description: S, ...VERSION_FIELD }, ["roleId", "title"]),
-    buildBody: (i) => ({ roleId: str(i, "roleId"), title: str(i, "title"), description: str(i, "description") || "", expectedVersion: version(i) }),
+    // `opt`, never `|| ""` — an unmentioned description must DROP OUT of the body
+    // (JSON.stringify removes the key) so the door reads it as absent and keeps
+    // what is stored. Flattened to "" it arrives as a PRESENT, empty field, which
+    // is a real instruction to clear: a rename would erase the description while
+    // the confirm card said only "Rename X to Y". Same rule as `learningBody`.
+    buildBody: (i) => ({ roleId: str(i, "roleId"), title: str(i, "title"), description: opt(i, "description"), expectedVersion: version(i) }),
     // PRIVILEGE WRITE (member_roles) → confirm. Renaming isn't a grant, but a
     // rename is how a grant gets socially engineered ("call Viewer Admin").
-    agent: { write: true, confirm: true, summarize: (i, names) => `Rename ${roleLabel(i, names)} to "${str(i, "title")}"` },
+    agent: {
+      write: true, confirm: true,
+      // The card must name EVERYTHING the call will do. It said only "Rename X to
+      // Y" while the door also rewrote the description — so a yes approved a
+      // change the card never described, which makes the confirm worse than none.
+      // The erasure is fixed above (`opt`); the card now says when a description
+      // is being written too.
+      summarize: (i, names) =>
+        `Rename ${roleLabel(i, names)} to "${str(i, "title")}"${str(i, "description") ? " and change its description" : ""}`,
+    },
   },
   {
     name: "set_role_active",
@@ -310,11 +335,23 @@ export const SHARED_TOOLS: SharedTool[] = [
   },
   {
     name: "update_dropdown_value",
-    summary: "Rename a dropdown value (by id).",
+    summary:
+      "Rename a dropdown value (by id), and/or MOVE it to another group by passing `type` (the destination group name). Omit `type` to leave it where it is. A value typed into the wrong group is fixed this way — the record keeps its history, and everything that already picked it is unaffected.",
     binding: "TENANCY", method: "POST", path: "/api/tenancy/selectable/update",
-    schema: obj({ id: S, value: S, ...VERSION_FIELD }, ["id", "value"]),
-    buildBody: (i) => ({ id: str(i, "id"), value: str(i, "value"), expectedVersion: version(i) }),
-    agent: { write: true, confirm: false, summarize: (i) => `Rename dropdown value ${str(i, "id")} to "${str(i, "value")}"` },
+    // R19 — the door parses `type`, so the tool exposes AND forwards it: a field
+    // only the UI can send is a capability the machine surfaces silently lack.
+    // `opt` keeps the omitted case omitted (see update_role above).
+    schema: obj({ id: S, value: S, type: S, ...VERSION_FIELD }, ["id", "value"]),
+    buildBody: (i) => ({ id: str(i, "id"), value: str(i, "value"), type: opt(i, "type"), expectedVersion: version(i) }),
+    agent: {
+      write: true, confirm: false,
+      // The summary says which of the two things is happening — a move announced
+      // as a rename is a step row that lies about what it did.
+      summarize: (i) =>
+        str(i, "type")
+          ? `Move dropdown value ${str(i, "id")} to ${str(i, "type")}`
+          : `Rename dropdown value ${str(i, "id")} to "${str(i, "value")}"`,
+    },
   },
   {
     name: "set_dropdown_active",

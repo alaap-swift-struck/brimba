@@ -53,6 +53,7 @@ import { HomeScreen } from "@/components/screens/home-screen"
 import { SettingsScreen } from "@/components/screens/settings-screen"
 import { InvitationsScreen } from "@/components/screens/invitations-screen"
 import { registerHostGo } from "@/lib/nav"
+import { createPanelFor } from "@/lib/screens"
 // Aliased: the local `content()` dispatcher (below) shadows the api namespace.
 import { ApiFailure, content as contentApi, tenancy } from "@/lib/api"
 import { usePermissions } from "@/lib/perms"
@@ -304,6 +305,20 @@ export function DeepLinkScreen() {
       case "team.edit":
         go(currentPath, { panel: "edit", module: "team" })
         break
+      default: {
+        // A CREATE — including the one a list recipe offers as its `emptyAction`,
+        // the way out of a screen with nothing on it. It opens the module's add
+        // panel: the SAME url move `SectionWithCreate.onCreate` makes above a
+        // non-empty list, so both doors land on the one dialog rather than two
+        // create paths that can drift. `sectionPath` (not `currentPath`) because
+        // the new record belongs to the collection, not to whatever record is
+        // open. An id with no panel behind it opens nothing — a switch without a
+        // default was how a declared action could render a button that did
+        // nothing at all.
+        const panel = createPanelFor(actionId)
+        if (panel) go(sectionPath, panel)
+        break
+      }
     }
   }
 
@@ -509,6 +524,10 @@ export function DeepLinkScreen() {
         draftKey={teamId ? `help:new:${teamId}` : undefined}
         teamId={teamId}
         helpTypeOptions={helpTypeOptions}
+        // "Raised from", filled in for them: the LAST crumb is the page they are
+        // on, which is exactly the name they'd have written. The ticket detail
+        // has always printed this row and nothing could ever fill it.
+        sourceScreen={crumbs[crumbs.length - 1]?.label}
         onSubmit={createHelp}
       />
 

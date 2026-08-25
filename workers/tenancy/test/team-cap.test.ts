@@ -43,6 +43,11 @@ const envWith = (existing: number, override?: string) =>
     },
   }) as never
 
+/** `createNamedTeam` now takes the route's `ctx` so the team-creation ping leaves
+ * after the response. Nothing here reaches a publish (the teams lib is mocked
+ * whole), so this only has to exist. */
+const CTX = { waitUntil: () => {}, passThroughOnException: () => {} } as unknown as ExecutionContext
+
 const post = () =>
   new Request("https://x/api/tenancy/teams", {
     method: "POST",
@@ -54,13 +59,13 @@ beforeEach(() => (created.length = 0))
 
 describe("team creation is capped per user", () => {
   it("lets an ordinary user create teams below the cap", async () => {
-    const res = await createNamedTeam(post(), envWith(MAX_TEAMS_PER_USER - 1))
+    const res = await createNamedTeam(post(), envWith(MAX_TEAMS_PER_USER - 1), CTX)
     expect(res.status).toBe(200)
     expect(created, "the team was actually provisioned").toHaveLength(1)
   })
 
   it("refuses AT the cap — cleanly, and without provisioning a database", async () => {
-    const res = await createNamedTeam(post(), envWith(MAX_TEAMS_PER_USER))
+    const res = await createNamedTeam(post(), envWith(MAX_TEAMS_PER_USER), CTX)
     expect(res.status).toBe(403)
     expect((await res.json()) as { error: string }).toMatchObject({ error: "team_limit" })
     expect(created, "no database may be provisioned by a refused request").toHaveLength(0)
@@ -71,7 +76,7 @@ describe("team creation is capped per user", () => {
     const env = {
       DB: { prepare: (sql: string) => ((asked = sql), { bind: () => ({ first: async () => ({ n: 0 }) }) }) },
     } as never
-    await createNamedTeam(post(), env)
+    await createNamedTeam(post(), env, CTX)
     expect(asked, "the count must be by creator_id").toContain("creator_id")
     expect(asked, "…never by membership").not.toContain("team_members")
   })
@@ -83,19 +88,19 @@ describe("team creation is capped per user", () => {
     const env = {
       DB: { prepare: (sql: string) => ((asked = sql), { bind: () => ({ first: async () => ({ n: 0 }) }) }) },
     } as never
-    await createNamedTeam(post(), env)
+    await createNamedTeam(post(), env, CTX)
     expect(asked, "the count must NOT filter deactivated teams — their databases still exist").not.toMatch(
       /deactivated|is_active|archived/i
     )
   })
 
   it("the owner can raise it per environment", async () => {
-    const res = await createNamedTeam(post(), envWith(MAX_TEAMS_PER_USER, String(MAX_TEAMS_PER_USER + 5)))
+    const res = await createNamedTeam(post(), envWith(MAX_TEAMS_PER_USER, String(MAX_TEAMS_PER_USER + 5)), CTX)
     expect(res.status, "an override above the count must allow the create").toBe(200)
   })
 
   it("an override of ZERO means zero — it does not fall back to the default", async () => {
-    const res = await createNamedTeam(post(), envWith(0, "0"))
+    const res = await createNamedTeam(post(), envWith(0, "0"), CTX)
     expect(res.status, "MAX_TEAMS_PER_USER=0 must refuse, not silently allow 5").toBe(403)
     expect(created).toHaveLength(0)
   })

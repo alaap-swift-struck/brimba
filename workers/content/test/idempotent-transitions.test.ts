@@ -1,6 +1,6 @@
 // R17, the part a source-scan cannot see.
 //
-// The scan in `web/test/rules.test.ts` proves the current-status predicate is
+// The scan in `web/test/rules/activity.test.ts` proves the current-status predicate is
 // PRESENT in every deactivate/reactivate UPDATE — it reads the SQL string and
 // looks for `AND deactivated_at IS [NOT] NULL`. That is worth having, and it is
 // only half the law. The other half is what the code DOES when the predicate

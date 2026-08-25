@@ -48,13 +48,27 @@ export function HelpFormDialog({
   initial,
   draftKey,
   teamId,
+  sourceScreen,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   /** Resolves with the CREATED record's id (R22 opens it); nothing on an edit. */
-  onSubmit: (input: { description: string; helpType?: string }) => Promise<string | void>
+  /** An EMPTY `helpType` means the person cleared it — never omit the key. See
+   * the submit handler below for why the difference matters. */
+  onSubmit: (input: {
+    description: string
+    helpType?: string
+    sourceScreen?: string
+  }) => Promise<string | void>
   /** The team's active "Help type" dropdown values. */
   helpTypeOptions: string[]
+  /** Where the person was when they raised this — the current screen's name,
+   * which the host reads off the breadcrumb it is already showing. AUTO-FILLED,
+   * never typed: every ticket detail prints a "Raised from" row, and nothing had
+   * ever been able to fill it, so it read blank on every ticket ever raised. It
+   * is deliberately not a field — the first form a new person meets should not
+   * grow a box asking them where they are. */
+  sourceScreen?: string | null
   /** Present = EDIT mode (prefilled). */
   initial?: { description: string; helpType?: string | null }
   /** stable id for per-session draft persistence (CACHING.md §11); omit to disable */
@@ -77,7 +91,23 @@ export function HelpFormDialog({
     try {
       const createdId = await onSubmit({
         description: values.description.trim(),
-        helpType: values.helpType === NONE ? undefined : values.helpType,
+        // PRESENT-AND-EMPTY, never omitted. The update door now distinguishes a
+        // field the caller never mentioned (keep what is stored) from one that
+        // arrived empty (really clear it) — the fix for edits that silently wiped
+        // whatever the caller didn't repeat. `JSON.stringify` DROPS an undefined
+        // key, so sending `undefined` here would arrive byte-identical to "don't
+        // touch Type", and the clear button would quietly stop clearing.
+        //
+        // `""` is the cleared value rather than `null` because that is what this
+        // component already means by empty: `NONE` exists only because a Radix
+        // Select cannot hold an empty string, so unwrapping the sentinel gives it
+        // back. `updateTicket` treats null and "" identically (optionalText("")
+        // → undefined → null), and null would need `createHelp` + `editTicket` to
+        // widen their input types in two other files to say the same thing.
+        helpType: values.helpType === NONE ? "" : values.helpType,
+        // Create only. "Raised from" is where the ticket STARTED, so editing it
+        // later from somewhere else must never rewrite that.
+        sourceScreen: isEdit ? undefined : (sourceScreen ?? undefined),
       })
       clearDraft()
       if (!createdId) onOpenChange(false) // R22: a create CLOSES BY NAVIGATING (see FormShell)

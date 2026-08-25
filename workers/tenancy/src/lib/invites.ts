@@ -11,9 +11,10 @@ import { ulid } from "../../../../shared/workers/id"
 import type { Invite, InviteAudit } from "../../../../shared/types"
 import type { Env } from "../env"
 import { GuardError, type MemberGuard } from "./permissions"
-import { notifyInviteRevoked } from "./notify"
+import { notifyInviteRevoked, sendMail } from "./notify"
 import { LIST_HARD_CAP } from "../../../../shared/workers/limits"
-import { callService } from "../../../../shared/workers/trace"
+import { recordWorkerError } from "../../../../shared/workers/error-log"
+import { opsDatabase } from "../../../../shared/workers/ops-db"
 import { assertCanAssignRole } from "./roles"
 
 const INVITE_TTL_DAYS = 7
@@ -274,35 +275,40 @@ export async function createInvite(
   // acceptance, and the invitee can accept from their in-app Invitations inbox), but we
   // report the real outcome so the caller (and the agent) never claim an email was sent
   // when it wasn't.
+  //
+  // THROUGH `sendMail`, which is the only thing that can answer that question
+  // honestly. This used to be a second copy of the internal-key call, reading
+  // `res?.ok === true` — and auth's `/internal/send-email` answers a clean **200
+  // with `{ sent: false }`** whenever `RESEND_API_KEY` is unset. So the one flag
+  // in this function whose entire purpose is to keep the sentence true reported
+  // an email that was never sent as sent: on the admin's screen, in the agent's
+  // reply, and by implication to the person waiting for it. `sendMail` reads the
+  // body and returns TRUE only when auth confirms the send; a null (auth never
+  // answered), a non-2xx, an unparseable body and `{ sent: false }` are all
+  // false, because to a caller there is no difference between them.
   let emailSent = false
   try {
-    const res = await callService(
-      env.AUTH,
-      "https://auth/internal/send-email",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-internal-key": env.INTERNAL_KEY ?? "",
-        },
-        body: JSON.stringify({
-          to,
-          subject: `You're invited to ${teamName} on ${brand.name}`,
-          html,
-          text,
-        }),
-      },
-      { worker: "tenancy", place: "invite-email" }
-    )
-    // A no-answer is NOT a send. `emailSent` feeds the honest wording the caller
-    // and the agent use ("invite created, email couldn't be sent"), so folding an
-    // unreachable mail hop into "sent" would be the exact dishonesty this flag
-    // was added to prevent.
-    emailSent = res?.ok === true
-    if (!res?.ok) console.error("invite email failed:", res?.status ?? "no answer")
+    emailSent = await sendMail(env, to, `You're invited to ${teamName} on ${brand.name}`, {
+      html,
+      text,
+    })
   } catch (e) {
     console.error("invite email failed:", e)
   }
+  // RECORDED, not just returned. `emailSent` reaches a person only if they happen
+  // to be looking at the screen that says it; an invite whose email silently never
+  // goes is otherwise indistinguishable from one that arrived and was ignored.
+  // One row per invite create — a gated, rate-limited write — so this cannot flood.
+  // `logError` swallows its own failures, so recording never costs the invite.
+  if (!emailSent)
+    await recordWorkerError(
+      opsDatabase(env),
+      "tenancy",
+      "invite-email",
+      new Error(`the invite email to ${to} was not sent — the mailer is unconfigured, unreachable or refused it; the invite itself is fine and can be accepted in-app`),
+      request,
+      { teamId: guard.teamId, userId: actor.id }
+    )
 
   return { inviteId, emailSent }
 }
