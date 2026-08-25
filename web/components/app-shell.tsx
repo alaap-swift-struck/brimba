@@ -37,6 +37,20 @@ const NAV_ICONS = { home: Home, settings: Settings } as const
 // The lucide component for each team SIDEBAR page (Learning / Help) in the rail.
 const SECTION_ICONS: Record<string, typeof Home> = { learning: GraduationCap, help: LifeBuoy }
 
+/** Collapse a burst of activity-feed refreshes into one.
+ *
+ * Module-level, not per-component: two shells never coexist, and a ref would
+ * reset on re-render — which is exactly when a burst arrives. */
+let activityTimer: ReturnType<typeof setTimeout> | null = null
+const ACTIVITY_COALESCE_MS = 1_000
+function queueActivityRefresh(teamId: string): void {
+  if (activityTimer) clearTimeout(activityTimer)
+  activityTimer = setTimeout(() => {
+    activityTimer = null
+    invalidate(`activity:team:${teamId}`)
+  }, ACTIVITY_COALESCE_MS)
+}
+
 export function AppShell({
   active,
   children,
@@ -121,8 +135,19 @@ export function AppShell({
     teamId,
     (event) => {
       if (!teamId) return
-      // The team activity feed is append-only + small — refresh it on any change.
-      invalidate(`activity:team:${teamId}`)
+      // THE ACTIVITY FEED, COALESCED. Every mutation writes an activity row, so
+      // this fired on EVERY ping — and it is the most expensive invalidation in
+      // the app: a keyset page plus an exact COUNT(*) over the fastest-growing
+      // table. One write therefore cost one of those per connected session, so a
+      // 512-id bulk action against 25,000 sessions is millions of reads for a
+      // feed nobody is watching in most of those tabs.
+      //
+      // Coalescing rather than debouncing: the feed is APPEND-ONLY, so collapsing
+      // a burst loses nothing — the single refresh at the end of the burst shows
+      // every row the individual refreshes would have. A second is far below what
+      // a person reads as delay and far above the width of a bulk fan-out.
+      // (Scaling review blocker 3, 2026-08-25.)
+      queueActivityRefresh(teamId)
       // Coarse listeners (team meta, screen recipes) — data-driven, R15.
       const simple = SIMPLE_INVALIDATIONS[event.resource]
       if (simple) {
