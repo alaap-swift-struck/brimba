@@ -14,11 +14,14 @@ const queries: string[] = []
  * text rather than as a parameter would satisfy `queries` and still be an
  * injection. */
 const calls: { sql: string; params: unknown[] }[] = []
+/** rows the next page read hands back, so a test can exercise the row MAPPING
+ * and not just the SQL that produced it. */
+let nextRows: Record<string, unknown>[] = []
 vi.mock("../../../shared/workers/d1-rest", () => ({
   d1Query: vi.fn(async (_cfg: unknown, _db: string, sql: string, params: unknown[] = []) => {
     queries.push(sql)
     calls.push({ sql, params })
-    return sql.includes("COUNT(*)") ? [{ n: 0 }] : []
+    return sql.includes("COUNT(*)") ? [{ n: 0 }] : nextRows
   }),
 }))
 
@@ -35,6 +38,7 @@ const unfiltered = (sql: string) => /FROM activity(?!\s|\S)/.test(sql) || !/WHER
 beforeEach(() => {
   queries.length = 0
   calls.length = 0
+  nextRows = []
 })
 
 describe("activity scopes fail CLOSED (R18)", () => {
@@ -236,5 +240,88 @@ describe("filters are validated at the boundary — a bad one is a 400, never a 
       })
     ).resolves.toBeTruthy()
     for (const c of both()) expect(c.sql).not.toContain("verb = ?")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// THE FIELD DIFF. `before_after` was written by learning, help and member_roles
+// and read by nobody: three modules paid to record exactly what changed, and the
+// feed threw it away and said "Ada edited it". These lock the two things that
+// make reading it safe rather than a leak — that the TEAM feed never carries it,
+// and that a value the writer chose to hide stays hidden.
+// ---------------------------------------------------------------------------
+
+const DIFF = JSON.stringify([
+  { label: "Title", from: "Old title", to: "New title" },
+  { label: "Body", from: "x".repeat(20_000), to: "y".repeat(20_000), hideValues: true },
+  { label: "Notes", from: "z".repeat(5_000), to: "short" },
+])
+const row = (extra: Record<string, unknown> = {}) => ({
+  id: "a1",
+  type: "Learning edited",
+  description: "Ada edited it",
+  created_at: "2026-08-20T00:00:00.000Z",
+  creator_name: "Ada",
+  origin: "ui",
+  verb: "edited",
+  ...extra,
+})
+
+describe("the field diff is read on a record, and never on the team feed", () => {
+  it("a record scope asks for before_after and returns the changed fields", async () => {
+    nextRows = [row({ before_after: DIFF })]
+    const out = await getActivity(cfg, guard, "record", "row-1", "learning", null)
+    const page = calls.find((c) => !c.sql.includes("COUNT(*)"))!
+    expect(page.sql, "the column has to be SELECTed to be read").toContain("before_after")
+    expect(out.rows[0].changes?.map((c) => c.label)).toEqual(["Title", "Body", "Notes"])
+    expect(out.rows[0].changes?.[0]).toMatchObject({ from: "Old title", to: "New title" })
+  })
+
+  it("the TEAM feed neither selects it nor returns it", async () => {
+    // R18's earned failure, exactly: one gate, every module's rows, raw
+    // before→after values. The hot read stays as it was.
+    nextRows = [row({ before_after: DIFF })]
+    const out = await getActivity(cfg, guard, "team", undefined, undefined, ALLOWED)
+    for (const c of calls) expect(c.sql, `team feed must not read the diff: ${c.sql}`).not.toContain("before_after")
+    expect(out.rows[0].changes, "and must not return it even if a row carries one").toBeUndefined()
+  })
+
+  it("a hidden field keeps its LABEL and loses its VALUES", async () => {
+    // `changedFields` filters unchanged fields but does not strip values, so the
+    // stored diff holds the whole article body twice. The sentence deliberately
+    // says "Body updated"; the data must not say more than the sentence.
+    nextRows = [row({ before_after: DIFF })]
+    const out = await getActivity(cfg, guard, "record", "row-1", "learning", null)
+    const body = out.rows[0].changes!.find((c) => c.label === "Body")!
+    expect(body.hideValues).toBe(true)
+    expect(body.from, "the hidden value must not travel").toBeUndefined()
+    expect(body.to).toBeUndefined()
+    expect(JSON.stringify(out.rows[0])).not.toContain("x".repeat(300))
+  })
+
+  it("a long visible value is clipped, so one page cannot become megabytes", async () => {
+    nextRows = [row({ before_after: DIFF })]
+    const out = await getActivity(cfg, guard, "record", "row-1", "learning", null)
+    const notes = out.rows[0].changes!.find((c) => c.label === "Notes")!
+    expect(notes.from!.length).toBeLessThanOrEqual(200)
+    expect(notes.from!.endsWith("…"), "and it says it was clipped").toBe(true)
+    expect(notes.to, "a short value is untouched").toBe("short")
+  })
+
+  it("a malformed diff loses one row's detail, never the whole feed", async () => {
+    for (const bad of ["not json", "{}", "[]", "null", '[{"nope":1}]']) {
+      nextRows = [row({ before_after: bad })]
+      const out = await getActivity(cfg, guard, "record", "row-1", "learning", null)
+      expect(out.rows, `${bad} must still return the row`).toHaveLength(1)
+      expect(out.rows[0].description).toBe("Ada edited it")
+    }
+  })
+
+  it("a row with no diff reports ABSENT, not an empty list", async () => {
+    // The writer keeps "no fields changed" and "this door does not diff yet"
+    // apart by writing NULL rather than "[]"; the reader must not merge them.
+    nextRows = [row({ before_after: null })]
+    const out = await getActivity(cfg, guard, "record", "row-1", "learning", null)
+    expect(out.rows[0].changes).toBeUndefined()
   })
 })

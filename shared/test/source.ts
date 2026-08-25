@@ -22,7 +22,7 @@
 // The rule that follows from this file existing: **a check must derive its own
 // subject list from the code, and must be proven to FAIL before it counts.**
 
-import { readdirSync, readFileSync } from "node:fs"
+import { existsSync, readdirSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 
 /** The repo root, found by climbing until a directory holds all three
@@ -71,7 +71,26 @@ export const read = (p: string) => readFileSync(p, "utf8")
 //
 // Strings and template literals are preserved WHOLE — R14 reads LIMIT out of
 // them — and a `//` inside one is not a comment.
+//
+// REGEX LITERALS ARE THE SECOND FAULT, found 2026-08-25 by the fork sweep. The
+// scanner had no concept of one, so `/["]/` looked like a slash followed by an
+// opening double quote — and that "string" ran to the next quote ANYWHERE in the
+// file, preserving everything in between, comments included. SIXTEEN files leaked
+// comment prose into what the Law checks read as code, which is the same disease
+// as the block-comment fault above and in the same direction: a check that finds
+// a word in a comment believes it found the code.
+//
+// Telling a regex from a division needs the token before it, so the scanner now
+// tracks the last significant character it emitted. That is the standard
+// heuristic and it is not perfect — but the alternative is a full tokeniser, and
+// the failure mode of the heuristic is a division treated as a regex, which is
+// visible immediately, rather than a quote silently eating a file.
 export function stripComments(src: string): string {
+  // A `/` here opens a regex, not a division: nothing can be divided by these.
+  // `>` earns its place via `=>`: a regex returned straight from an arrow
+  // function is the single most common shape in this repo's own checks.
+  const OPENS_REGEX = /[(,=:[!&|?{};+\-*%~^<>]$/
+  const KEYWORD_BEFORE = /\b(return|typeof|case|in|of|do|else|yield|await|new|delete|void|instanceof)$/
   let out = ""
   let i = 0
   while (i < src.length) {
@@ -89,6 +108,36 @@ export function stripComments(src: string): string {
       i += 2
       out += " "
       continue
+    }
+    // A REGEX LITERAL, copied verbatim. Decided by what came before: after a
+    // value (`a / b`) a slash divides; after an operator, a comma, an opening
+    // bracket or a keyword, it opens a pattern. A `/` inside a [character class]
+    // does not close it — `/[/]/` is one regex, not two slashes.
+    if (c === "/") {
+      const before = out.replace(/\s+$/, "")
+      if (before === "" || OPENS_REGEX.test(before) || KEYWORD_BEFORE.test(before)) {
+        out += c
+        i++
+        let inClass = false
+        while (i < src.length && src[i] !== "\n") {
+          const ch = src[i]
+          if (ch === "\\") {
+            out += src.slice(i, i + 2)
+            i += 2
+            continue
+          }
+          if (ch === "[") inClass = true
+          else if (ch === "]") inClass = false
+          else if (ch === "/" && !inClass) {
+            out += ch
+            i++
+            break
+          }
+          out += ch
+          i++
+        }
+        continue
+      }
     }
     // A string or template literal is copied verbatim — its contents are data,
     // and a `//` inside a URL is not the start of a comment.
@@ -193,12 +242,28 @@ function walkSources(dir: string, ext: string): [string, string][] {
   return out
 }
 
+/** The workers, DERIVED — never a hand-written list, because a hardcoded subject
+ * list does not fail when it is wrong, it passes and reports everything covered.
+ *
+ * A worker is a directory under `workers/` that HAS a `src`. That last clause is
+ * not pedantry: running any npm command inside `workers/` leaves an empty
+ * `workers/node_modules`, and on 2026-08-25 that one empty directory turned
+ * thirteen law checks red at once — every check that walked `workers/*` and
+ * assumed each entry was a worker. A gate that goes red because somebody typed
+ * `npm ls` in the wrong folder teaches people to distrust the gate. */
+export function workerNames(): string[] {
+  return readdirSync(join(ROOT, "workers"), { withFileTypes: true })
+    .filter((e) => e.isDirectory() && e.name !== "node_modules")
+    .filter((e) => existsSync(join(ROOT, "workers", e.name, "src")))
+    .map((e) => e.name)
+    .sort()
+}
+
 /** Every worker's own `src` .ts file. Use this only for a rule that genuinely
  * means "code inside a worker" — most mean `serverSources`. */
 export function workerSources(): [string, string][] {
   const out: [string, string][] = []
-  for (const w of readdirSync(join(ROOT, "workers"), { withFileTypes: true }))
-    if (w.isDirectory()) out.push(...walkSources(join(ROOT, "workers", w.name, "src"), ".ts"))
+  for (const w of workerNames()) out.push(...walkSources(join(ROOT, "workers", w, "src"), ".ts"))
   return out
 }
 

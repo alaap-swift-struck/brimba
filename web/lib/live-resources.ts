@@ -264,6 +264,26 @@ export const TEAM_RESOURCES: Record<
       `help-one:${id}`,
     ],
   },
+  // MY TICKETS — the same `help` resource under its other SERVER scope. R14 made
+  // My/All two doors rather than one list filtered twice, so this is a second
+  // cache KEY, not a second resource: no worker publishes "help:mine", and the
+  // colon means none ever could (a published resource name is `[a-z_]+`). Its
+  // pings arrive on `help`, whose deps drop this key — which is why `fetchOne`
+  // is never called here, and is the same gated single-row door regardless.
+  //
+  // It is registered because THIS MAP IS WHAT THE RECONNECT CATCH-UP WALKS. Being
+  // a dep of `help` covered it while the socket was up and not for one moment
+  // after a drop: a dep carries the TEAM id, not a row id, so the record-prefix
+  // pass skips it (rightly — it is a list), and `reconcile` only ever visits an
+  // entry's own `key`. So this was the one cache key in the app that a dropped
+  // socket left stale for good, and the dot went cheerfully back to "Live" over
+  // the top of it. (Realtime review, round 5, 2026-08-25.)
+  "help:mine": {
+    key: (t) => helpKey(t, "mine"),
+    idField: "id",
+    fetchOne: (id) => contentApi.helpOne(id),
+    fetchList: (t) => listFetch.helpMine(t),
+  },
 }
 
 /** Coarse listeners for resources with no row-shaped cache: the ping just drops

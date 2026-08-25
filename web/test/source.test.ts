@@ -30,6 +30,33 @@ describe("stripComments", () => {
     expect(stripComments('const u = "https://example.com/x"')).toContain("https://example.com/x")
   })
 
+  // THE SECOND SCANNER FAULT, found 2026-08-25 by the fork sweep. Without a
+  // notion of a regex literal, `/["]/` reads as a slash then an opening quote —
+  // and that "string" runs to the next quote ANYWHERE in the file, so every
+  // comment in between survives into what a Law check reads as code. Sixteen
+  // files leaked. The direction matters: a check that finds its word in a
+  // comment believes it found the code.
+  it("does not let a regex containing a quote swallow the rest of the file", () => {
+    for (const re of ['/["]/', "/[']/", "/[`]/", '/a\\/"b/']) {
+      const out = stripComments(`const r = ${re}\nconst z = 1\n// GONE\nreal()`)
+      expect(out, `${re} desynchronised the scanner`).not.toContain("GONE")
+      expect(out, `${re} was not preserved`).toContain(re.slice(0, 3))
+    }
+  })
+
+  it("still treats a division as a division", () => {
+    const out = stripComments("const n = a / b\n// GONE\nreal()")
+    expect(out).not.toContain("GONE")
+    expect(out).toContain("a / b")
+  })
+
+  it("keeps a regex returned straight from an arrow function", () => {
+    // `=>` is the most common shape in this repo's own checks, and the character
+    // before the slash is `>` — which is why `>` is in the opens-a-regex set.
+    const out = stripComments('const f = () => /filename="([^"]+)"/.exec(s)\n// GONE\nreal()')
+    expect(out).not.toContain("GONE")
+  })
+
   it("leaves a template literal whole, so SQL keeps its LIMIT", () => {
     expect(stripComments("const q = `SELECT 1 LIMIT ${n}`")).toContain("LIMIT ${n}")
   })

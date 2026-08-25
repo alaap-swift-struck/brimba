@@ -25,8 +25,10 @@ import {
   setRolePermissions,
 } from "../src/lib/roles"
 import { GuardError } from "../src/lib/permissions"
+import { readdirSync, readFileSync } from "node:fs"
+import { join } from "node:path"
 
-import { declarationBody, stripComments, workerSources } from "../../../shared/test/source"
+import { declarationBody, stripComments } from "../../../shared/test/source"
 import { TEAM_MODULE_CATALOG } from "../src/team-schema"
 import { assertCanAssignRole } from "../src/lib/roles"
 
@@ -316,9 +318,30 @@ describe("every door that assigns a role calls the guard", () => {
   // Scoped to tenancy because tenancy owns both the membership tables and the
   // guard — but scoped by a WALK, so every future file under it is covered the day
   // it is written rather than the day someone remembers to extend an array.
-  const sources = workerSources()
-    .filter(([p]) => p.replace(/\\/g, "/").startsWith("workers/tenancy/src/"))
-    .map(([p, src]) => [p, stripComments(src)] as const)
+  //
+  // ANCHORED AT `__dirname`, NOT AT THE PROCESS CWD. The obvious reuse here is
+  // `workerSources()` from shared/test/source.ts, and it was tried: it resolves its
+  // root by climbing from `"."`, so when a runner leaves the cwd at the repo root
+  // `findRoot()` returns `"."` and its `rel()` slices one character off every path
+  // — `workers/…` becomes `orkers/…`, and a prefix filter matches nothing. The
+  // tripwire below catches that (loudly, which is the point), but a security scan
+  // should not be able to go blind because of how it was invoked. `__dirname` is
+  // fixed by the file's own location. (Security round 5 — the shared `rel()` bug is
+  // reported separately; it silently mangles paths for every check that filters or
+  // exempts by prefix.)
+  const SRC = join(__dirname, "..", "src")
+  const sources: (readonly [string, string])[] = []
+  // The label is built DURING the walk rather than derived from the absolute path
+  // afterwards — the same reasoning as the anchor: no arithmetic on path strings,
+  // so there is nothing to get off by one character.
+  const walk = (dir: string, label: string) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      if (e.isDirectory()) walk(join(dir, e.name), `${label}/${e.name}`)
+      else if (e.name.endsWith(".ts"))
+        sources.push([`${label}/${e.name}`, stripComments(readFileSync(join(dir, e.name), "utf8"))] as const)
+    }
+  }
+  walk(SRC, "src")
 
   it("found the library at all", () => {
     expect(sources.length, "no tenancy sources found — this scan has gone blind").toBeGreaterThan(3)
@@ -327,8 +350,8 @@ describe("every door that assigns a role calls the guard", () => {
     // a scan that cannot see it cannot see a handler declared there either.
     expect(
       sources.map(([p]) => p),
-      "the scan never reached workers/tenancy/src/index.ts — it is not walking src/** and a door in the entry point would be invisible"
-    ).toContain("workers/tenancy/src/index.ts")
+      "the scan never reached src/index.ts — it is not walking src/** and a door in the entry point would be invisible"
+    ).toContain("src/index.ts")
   })
 
   for (const [file, src] of sources) {

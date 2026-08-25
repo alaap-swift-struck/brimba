@@ -168,6 +168,52 @@ sweep failing every night for ever. Every swept column is indexed; a check
 enforces that too, because the job that exists to stop a table growing must not
 be the thing that reads all of it.
 
+### How fast the activity table actually grows
+
+The table above calls team `activity` the biggest one in any team database and
+then leaves the reader to guess when that matters. It is worth an actual number,
+because the answer decides whether `RETAIN_TEAM_ACTIVITY_DAYS` is a knob anyone
+will ever reach for.
+
+**One row costs about 600 bytes, all in.** The row itself is roughly 260 bytes —
+two ULIDs (26 each), an ISO timestamp (24), the frozen actor snapshot
+(id + email + name ≈ 64), the type and description sentence (≈ 76), plus
+`related_table`, `origin` and `verb`. The five indexes the table carries
+(`recent`, `record_recent`, `actor`, `origin`, `verb`) add roughly 345 bytes
+between them, since each entry repeats its key columns and a row reference. A
+row that carries a field diff in `before_after` adds ~150 bytes more.
+
+**A record generates one row per logged change**, and no more: 1 when it is
+created, 1 per edit, 1 when it is deactivated (and 1 again if reactivated). So a
+record's whole life is 2 rows plus its edits — call it **1 to 2 rows a month
+while someone is actively working it, and none once it settles**.
+
+**Per team, per month.** 50 people × 20 mutations each per working day × 21
+working days = **21,000 rows/month ≈ 12.6 MB/month ≈ 150 MB/year**. Against the
+10 GB team-database ceiling (§2), and budgeting half of it to history, that is
+about 8.9 million rows of headroom — roughly **35 years**. For a team of people
+clicking buttons, this table is not what breaks first, and nothing else in §2
+changes because of it.
+
+**Import is the case that bites**, because every imported ROW goes through its
+module's create door and logs (origin `import`) — that is the point of it, and
+it is also the multiplier. One 1,000-row file (`MAX_IMPORT_ROWS`) writes ~1,000
+rows ≈ 0.6 MB. A tenant running ~17 such files a day writes **500,000
+rows/month ≈ 300 MB/month**, and reaches the same 8.9 M-row half-budget in about
+**18 months** rather than 35 years. **The trigger to watch is imported rows per
+month, not headcount** — and the relief is the one already in the table above:
+set `RETAIN_TEAM_ACTIVITY_DAYS`, which caps the table at a fixed window of
+inserts instead of an unbounded history.
+
+**What does NOT add rows.** A long list of writes deliberately produce no
+activity row — import wizard progress, agent threads and messages, the import
+catalogue, size and spend alarms, the nightly size meter, cron cursors, the
+shard count, the migration robot, and the usual secrets and ledgers. Each is
+named with its reason in `shared/workers/activity.ts`, and a check fails if a new
+one appears undocumented. The list is deliberately not restated here: it is
+already the difference between the arithmetic above and a much larger number, and
+two copies of it would drift.
+
 ---
 
 ## 4.5 · The two races nothing was watching
@@ -407,12 +453,29 @@ wrong deletes a customer's data. It wants its own design pass.
 ```
 before   SCAN help                             AFTER   SCAN help USING COVERING INDEX idx_help_recent
          USE TEMP B-TREE FOR ORDER BY
-before   SCAN activity                         AFTER   SCAN activity USING COVERING INDEX idx_activity_recent
+before   SCAN activity                         AFTER   SCAN activity USING INDEX idx_activity_recent
          USE TEMP B-TREE FOR ORDER BY
 ```
 
 The sort step is gone. A page reads 51 rows off a b-tree instead of scanning and
 sorting the whole table.
+
+The activity line said **COVERING** INDEX until 2026-08-25 and that was wrong —
+measured, not argued. `idx_activity_recent` is `(created_at DESC, id DESC)`, and
+the feed's SELECT returns `type`, `description`, `creator_name`, `origin` and
+`verb` as well, so SQLite walks the index in order and then fetches each row.
+Only a `SELECT id` is covered. The claim this row exists to make — the temp
+b-tree is gone, the read is ordered, a page costs 51 rows — is unaffected; the
+word was.
+
+**And the filters added in §5's place** (`verb` / `origin` / `from` / `to` on the
+activity read) need no new index: `verb` and `origin` seek their own composite
+and take the time window as a range on its second column, a window on its own
+rides `idx_activity_recent`, and a record scope already has
+`idx_activity_record_recent`. Every shape is a SEARCH, not a SCAN, and
+`workers/tenancy/test/activity-index.test.ts` asserts that against the real
+schema — so dropping one of those indexes turns a test red instead of quietly
+turning every filtered feed into a table scan.
 
 ---
 

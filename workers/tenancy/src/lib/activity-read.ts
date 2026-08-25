@@ -4,7 +4,7 @@
 // the activity ruleset in ARCHITECTURE.md.
 
 import type { ActivityItem } from "../../../../shared/types"
-import { ACTIVITY_ORIGINS, ACTIVITY_VERBS } from "../../../../shared/workers/activity"
+import { ACTIVITY_ORIGINS, ACTIVITY_VERBS, type FieldDiff } from "../../../../shared/workers/activity"
 import { d1Query, type D1Rest } from "../../../../shared/workers/d1-rest"
 import { GuardError } from "../../../../shared/workers/gating"
 import type { MemberGuard } from "./permissions"
@@ -19,7 +19,72 @@ type ActivityRow = {
   creator_name: string | null
   origin: string | null
   verb: string | null
+  before_after: string | null
 }
+
+/**
+ * THE FIELD DIFF, FINALLY READ.
+ *
+ * `before_after` has been WRITTEN by three modules (learning, help, member_roles)
+ * and read by nothing: every "what changed" detail was captured and then thrown
+ * away, so a feed could say "Ada edited it" and never which field, from what, to
+ * what. A column three modules pay to write and nobody reads is not an audit
+ * trail, it is a cost — the same finding that got `origin` and `verb` a reader.
+ *
+ * TWO THINGS BOUND IT, and both are the reason this is not simply passed through:
+ *
+ * 1 · ONLY ON A SINGLE-RECORD SCOPE. The team feed returns every module's rows
+ *     behind one gate, and shipping raw before/after values there is precisely
+ *     the leak R18 was earned by ("changed BIG-0000001 price from 4,500 to
+ *     3,900"). Every other scope names ONE record and the route has already
+ *     gated the caller on that module's read right, so the values are ones they
+ *     may see. The team feed's SELECT — the hot one, on the biggest table in the
+ *     database — is left exactly as it was.
+ *
+ * 2 · `hideValues` IS HONOURED HERE. `changedFields` filters unchanged fields but
+ *     does NOT strip values, so a stored diff for an article body carries the
+ *     WHOLE body twice — up to ~40 KB on one row, and values the human sentence
+ *     deliberately withheld. Returning that raw would both leak past the writer's
+ *     own decision and put megabytes on a page. So the label survives, the values
+ *     do not, and everything else is clipped.
+ *
+ * This serves the human expander on the Activity tab. A future reconstruct-the-
+ * record path would read the column unclipped — and should say so where it does.
+ */
+const DIFF_VALUE_CAP = 200
+
+function readDiff(raw: string | null): FieldDiff[] | undefined {
+  if (!raw) return undefined
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    // A malformed diff must never take the whole feed down with it — the trail
+    // is more useful missing one row's detail than failing to load at all.
+    return undefined
+  }
+  if (!Array.isArray(parsed) || parsed.length === 0) return undefined
+  const clip = (v: string | null | undefined) =>
+    typeof v === "string" && v.length > DIFF_VALUE_CAP ? `${v.slice(0, DIFF_VALUE_CAP - 1)}…` : v ?? null
+  return parsed
+    .filter((f): f is FieldDiff => !!f && typeof (f as FieldDiff).label === "string")
+    .map((f) =>
+      f.hideValues
+        ? { label: f.label, hideValues: true }
+        : { label: f.label, from: clip(f.from), to: clip(f.to) }
+    )
+}
+
+/**
+ * What a feed row is, on the wire.
+ *
+ * A LOCAL WIDENING of the shared `ActivityItem` rather than an edit to
+ * `shared/types.ts`: the diff is produced by this reader and by nothing else, so
+ * the extra field is described where it is produced. When the Activity tab grows
+ * its expander, `ActivityItem` gains `changes?: FieldDiff[]` and this alias
+ * collapses back to it — see the note on `readDiff` for what the UI receives.
+ */
+export type ActivityFeedItem = ActivityItem & { changes?: FieldDiff[] }
 
 /** R18 — the ONE visibility clause for the cross-module team feed. The feed's
  * rows name records and their before/after, so the team scope must subtract the
@@ -127,7 +192,7 @@ export async function getActivity(
   allowedTables: string[] | null = null,
   cursor?: string | null,
   filters: ActivityFilters = {}
-): Promise<Page<ActivityItem> & { total: number }> {
+): Promise<Page<ActivityFeedItem> & { total: number }> {
   // Validated BEFORE the fail-closed checks below, so a bad filter is a clean
   // 400 rather than an empty page that looks like an honest answer.
   const filter = filterClauses(filters)
@@ -175,6 +240,9 @@ export async function getActivity(
   // key rather than stopping at a ceiling. PAGE_SIZE + 1 reveals hasMore.
   const after = keysetAfter(decodeCursor(cursor), "created_at")
   const pageWhere = after.sql ? `${where ? `${where} AND` : " WHERE"} ${after.sql}` : where
+  // The diff rides a single-record read only — see `readDiff` for why the team
+  // feed's column list is deliberately unchanged.
+  const withDiff = scope !== "team"
   const [rows, counted] = await Promise.all([
     d1Query<ActivityRow>(
       cfg,
@@ -184,7 +252,9 @@ export async function getActivity(
       // so for a week the base recorded which door every change came through and
       // could not show it to anyone. A column nothing reads is not an audit
       // trail — it is a cost. (Activity-log review, 2026-08-25.)
-      `SELECT id, type, description, created_at, creator_name, origin, verb FROM activity${pageWhere}
+      `SELECT id, type, description, created_at, creator_name, origin, verb${
+        withDiff ? ", before_after" : ""
+      } FROM activity${pageWhere}
        ORDER BY created_at DESC, id DESC LIMIT ${PAGE_SIZE + 1}`,
       [...params, ...after.params]
     ),
@@ -202,6 +272,13 @@ export async function getActivity(
       createdAt: r.created_at,
       origin: r.origin,
       verb: r.verb,
+      // Gated HERE as well as in the SELECT, and not because one of them might
+      // be wrong: R18's leak arrived by omission, so the scope decides twice —
+      // once about what is asked for and once about what is handed back.
+      // Absent (not null, not []) on the team feed and on rows whose door sends
+      // no diff, because "this door doesn't diff yet" and "nothing changed" stay
+      // two different facts, exactly as the writer keeps them.
+      changes: withDiff ? readDiff(r.before_after ?? null) : undefined,
     })),
     total: counted[0]?.n ?? 0,
   }
