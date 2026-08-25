@@ -78,12 +78,12 @@ export async function getLearningExport(request: Request, env: Env): Promise<Res
   return csvResponse("learning.csv", csv, truncated)
 }
 
-export async function postCreateLearning(request: Request, env: Env): Promise<Response> {
+export async function postCreateLearning(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const { actor, cfg, guard, body } = await gatedBody<LearningInput>(request, env, "learning", "create")
   requireText(body.title, "Title", TEXT_LIMITS.short)
   const id = await createLearning(cfg, guard, actor, body)
   // Row-level: carry the new item's id so open learning lists patch just that row.
-  await publishChange(env.REALTIME, guard.teamId, "learning", id, "add")
+  ctx.waitUntil(publishChange(env.REALTIME, guard.teamId, "learning", id, "add"))
   // R21: the CREATED ROW, not the collection. Shipping the whole list back to add
   // one row contradicts row-level live-sync (CACHING rule 3) and the paging rule,
   // and left the caller unable to learn the new id without a follow-up search.
@@ -92,7 +92,7 @@ export async function postCreateLearning(request: Request, env: Env): Promise<Re
   return json({ created, total })
 }
 
-export async function postUpdateLearning(request: Request, env: Env): Promise<Response> {
+export async function postUpdateLearning(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const { actor, cfg, guard, body } = await gatedBody<LearningInput & { id?: string; expectedVersion?: string }>(request, env, "learning", "edit")
   // The id goes through the SAME boundary seam as the text beside it. Truthiness
   // only ever proved the field was present, and the `id?: string` in the type above
@@ -101,21 +101,21 @@ export async function postUpdateLearning(request: Request, env: Env): Promise<Re
   const id = requireText(body.id, "id", TEXT_LIMITS.short)
   requireText(body.title, "Title", TEXT_LIMITS.short)
   await updateLearning(cfg, guard, actor, id, body, body.expectedVersion)
-  await publishChange(env.REALTIME, guard.teamId, "learning", id)
+  ctx.waitUntil(publishChange(env.REALTIME, guard.teamId, "learning", id))
   // R23: the affected ROW, and no count — an edit cannot move a total. See RULES.md.
   return json({ updated: await oneLearning(cfg, guard, id) })
 }
 
 /** Deactivate / reactivate a learning item — never deleted (progress survives).
  * Gated by learning:delete (deactivate is our "delete" in the deactivate model). */
-export async function postSetLearningActive(request: Request, env: Env): Promise<Response> {
+export async function postSetLearningActive(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const { actor, cfg, guard, body } = await gatedBody<{ id?: string; active?: boolean }>(request, env, "learning", "delete")
   const id = requireText(body.id, "id", TEXT_LIMITS.short)
   if (typeof body.active !== "boolean")
     return fail(400, "invalid_input", "id and active are required.")
   // R17: no-op repeat → no ping, no duplicate history (see setLearningActive).
   const changed = await setLearningActive(cfg, guard, actor, id, body.active)
-  if (changed) await publishChange(env.REALTIME, guard.teamId, "learning", id)
+  if (changed) ctx.waitUntil(publishChange(env.REALTIME, guard.teamId, "learning", id))
   // R23: the affected ROW, and no count — an edit cannot move a total. See RULES.md.
   return json({ updated: await oneLearning(cfg, guard, id) })
 }
@@ -126,7 +126,7 @@ export async function postSetLearningActive(request: Request, env: Env): Promise
  * clean 400), applies the same per-row change to every matching item, and — the
  * live-sync law — publishes ONE row-level ping per CHANGED row (patch that row,
  * never refetch the list). Returns { updated, skipped }. */
-export async function postBulkSetLearningActive(request: Request, env: Env): Promise<Response> {
+export async function postBulkSetLearningActive(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const { actor, cfg, guard, body } = await gatedBody<{ ids?: unknown; active?: unknown }>(request, env, "learning", "delete")
   const ids = requireIdList(body.ids)
   if (typeof body.active !== "boolean")
@@ -134,20 +134,20 @@ export async function postBulkSetLearningActive(request: Request, env: Env): Pro
   const { changed, skipped } = await bulkSetLearningActive(cfg, guard, actor, ids, body.active)
   // Row-level live-sync: one ping per changed item (same row shape the single
   // endpoint patches) — no list refetch.
-  for (const id of changed) await publishChange(env.REALTIME, guard.teamId, "learning", id)
+  for (const id of changed) ctx.waitUntil(publishChange(env.REALTIME, guard.teamId, "learning", id))
   return json({ updated: changed.length, skipped })
 }
 
 /** Mark an item done / not-done for the caller (their OWN progress — any reader
  * may record their own). Publishes an "edit" on the row so open lists refresh the
  * viewer's done badge. */
-export async function postLearningDone(request: Request, env: Env): Promise<Response> {
+export async function postLearningDone(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const { cfg, guard, body } = await gatedBody<{ id?: string; done?: boolean }>(request, env, "learning", "read")
   const id = requireText(body.id, "id", TEXT_LIMITS.short)
   if (typeof body.done !== "boolean")
     return fail(400, "invalid_input", "id and done are required.")
   await setLearningDone(cfg, guard, id, body.done)
-  await publishChange(env.REALTIME, guard.teamId, "learning", id, "edit")
+  ctx.waitUntil(publishChange(env.REALTIME, guard.teamId, "learning", id, "edit"))
   return json({ ok: true })
 }
 

@@ -86,7 +86,10 @@ export async function verifyEmailChange(
   user: UserRow,
   newEmailRaw: string,
   code: string,
-  currentTokenHash: string
+  currentTokenHash: string,
+  /** The route's `ctx`. The forced sign-out ping below is best-effort and reaches
+   * only the person's OTHER devices, so nothing in this answer depends on it. */
+  ctx: ExecutionContext
 ): Promise<{ user: SessionUser } | ChangeFail> {
   const newEmail = normalizeEmail(newEmailRaw)
   if (!/^\d{6}$/.test(code))
@@ -137,7 +140,7 @@ export async function verifyEmailChange(
   await signOutOtherSessions(env, user.id, currentTokenHash)
   // Live: push the OTHER devices to login instantly (the acting device keeps its
   // still-valid session). Best-effort.
-  await publishSignOut(env.REALTIME, user.id)
+  ctx.waitUntil(publishSignOut(env.REALTIME, user.id))
   await sendEmailChangedNotice(env, oldEmail, newEmail).catch((e) =>
     console.error("email-change notice failed:", e)
   )

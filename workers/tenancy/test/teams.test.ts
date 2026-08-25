@@ -56,11 +56,51 @@ function fakeDb(handlers: { match: string; first?: unknown; all?: unknown[] }[] 
   return { db: db as unknown as Env["DB"], calls }
 }
 
+/**
+ * Every ping the live seam actually tried to send.
+ *
+ * `REALTIME: {} as Fetcher` used to stand in here, which throws on `.fetch` and
+ * is swallowed by `callService` — so a publish that had been deleted outright and
+ * a publish that worked looked identical from these tests. Both team-lifecycle
+ * publishes now travel through `ctx.waitUntil`, which makes the difference even
+ * easier to miss, so the stub records instead of exploding.
+ */
+const publishes: { channel: string; event: { resource: string; id?: string; op?: string } }[] = []
+const REALTIME = {
+  fetch: async (_url: string, init?: RequestInit) => {
+    publishes.push(JSON.parse(String(init?.body ?? "{}")))
+    return new Response("{}", { status: 200 })
+  },
+} as unknown as Fetcher
+
+/**
+ * An `ExecutionContext` stand-in that KEEPS what it is handed.
+ *
+ * A stub whose `waitUntil` dropped the promise would let a ping that never left
+ * read as a pass — the same blindness the publish seam was rewritten to catch, one
+ * layer down. `settled()` is how a test says "now let the deferred work finish".
+ */
+function fakeCtx() {
+  const held: Promise<unknown>[] = []
+  return {
+    ctx: {
+      waitUntil: (p: Promise<unknown>) => void held.push(p),
+      passThroughOnException: () => {},
+    } as unknown as ExecutionContext,
+    /** How many promises were HANDED OVER rather than awaited inline. `waitUntil`
+     * does not delay the start of the work — it only takes it off the response's
+     * critical path — so "was it deferred?" is this count, never a timing check on
+     * the ping itself. A timing check would pass for the wrong reason. */
+    deferred: () => held.length,
+    settled: () => Promise.all(held),
+  }
+}
+
 function envWith(db: Env["DB"]): Env {
   return {
     DB: db,
     AUTH: {} as Fetcher,
-    REALTIME: {} as Fetcher,
+    REALTIME,
     MEDIA: {} as R2Bucket,
     LEARNING_MEDIA: {} as R2Bucket,
     CF_ACCOUNT_ID: "acct",
@@ -69,6 +109,7 @@ function envWith(db: Env["DB"]): Env {
 }
 
 beforeEach(() => {
+  publishes.length = 0
   vi.mocked(d1CreateDatabase).mockClear()
   vi.mocked(d1ExecScript).mockClear()
   vi.mocked(d1DeleteDatabase).mockClear()
@@ -78,9 +119,19 @@ beforeEach(() => {
 describe("createTeam (the factory)", () => {
   it("creates DB, applies schema + seeds, writes membership, marks ready", async () => {
     const { db, calls } = fakeDb()
-    const result = await createTeam(envWith(db), ACTOR, "Chris's team", null)
+    const { ctx, deferred, settled } = fakeCtx()
+    const result = await createTeam(envWith(db), ACTOR, "Chris's team", null, ctx)
 
     expect(result.teamId).toHaveLength(26)
+    // DEFERRED, NOT DROPPED. Creating a team is already the slowest thing in the
+    // base — a real database, a schema, a seed — so the ping must come off the
+    // response's critical path, and it must still arrive. `ctx.waitUntil` is the
+    // only shape that is both; a bare call would be cancelled with the isolate.
+    expect(deferred(), "the ping must be handed to waitUntil, not awaited in front of the answer").toBe(1)
+    await settled()
+    expect(publishes, "…and it must still be sent").toEqual([
+      { channel: `user:${ACTOR.id}`, event: { resource: "teams", id: result.teamId, op: "add" } },
+    ])
     expect(d1CreateDatabase).toHaveBeenCalledWith(
       expect.anything(),
       `team-${result.teamId.toLowerCase()}`
@@ -105,7 +156,7 @@ describe("createTeam (the factory)", () => {
     const { db, calls } = fakeDb()
 
     await expect(
-      createTeam(envWith(db), ACTOR, "Doomed team", null)
+      createTeam(envWith(db), ACTOR, "Doomed team", null, fakeCtx().ctx)
     ).rejects.toThrow("boom")
 
     const sqls = calls.map((c) => c.sql)
@@ -118,7 +169,7 @@ describe("createTeam (the factory)", () => {
   it("refuses to run without the cloud key", async () => {
     const { db } = fakeDb()
     const env = { ...envWith(db), CF_D1_TOKEN: undefined }
-    await expect(createTeam(env, ACTOR, "X", null)).rejects.toThrow(
+    await expect(createTeam(env, ACTOR, "X", null, fakeCtx().ctx)).rejects.toThrow(
       "cloud_key_missing"
     )
   })
@@ -135,7 +186,8 @@ describe("acceptPendingInvites (locked onboarding flow)", () => {
         ],
       },
     ])
-    const accepted = await acceptPendingInvites(envWith(db), ACTOR)
+    const { ctx, deferred, settled } = fakeCtx()
+    const accepted = await acceptPendingInvites(envWith(db), ACTOR, ctx)
 
     expect(accepted).toBe(2)
     const sqls = calls.map((c) => c.sql)
@@ -143,11 +195,25 @@ describe("acceptPendingInvites (locked onboarding flow)", () => {
     expect(sqls.filter((s) => s.includes("SET status = 'accepted'"))).toHaveLength(2)
     const current = calls.find((c) => c.sql.includes("SET current_team_id"))
     expect(current?.params[0]).toBe("team-A")
+
+    // Five pings — one per invite, one per team, one cross-device — and NOT ONE of
+    // them in front of the answer. This is onboarding: the person is waiting on the
+    // very first screen of the product, and these are Durable Object hops nothing
+    // in the response depends on.
+    expect(deferred(), "all five must come off onboarding's critical path").toBe(5)
+    await settled()
+    expect(publishes.map((p) => `${p.channel}/${p.event.resource}`)).toEqual([
+      "team:team-A/invites",
+      "team:team-B/invites",
+      "team:team-A/members",
+      "team:team-B/members",
+      `user:${ACTOR.id}/teams`,
+    ])
   })
 
   it("does nothing when there are no invites (personal team path)", async () => {
     const { db, calls } = fakeDb()
-    expect(await acceptPendingInvites(envWith(db), ACTOR)).toBe(0)
+    expect(await acceptPendingInvites(envWith(db), ACTOR, fakeCtx().ctx)).toBe(0)
     expect(calls.some((c) => c.sql.includes("INTO team_members"))).toBe(false)
   })
 })

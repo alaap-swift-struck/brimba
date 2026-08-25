@@ -20,7 +20,6 @@ import {
 import {
   ActivityFeed,
   defaultActivityFeedConfig,
-  type ActivityItem as ActivityFeedItem,
 } from "@swift-struck/ui/registry/collections/activity-feed/activity-feed"
 import {
   TicketThread,
@@ -37,9 +36,10 @@ import type {
   SelectableValue,
   TeamMember,
 } from "@shared/types"
+import { activityFeedItems } from "@/components/activity-changes"
 import { ApiFailure, content, tenancy } from "@/lib/api"
 import { auditItems } from "@/lib/audit-overview"
-import { formatActivityWhen, formatRelative } from "@/lib/format"
+import { formatRelative } from "@/lib/format"
 import { personName } from "@/lib/identity"
 import { usePermissions } from "@/lib/perms"
 import { applyUpdated, helpKey } from "@/lib/live-resources"
@@ -244,12 +244,7 @@ export function HelpDetailScreen({
     { label: "Resolved", value: ticket.resolvedAt ? formatRelative(ticket.resolvedAt) : "" },
   ]
 
-  const activityItems: ActivityFeedItem[] = (activityQ.data ?? []).map((a) => ({
-    id: a.id,
-    description: a.description,
-    actor: a.actorName ?? undefined,
-    timestamp: formatActivityWhen(a.createdAt),
-  }))
+  const activityItems = activityFeedItems(activityQ.data ?? [])
 
   const tabsConfig = {
     ...defaultTabsConfig,

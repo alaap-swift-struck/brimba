@@ -197,13 +197,13 @@ export type ActivityEntry = {
   changes?: FieldDiff[]
 }
 
-export type FieldDiff = {
-  label: string
-  from?: string | null
-  to?: string | null
-  /** long/rich fields (an article body) log "<label> updated" without the values */
-  hideValues?: boolean
-}
+// ONE declaration, in shared/types.ts — imported for use here and re-exported so
+// the callers that already name it through this module keep working. It lived
+// here as a second copy while the diff was produced by a reader and consumed by
+// nothing; now that the Activity tab renders it, the same shape crosses the wire,
+// and two structurally identical types with different comments is how they drift.
+import type { FieldDiff } from "../types"
+export type { FieldDiff }
 
 /** Name exactly WHAT changed in an edit, old → new — so the activity feed answers
  * "which fields, from what, to what" instead of just "X edited Y". Unchanged
@@ -277,24 +277,7 @@ export async function logActivity(
   record?: OutboundRecorder
 ): Promise<void> {
   try {
-    const now = new Date().toISOString()
-    // The diff travels as JSON. NULL rather than "[]" when there is nothing to
-    // say, so a reader can tell "no fields changed" from "this door does not send
-    // diffs yet" — two different facts an empty array would merge into one.
-    const diff = entry.changes?.length ? JSON.stringify(entry.changes) : null
-    await d1ExecScript(
-      cfg,
-      databaseId,
-      `INSERT INTO activity
-         (id, type, description, related_table, related_row_id,
-          created_at, creator_id, creator_email, creator_name, origin, before_after, verb)
-       VALUES (
-          ${sqlString(ulid())}, ${sqlString(entry.type)}, ${sqlString(entry.description)},
-          ${sqlString(entry.relatedTable ?? null)}, ${sqlString(entry.relatedRowId ?? null)},
-          ${sqlString(now)}, ${sqlString(actor.id)}, ${sqlString(actor.email)}, ${sqlString(actor.name)},
-          ${sqlString(entry.origin ?? actor.origin ?? "ui")} /* "ui" is the FALLBACK, not a default anyone should rely on: every non-UI surface sets its own via ORIGIN_HEADER or the actor */, ${sqlString(diff)}, ${sqlString(entry.verb ?? null)}
-       );`
-    )
+    await d1ExecScript(cfg, databaseId, activityStatement(actor, entry))
   } catch (e) {
     // THE GAP MARKER, in both places it needs to be. Structured and filterable by
     // `event` for a live tail, carrying the request id like every other trace
@@ -304,6 +287,58 @@ export async function logActivity(
     traceError({ worker: "activity", place, event: "activity_log_gap", detail: e })
     await recordGap(record, place, e)
   }
+}
+
+/**
+ * THE ACTIVITY ROW AS A STATEMENT — the same SQL `logActivity` writes, handed back
+ * as a string so a caller that is ALREADY crossing to the same database can carry
+ * it rather than pay a second crossing for it.
+ *
+ * WHY THIS IS A BUILDER AND NOT A COPY. Every statement in this app executes in
+ * 0.1–0.3ms; the cost of writing an activity row is the HTTPS round trip to
+ * api.cloudflare.com in front of it. Raising a support ticket was four such trips
+ * for four such statements, and `d1Batch` folds them into one — but only for the
+ * statements the caller can produce. The obvious way to fold the fourth is to
+ * re-type this INSERT in the module doing the batching, and that would give the
+ * audit trail TWO authors: two lists of columns, two escaping decisions, and
+ * nothing to keep them in step. The trail's whole value is that it has one.
+ *
+ * So the seam exposes its statement and `logActivity` writes through the same
+ * builder. There is exactly one `INSERT INTO activity` in the codebase, and it is
+ * below.
+ *
+ * EVERY VALUE IS INLINE THROUGH `sqlString`, which is not new but now matters
+ * more. The REST door rejects `params` alongside multiple statements (a hard 400),
+ * so a batched caller has no bound-parameter option at all — inlining is the only
+ * shape available, and `sqlString` (which coerces to string first, then doubles
+ * every apostrophe) is the only thing between a person's own name and the SQL it
+ * lands in.
+ *
+ * WHAT A BATCHED CALLER TAKES ON. `logActivity` swallows its own failures: a
+ * logging hiccup never breaks the action it describes. A statement carried inside
+ * someone else's batch cannot have that property — it shares the crossing with the
+ * statements beside it, so a call that fails takes the write with it instead of
+ * only the trail. What it REMOVES is the two-crossing failure: the row landing and
+ * a second call to the same database failing on its own. (What the engine does
+ * with a statement that fails PART-WAY through a batch is D1's business, and
+ * nothing here relies on an answer either way.) It is a different contract, and a
+ * caller folding this in is choosing it deliberately.
+ */
+export function activityStatement(actor: Actor, entry: ActivityEntry): string {
+  const now = new Date().toISOString()
+  // The diff travels as JSON. NULL rather than "[]" when there is nothing to
+  // say, so a reader can tell "no fields changed" from "this door does not send
+  // diffs yet" — two different facts an empty array would merge into one.
+  const diff = entry.changes?.length ? JSON.stringify(entry.changes) : null
+  return `INSERT INTO activity
+         (id, type, description, related_table, related_row_id,
+          created_at, creator_id, creator_email, creator_name, origin, before_after, verb)
+       VALUES (
+          ${sqlString(ulid())}, ${sqlString(entry.type)}, ${sqlString(entry.description)},
+          ${sqlString(entry.relatedTable ?? null)}, ${sqlString(entry.relatedRowId ?? null)},
+          ${sqlString(now)}, ${sqlString(actor.id)}, ${sqlString(actor.email)}, ${sqlString(actor.name)},
+          ${sqlString(entry.origin ?? actor.origin ?? "ui")} /* "ui" is the FALLBACK, not a default anyone should rely on: every non-UI surface sets its own via ORIGIN_HEADER or the actor */, ${sqlString(diff)}, ${sqlString(entry.verb ?? null)}
+       );`
 }
 
 /**

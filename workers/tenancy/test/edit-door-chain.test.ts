@@ -98,6 +98,12 @@ const ENV = {
   DB: { prepare: () => ({ bind: () => ({ first: async () => ({ n: 0 }) }) }) },
 } as never
 
+/** The route `ctx`. Doors now hand their change ping to `ctx.waitUntil` instead
+ * of awaiting it (LAW R1 accepts both), so a door cannot be driven without one.
+ * A no-op stand-in is enough here: `publishChange` is mocked to a resolved no-op
+ * above, and what this file asserts on is the SQL the door sends. */
+const CTX = { waitUntil: () => {}, passThroughOnException: () => {} } as never
+
 /** A request exactly as the wire carries it — JSON.stringify DROPS an undefined
  * value, which is what makes "omitted" and "explicitly null" different here. */
 const post = (body: unknown) =>
@@ -125,7 +131,7 @@ describe("the role edit door tells an omitted description from a cleared one", (
     // The shape the assistant actually produces: `update_role` requires only
     // roleId + title, so "rename that role" is one call carrying two fields.
     const sql = await updateSql("member_roles", () =>
-      postUpdateRole(post({ roleId: "R7", title: "Team manager" }), ENV)
+      postUpdateRole(post({ roleId: "R7", title: "Team manager" }), ENV, CTX)
     )
 
     expect(sql).toContain("title = 'Team manager'") // the one field it meant to change
@@ -138,20 +144,20 @@ describe("the role edit door tells an omitted description from a cleared one", (
   it("a description the person actually CLEARED still clears", async () => {
     // The web form's payload for an emptied box: present, and empty.
     const blanked = await updateSql("member_roles", () =>
-      postUpdateRole(post({ roleId: "R7", title: "Manager", description: "" }), ENV)
+      postUpdateRole(post({ roleId: "R7", title: "Manager", description: "" }), ENV, CTX)
     )
     expect(blanked).toContain("description = NULL")
 
     // And the explicit null the update-door rule names.
     const nulled = await updateSql("member_roles", () =>
-      postUpdateRole(post({ roleId: "R7", title: "Manager", description: null }), ENV)
+      postUpdateRole(post({ roleId: "R7", title: "Manager", description: null }), ENV, CTX)
     )
     expect(nulled).toContain("description = NULL")
   })
 
   it("still writes a description the caller DID send", async () => {
     const sql = await updateSql("member_roles", () =>
-      postUpdateRole(post({ roleId: "R7", title: "Manager", description: "Runs the rota" }), ENV)
+      postUpdateRole(post({ roleId: "R7", title: "Manager", description: "Runs the rota" }), ENV, CTX)
     )
     expect(sql).toContain("description = 'Runs the rota'")
   })
@@ -161,7 +167,7 @@ describe("the role edit door tells an omitted description from a cleared one", (
     // written reports a preserved field as cleared: the record's own history
     // describing a change that never happened.
     await updateSql("member_roles", () =>
-      postUpdateRole(post({ roleId: "R7", title: "Team manager" }), ENV)
+      postUpdateRole(post({ roleId: "R7", title: "Team manager" }), ENV, CTX)
     )
     const entry = H.activity.at(-1)
     expect(entry, "the edit must write an activity row").toBeTruthy()
@@ -176,7 +182,7 @@ describe("the role edit door tells an omitted description from a cleared one", (
 describe("the dropdown edit door can move a value between groups", () => {
   it("forwards an explicit type, so the value really moves", async () => {
     const sql = await updateSql("selectable_data", () =>
-      postUpdateSelectable(post({ id: "V1", value: "Image file", type: "Help type" }), ENV)
+      postUpdateSelectable(post({ id: "V1", value: "Image file", type: "Help type" }), ENV, CTX)
     )
     expect(
       sql.includes("type = 'Help type'"),
@@ -186,7 +192,7 @@ describe("the dropdown edit door can move a value between groups", () => {
 
   it("leaves an omitted type out of the SET, so an inline rename never moves anything", async () => {
     const sql = await updateSql("selectable_data", () =>
-      postUpdateSelectable(post({ id: "V1", value: "Picture file" }), ENV)
+      postUpdateSelectable(post({ id: "V1", value: "Picture file" }), ENV, CTX)
     )
     expect(sql).toContain("value = 'Picture file'")
     expect(/\btype\s*=/.test(sql), "an omitted type must not be written").toBe(false)
@@ -196,7 +202,7 @@ describe("the dropdown edit door can move a value between groups", () => {
     // A group is REQUIRED when it is sent — there is no such thing as clearing
     // one. Present-and-empty is a caller mistake, and a clean 400 says so.
     await expect(
-      postUpdateSelectable(post({ id: "V1", value: "Image file", type: "   " }), ENV)
+      postUpdateSelectable(post({ id: "V1", value: "Image file", type: "   " }), ENV, CTX)
     ).rejects.toMatchObject({ status: 400 })
   })
 })

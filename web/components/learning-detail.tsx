@@ -23,15 +23,14 @@ import {
 import {
   ActivityFeed,
   defaultActivityFeedConfig,
-  type ActivityItem as ActivityFeedItem,
 } from "@swift-struck/ui/registry/collections/activity-feed/activity-feed"
 import { Pencil, Power } from "lucide-react"
 
 import type { ActivityItem, Learning, SelectableValue } from "@shared/types"
 import { LearningFormDialog, type LearningFormValues } from "@/components/learning-form-dialog"
 import { ApiFailure, content, tenancy } from "@/lib/api"
+import { activityFeedItems } from "@/components/activity-changes"
 import { auditItems } from "@/lib/audit-overview"
-import { formatActivityWhen } from "@/lib/format"
 import { RichText } from "@/components/rich-text"
 import { usePermissions } from "@/lib/perms"
 import { applyUpdated } from "@/lib/live-resources"
@@ -195,12 +194,7 @@ export function LearningDetailScreen({ teamId, learningId }: { teamId: string; l
     }),
   ]
 
-  const activityItems: ActivityFeedItem[] = (activityQ.data ?? []).map((a) => ({
-    id: a.id,
-    description: a.description,
-    actor: a.actorName ?? undefined,
-    timestamp: formatActivityWhen(a.createdAt),
-  }))
+  const activityItems = activityFeedItems(activityQ.data ?? [])
 
   const tabsConfig = {
     ...defaultTabsConfig,

@@ -36,7 +36,7 @@ import { ulid } from "./id"
 // declarations called at request time, never at module-evaluation time, so the
 // cycle resolves cleanly in every bundler the base uses. The alternative was a
 // third module holding one throttle, which is more file than the fault is worth.
-import { recordOutbound, type OutboundRecorder } from "./error-log"
+import { recordOutbound, type OutboundKind, type OutboundRecorder } from "./error-log"
 
 /** The header the id travels on. `x-request-id` is the de-facto standard, so an
  * inbound one from a load balancer or a client is honoured rather than replaced. */
@@ -90,12 +90,20 @@ type ServiceBinding = { fetch(url: string, init?: RequestInit): Promise<Response
  * That distinction is the whole point. `null` must never be folded into the same
  * branch as "the dependency said no", because the two mean opposite things to the
  * person waiting: "you are not allowed" versus "we are broken, try again".
+ *
+ * `opts.record` is OPTIONAL and is the same channel `proxyService` takes, for the
+ * same reason. Without it a no-answer leaves exactly one `traceError` line, and
+ * Cloudflare keeps those about a week — so a dependency that stopped answering
+ * had no history anywhere after that, in the one store that has ninety days of it
+ * and a resolve workflow. Most callers pass nothing and are byte-identical to how
+ * they behaved before: a missing channel means "not recorded", never a crash
+ * inside the error path (`recordOutbound` returns immediately on `undefined`).
  */
 export async function callService(
   binding: ServiceBinding,
   url: string,
   init: RequestInit,
-  opts: { req?: string; worker: string; place: string; timeoutMs?: number }
+  opts: { req?: string; worker: string; place: string; timeoutMs?: number; record?: OutboundRecorder }
 ): Promise<Response | null> {
   const headers = withTrace((init.headers as Record<string, string>) ?? {}, opts.req)
   try {
@@ -114,8 +122,24 @@ export async function callService(
       event: "service_unreachable",
       detail: e,
     })
+    // …and so does the ROW, through the same one-row-per-minute-per-(integration,
+    // kind) throttle the data door and the proxy already use. A dependency that is
+    // down fails every call that reaches it, so an unthrottled row per failure
+    // would make the error store the second casualty of the outage; the ones held
+    // back are counted and said out loud on the next row that gets through.
+    await recordOutbound(opts.record, opts.worker, opts.place, noAnswerKind(e), e)
     return null
   }
+}
+
+/** WHICH KIND of no-answer this was. `proxyService` has no timeout so everything
+ * it catches is `upstream`; this seam does, so the two are distinguishable and
+ * worth distinguishing — a dependency that is SLOW and a dependency that is BROKEN
+ * need different people, which is the whole reason `OutboundKind` exists. The
+ * throttle keys on the kind, so the two also stop hiding each other. */
+function noAnswerKind(e: unknown): OutboundKind {
+  const name = e instanceof Error ? e.name : ""
+  return name === "TimeoutError" || name === "AbortError" ? "timeout" : "upstream"
 }
 
 /**

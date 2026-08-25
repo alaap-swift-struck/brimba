@@ -75,16 +75,10 @@ function readDiff(raw: string | null): FieldDiff[] | undefined {
     )
 }
 
-/**
- * What a feed row is, on the wire.
- *
- * A LOCAL WIDENING of the shared `ActivityItem` rather than an edit to
- * `shared/types.ts`: the diff is produced by this reader and by nothing else, so
- * the extra field is described where it is produced. When the Activity tab grows
- * its expander, `ActivityItem` gains `changes?: FieldDiff[]` and this alias
- * collapses back to it — see the note on `readDiff` for what the UI receives.
- */
-export type ActivityFeedItem = ActivityItem & { changes?: FieldDiff[] }
+/** What a feed row is, on the wire. The local widening this used to be has
+ * collapsed: `ActivityItem` carries `changes` itself now that the Activity tab
+ * renders it, so the alias is kept only because callers name it. */
+export type ActivityFeedItem = ActivityItem
 
 /** R18 — the ONE visibility clause for the cross-module team feed. The feed's
  * rows name records and their before/after, so the team scope must subtract the

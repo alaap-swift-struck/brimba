@@ -287,6 +287,52 @@ export async function d1ExecScript(
   await cf(cfg, `/d1/database/${databaseId}/query`, { sql: script }, "POST", sqlLabel(script))
 }
 
+/**
+ * Run SEVERAL statements in ONE call and get EVERY result set back — the reading
+ * sibling of `d1ExecScript`, which sends N statements and then throws all N
+ * answers away.
+ *
+ * WHY THIS EXISTS. Every statement in this app runs in 0.1–0.3ms; the entire cost
+ * of a request is the distance to the door. Raising a support ticket was an
+ * insert, an activity row, a read-back and a count as FOUR separate HTTPS calls
+ * to api.cloudflare.com — about 427ms of a 1.2s operation spent on latency alone.
+ * Three of those four now travel together (the activity row keeps its own call,
+ * because `shared/workers/activity.ts` owns that statement), and the create went
+ * from 1457ms to 894ms measured against staging from the same colo.
+ *
+ * PARAMS ARE NOT AVAILABLE HERE, AND THAT IS THE WHOLE RISK. The REST `/query`
+ * endpoint accepts multiple statements OR a `params` array, never both — sending
+ * both is a hard 400 (`code 7400`). So every value in these statements is INLINE,
+ * and `sqlString` is the ONLY way a value may reach one. This is a door any member
+ * can reach; one unescaped interpolation is an injection hole. The signature helps
+ * as far as a signature can — there is no `params` argument to be tempted by — but
+ * the discipline is the caller's, and a caller that builds SQL any other way is
+ * the bug.
+ *
+ * The result is one row-array per statement, in the order given. An INSERT
+ * contributes an empty array, so the positions still line up and a caller can read
+ * its SELECTs by index. `Rows` is a tuple describing them, exactly as `d1Query`'s
+ * `Row` describes its own — an assertion about the shape asked for, not a check.
+ */
+export async function d1Batch<Rows extends unknown[][]>(
+  cfg: D1Rest,
+  databaseId: string,
+  statements: string[]
+): Promise<Rows> {
+  const sql = statements.join("\n")
+  const result = await cf<{ results: unknown[] }[]>(
+    cfg,
+    `/d1/database/${databaseId}/query`,
+    { sql },
+    "POST",
+    // The label names the FIRST statement and how many rode with it — the number
+    // is the point of the span, since one slow trip carrying four statements and
+    // four slow trips are the same total and completely different diagnoses.
+    `${sqlLabel(statements[0] ?? "")} +${Math.max(statements.length - 1, 0)}`
+  )
+  return statements.map((_, i) => result[i]?.results ?? []) as Rows
+}
+
 /** Escape a value for inlining into a seed/copy script ('' doubling). Only
  * used where the REST API forbids params (multi-statement scripts). Coerces any
  * non-string runtime value to its string form FIRST (defence-in-depth: route bodies

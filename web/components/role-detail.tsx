@@ -40,7 +40,6 @@ import {
 import {
   ActivityFeed,
   defaultActivityFeedConfig,
-  type ActivityItem as ActivityFeedItem,
 } from "@swift-struck/ui/registry/collections/activity-feed/activity-feed"
 import { Lock, Pencil, Power } from "lucide-react"
 
@@ -48,8 +47,8 @@ import type { ActivityItem, PermissionValue, RolePermissions, TeamRole } from "@
 import { rightsOf } from "@shared/team-modules"
 import { RoleFormDialog } from "@/components/role-form-dialog"
 import { ApiFailure, tenancy } from "@/lib/api"
+import { activityFeedItems } from "@/components/activity-changes"
 import { auditItems } from "@/lib/audit-overview"
-import { formatActivityWhen } from "@/lib/format"
 import { usePermissions } from "@/lib/perms"
 import { applyUpdated } from "@/lib/live-resources"
 import { primeCache, useCached } from "@/lib/store"
@@ -175,12 +174,7 @@ export function RoleDetailScreen({ teamId, roleId }: { teamId: string; roleId: s
     }),
   ]
 
-  const activityItems: ActivityFeedItem[] = (activityQ.data ?? []).map((a) => ({
-    id: a.id,
-    description: a.description,
-    actor: a.actorName ?? undefined,
-    timestamp: formatActivityWhen(a.createdAt),
-  }))
+  const activityItems = activityFeedItems(activityQ.data ?? [])
 
   const tabsConfig = {
     ...defaultTabsConfig,

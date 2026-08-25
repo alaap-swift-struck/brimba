@@ -101,7 +101,7 @@ export async function getAgentUsageLog(request: Request, env: Env): Promise<Resp
 }
 
 /** POST /api/data-ops/admin/grant-credits — owner-only credit top-up (x-admin-key). */
-export async function postGrantCredits(request: Request, env: Env): Promise<Response> {
+export async function postGrantCredits(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const blocked = adminGuard(request, env)
   if (blocked) return blocked
   const body = (await request.json().catch(() => ({}))) as { teamId?: string; amount?: number }
@@ -112,7 +112,7 @@ export async function postGrantCredits(request: Request, env: Env): Promise<Resp
   if (!Number.isFinite(amount) || amount <= 0 || Math.trunc(amount) !== amount)
     return fail(400, "invalid_input", "teamId and a positive whole amount are required.")
   const balance = await grantCredits(env, teamId, amount)
-  await publishChange(env.REALTIME, teamId, "agent_usage")
+  ctx.waitUntil(publishChange(env.REALTIME, teamId, "agent_usage"))
   return json({ teamId, balance })
 }
 

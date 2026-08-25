@@ -34,7 +34,7 @@ export async function getInvites(request: Request, env: Env): Promise<Response> 
   })
 }
 
-export async function postCreateInvite(request: Request, env: Env): Promise<Response> {
+export async function postCreateInvite(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const { actor, cfg, guard, body } = await gatedBody<{ email?: string; roleId?: string }>(
     request, env, "team_members", "create"
   )
@@ -44,7 +44,7 @@ export async function postCreateInvite(request: Request, env: Env): Promise<Resp
     env, cfg, guard, actor, body.email, body.roleId, request
   )
   // Row-level: carry the new invite's id so open invite lists patch just that row.
-  await publishChange(env.REALTIME, guard.teamId, "invites", inviteId, "add")
+  ctx.waitUntil(publishChange(env.REALTIME, guard.teamId, "invites", inviteId, "add"))
   // `emailSent` first + honest: the invite always succeeds (the row routes acceptance),
   // but the branded email is best-effort — the client + the agent report the real outcome.
   // R21: the CREATED ROW, not the collection.
@@ -55,7 +55,7 @@ export async function postCreateInvite(request: Request, env: Env): Promise<Resp
   })
 }
 
-export async function postRevokeInvite(request: Request, env: Env): Promise<Response> {
+export async function postRevokeInvite(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const { actor, cfg, guard, body } = await gatedBody<{ inviteId?: string }>(
     request, env, "team_members", "delete"
   )
@@ -63,7 +63,7 @@ export async function postRevokeInvite(request: Request, env: Env): Promise<Resp
   await revokeInvite(env, cfg, guard, actor, body.inviteId)
   // Revoke is an in-place edit (the row stays, status → 'revoked'), so re-pulling
   // this one id keeps the list live without a full refetch.
-  await publishChange(env.REALTIME, guard.teamId, "invites", body.inviteId, "edit")
+  ctx.waitUntil(publishChange(env.REALTIME, guard.teamId, "invites", body.inviteId, "edit"))
   // R23: the affected ROW, and no count — an edit cannot move a total. See RULES.md.
   return json({ updated: await oneInvite(env, cfg, guard, body.inviteId) })
 }
@@ -90,14 +90,14 @@ export async function getReceivedInvitations(request: Request, env: Env): Promis
 
 /** Accept one received invite → join + switch to that team. Validates ownership
  * (email match) + pending + unexpired inside acceptInvite. */
-export async function postAcceptInvitation(request: Request, env: Env): Promise<Response> {
+export async function postAcceptInvitation(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const user = await whoAmI(request, env)
   if (!user) return fail(401, "signed_out", "Not signed in.")
   if (!user.onboardingComplete)
     return fail(409, "onboarding_incomplete", "Finish onboarding first.")
   const body = (await request.json().catch(() => ({}))) as { inviteId?: string }
   if (typeof body.inviteId !== "string") return fail(400, "invalid_input", "inviteId is required.")
-  const joinedTeamId = await acceptInvite(env, toActor(user), body.inviteId)
+  const joinedTeamId = await acceptInvite(env, toActor(user), body.inviteId, ctx)
   if (!joinedTeamId)
     return fail(404, "invite_unavailable", "That invitation is no longer available.")
   return json({

@@ -151,12 +151,16 @@ describe("idempotency", () => {
   it("is wired to every worker that dispatches mutations — and ONLY to mutations", () => {
     for (const w of WORKERS_WITH_ROUTES) {
       const src = readFileSync(join(root, "workers", w, "src", "index.ts"), "utf8")
+      // `ctx` rides along because a handler defers its change ping to
+      // `ctx.waitUntil` (LAW R1) rather than awaiting it. What is pinned here is
+      // the DISPATCH — that mutations go through the seam and reads do not — so
+      // the argument list is matched loosely and the two paths exactly.
       expect(
-        src.includes("withIdempotency(request, env.DB, route, () => def.handler(request, env))"),
+        /withIdempotency\(request, env\.DB, route, \(\) => def\.handler\(request, env, ctx\)\)/.test(src),
         `${w} dispatches mutations without the retry seam`
       ).toBe(true)
       expect(
-        src.includes('if (def.kind !== "mutation") return await def.handler(request, env)'),
+        /if \(def\.kind !== "mutation"\) return await def\.handler\(request, env, ctx\)/.test(src),
         `${w} must leave reads and housekeeping on the untouched path`
       ).toBe(true)
     }

@@ -3,7 +3,7 @@
 
 import { fail, json, pagedJson } from "../../../../shared/workers/http"
 import { requireText, TEXT_LIMITS } from "../../../../shared/workers/validate"
-import { publishChange } from "../../../../shared/workers/realtime"
+import { publishChange, publishRecorder } from "../../../../shared/workers/realtime"
 import { logActivity } from "../../../../shared/workers/activity"
 import { getActivity } from "../lib/activity-read"
 import { getMyPermissions } from "../lib/roles"
@@ -29,7 +29,7 @@ import type { Env } from "../env"
  * team). Otherwise -> create "{First name}'s team" with its own database.
  * Idempotent: if the user already belongs somewhere, just report.
  */
-export async function bootstrap(request: Request, env: Env): Promise<Response> {
+export async function bootstrap(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const user = await whoAmI(request, env)
   if (!user) return fail(401, "signed_out", "Not signed in.")
   if (!user.onboardingComplete)
@@ -39,9 +39,12 @@ export async function bootstrap(request: Request, env: Env): Promise<Response> {
 
   let teams = await listMyTeams(env, user.id)
   if (teams.length === 0) {
-    const accepted = await acceptPendingInvites(env, actor)
+    // `ctx` travels down to both: each publishes, and this is the first request a
+    // brand-new person ever makes, so the change pings belong AFTER the response
+    // rather than in front of it (LAW R1's best-effort contract).
+    const accepted = await acceptPendingInvites(env, actor, ctx)
     if (accepted === 0) {
-      await createTeam(env, actor, `${user.firstName ?? "My"}'s team`, user.imageUrl)
+      await createTeam(env, actor, `${user.firstName ?? "My"}'s team`, user.imageUrl, ctx)
     }
     teams = await listMyTeams(env, user.id)
   }
@@ -82,7 +85,7 @@ export async function switchActiveTeam(request: Request, env: Env): Promise<Resp
 }
 
 /** Create a brand-new team (its own database, you as Admin) and switch to it. */
-export async function createNamedTeam(request: Request, env: Env): Promise<Response> {
+export async function createNamedTeam(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const user = await whoAmI(request, env)
   if (!user) return fail(401, "signed_out", "Not signed in.")
   if (!user.onboardingComplete)
@@ -110,11 +113,11 @@ export async function createNamedTeam(request: Request, env: Env): Promise<Respo
       `You've created ${cap} teams, which is the limit on this account. Ask an admin if you need more.`
     )
 
-  await createTeam(env, toActor(user), name, null)
+  await createTeam(env, toActor(user), name, null, ctx)
   return json(await getActiveContext(env, d1Config(env), user.id))
 }
 
-export async function postUpdateTeam(request: Request, env: Env): Promise<Response> {
+export async function postUpdateTeam(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const { actor, cfg, guard, body } = await gatedBody<{ name?: string; logoDataUrl?: string; expectedVersion?: string }>(
     request, env, "teams", "edit"
   )
@@ -128,12 +131,19 @@ export async function postUpdateTeam(request: Request, env: Env): Promise<Respon
     relatedTable: "teams",
     relatedRowId: guard.teamId,
   })
-  await publishChange(env.REALTIME, guard.teamId, "team")
+  // The last publish in tenancy still blocking its own response. `undefined` twice
+  // because a team edit is a collection-wide ping with no row id and no op — the
+  // recorder is the trailing argument, and being explicit here beats reshaping a
+  // signature 42 call sites share.
+  ctx.waitUntil(
+    publishChange(env.REALTIME, guard.teamId, "team", undefined, undefined, publishRecorder(env))
+  )
   return json({ ok: true })
 }
 
 /** The activity feed for the active team, or one record (?scope=team|user|role
- * &id=). Gated by read-right: role scope needs member_roles:read, the rest
+ * &id=), optionally narrowed by ?verb= &origin= &from= &to=. Gated by
+ * read-right: role scope needs member_roles:read, the rest
  * team_members:read — and the TEAM scope additionally subtracts the caller's
  * denied modules (R18): the feed is the one read that returns every module's
  * rows behind a single gate, and its rows name records and their before/after,
@@ -160,6 +170,20 @@ export async function getActivityFeed(request: Request, env: Env): Promise<Respo
   // The OPAQUE cursor from the previous page (R14) — decoded (and 400-checked)
   // inside getActivity, never parsed here.
   const cursor = url.searchParams.get("cursor")
+  // NARROWING, READ OFF THE QUERY STRING AND HANDED STRAIGHT ON. Parsed here,
+  // validated NOWHERE here: `getActivity` checks all four against their closed
+  // sets and throws the GuardError(400) the central catch maps, because three
+  // surfaces call that reader (this screen, the assistant, MCP) and a filter
+  // validated at one of them is validated nowhere. A missing param is `null`,
+  // which the reader already reads as "no filter" — so absent stays absent.
+  // Built ONCE and passed to all three reads below: a filter that worked on two
+  // scopes and quietly did nothing on the third would be worse than none.
+  const filters = {
+    verb: url.searchParams.get("verb"),
+    origin: url.searchParams.get("origin"),
+    from: url.searchParams.get("from"),
+    to: url.searchParams.get("to"),
+  }
 
   // Generic record scope: any module's activity by (table, id), gated by THAT
   // module's read right (resolved from the SAME registry map the team scope
@@ -170,7 +194,7 @@ export async function getActivityFeed(request: Request, env: Env): Promise<Respo
     const module = ACTIVITY_GATE_MAP[table]
     if (!module) return emptyFeed()
     await requireRight(cfg, guard, module, "read")
-    return feed((await getActivity(cfg, guard, "record", id, table, null, cursor)))
+    return feed((await getActivity(cfg, guard, "record", id, table, null, cursor, filters)))
   }
 
   await requireRight(cfg, guard, scope === "role" ? "member_roles" : "team_members", "read")
@@ -189,7 +213,7 @@ export async function getActivityFeed(request: Request, env: Env): Promise<Respo
         .map(([table]) => table),
       ...Object.keys(ACTIVITY_TABLE_EXEMPT),
     ]
-    return feed((await getActivity(cfg, guard, "team", undefined, undefined, allowed, cursor)))
+    return feed((await getActivity(cfg, guard, "team", undefined, undefined, allowed, cursor, filters)))
   }
   // Invite scope: the client passes the GLOBAL invite id; map it to the team-local
   // invite_logs row id the activity rows reference. Bail to an empty feed if it
@@ -204,7 +228,7 @@ export async function getActivityFeed(request: Request, env: Env): Promise<Respo
     if (!idx?.invite_row_id) return emptyFeed()
     id = idx.invite_row_id
   }
-  return feed((await getActivity(cfg, guard, scope, id, undefined, null, cursor)))
+  return feed((await getActivity(cfg, guard, scope, id, undefined, null, cursor, filters)))
 }
 
 /**

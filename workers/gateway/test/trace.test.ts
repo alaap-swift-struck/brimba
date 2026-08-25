@@ -41,11 +41,15 @@ const dead = {
     throw new TypeError("no such service")
   },
 }
-/** A binding that never answers, so the timeout is the only thing that ends it. */
+/** A binding that never answers, so the timeout is the only thing that ends it.
+ * It rejects with the SIGNAL'S OWN REASON — the `TimeoutError` that
+ * `AbortSignal.timeout` produces — rather than a hand-made `Error`, because the
+ * seam now reads that name to tell a slow dependency from a broken one. A
+ * stand-in error would have made the timeout test pass for the wrong reason. */
 const hangs = {
   fetch: (_url: string, init?: RequestInit) =>
     new Promise<Response>((_resolve, reject) => {
-      init?.signal?.addEventListener("abort", () => reject(new Error("aborted")))
+      init?.signal?.addEventListener("abort", () => reject(init.signal!.reason))
     }),
 }
 
@@ -163,6 +167,71 @@ describe("callService tells a refusal from a silence", () => {
   it("bounds every call by default, so forgetting the option cannot mean forever", () => {
     expect(SERVICE_TIMEOUT_MS).toBeGreaterThan(0)
     expect(SERVICE_TIMEOUT_MS).toBeLessThanOrEqual(15_000)
+  })
+})
+
+describe("callService can RECORD a silence, not just log one", () => {
+  // A no-answer used to leave exactly one `traceError` line, and Cloudflare keeps
+  // those about a week. So a dependency that stopped answering had no history
+  // afterwards in the one store that has ninety days of it — which is how a
+  // wedged live layer could be a silent outage for as long as nobody complained.
+  //
+  // EVERY TEST HERE USES A DIFFERENT `worker` NAME on purpose: `recordOutbound`
+  // throttles to one row per (integration, kind) per minute at module scope, so
+  // sharing a name would have the second test's row swallowed by the first
+  // test's window and read as "it recorded nothing".
+  const sink = () => {
+    const rows: { place: string; message: string }[] = []
+    return {
+      rows,
+      record: (place: string, e: unknown) =>
+        void rows.push({ place, message: e instanceof Error ? e.message : String(e) }),
+    }
+  }
+
+  it("records a dead dependency as `upstream` — broken, not slow", async () => {
+    const out = sink()
+    await callService(dead, "https://x/", {}, { worker: "rec-dead", place: "p1", record: out.record })
+    expect(out.rows, "a dependency that is not there must leave a row").toHaveLength(1)
+    expect(out.rows[0].place, "the row names the integration and the endpoint").toBe("rec-dead p1")
+    expect(out.rows[0].message).toMatch(/^upstream:/)
+  })
+
+  it("records a HUNG dependency as `timeout` — slow, not broken", async () => {
+    // The distinction `proxyService` cannot make (it has no bound) and this seam
+    // can. A rotated key, a slow dependency and a dead one need three different
+    // people; folding them together loses the part that decides which.
+    const out = sink()
+    await callService(hangs, "https://x/", {}, { worker: "rec-hang", place: "p2", timeoutMs: 40, record: out.record })
+    expect(out.rows).toHaveLength(1)
+    expect(
+      out.rows[0].message,
+      "a timeout filed as `upstream` sends someone hunting a crash that never happened"
+    ).toMatch(/^timeout:/)
+  })
+
+  it("records NOTHING when the dependency answered, however it answered", async () => {
+    // A 500 is an ANSWER and belongs to the caller to interpret — recording it
+    // here would double-count every refusal in the system, and record 401s as
+    // outages.
+    const out = sink()
+    for (const status of [200, 401, 500])
+      await callService(answers(status), "https://x/", {}, { worker: "rec-ok", place: "p3", record: out.record })
+    expect(out.rows).toEqual([])
+  })
+
+  it("is unchanged when no channel is supplied, and survives one that throws", async () => {
+    // Most callers pass nothing: a missing channel must mean "not recorded", never
+    // a crash inside the error path. And the error store can be down during the
+    // very outage it is being told about.
+    expect(await callService(dead, "https://x/", {}, { worker: "rec-none", place: "p4" })).toBeNull()
+    const angry = () => {
+      throw new Error("the error store is down too")
+    }
+    expect(
+      await callService(dead, "https://x/", {}, { worker: "rec-angry", place: "p5", record: angry }),
+      "recording must never change what the caller gets back"
+    ).toBeNull()
   })
 })
 

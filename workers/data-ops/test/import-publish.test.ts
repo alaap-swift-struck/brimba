@@ -13,10 +13,20 @@
 // than reading it: the ping asserted here is the real one, off the real
 // `publishChange`, through the binding the worker would use in production.
 //
-// It also proves the DISPOSITION (R1's small print): the last ping is held open
-// and the handler must still be waiting on it. A bare `publishChange(...)` would
-// let the response go first and the platform would cancel the fetch — the ping
-// would never arrive, and the screen would be exactly as stale as before.
+// It also proves the DISPOSITION (R1's small print): the last ping is held open,
+// and something must still be holding it when the handler answers. A bare
+// `publishChange(...)` would let the response go first and the platform would
+// cancel the in-flight fetch — the ping would never arrive, and the screen would
+// be exactly as stale as before.
+//
+// WHAT DOES THE HOLDING CHANGED on 2026-08-25. It used to be the handler itself,
+// which meant every importer waited on a Durable Object hop before seeing their
+// own import land. It is now the RUNTIME, via `ctx.waitUntil` — the isolate is
+// kept alive until the ping settles, so delivery is unchanged and the wait is
+// nobody's. The test below asks the question that distinguishes all three
+// dispositions rather than the one that only distinguished two: the response goes
+// FIRST (it must not block), and the ping is nonetheless HELD (it must not be
+// dropped). Only the fire-and-forget shape fails both halves.
 
 import { describe, expect, it, vi } from "vitest"
 
@@ -73,6 +83,16 @@ function realtimeSpy(hold?: string) {
   return { env, pings, release }
 }
 
+/** The route `ctx`, recording what the handler hands to `waitUntil`. That list IS
+ * the guarantee: the runtime keeps the isolate alive until every promise in it
+ * settles, so a ping that is in there arrives whether or not the response has
+ * already gone. A publish that reaches neither `await` nor here is cancelled. */
+function ctxSpy() {
+  const held: Promise<unknown>[] = []
+  const ctx = { waitUntil: (p: Promise<unknown>) => held.push(p), passThroughOnException: () => {} }
+  return { ctx: ctx as never, held }
+}
+
 function confirmRequest(batchId = "batch-9") {
   return new Request("https://data-ops/api/data-ops/import/batch/confirm", {
     method: "POST",
@@ -83,7 +103,9 @@ function confirmRequest(batchId = "batch-9") {
 describe("a finished import broadcasts the batch row, not only the tables it wrote", () => {
   it("pings data_import_batches on the team channel, carrying the batch id", async () => {
     const { env, pings } = realtimeSpy()
-    const res = await postBatchConfirm(confirmRequest(), env as never)
+    const { ctx, held } = ctxSpy()
+    const res = await postBatchConfirm(confirmRequest(), env as never, ctx)
+    await Promise.all(held) // the pings now leave after the response — let them land
 
     expect(res.status).toBe(200)
     const batch = pings.find((p) => p.event.resource === "data_import_batches")
@@ -101,24 +123,28 @@ describe("a finished import broadcasts the batch row, not only the tables it wro
 
   it("still publishes the imported module (the existing ping is not traded away)", async () => {
     const { env, pings } = realtimeSpy()
-    await postBatchConfirm(confirmRequest(), env as never)
+    const { ctx, held } = ctxSpy()
+    await postBatchConfirm(confirmRequest(), env as never, ctx)
+    await Promise.all(held)
     expect(pings.map((p) => p.event.resource)).toContain("learning")
   })
 
-  it("WAITS for the batch ping — a fire-and-forget publish never arrives", async () => {
+  it("HOLDS the batch ping past the response — and does not block on it", async () => {
     // The failure R1's disposition rule exists for: with a bare `publishChange(…)`
     // the handler returns, the isolate finishes, and the platform cancels the
-    // in-flight fetch. The check that only asks "is there a publish call" reads
-    // both versions the same.
+    // in-flight fetch. A check that only asks "is there a publish call" reads all
+    // three dispositions the same, so this asks the two questions that separate
+    // them — held, and not waited on.
     const { env, pings, release } = realtimeSpy("data_import_batches")
+    const { ctx, held } = ctxSpy()
     let settled = false
-    const inFlight = postBatchConfirm(confirmRequest(), env as never).then((r) => {
+    const inFlight = postBatchConfirm(confirmRequest(), env as never, ctx).then((r) => {
       settled = true
       return r
     })
 
-    // Let every microtask that CAN run, run. The handler is now parked on the held
-    // ping — unless it never waited for it.
+    // Let every microtask that CAN run, run. The publish is parked on the held
+    // fetch, and the response should have gone anyway.
     for (let i = 0; i < 20; i++) await Promise.resolve()
     expect(
       pings.some((p) => p.event.resource === "data_import_batches"),
@@ -126,10 +152,28 @@ describe("a finished import broadcasts the batch row, not only the tables it wro
     ).toBe(true)
     expect(
       settled,
-      "the handler answered before its own ping had left — that publish would be cancelled"
+      "the importer waited on a Durable Object hop to be told about their own import"
+    ).toBe(true)
+
+    // AND the ping is not orphaned: the runtime was handed it, so the isolate is
+    // held open until it lands. This is the half a fire-and-forget call fails —
+    // and it is the reason the batch ping is the one parked. Everything in `held`
+    // is still pending only if the parked ping is IN there; a bare
+    // `publishChange(…)` leaves `held` holding just the module pings, which have
+    // already resolved, so the whole set settles while the live layer is silent.
+    let allHeldSettled = false
+    void Promise.all(held).then(() => {
+      allHeldSettled = true
+    })
+    for (let i = 0; i < 20; i++) await Promise.resolve()
+    expect(
+      allHeldSettled,
+      "nothing handed the batch ping to ctx.waitUntil — the platform would cancel it the moment the isolate finished, and Past imports would stay stale"
     ).toBe(false)
 
     release()
+    await Promise.all(held)
+    expect(allHeldSettled).toBe(true)
     expect((await inFlight).status).toBe(200)
   })
 })

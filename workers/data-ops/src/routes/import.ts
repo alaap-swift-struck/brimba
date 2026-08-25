@@ -125,14 +125,14 @@ export async function getImportPreview(request: Request, env: Env): Promise<Resp
 
 /** POST /api/data-ops/import/confirm — write every mapped row (insert-only),
  * act-as-user through the gated create endpoint, then ONE list-ping for the table. */
-export async function postImportConfirm(request: Request, env: Env): Promise<Response> {
+export async function postImportConfirm(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const { actor, cfg, guard } = await teamContext(request, env)
   const body = (await request.json().catch(() => ({}))) as { sessionId?: string }
   const sessionId = requireText(body.sessionId, "sessionId", TEXT_LIMITS.short)
   const { target } = await targetForSession(env, cfg, guard, sessionId)
   await requireRight(cfg, guard, target.module, "create")
   const out = await confirmImport(env, request, cfg, guard, actor, sessionId)
-  await publishChange(env.REALTIME, guard.teamId, target.module)
+  ctx.waitUntil(publishChange(env.REALTIME, guard.teamId, target.module))
   return json({ session: out.summary, result: out.result })
 }
 
@@ -181,7 +181,7 @@ export async function postBatchPlan(request: Request, env: Env): Promise<Respons
 /** POST /api/data-ops/import/batch/confirm — run the plan in dependency order. Gates
  * `create` on every target in the plan up front (fail fast), then publishes one
  * coarse ping per changed module. */
-export async function postBatchConfirm(request: Request, env: Env): Promise<Response> {
+export async function postBatchConfirm(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const { actor, cfg, guard } = await teamContext(request, env)
   const body = (await request.json().catch(() => ({}))) as { batchId?: string }
   const batchId = requireText(body.batchId, "batchId", TEXT_LIMITS.short)
@@ -189,7 +189,7 @@ export async function postBatchConfirm(request: Request, env: Env): Promise<Resp
   if (!view.plan) return fail(409, "no_plan", "Plan the import before running it.")
   for (const m of planModules(view.plan)) await requireRight(cfg, guard, m, "create")
   const { report, modules } = await confirmBatch(env, request, cfg, guard, actor, batchId)
-  for (const m of modules) await publishChange(env.REALTIME, guard.teamId, m)
+  for (const m of modules) ctx.waitUntil(publishChange(env.REALTIME, guard.teamId, m))
   // …AND THE BATCH ROW ITSELF. The imported tables were published and the import
   // HISTORY never was: `import-batches:<teamId>` is a real subscribed screen (the
   // Past imports list under the drop zone) and nothing in the base had ever
@@ -203,7 +203,7 @@ export async function postBatchConfirm(request: Request, env: Env): Promise<Resp
   // listener ignores `op` — it drops the one key and re-reads — so this is
   // description, not instruction.) Awaited, like the module pings above: a bare
   // publish is cancelled when the isolate finishes and never arrives (R1).
-  await publishChange(env.REALTIME, guard.teamId, "data_import_batches", batchId, "add")
+  ctx.waitUntil(publishChange(env.REALTIME, guard.teamId, "data_import_batches", batchId, "add"))
   return json({ report })
 }
 

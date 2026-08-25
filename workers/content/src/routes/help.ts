@@ -85,24 +85,24 @@ export async function getHelpThread(request: Request, env: Env): Promise<Respons
 }
 
 /** POST /api/content/help — raise a ticket (help:create). */
-export async function postCreateHelp(request: Request, env: Env): Promise<Response> {
+export async function postCreateHelp(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const { actor, cfg, guard, body } = await gatedBody<TicketInput>(request, env, "help", "create")
   const description = requireText(body.description, "Description", TEXT_LIMITS.long)
-  const id = await createTicket(cfg, guard, actor, body)
-  await publishChange(env.REALTIME, guard.teamId, "help", id, "add")
+  // R21: the CREATED ROW, not page one of the collection — handing a paged screen
+  // its first page on every create is the exact thing R14 exists to stop, and the
+  // caller patches this one row into whichever scope it is showing. R16: the exact
+  // server totals ride along. Both come back from the SAME crossing that wrote the
+  // row; see createTicket for why they no longer cost three more.
+  const { id, ticket, total, mineTotal } = await createTicket(cfg, guard, actor, body)
+  ctx.waitUntil(publishChange(env.REALTIME, guard.teamId, "help", id, "add"))
   // HOOK (Phase 3): the agent drafts the first reply here; a no-op today, so the
   // ticket simply opens awaiting a human (per "ticket always opens").
   await maybeDraftFirstReply(cfg, guard, id, description)
-  // R21: the CREATED ROW, not page one of the collection. Handing a paged screen
-  // its first page on every create is the exact thing R14 exists to stop — the
-  // caller patches this one row into whichever scope it is showing.
-  // Reading the new row back and re-counting are independent — one round trip.
-  const [created, counts] = await Promise.all([getTicket(cfg, guard, id), countTickets(cfg, guard)])
-  return json({ created, total: counts.total, mineTotal: counts.mineTotal })
+  return json({ created: ticket, total, mineTotal })
 }
 
 /** POST /api/content/help/update — edit a ticket (help:edit). */
-export async function postUpdateHelp(request: Request, env: Env): Promise<Response> {
+export async function postUpdateHelp(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const { actor, cfg, guard, body } = await gatedBody<TicketInput & { id?: string; expectedVersion?: string }>(request, env, "help", "edit")
   // The id goes through the SAME boundary seam as the text beside it. `if (!body.id)`
   // only ever proved the field was truthy — a number, an array or an object walked
@@ -111,14 +111,14 @@ export async function postUpdateHelp(request: Request, env: Env): Promise<Respon
   const id = requireText(body.id, "id", TEXT_LIMITS.short)
   requireText(body.description, "Description", TEXT_LIMITS.long)
   await updateTicket(cfg, guard, actor, id, body, body.expectedVersion)
-  await publishChange(env.REALTIME, guard.teamId, "help", id)
+  ctx.waitUntil(publishChange(env.REALTIME, guard.teamId, "help", id))
   // R23: the affected ROW, never the collection. See RULES.md.
   return json({ updated: await getTicket(cfg, guard, id) })
 }
 
 /** POST /api/content/help/status — move a ticket along its fixed lifecycle.
  * Gated PURELY by help:edit (every status move, including reopen — no raiser exception). */
-export async function postHelpStatus(request: Request, env: Env): Promise<Response> {
+export async function postHelpStatus(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const { actor, cfg, guard, body } = await gatedBody<{ id?: string; status?: string }>(request, env, "help", "edit")
   const id = requireText(body.id, "id", TEXT_LIMITS.short)
   // The status stays a membership test — it is checked against a fixed list, which
@@ -132,7 +132,7 @@ export async function postHelpStatus(request: Request, env: Env): Promise<Respon
 
   // R17: already at that status → zero rows moved → no ping, no duplicate history.
   const changed = await setStatus(cfg, guard, actor, id, status)
-  if (changed) await publishChange(env.REALTIME, guard.teamId, "help", id)
+  if (changed) ctx.waitUntil(publishChange(env.REALTIME, guard.teamId, "help", id))
   // R23: the affected ROW, never the collection. See RULES.md.
   return json({ updated: await getTicket(cfg, guard, id) })
 }
@@ -143,7 +143,7 @@ export async function postHelpStatus(request: Request, env: Env): Promise<Respon
  * idempotent by construction, ONE activity row, and publishes ONE coarse ping
  * only when something moved (R17: a no-op publishes nothing). Facets only —
  * free text is deliberately NOT a filter for a write. Gated by help:edit. */
-export async function postBulkHelpStatusByFilter(request: Request, env: Env): Promise<Response> {
+export async function postBulkHelpStatusByFilter(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const { actor, cfg, guard, body } = await gatedBody<{
     toStatus?: unknown
     status?: unknown
@@ -164,7 +164,7 @@ export async function postBulkHelpStatusByFilter(request: Request, env: Env): Pr
     cfg, guard, actor, filter, body.toStatus as HelpStatus, body.dryRun === true
   )
   // ONE coarse list-ping for the whole set — and only when something moved.
-  if (result.changed > 0) await publishChange(env.REALTIME, guard.teamId, "help")
+  if (result.changed > 0) ctx.waitUntil(publishChange(env.REALTIME, guard.teamId, "help"))
   return json(result)
 }
 
@@ -175,7 +175,7 @@ export async function postBulkHelpStatusByFilter(request: Request, env: Env): Pr
  * single endpoint uses, applies the same per-row change to every matching ticket,
  * and — the live-sync law — publishes ONE row-level ping per CHANGED row (patch
  * that row, never refetch the list). Returns { updated, skipped }. */
-export async function postBulkHelpStatus(request: Request, env: Env): Promise<Response> {
+export async function postBulkHelpStatus(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const { actor, cfg, guard, body } = await gatedBody<{ ids?: unknown; status?: unknown }>(request, env, "help", "edit")
   const ids = requireIdList(body.ids)
   if (typeof body.status !== "string" || !(HELP_STATUSES as readonly string[]).includes(body.status))
@@ -183,14 +183,14 @@ export async function postBulkHelpStatus(request: Request, env: Env): Promise<Re
   const { changed, skipped } = await bulkSetStatus(cfg, guard, actor, ids, body.status as HelpStatus)
   // Row-level live-sync: one ping per changed ticket (same row shape the single
   // endpoint patches) — no list refetch.
-  for (const id of changed) await publishChange(env.REALTIME, guard.teamId, "help", id)
+  for (const id of changed) ctx.waitUntil(publishChange(env.REALTIME, guard.teamId, "help", id))
   return json({ updated: changed.length, skipped })
 }
 
 /** POST /api/content/help/reply — add a reply to a ticket's thread (help:read; any
  * member who can see tickets may join the conversation). Publishes the new reply
  * (thread view) AND the ticket (it re-sorts to the top), then notifies best-effort. */
-export async function postHelpReply(request: Request, env: Env): Promise<Response> {
+export async function postHelpReply(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const { actor, cfg, guard, body } = await gatedBody<{
     helpId?: string
     body?: string
@@ -212,8 +212,8 @@ export async function postHelpReply(request: Request, env: Env): Promise<Respons
   const tagged = optionalIdList(body.taggedUserIds, MENTION_LIMIT).filter((x) => x !== actor.id)
 
   const replyId = await addReply(cfg, guard, actor, helpId, replyBody, tagged, false)
-  await publishChange(env.REALTIME, guard.teamId, "help_threads", replyId, "add")
-  await publishChange(env.REALTIME, guard.teamId, "help", helpId, "edit")
+  ctx.waitUntil(publishChange(env.REALTIME, guard.teamId, "help_threads", replyId, "add"))
+  ctx.waitUntil(publishChange(env.REALTIME, guard.teamId, "help", helpId, "edit"))
   await notifyReplyAndMentions(
     env,
     guard.teamId,
@@ -244,13 +244,13 @@ export async function getHelpStakeholders(request: Request, env: Env): Promise<R
 /** POST /api/content/help/stakeholders — manually add a stakeholder (help:read;
  * any member who can see a ticket may pull a teammate in). Add-only — never
  * removes anyone. SEAM LAW: this mutation publishes the help row change. */
-export async function postAddStakeholder(request: Request, env: Env): Promise<Response> {
+export async function postAddStakeholder(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const { actor, cfg, guard, body } = await gatedBody<{ id?: string; userId?: string }>(request, env, "help", "read")
   const id = requireText(body.id, "id", TEXT_LIMITS.short)
   const userId = requireText(body.userId, "userId", TEXT_LIMITS.short)
   const ticket = await getTicket(cfg, guard, id)
   if (!ticket) return fail(404, "help_not_found", "That ticket doesn't exist.")
   const stakeholders = await addStakeholder(cfg, env, guard, actor, id, userId)
-  await publishChange(env.REALTIME, guard.teamId, "help", id, "edit")
+  ctx.waitUntil(publishChange(env.REALTIME, guard.teamId, "help", id, "edit"))
   return json({ stakeholders })
 }

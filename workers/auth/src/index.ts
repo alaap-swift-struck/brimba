@@ -34,7 +34,14 @@ import {
 import { MAX_CODE_ATTEMPTS } from "./lib/constants"
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  /**
+   * `ctx` is threaded to the two handlers that broadcast a live change. Those
+   * pings are best-effort by contract and bounded, and awaiting them made the
+   * person editing their own profile wait on one service hop per team they belong
+   * to before their own screen settled. `ctx.waitUntil()` keeps the isolate alive
+   * until each one lands, so delivery is unchanged and the wait is not theirs.
+   */
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const { pathname } = new URL(request.url)
     const route = `${request.method} ${pathname}`
 
@@ -53,13 +60,13 @@ export default {
         case "POST /api/auth/email/change/start":
           return await emailChangeStart(request, env)
         case "POST /api/auth/email/change/verify":
-          return await emailChangeVerify(request, env)
+          return await emailChangeVerify(request, env, ctx)
         case "GET /api/auth/me":
           return await me(request, env)
         case "GET /api/auth/activity":
           return await activity(request, env)
         case "POST /api/auth/profile":
-          return await profile(request, env)
+          return await profile(request, env, ctx)
         case "POST /api/auth/logout":
           return await logout(request, env)
         case "GET /api/auth/health":
@@ -300,7 +307,7 @@ async function emailChangeStart(request: Request, env: Env): Promise<Response> {
 }
 
 /** Email change, step 2: verify the code, switch the email, log + secure it. */
-async function emailChangeVerify(request: Request, env: Env): Promise<Response> {
+async function emailChangeVerify(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const user = await getSessionUser(env, request)
   if (!user) return fail(401, "signed_out", "Not signed in.")
 
@@ -316,7 +323,8 @@ async function emailChangeVerify(request: Request, env: Env): Promise<Response> 
     user,
     body.email ?? "",
     (body.code ?? "").trim(),
-    currentTokenHash
+    currentTokenHash,
+    ctx
   )
   if ("error" in r) return fail(r.status, r.error, r.message)
   return json({ user: r.user })
@@ -337,12 +345,12 @@ async function activity(request: Request, env: Env): Promise<Response> {
 }
 
 /** Onboarding / profile edit: names + optional photo (stored in R2). */
-async function profile(request: Request, env: Env): Promise<Response> {
+async function profile(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const user = await getSessionUser(env, request)
   if (!user) return fail(401, "signed_out", "Not signed in.")
 
   const input = (await request.json().catch(() => ({}))) as ProfileInput
-  const result = await updateProfile(env, user, input)
+  const result = await updateProfile(env, user, input, ctx)
   if ("error" in result) return fail(400, result.error, result.message)
   return json(result)
 }
