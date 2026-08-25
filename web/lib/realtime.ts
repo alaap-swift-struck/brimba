@@ -9,25 +9,41 @@
 // rides the handshake, so the server gates it the same way the API does. Pass a
 // null id to stay disconnected. `onReconnect` fires after a DROPPED link is
 // re-established (not the first connect) so the host can resync what it missed.
+//
+// Each hook also RETURNS its connection state, because a live layer that works
+// perfectly is invisible: a stale screen and a live one are pixel-identical, so
+// the first anyone learns the socket dropped is when they act on an old number.
+// The shell renders it (ConnectionStatus) — see app-shell.tsx.
 
 import * as React from "react"
 
+import type { ConnectionState } from "@swift-struck/ui/registry/primitives/connection-status/connection-status"
+
+export type { ConnectionState }
 export type RealtimeEvent = { resource: string; id?: string; op?: string }
 
 /** Open one live socket to `path` (e.g. "team=<id>" / "user=<id>"), reconnecting
- * with backoff. `onReconnect` is called only on a RE-connect after a drop. */
+ * with backoff. `onReconnect` is called only on a RE-connect after a drop.
+ * Returns the socket's state: "live" while it is open, "reconnecting" while it
+ * is retrying, "offline" when the browser has no network (or no channel was
+ * asked for). The offline/reconnecting split is re-read on every retry, so it
+ * settles within one backoff step (at most 15s) of the network coming back. */
 function useLiveChannel(
   query: string | null,
   onEvent: (event: RealtimeEvent) => void,
   onReconnect?: () => void
-): void {
+): ConnectionState {
   const handlerRef = React.useRef(onEvent)
   handlerRef.current = onEvent
   const reconnectRef = React.useRef(onReconnect)
   reconnectRef.current = onReconnect
+  const [state, setState] = React.useState<ConnectionState>("reconnecting")
 
   React.useEffect(() => {
     if (!query || typeof window === "undefined") return
+    // A new channel (first mount, or a team switch) starts unconnected: never
+    // inherit the previous socket's "live".
+    setState("reconnecting")
 
     let socket: WebSocket | null = null
     let retry = 0
@@ -46,6 +62,7 @@ function useLiveChannel(
         if (everConnected) reconnectRef.current?.()
         everConnected = true
         retry = 0
+        setState("live")
       }
       socket.onmessage = (e) => {
         try {
@@ -56,6 +73,9 @@ function useLiveChannel(
       }
       socket.onclose = () => {
         if (closed) return
+        // "Not trying" is the browser being off the network; otherwise we ARE
+        // trying, and the honest word is reconnecting.
+        setState(navigator.onLine === false ? "offline" : "reconnecting")
         // Backoff: 1s, 2s, 4s … capped at 15s, until we reconnect.
         const delay = Math.min(15000, 1000 * 2 ** retry)
         retry++
@@ -71,6 +91,10 @@ function useLiveChannel(
       socket?.close()
     }
   }, [query])
+
+  // No channel asked for = not connected and not trying, which is exactly what
+  // "offline" means. The shell only shows the indicator for a channel it opened.
+  return query ? state : "offline"
 }
 
 /** Subscribe to the ACTIVE team's channel (team-scoped data). */
@@ -78,8 +102,8 @@ export function useRealtime(
   teamId: string | null,
   onEvent: (event: RealtimeEvent) => void,
   onReconnect?: () => void
-): void {
-  useLiveChannel(teamId ? `team=${encodeURIComponent(teamId)}` : null, onEvent, onReconnect)
+): ConnectionState {
+  return useLiveChannel(teamId ? `team=${encodeURIComponent(teamId)}` : null, onEvent, onReconnect)
 }
 
 /** Subscribe to YOUR OWN identity channel (account events + sign-out), open for
@@ -88,6 +112,6 @@ export function useUserRealtime(
   userId: string | null,
   onEvent: (event: RealtimeEvent) => void,
   onReconnect?: () => void
-): void {
-  useLiveChannel(userId ? `user=${encodeURIComponent(userId)}` : null, onEvent, onReconnect)
+): ConnectionState {
+  return useLiveChannel(userId ? `user=${encodeURIComponent(userId)}` : null, onEvent, onReconnect)
 }

@@ -53,7 +53,17 @@ export function LearningProgressScreen({ teamId }: { teamId: string }) {
           Who&apos;s marked each article done. Only switched-on articles are shown.
         </p>
       </div>
-      <ProgressDashboard members={members} items={items} done={done} />
+      {/* Zero rows is the state a BRAND-NEW team meets: no articles yet, so the
+          grid below would be a sticky "Member" header, a "Done" header and one
+          meaningless row. Say what it will hold, and name the way out — which is
+          the Articles tab beside this one, not a button on this screen. */}
+      {items.length === 0 ? (
+        <p className="text-muted-foreground rounded-xl border border-dashed p-8 text-center text-sm">
+          No articles yet. Add one in Articles and everyone&apos;s progress shows up here.
+        </p>
+      ) : (
+        <ProgressDashboard members={members} items={items} done={done} />
+      )}
     </div>
   )
 }

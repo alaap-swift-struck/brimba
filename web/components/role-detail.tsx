@@ -45,6 +45,7 @@ import {
 import { Lock, Pencil, Power } from "lucide-react"
 
 import type { ActivityItem, PermissionValue, RolePermissions, TeamRole } from "@shared/types"
+import { rightsOf } from "@shared/team-modules"
 import { RoleFormDialog } from "@/components/role-form-dialog"
 import { ApiFailure, tenancy } from "@/lib/api"
 import { auditItems } from "@/lib/audit-overview"
@@ -151,7 +152,11 @@ export function RoleDetailScreen({ teamId, roleId }: { teamId: string; roleId: s
 
   const matrixConfig: PermissionMatrixConfig | null = perms && {
     ...defaultPermissionMatrixConfig,
-    modules: perms.modules,
+    // Each module carries the rights it ACTUALLY has (shared/team-modules.ts —
+    // the same list the workers gate on). A right a module lacks renders "—"
+    // rather than a switch that enforces nothing: an admin who ticks a dead box
+    // sees it stick and believes they restricted something.
+    modules: perms.modules.map((m) => ({ ...m, rights: rightsOf(m.key) })),
     mode: perms.isDefault ? "locked" : perms.canEdit ? "edit" : "read",
     autoFlipRead: true,
     surface: "card",

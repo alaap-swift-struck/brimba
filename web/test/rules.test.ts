@@ -845,6 +845,37 @@ describe("RULES — the laws of the base", () => {
     }
   })
 
+  it("route-census-current: the written surface matches the code", async () => {
+    // On 12 August a security sweep measured "45/45 state-changing routes gated"
+    // and scored 99/100. There are 58. The sixteen it never saw were all of auth's
+    // POST doors, all of mcp's, realtime's publish door and the gateway beacon —
+    // and the one route with no caller check at all was in that missing set.
+    //
+    // The score was not wrong because the reading was careless. It was wrong
+    // because every reviewer has to REDISCOVER the surface, and each one discovers
+    // a slightly different surface. So the surface is written down, generated from
+    // the source, and checked — the next review inherits it instead of guessing.
+    // (security_sentry's own recommendation, 2026-08-25.)
+    const { census, render } = await import("../../scripts/route-census.mjs")
+    const rows = census()
+    expect(rows.length, "the census found almost no routes — it has gone blind").toBeGreaterThan(60)
+    expect(
+      render(rows),
+      "ROUTE-CENSUS.md is out of date — run `node scripts/route-census.mjs --write`"
+    ).toBe(read(join(ROOT, "ROUTE-CENSUS.md")))
+
+    // And the deliberately-open doors are NAMED. A state-changing route with no
+    // gate is either a decision someone wrote down, or a hole.
+    const OPEN_BY_DESIGN = new Set(["POST /api/auth/email/start"])
+    const ungated = rows
+      .filter((r: { method: string; gates: string[] }) => r.method !== "GET" && r.gates.length === 0)
+      .map((r: { method: string; path: string }) => `${r.method} ${r.path}`)
+    expect(
+      ungated.filter((r: string) => !OPEN_BY_DESIGN.has(r)),
+      "a state-changing route has no gate and is not a named exception"
+    ).toEqual([])
+  })
+
   it("vault-claims-match-reality: no document may say the vault exists when it does not", () => {
     // `secrets.vault` has NEVER existed — `git log --all --diff-filter=A` returns
     // nothing — while SECRETS.md said so twice, and OPERATIONS.md and CHANGELOG.md
@@ -1084,41 +1115,36 @@ describe("RULES — the laws of the base", () => {
 
   // Every enforced law in the registry maps to one of the checks above (or a
   // per-worker seam test) — a law can't exist without a check.
-  it("every enforced law has a known check", () => {
-    const known = new Set([
-      "publish-seam", // the 3 per-worker publish-seam.test.ts suites
-      "gating-seam", // R10: the 3 per-worker gating-seam suites + the mcp identity-gate suite
-      "fetch-timeout", // R11 external half: the global-fetch scan above
-      // R11 internal half — the same law, two checks, because the two halves fail
-      // differently: a source scan finds a direct binding call, and only a
-      // behavioural test can prove a no-answer is not treated as a refusal.
-      "service-calls-bounded", // + workers/gateway/test/trace.test.ts
-      "cron-records", // R12: the scheduled-handler scan below
-      "record-detail-tabs",
-      "no-handrolled-toggles",
-      "forms-use-formshell",
-      "generic-activity-path",
-      "glossary-wellformed",
-      "forms-persist-drafts",
-      "tab-counts-derived",
-      "agent-app-parity", // workers/data-ops/test/agent-parity.test.ts
-      "bounded-lists", // R14: the source-scan above
-      "idempotent-transitions", // R17: the source-scan above
-      "activity-gate-coverage", // R18: the source-scan above
-      "live-collections", // R15: the deaf-publisher + paged-subscription scan above
-      "counted-collections", // R16: the seam/place/arbitration scan above + format-count.test.ts
-      "catalog-coverage", // R13: workers/data-ops/test/catalog-coverage.test.ts
-      "agent-filter-parity", // R19: workers/mcp/test/filter-parity.test.ts
-      "static-destinations", // R20: the page + gateway-shell scan above
-      "create-returns-row", // R21: the create-door response scan above
-      "create-opens-record", // R22: the form-seam scan above
-      "mutation-returns-row", // R23: the mutation-door response scan above
-      "bulk-twin-declared", // R24: the bulk-door scan above
-      "activity-birth-to-death", // R25: the append-only + single-source scan above
-    ])
-    for (const r of RULES_REGISTRY) {
-      if (r.status === "enforced")
-        expect(known.has(r.checkId), `law ${r.id} (${r.checkId}) needs a real check`).toBe(true)
+  it("every enforced law has a check that EXISTS", () => {
+    // This compared the registry to a HAND-WRITTEN Set of check ids. So it could
+    // tell you a law had no id in the list — and could not tell you the named
+    // check did not exist, which is the failure that matters. Its own comment was
+    // stale by two suites when story_checks_out found it.
+    //
+    // The list is now derived: every enforced law's `checkId` must appear in a real
+    // test file, as an `it(...)` title, a suite name, or the file's own name. A law
+    // pointing at a check nobody wrote now fails the build. (story_checks_out,
+    // round 2, 2026-08-25.)
+    const tests: string[] = []
+    const walk = (dir: string) => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        if (e.name === "node_modules" || e.name === ".next") continue
+        const full = join(dir, e.name)
+        if (e.isDirectory()) walk(full)
+        else if (/\.test\.tsx?$/.test(e.name) || /^(gating|publish)-seam\.ts$/.test(e.name))
+          tests.push(`${e.name}\n${read(full)}`)
+      }
     }
+    for (const d of ["web", "workers", "shared"]) walk(join(ROOT, d))
+    const haystack = tests.join("\n")
+    expect(tests.length, "no test files found — this scan has gone blind").toBeGreaterThan(20)
+
+    const missing = RULES_REGISTRY.filter((r) => r.status === "enforced" && !haystack.includes(r.checkId)).map(
+      (r) => `${r.id} names "${r.checkId}"`
+    )
+    expect(
+      missing,
+      `an enforced law names a check that exists nowhere in any test file: ${missing.join(", ")}`
+    ).toEqual([])
   })
 })

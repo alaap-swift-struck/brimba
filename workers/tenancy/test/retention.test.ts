@@ -13,7 +13,7 @@ import { readFileSync, readdirSync } from "node:fs"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 
-import { namedBody } from "../../../shared/test/source"
+import { namedBody, stripComments } from "../../../shared/test/source"
 
 import {
   CORE_RETENTION,
@@ -135,6 +135,116 @@ describe("cutoffFor", () => {
   it("counts back the right number of days", () => {
     expect(cutoffFor(CORE_RETENTION[0], 1, now)).toBe("2026-08-10T00:00:00.000Z")
     expect(cutoffFor(CORE_RETENTION[0], 90, now)).toBe("2026-05-13T00:00:00.000Z")
+  })
+})
+
+// THE SWEEP MUST BE ABLE TO CATCH UP, AND MUST SAY WHEN IT CANNOT.
+//
+// A retention rule is a promise that a table stops growing. Until 2026-08-25 the
+// sweep issued ONE `DELETE … LIMIT 5000` per rule per night and no more, which
+// is not a policy but a speed limit — and it sat below the speed the tables
+// grow at. `idempotency_keys` takes a row per protected mutation, `login_codes`
+// one per sign-in request, `error_logs` one per crash on a path an anonymous
+// caller can reach; all three live in shared databases capped at 10 GB that no
+// mover can relieve. Each grew without bound *while having a retention rule*.
+//
+// So two things are locked here, and the second is the one that rots quietly:
+//
+//   1. the delete LOOPS until a short batch says the table is clean, under a
+//      hard per-run bound so a cron cannot run away; and
+//   2. a run that stops on that BOUND rather than on a short batch is REPORTED
+//      to the durable error store — because "swept" and "swept as much as I was
+//      allowed to" are the same word from outside, and the difference between
+//      them is the whole early warning that a shared database is filling.
+//
+// A partial sweep that reports like a complete one is exactly how the ceiling
+// this replaces stayed invisible.
+describe("the retention sweep", () => {
+  const src = stripComments(
+    readFileSync(join(__dirname, "..", "src", "lib", "sharding.ts"), "utf8")
+  )
+  // ONE declaration each, comments removed — so a comment promising a loop
+  // cannot satisfy the check that the loop is there.
+  const fn = namedBody(src, "async function sweep(")
+  const run = namedBody(src, "export async function runRetention")
+
+  it("reads the two functions it is about", () => {
+    // The blindness guard. Rename either and this suite fails loudly instead of
+    // asserting nothing at all against an empty string.
+    expect(fn, "sweep() not found in sharding.ts").toContain("DELETE FROM")
+    expect(run, "runRetention() not found in sharding.ts").toContain("sweep(")
+  })
+
+  it("LOOPS the delete until a short batch, instead of one statement a night", () => {
+    const beforeDelete = fn.slice(0, fn.indexOf("DELETE FROM"))
+    expect(
+      (beforeDelete.match(/\b(?:for|while)\s*\(/g) ?? []).length,
+      "the DELETE must sit inside a loop of its own, not only the per-rule loop — one 5,000-row statement a night is slower than the tables grow"
+    ).toBeGreaterThanOrEqual(2)
+    expect(
+      fn,
+      "the loop must end on a SHORT batch — fewer rows back than asked for is the only honest 'this table is clean'"
+    ).toMatch(/<\s*SWEEP_BATCH/)
+    expect(
+      fn,
+      "the run callback must answer HOW MANY rows went, or a loop cannot tell a clean table from a full one"
+    ).toMatch(/Promise<number>/)
+  })
+
+  it("bounds the loop, so a cron cannot run away", () => {
+    const passes = Number(/SWEEP_MAX_PASSES = ([\d_]+)/.exec(src)?.[1].replaceAll("_", ""))
+    expect(passes, "there must be a hard per-rule bound on the number of passes").toBeGreaterThan(1)
+    expect(
+      passes,
+      "the bound shares a 10,000-subrequest, 1,000-D1-query invocation with the size check and the orphan sweep — it cannot be large"
+    ).toBeLessThanOrEqual(100)
+    expect(fn, "the bound must actually stop the loop").toMatch(/pass >= maxPasses/)
+  })
+
+  it("REPORTS a bound that was hit — to the error store, not the console", () => {
+    // The signal, and the only reason the bound is safe to have. A rule that
+    // stopped because its budget ran out is retention losing the race; a rule
+    // that stopped because the table was clean is a quiet night. They must not
+    // look the same, and the difference must outlive a log buffer nobody tails
+    // at 3am (LAW R12 — unattended work records its failures).
+    expect(
+      fn,
+      "sweep() must distinguish stopping on the bound from running out of rows"
+    ).toMatch(/shortfall = true/)
+    expect(
+      run,
+      "runRetention() must carry that distinction out of the sweep"
+    ).toMatch(/shortfall/)
+    expect(
+      run,
+      "a shortfall must reach the durable error store — console.error alone dies with the log buffer"
+    ).toMatch(/recordWorkerError\(/)
+    expect(
+      run.indexOf("shortfalls.length"),
+      "the error row must be written BECAUSE a bound was hit, not unconditionally"
+    ).toBeLessThan(run.indexOf("recordWorkerError("))
+  })
+
+  it("does NOT make the O(teams) part of the cron more expensive", () => {
+    // The core and ops sweeps are fixed cost — one database each, so the loop
+    // adds a constant number of statements a night however many tenants exist.
+    // The TEAM pass is not: it runs once per team inside the same invocation,
+    // beside an orphan sweep already measured to breach 10,000 subrequests at
+    // roughly 3,333 teams. So the team pass keeps its single statement per rule
+    // and says so, rather than quietly multiplying the cron's cost by twenty.
+    const teamPasses = Number(/TEAM_SWEEP_MAX_PASSES = ([\d_]+)/.exec(src)?.[1].replaceAll("_", ""))
+    expect(
+      teamPasses,
+      "one statement per rule per team, as before — raising this lowers the team ceiling in direct proportion and needs the cron's cursor first"
+    ).toBe(1)
+    expect(
+      run,
+      "the per-team sweep must be given the per-team bound, not the fixed-cost one"
+    ).toMatch(/TEAM_RETENTION,\s*vars,\s*TEAM_SWEEP_MAX_PASSES/)
+    expect(
+      run,
+      "the core and ops sweeps are fixed cost and get the looping bound"
+    ).toMatch(/CORE_RETENTION,\s*vars,\s*SWEEP_MAX_PASSES/)
   })
 })
 

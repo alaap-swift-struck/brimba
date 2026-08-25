@@ -5,6 +5,7 @@
 // act on Workers AI, no key needed). Workers AI is also the cheap inline path.
 
 import type { Env } from "../env"
+import { traceError } from "../../../../shared/workers/trace"
 
 /** The agent's output budget per model turn — ONE constant for BOTH providers
  * (Claude + Workers AI), and the number BULK_IDS_LIMIT is DERIVED from, so the cap
@@ -30,8 +31,15 @@ export type ToolSpec = { name: string; description: string; schema: Record<strin
 /** One tool call the model decided to make. */
 export type ToolCall = { id: string; name: string; input: Record<string, unknown> }
 
-/** The model's reply: free text and/or tool calls to run. */
-export type ModelReply = { text: string; toolCalls: ToolCall[] }
+/** What one model turn cost, in tokens. `cacheRead` / `cacheWrite` are the two numbers
+ *  that PROVE prompt caching is working: a breakpoint that is configured but silently
+ *  MISSES bills the full prefix on every call while looking, from the source, exactly
+ *  like a fix. So they are read off the response and logged, never assumed. */
+export type TokenUsage = { input: number; output: number; cacheWrite: number; cacheRead: number }
+
+/** The model's reply: free text and/or tool calls to run — plus what the turn cost,
+ *  when the provider reports it (Claude does; Workers AI doesn't). */
+export type ModelReply = { text: string; toolCalls: ToolCall[]; usage?: TokenUsage }
 
 export interface Model {
   readonly name: string
@@ -98,6 +106,53 @@ type AnthropicBlock =
   | { type: "text"; text: string }
   | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> }
 
+/** The `usage` object Claude returns on every turn (wire names). */
+type AnthropicUsage = {
+  input_tokens?: number
+  output_tokens?: number
+  cache_creation_input_tokens?: number
+  cache_read_input_tokens?: number
+}
+
+function toUsage(u: AnthropicUsage | undefined): TokenUsage | undefined {
+  if (!u) return undefined
+  return {
+    input: u.input_tokens ?? 0,
+    output: u.output_tokens ?? 0,
+    cacheWrite: u.cache_creation_input_tokens ?? 0,
+    cacheRead: u.cache_read_input_tokens ?? 0,
+  }
+}
+
+/** PROOF THE CACHE IS WORKING, not merely configured.
+ *
+ * A prompt cache fails silently by design: a byte of drift in the prefix and every call
+ * bills full price while the source still reads like a fix. Nothing in the response is
+ * an error, so nothing surfaces — which is exactly why the counters get logged instead
+ * of trusted. Three states, each its own event so a reviewer can grep for one:
+ *   • prompt_cache_hit   — cacheRead > 0. The prefix was served at 0.1x. This is the
+ *                          steady state and the line that proves the fix is real.
+ *   • prompt_cache_write — cold prefix, entry created at 1.25x. Expected on the first
+ *                          call of a reply (or after a deploy changes SYSTEM/tools).
+ *   • prompt_cache_miss  — neither. The breakpoint did nothing: the prefix drifted, or
+ *                          fell under the model's minimum. THIS is the regression alarm.
+ *
+ * It rides traceError (the one structured-log seam) for the same reason `timed`'s "slow"
+ * event does — a JSON line filterable by `event` in Cloudflare's observability, rather
+ * than an unfilterable console string. One line per model turn: ~50k events/month at the
+ * measured volume, about $0.03 against the ~$273/month the cache saves. */
+function logCacheUsage(model: string, place: string, usage: TokenUsage | undefined): void {
+  if (!usage) return
+  const event =
+    usage.cacheRead > 0 ? "prompt_cache_hit" : usage.cacheWrite > 0 ? "prompt_cache_write" : "prompt_cache_miss"
+  traceError({
+    worker: "data-ops",
+    place,
+    event,
+    detail: `model=${model} cacheRead=${usage.cacheRead} cacheWrite=${usage.cacheWrite} fresh=${usage.input} out=${usage.output}`,
+  })
+}
+
 class ClaudeModel implements Model {
   readonly canActWithTools = true
   readonly canStream = true
@@ -131,10 +186,40 @@ class ClaudeModel implements Model {
       // keeps them willing to reach for tools. `effort` is sent ONLY to models that
       // support it — older tiers (e.g. Haiku 4.5) reject `output_config.effort` with
       // a 400, so swapping AGENT_MODEL to one of those must not carry it. (Never send
-      // temperature/top_p or budget_tokens on the 4.7+ family — each is a 400.)
+      // temperature/top_p or budget_tokens on the 4.7+ family — each is a 400. The
+      // `cache_control` below is NOT one of those: it's a GA field on every current
+      // Claude family, unrelated to the sampling knobs that 400.)
       ...(supportsEffort(this.name) ? { output_config: { effort: this.effort } } : {}),
       ...(stream ? { stream: true } : {}),
-      ...(system ? { system } : {}),
+      // THE PROMPT CACHE BREAKPOINT — one marker, and it has to be exactly here.
+      //
+      // A Claude request renders in the order `tools` → `system` → `messages`, and the
+      // cache is a PREFIX match. So a single breakpoint on the last system block caches
+      // BOTH halves of the fixed prefix — all 31 tool schemas AND the system prompt — in
+      // one entry. Marking the tools array too would only buy a second, nested entry for
+      // content this one already covers.
+      //
+      // The rule that makes or breaks it: every byte BEFORE the marker must be identical
+      // between calls, or the cache misses in silence and we pay full price believing we
+      // don't. Both halves qualify, and that is not an accident:
+      //   • the tools come from toolSpecs() → TOOL_CATALOG, a static array in a fixed
+      //     order — the same bytes for every user, never filtered by rights;
+      //   • the system string is agent.ts's SYSTEM module constant (glossary + the
+      //     generated capability brief). No date, no team name, no user name, nothing
+      //     interpolated per request — and replayable() keeps role:"system" out of the
+      //     replayed history, so nothing can be appended to it mid-conversation.
+      // Put anything volatile in either and this whole block quietly becomes a no-op.
+      // logCacheUsage() is what catches that: it reads the counters off the response, so
+      // a regression surfaces as a prompt_cache_miss line rather than a bigger bill.
+      //
+      // Worth ~$273/month at measured volumes: the prefix is ~6,200 tokens and was re-paid
+      // at full input price on every one of up to 13 model calls per reply — 48% of a
+      // worst-case run. Reads bill at 0.1x and writes at 1.25x, so it pays back on the
+      // second call of any reply; the 5-minute TTL covers a multi-step reply comfortably,
+      // and consecutive replies in one conversation hit it too. (Sonnet 5 won't cache a
+      // prefix under ~1,024 tokens — it reports zeros rather than erroring, so the marker
+      // is harmless on the much smaller import-planning prompt that shares this seam.)
+      ...(system ? { system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }] } : {}),
       messages: toAnthropicMessages(messages),
       ...(tools.length
         ? { tools: tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.schema })) }
@@ -161,7 +246,9 @@ class ClaudeModel implements Model {
       const detail = await res.text().catch(() => "")
       throw new Error(`model_error: Claude returned ${res.status}. ${detail.slice(0, 200)}`)
     }
-    const data = (await res.json()) as { content?: AnthropicBlock[] }
+    const data = (await res.json()) as { content?: AnthropicBlock[]; usage?: AnthropicUsage }
+    const usage = toUsage(data.usage)
+    logCacheUsage(this.name, "model.claude.complete", usage)
     const blocks = data.content ?? []
     const text = blocks
       .filter((b): b is Extract<AnthropicBlock, { type: "text" }> => b.type === "text")
@@ -170,7 +257,7 @@ class ClaudeModel implements Model {
     const toolCalls = blocks
       .filter((b): b is Extract<AnthropicBlock, { type: "tool_use" }> => b.type === "tool_use")
       .map((b) => ({ id: b.id, name: b.name, input: b.input ?? {} }))
-    return { text, toolCalls }
+    return { text, toolCalls, usage }
   }
 
   /** Stream the turn (POST with "stream": true) and parse the Messages SSE: a
@@ -194,7 +281,9 @@ class ClaudeModel implements Model {
       const detail = res.body ? await res.text().catch(() => "") : ""
       throw new Error(`model_error: Claude returned ${res.status}. ${detail.slice(0, 200)}`)
     }
-    return parseAnthropicStream(res.body, onText)
+    const reply = await parseAnthropicStream(res.body, onText)
+    logCacheUsage(this.name, "model.claude.stream", reply.usage)
+    return reply
   }
 }
 
@@ -212,6 +301,7 @@ export async function parseAnthropicStream(
   const decoder = new TextDecoder()
   let buffer = ""
   let text = ""
+  let usage: TokenUsage | undefined
   const tools = new Map<number, ToolBuild>() // block index → the tool_use being built
 
   const handle = (data: string): void => {
@@ -221,13 +311,22 @@ export async function parseAnthropicStream(
       index?: number
       content_block?: { type?: string; id?: string; name?: string }
       delta?: { type?: string; text?: string; partial_json?: string }
+      message?: { usage?: AnthropicUsage }
+      usage?: AnthropicUsage
     }
     try {
       ev = JSON.parse(data)
     } catch {
       return // ignore a keep-alive / unparsable frame
     }
-    if (ev.type === "content_block_start" && ev.content_block?.type === "tool_use")
+    // A streamed turn reports its cost in two places: message_start opens with the INPUT
+    // counters (including the two cache ones — the proof the prefix was served, not
+    // re-bought), and message_delta closes with the final output_tokens. Both are
+    // optional here: a stream without them simply leaves usage undefined and logs nothing.
+    if (ev.type === "message_start") usage = toUsage(ev.message?.usage) ?? usage
+    else if (ev.type === "message_delta" && usage && ev.usage?.output_tokens !== undefined)
+      usage.output = ev.usage.output_tokens
+    else if (ev.type === "content_block_start" && ev.content_block?.type === "tool_use")
       tools.set(ev.index ?? 0, {
         id: ev.content_block.id ?? "",
         name: ev.content_block.name ?? "",
@@ -271,7 +370,7 @@ export async function parseAnthropicStream(
     }
     return { id: b.id, name: b.name, input }
   })
-  return { text, toolCalls }
+  return { text, toolCalls, usage }
 }
 
 /* ------------------------------- Workers AI ------------------------------- */

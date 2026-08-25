@@ -151,7 +151,7 @@ describe("the machine surface gets the same guards as the UI", () => {
     // validate against the schema — so a machine caller that simply forgot the
     // field DEACTIVATED the record, and the door's clean 400 was unreachable
     // because the tool had already invented a value.
-    const toggles = MCP_TOOLS.filter((t) => /^set_\w+_active$/.test(t.mcpName ?? t.name))
+    const toggles = MCP_TOOLS.filter((t) => /^set_\w+(_value)?_active$/.test(t.name))
     expect(toggles.length, "no set_*_active tools found — this scan has gone blind").toBeGreaterThan(2)
     for (const t of toggles) {
       expect(() => t.buildBody!({ id: "x", roleId: "x" }), `${t.name} must refuse an omitted "active" rather than defaulting it to false`).toThrow()
@@ -164,7 +164,7 @@ describe("the machine surface gets the same guards as the UI", () => {
     // Four doors carry the lost-update guard and the web client sends it. No tool
     // exposed or forwarded it, so a machine edit ALWAYS won a concurrent race —
     // the assistant silently overwriting a change a person made seconds earlier.
-    const edits = MCP_TOOLS.filter((t) => /^update_/.test(t.mcpName ?? t.name))
+    const edits = MCP_TOOLS.filter((t) => /^update_/.test(t.name))
     expect(edits.length, "no update_* tools found — this scan has gone blind").toBeGreaterThan(1)
     for (const t of edits) {
       const props = (t.inputSchema as { properties?: Record<string, unknown> })?.properties ?? {}

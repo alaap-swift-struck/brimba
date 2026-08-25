@@ -384,7 +384,7 @@ hoped. This is the mechanism.
 
 A Law lives in three linked places:
 
-- **`RULES.md`** — the human-readable law-book (R1–R25), one row per law.
+- **`RULES.md`** — the human-readable law-book (R1–R26), one row per law.
 - **`shared/rules/registry.ts`** — the same laws *as data* (`RULES_REGISTRY`),
   each carrying the `checkId` of the test that enforces it. Deny-lists (the
   reviewed exceptions) also live here as data, so every exception is a visible,
@@ -440,12 +440,20 @@ whole story.
 and the Laws. These are the base. You do not re-solve multi-tenancy, permissions, or
 live updates — they're done.
 
-**What you rename (once).** The product's identity, not its plumbing: the app name +
-brand (in the web app's config + the `PUBLIC_APP_URL`/URLs), the worker name prefix
-if you want your own (`brimba-*` → `<yourapp>-*` in the `wrangler.jsonc` files and the
-deploy scripts), and the GitHub/Cloudflare project names (the `/new-app` skill
-automates the scaffold + backup + staging + production wiring). Everything the base
-does keeps working because none of the *seams* changed.
+**What you rename (once) — `npm run fork <new-name>`.** One command sweeps the
+product's identity out of the base and your own in: the app name and brand, the
+`brimba-*` worker prefix in every `wrangler.jsonc`, the `PUBLIC_APP_URL`/`APP_ORIGIN`
+hosts, the session-cookie and MCP-token prefixes, the browser storage keys, the docs —
+**and the tests that pin those literals**, which is why `npm install && npm run check`
+is green straight afterwards. It is a script, not a checklist, because it derives its
+subject by scanning the repo: nothing to keep in step, nothing to go stale. The
+author's account-scoped ids (Cloudflare account, D1 database ids) are **blanked**
+rather than renamed — no rename can guess them, and inheriting them is how a fork's
+rows land in the base's own databases; BOOTSTRAP.md §2 fills them in. **Law R26**
+fails the build if a hardcoded product name ever lands where the sweep cannot reach
+it, so the procedure cannot drift again. The GitHub/Cloudflare project wiring is still
+the `/new-app` skill's job — it is a thin wrapper over this script. Everything the
+base does keeps working because none of the *seams* changed.
 
 **Where your product lives.** Every product-specific thing users work with is a
 **module** — an ERP's `invoices`, `products`, `purchase_orders`; a portal's `tickets`,
@@ -458,7 +466,8 @@ follow the golden path.
 
 **The order to build a new product.**
 1. Stand up the base on your own account — **BOOTSTRAP.md**, end to end.
-2. Rename the identity (or run `/new-app` to scaffold a fresh one on this base).
+2. Rename the identity — `npm run fork <new-name>`, then `npm install && npm run check`
+   (or run `/new-app`, which wraps it and scaffolds the GitHub + Cloudflare wiring).
 3. Add your first module — **BUILD-A-MODULE.md** (`invoices`, say). Ship it. Repeat
    per module.
 4. Add agent tools for your module (an entry in `data-ops`'s tool catalog per

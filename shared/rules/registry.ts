@@ -192,6 +192,13 @@ export const RULES_REGISTRY: Rule[] = [
     checkId: "activity-birth-to-death",
     status: "enforced",
   },
+  {
+    id: "R26",
+    dimension: "workflow",
+    law: "The base's own identity is SWEEPABLE IN ONE COMMAND: every shipped file carrying the product name is one `scripts/fork.mjs` rewrites, so a fork renames the whole base — sources, configs, docs AND the tests that pin the literals — and `npm run check` stays green. The sweep DERIVES its subject by scanning the repo; it never carries a list of sites, because a hand-list is wrong the day after it is written. Reviewed exceptions are DATA (FORK_SWEEP_EXEMPT). Earned by: a sweep that lived as prose in a skill OUTSIDE this repository, with nothing red when it drifted — so it named one of the four copies of the session cookie (rename that one alone and every MCP call silently fails auth), listed a storage-prefix file that has no prefix while missing two that do, and left eight assertions in three test files pinning literals it renames, turning the one pre-deploy gate RED while promising green.",
+    checkId: "fork-sweep-complete",
+    status: "enforced",
+  },
 ]
 
 /** R13 — reviewed exemptions: modules that are deliberately NOT import targets,
@@ -311,6 +318,12 @@ export const FORM_DIALOGS = [
   "team-edit-dialog",
   "selectable-form-dialog",
 ] as const
+
+/** R26 — shipped files that carry the product name and are deliberately NOT
+ * swept by `scripts/fork.mjs`, with the reason. Empty today, and it should stay
+ * that way: the honest fix for a missed file is almost always to teach the sweep
+ * its type, not to write it an excuse. */
+export const FORK_SWEEP_EXEMPT: Record<string, string> = {}
 
 /** R21 — create doors that legitimately return something OTHER than the created
  * row. Keyed by handler name, with the reason, so every exception is a visible

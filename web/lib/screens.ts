@@ -23,6 +23,27 @@ function field(column: string, label: string): RecipeField {
   return { column, type: "text", field: { ...defaultFieldConfig, label } }
 }
 
+/** WHY NO `emptyAction` YET (v0.16.0 shipped the slot; this is not an oversight).
+ *
+ * `ScreenRecipe.emptyAction` names one of the recipe's OWN `actions` by id, and
+ * the engine renders it as an `ActionButton` that fires `onAction(action.id)`.
+ * The host's ONE dispatcher (`deep-link-screen.tsx`'s `onAction` switch) knows
+ * exactly four ids — `members.changeRole`, `members.remove`, `invites.revoke`,
+ * `team.edit` — and has no default branch. None of them is a create.
+ *
+ * So a `create` action declared here TODAY renders a button that does nothing:
+ * a dead end on the one screen a brand-new team is guaranteed to meet, which is
+ * worse than the plain empty state it replaced. The slot lands the moment the
+ * host gains a case per create (`go(sectionPath, { panel: "add", module })` —
+ * the same call `SectionWithCreate.onCreate` already makes), and not before.
+ *
+ * Until then the copy below carries the load: every empty state says what the
+ * screen WILL hold rather than naming an absence, in words that are true for a
+ * viewer as well as an admin (a sentence telling someone to press a button their
+ * role hides is its own small dead end — the gated `emptyAction` is precisely
+ * the fix for that, which is why it is worth waiting for rather than faking).
+ */
+
 /** A list collection config with Layer-1 (client-side, in-memory) search ON —
  * the library search/filters have landed (SEARCH.md · UI-GAPS #7), so every
  * bounded list searches its already-cached rows with zero new requests. The
@@ -125,7 +146,7 @@ export const membersListRecipe: ScreenRecipe = {
   gate: { module: "team_members", right: "read" },
   fields: [field("name", "Member"), field("detail", "Details")],
   actions: [],
-  collection: listCollection("No members yet.", "Search members…", [
+  collection: listCollection("Everyone on your team appears here, with the role each one holds.", "Search members…", [
     { field: "role", label: "Role", control: "select" },
   ]),
 }
@@ -190,7 +211,7 @@ export const rolesListRecipe: ScreenRecipe = {
   gate: { module: "member_roles", right: "read" },
   fields: [field("name", "Role"), field("detail", "Details")],
   actions: [],
-  collection: listCollection("No roles yet.", "Search roles…", [
+  collection: listCollection("A role decides what a member can see and do. Your team's roles appear here.", "Search roles…", [
     { field: "state", label: "Status", control: "select" },
   ]),
 }
@@ -207,7 +228,7 @@ export const invitesListRecipe: ScreenRecipe = {
   gate: { module: "team_members", right: "read" },
   fields: [field("email", "Email"), field("detail", "Details")],
   actions: [],
-  collection: listCollection("No invites yet.", "Search invites…", [
+  collection: listCollection("Invites you send appear here, so you can see who hasn't joined yet.", "Search invites…", [
     { field: "status", label: "Status", control: "select" },
   ]),
 }
@@ -269,7 +290,7 @@ export const learningListRecipe: ScreenRecipe = {
   gate: { module: "learning", right: "read" },
   fields: [field("name", "Article"), field("detail", "Details")],
   actions: [],
-  collection: listCollection("No learning yet.", "Search learning…", [
+  collection: listCollection("Your team's how-to articles appear here, ready for anyone to read.", "Search learning…", [
     { field: "category", label: "Category", control: "select" },
     { field: "state", label: "Status", control: "select" },
   ]),
@@ -290,7 +311,7 @@ export const helpListRecipe: ScreenRecipe = {
   fields: [field("name", "Ticket"), field("detail", "Details")],
   actions: [],
   collection: listCollection(
-    "No tickets yet.",
+    "Questions and requests your team raises appear here, each with its status.",
     "Search tickets…",
     [{ field: "status", label: "Status", control: "select" }],
     { paged: true }

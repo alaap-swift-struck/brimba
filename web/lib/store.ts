@@ -46,6 +46,58 @@ export const MAX_ROWS_PER_ENTRY = 2000
 const cache = new Map<string, unknown>()
 const subscribers = new Map<string, Set<() => void>>()
 
+/** What a shared request hands back. `current` is the important half: it says
+ * whether this answer is still the one the cache wants. Anything that learns
+ * something NEWER than what is on the wire (an `invalidate` from a live ping, a
+ * row-level `patchRow`, a reconnect `reconcile`) drops the in-flight entry, and
+ * a response that comes back afterwards sees `current: false` and is DISCARDED
+ * rather than written — which is what stops a list that was already on the wire
+ * painting over the row a live ping just patched in (CACHING rule 3). */
+type Answer<T> = { value: T; current: boolean }
+
+// IN-FLIGHT REQUESTS, keyed EXACTLY as the cache is — because this map answers
+// the same question one step earlier. `cache.has(key)` says "do I already have
+// this answer"; `inflight.has(key)` says "am I already ASKING". Every guard in
+// this file used to be blind for the whole duration of a request, so a screen
+// that mounts six components all wanting `my-perms:<teamId>` sent six identical
+// GETs — nine of the twenty-four requests a cold help ticket makes were a
+// question already on the wire (round-trip review, 2026-08-25).
+//
+// Entries are removed the moment a request settles, in BOTH outcomes, so this
+// map only ever holds what is genuinely on the wire — it cannot grow.
+const inflight = new Map<string, Promise<Answer<unknown>>>()
+
+/** Ask a key's question ONCE. A caller arriving while the same key is already on
+ * the wire awaits that request instead of opening a second one — one fetch, one
+ * answer, however many components want it.
+ *
+ * The entry is cleared on REJECTION too. It has to be: leave a failed request
+ * behind and the key is joined forever after by every later caller, so one
+ * network blip would make it permanently unfetchable for the rest of the
+ * session. A failure is simply "nobody is asking any more" — the next caller
+ * asks again. */
+function sharedFetch<T>(key: string, fetcher: () => Promise<T>): Promise<Answer<T>> {
+  const joined = inflight.get(key)
+  if (joined) return joined as Promise<Answer<T>>
+
+  // Identity, not a flag: the map entry IS the claim on the key, so "am I still
+  // the current request?" is `is the entry still mine`. A newer request that
+  // replaced us must not have ITS entry deleted by our late response.
+  const run: Promise<Answer<T>> = fetcher().then(
+    (value) => {
+      const current = inflight.get(key) === run
+      if (current) inflight.delete(key)
+      return { value, current }
+    },
+    (err) => {
+      if (inflight.get(key) === run) inflight.delete(key)
+      throw err
+    }
+  )
+  inflight.set(key, run)
+  return run
+}
+
 /** May this entry be dropped? Only when nothing on screen depends on it. */
 function evictable(key: string): boolean {
   if (subscribers.get(key)?.size) return false // a mounted screen is showing it
@@ -97,6 +149,14 @@ function subscribeKey(key: string, fn: () => void): () => void {
 /** Drop a cached entry and tell anyone showing it to refetch (live refresh). */
 export function invalidate(key: string): void {
   cache.delete(key)
+  // AND the request on the wire, which is now stale by the same argument that
+  // just dropped the entry. Two failures this prevents, both real: a caller
+  // arriving after the ping would otherwise JOIN an answer that predates the
+  // change, and — the one that bites — that answer would land after the
+  // row-level patch the ping caused and overwrite it. The live layer patches
+  // single rows into these very caches on every ping (CACHING rule 3), so the
+  // window is not theoretical.
+  inflight.delete(key)
   notify(key)
 }
 
@@ -137,15 +197,27 @@ export function useCachedValue<T>(key: string | null): T | undefined {
  * or row-level live-sync behaviour changes, it just fills a cold key earlier. */
 export function primeCacheIfCold<T>(key: string, fetcher: () => Promise<T>): void {
   if (cache.has(key)) return
-  void fetcher()
-    .then((value) => {
-      // Re-check: a real fetch (useCached) or live patch may have landed while we
-      // were in flight — don't clobber it with our (now possibly stale) result.
-      if (!cache.has(key)) primeCache(key, value)
-    })
-    .catch(() => {
-      /* a prewarm miss is silent — the screen fetches on mount as usual */
-    })
+  // A PREWARM ASKS LAST, on purpose. It runs from a child effect (the team
+  // shell) while the screens that actually need these keys ask from a parent
+  // one, and effects commit child-first — so without this yield the prewarm
+  // would win the de-duplication race and the real reader would join IT. That
+  // is not a wash, because the two fetchers are NOT identical: the team-area
+  // readers also prime each collection's exact `total:` sidecar (R16) and the
+  // prewarm's do not, so the count badges would quietly go blank on team entry.
+  // One microtask puts the prewarm behind every read in the same commit, so it
+  // joins the richer request for free instead of replacing it with a poorer one.
+  queueMicrotask(() => {
+    if (cache.has(key)) return // a real read already landed — nothing to seed
+    void sharedFetch(key, fetcher)
+      .then(({ value, current }) => {
+        // Re-check: a real fetch (useCached) or live patch may have landed while we
+        // were in flight — don't clobber it with our (now possibly stale) result.
+        if (current && !cache.has(key)) primeCache(key, value)
+      })
+      .catch(() => {
+        /* a prewarm miss is silent — the screen fetches on mount as usual */
+      })
+  })
 }
 
 /** ROW-LEVEL live patch: a "row X in this collection changed" ping lands → fetch

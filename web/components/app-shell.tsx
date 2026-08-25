@@ -11,6 +11,7 @@ import * as React from "react"
 import { usePathname } from "next/navigation"
 
 import { Breadcrumbs } from "@swift-struck/ui/registry/primitives/breadcrumbs/breadcrumbs"
+import { ConnectionStatus } from "@swift-struck/ui/registry/primitives/connection-status/connection-status"
 import { ModeToggle } from "@swift-struck/ui/registry/primitives/mode-toggle/mode-toggle"
 import { Skeleton } from "@swift-struck/ui/registry/primitives/skeleton/skeleton"
 import { toast } from "@swift-struck/ui/registry/primitives/sonner/sonner"
@@ -116,7 +117,7 @@ export function AppShell({
 
   // The active team's live channel. A ping patches ONLY the changed row in place
   // (row-level), via the generic registry above — no full-collection refetch.
-  useRealtime(
+  const teamLink = useRealtime(
     teamId,
     (event) => {
       if (!teamId) return
@@ -174,7 +175,7 @@ export function AppShell({
 
   // Your OWN identity channel — account events + a forced sign-out — open even
   // before you join a team (teamless users still get it).
-  useUserRealtime(userId, (event) => {
+  const userLink = useUserRealtime(userId, (event) => {
     if (event.resource === "session") {
       // A sign-out signal reaches ALL your devices (e.g. you changed your email
       // elsewhere). Only the devices whose session was actually dropped should
@@ -200,6 +201,26 @@ export function AppShell({
       void active.refresh()
     }
   })
+
+  // Is what you're looking at still true? The shell owns the sockets, so it owns
+  // the answer. Inside a team the TEAM channel is the one keeping the screen
+  // current; teamless, only your own channel is open. Deliberately a dot and not
+  // a banner — nobody needs reassurance every second, they need to notice when
+  // it is NOT live, and a bar across the top for every blip trains people to
+  // ignore bars across the top. The word is always in the DOM for screen
+  // readers, and `title` gives it to a mouse.
+  const link = teamId ? teamLink : userLink
+  const linkTitle =
+    link === "live"
+      ? "Live — this screen updates as your team works"
+      : link === "reconnecting"
+        ? "Reconnecting — what you can see may be out of date"
+        : "Offline — what you can see may be out of date"
+  const liveDot = (
+    <span title={linkTitle} className="flex items-center">
+      <ConnectionStatus state={link} />
+    </span>
+  )
 
   return (
     <div className="flex min-h-[100svh]">
@@ -243,6 +264,7 @@ export function AppShell({
           className={`mt-auto flex items-center gap-2 p-3 ${collapsed ? "flex-col" : "justify-between"}`}
         >
           <ProfileMenu active={active} />
+          {liveDot}
           {!collapsed && <ModeToggle />}
           <button
             type="button"
@@ -265,6 +287,7 @@ export function AppShell({
         <header className="glass sticky top-0 z-20 flex items-center justify-between gap-2 border-b px-4 py-2.5 md:hidden">
           <TeamSwitcher active={active} onCreateTeam={() => setCreating(true)} />
           <div className="flex items-center gap-1">
+            {liveDot}
             <ModeToggle />
             <ProfileMenu active={active} />
           </div>
