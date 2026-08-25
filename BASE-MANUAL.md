@@ -254,7 +254,7 @@ sentence, one file. Follow the file when you need the detail.
 | `publishChange` | `shared/workers/realtime.ts` | tells a TEAM's open screens that one row changed. Carries `{resource, id, op}` and **never row data** — the client re-pulls that one row through the permission-checked endpoint, so a ping cannot leak a field the viewer may not see. LAW R1: every mutation calls it. |
 | `publishUserChange` | `shared/workers/realtime.ts` | the same, aimed at ONE PERSON's channel across all their devices — their profile, their team list, their account activity. Reaches them even before they belong to a team. |
 | `publishSignOut` | `shared/workers/realtime.ts` | the one ping that carries no id: "your session is dead, re-check". Sent to a person's OTHER devices after they change their own email. |
-| `useLiveRefetch` | `web/lib/use-live-refetch.ts` | the client half — subscribes a PAGED screen to its resource so an incoming ping refreshes it. LAW R15: a published resource must have a listener. |
+| the shared cache key | `web/lib/live-resources.ts` + `web/lib/use-screen-data.ts` | the client half — a paged screen reads through the same key the shell patches on a ping, so page two stays live without subscribing to anything. LAW R15: a published resource must have a listener. |
 | `applyCreated` / `applyUpdated` | `web/lib/live-resources.ts` | fold the ONE row a create (R21) or a mutation (R23) handed back into the list already on screen — the same patch a ping would make. A null row means the record left the list, so drop it. |
 
 ### Doors and gating

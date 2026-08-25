@@ -15,7 +15,7 @@ import { readdirSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 
-import { catchBodies } from "../../../shared/test/source"
+import { catchBodies, stripComments } from "../../../shared/test/source"
 
 const WORKERS = readdirSync(join(__dirname, "..", ".."), { withFileTypes: true })
   .filter((e) => e.isDirectory())
@@ -38,7 +38,24 @@ describe("error seam: every worker records crashes centrally", () => {
       // nothing — the same door name appears in the browser error-beacon route
       // below it. Proven by sabotage on 2026-08-25: the file-wide version stayed
       // green with the recording deliberately broken.
-      const catches = catchBodies(src).join("\n")
+      // COMMENTS STRIPPED, and only the ENTRY-POINT catch. The first version of
+      // this check had both faults, and error_log_review proved both by
+      // simulation in the re-measure: a comment reading
+      // `// TODO: post to /internal/log-error` turned it green with the real call
+      // deleted, and joining EVERY catch body meant one worker's cron recorder
+      // covered for a neutered central catch. The recorder has to be in the catch
+      // that wraps the request, or a crash on the request path records nothing.
+      // THE `fetch` HANDLER'S OWN CATCH. Not the file (a recorder anywhere passes),
+      // not the whole default export (which also holds `scheduled` — and a
+      // sabotage of tenancy's REQUEST catch stayed green because the CRON's
+      // recorder, twenty lines below in the same object, covered for it).
+      // A crash on the request path has to be recorded by the request path.
+      const code = stripComments(src)
+      const start = code.indexOf("async fetch(")
+      const after = code.indexOf("async scheduled(", start)
+      const entry = start === -1 ? "" : code.slice(start, after === -1 ? undefined : after)
+      expect(start, `${w} has no fetch handler — this scan has gone blind`).toBeGreaterThan(-1)
+      const catches = catchBodies(entry).join("\n")
 
       // TWO sanctioned routes, and only two.
       //

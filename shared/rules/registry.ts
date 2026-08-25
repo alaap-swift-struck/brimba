@@ -118,7 +118,7 @@ export const RULES_REGISTRY: Rule[] = [
   {
     id: "R15",
     dimension: "arch",
-    law: "Every paged screen consumes the live channel (useLiveRefetch re-pulls its CURRENT page on its module's ping; the shell fans every ping to it and replays on reconnect) — AND no deaf publishers: every resource string any worker publishes must reach a listener (TEAM_RESOURCES / SIMPLE_INVALIDATIONS) or a reasoned DEAF_EXEMPT entry. Earned by: a server-paged screen whose rows live in page state outside the row caches going stale on a teammate's change — and the dropdown manager staling because its worker pinged a resource nothing listened to.",
+    law: "Every paged screen reads through the caches the shell patches (use-screen-data.ts keys off live-resources, so a page-two row is patched exactly like a page-one row) — AND no deaf publishers: every resource string any worker publishes must reach a listener (TEAM_RESOURCES / SIMPLE_INVALIDATIONS) or a reasoned DEAF_EXEMPT entry whose named cache keys are themselves checked. Earned by: a server-paged screen going stale on a teammate's change, the dropdown manager staling because its worker pinged a resource nothing listened to, and a DEAF_EXEMPT reason that described a refresh mechanism which did not exist.",
     checkId: "live-collections",
     status: "enforced",
   },

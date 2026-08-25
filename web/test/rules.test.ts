@@ -887,20 +887,18 @@ describe("RULES — the laws of the base", () => {
     const liveSrc = stripComments(read(join(WEB, "lib", "live-resources.ts")))
     const unbacked: string[] = []
     for (const [resource, why] of Object.entries(DEAF_EXEMPT))
-      for (const m of why.matchAll(/`([a-z-]+:[a-z-]*)`/g))
+      // TWO or more segments, not one. The first version was `[a-z-]+:[a-z-]*`,
+      // which matched `help-thread:` and silently SKIPPED `total:help-thread:` —
+      // so deleting the badge key alone left this green and the stale reply count
+      // came back. A key the parser cannot express must FAIL, not vanish.
+      // (Realtime review, round 2, 2026-08-25.)
+      for (const m of why.matchAll(/`([a-z-]+(?::[a-z-]*)+)`/g))
         if (!liveSrc.includes(m[1])) unbacked.push(`${resource} claims \`${m[1]}\` which live-resources.ts does not contain`)
     expect(
       unbacked,
       `a DEAF_EXEMPT reason named a cache key that does not exist: ${unbacked.join("; ")}`
     ).toEqual([])
 
-    // The paged half: the refetch seam exists and the shell fans pings + reconnects
-    // into it; any component fetching a /search door must subscribe.
-    const bus = read(join(WEB, "lib", "use-live-refetch.ts"))
-    expect(bus).toContain("subscribeLive")
-    const shell = read(join(WEB, "components", "app-shell.tsx"))
-    expect(shell, "the shell must fan every ping into the bus").toContain('emitLive({ kind: "ping"')
-    expect(shell, "the shell must replay on reconnect").toContain('emitLive({ kind: "reconnect" })')
     // THE PAGED HALF, pointed at the paging this app actually has. This filter
     // read `/search?|usePagedList` and NO component in the repo contains either —
     // all fetching is wrapped in `web/lib/api.ts` — so its offender list was
@@ -994,13 +992,29 @@ describe("RULES — the laws of the base", () => {
     // turns a trail into a draft. The retention sweep is the ONE exception and
     // is a documented policy, not request-path code.
     const offenders: string[] = []
-    for (const [path, src] of workerSources()) {
+    // serverSources, not workerSources — `shared/workers/activity.ts` IS the log
+    // seam, and this check could not see the file it exists to protect. It
+    // survived the pass that moved eight other checks onto the shared reader,
+    // which is its own lesson: fixing the readers does not fix the SCOPES.
+    // (Activity-log review, round 2, 2026-08-25.)
+    for (const [path, src] of serverSources()) {
       if (path.endsWith("/retention.ts")) continue
       const code = stripComments(src)
-      for (const re of [/UPDATE\s+activity\b/gi, /DELETE\s+FROM\s+activity\b/gi, /UPDATE\s+account_activity\b/gi]) {
+      for (const re of [
+        /UPDATE\s+activity\b/gi,
+        /DELETE\s+FROM\s+activity\b/gi,
+        /UPDATE\s+account_activity\b/gi,
+        // The missing fourth. An account's own history is a log too, and nothing
+        // forbade deleting from it.
+        /DELETE\s+FROM\s+account_activity\b/gi,
+      ]) {
         if (re.test(code)) offenders.push(`${path} → ${re.source}`)
       }
     }
+    expect(
+      serverSources().some(([p]) => p.includes("shared/workers/activity.ts")),
+      "R25's scan cannot see the log seam itself — the one file it most needs to read"
+    ).toBe(true)
     expect(
       offenders,
       `activity rows must never be rewritten in the request path (R25): ${offenders.join(", ")}`

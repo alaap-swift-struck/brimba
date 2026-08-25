@@ -14,7 +14,7 @@
   "preview_urls": false,
   "observability": { "enabled": true },
   "d1_databases": [
-    { "binding": "OPS", "database_name": "brimba-ops", "database_id": "b1389453-fe77-48de-bab1-1dd868e02537" },
+    { "binding": "OPS", "database_name": "brimba-ops", "database_id": "b1389453-fe77-48de-bab1-1dd868e02537", "migrations_dir": "../../db/ops" },
     {
       "binding": "DB",
       "database_name": "brimba-core",
@@ -36,7 +36,7 @@
       "preview_urls": false,
       "observability": { "enabled": true },
       "d1_databases": [
-        { "binding": "OPS", "database_name": "brimba-ops-staging", "database_id": "b622a822-587e-4a67-b75e-922839616e94" },
+        { "binding": "OPS", "database_name": "brimba-ops-staging", "database_id": "b622a822-587e-4a67-b75e-922839616e94", "migrations_dir": "../../db/ops" },
         {
           "binding": "DB",
           "database_name": "brimba-core-staging",

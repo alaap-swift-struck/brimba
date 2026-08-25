@@ -19,7 +19,6 @@ import { Home, Settings, GraduationCap, LifeBuoy, PanelLeftClose, PanelLeftOpen 
 import type { ActiveTeam } from "@/lib/use-active-team"
 import { auth } from "@/lib/api"
 import { softNavigate } from "@/lib/nav"
-import { emitLive } from "@/lib/live-bus"
 import { useRealtime, useUserRealtime } from "@/lib/realtime"
 // The row-level registry + coarse invalidations moved to lib (R15): they're DATA
 // the live-collections check imports, and the thread/help_threads + agent_usage
@@ -121,9 +120,6 @@ export function AppShell({
     teamId,
     (event) => {
       if (!teamId) return
-      // Fan the ping to any paged-screen subscribers (useLiveRefetch — R15)
-      // BEFORE the cache handling: their page state lives outside these caches.
-      emitLive({ kind: "ping", resource: event.resource, id: event.id, op: event.op })
       // The team activity feed is append-only + small — refresh it on any change.
       invalidate(`activity:team:${teamId}`)
       // Coarse listeners (team meta, screen recipes) — data-driven, R15.
@@ -164,10 +160,10 @@ export function AppShell({
       // no page reload. The row-level lists are DIFF-PATCHED in place (reconcile:
       // only changed rows re-render, new rows appear in order, gone rows drop) —
       // catching adds too, not just edits; the total-priming fetchers re-prime
-      // the badges as they run. Paged screens replay via the bus. The small
+      // the badges as they run. Paged screens come back with them, because they
+      // read the SAME cache keys these reconcile. The small
       // derived feeds/gates are cheap, so coarse-invalidate them.
       if (!teamId) return
-      emitLive({ kind: "reconnect" })
       for (const r of Object.values(TEAM_RESOURCES))
         void reconcile(r.key(teamId), r.idField, () => r.fetchList(teamId))
       invalidate(`activity:team:${teamId}`)

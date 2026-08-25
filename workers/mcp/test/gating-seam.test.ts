@@ -8,6 +8,7 @@
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
+import { stripComments } from "../../../shared/test/source"
 
 const src = readFileSync(join(__dirname, "..", "src", "index.ts"), "utf8")
 
@@ -15,9 +16,6 @@ const src = readFileSync(join(__dirname, "..", "src", "index.ts"), "utf8")
  * calling it (the same flaw that let a deleted gate stay green in the other
  * workers' suites). Block comments first; line comments only when the `//` isn't
  * part of a `https://` URL. */
-function stripComments(src: string): string {
-  return src.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/[^\n]*/gm, "$1")
-}
 
 /** The body of a top-level `async function <name>(` in index.ts. */
 function fnBody(name: string): string {

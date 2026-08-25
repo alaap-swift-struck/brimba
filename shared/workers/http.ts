@@ -2,7 +2,7 @@
 // same error contract (shared/types.ts ApiError), defined exactly once.
 
 import type { ApiError } from "../types"
-import { REQUEST_ID_HEADER } from "./trace"
+import { REQUEST_ID_HEADER, traceError } from "./trace"
 import { ORIGIN_HEADER } from "./activity"
 
 export const json = (
@@ -75,5 +75,29 @@ export async function forwardToDoor(
     if (opts.idempotencyKey) headers["Idempotency-Key"] = opts.idempotencyKey
     init.body = JSON.stringify(opts.body ?? {})
   }
-  return fetcher.fetch(`https://internal${opts.path}${opts.query ?? ""}`, init)
+  // GUARDED — which RULES.md has claimed since R11 was written, while this
+  // function contained no try/catch at all. A worker that is down, undeployed or
+  // mid-rollout makes the binding THROW, and an unhandled rejection here reaches
+  // the caller as a bare platform 500 with no body: indistinguishable from a bug
+  // in the app, and useless to the agent, which is expected to explain what
+  // happened. It went from 2 call sites to 5 on 2026-08-25 (every import write
+  // now routes through it), so the claim became three times more load-bearing
+  // while still being untrue. (Architecture review, round 2.)
+  //
+  // Deliberately still NO timeout: the doors on this path do real work of
+  // unbounded duration — an import batch — and a bound that cuts a working
+  // import off is worse than none. The guard turns a crash into an answer; it
+  // does not decide how long an answer may take.
+  try {
+    return await fetcher.fetch(`https://internal${opts.path}${opts.query ?? ""}`, init)
+  } catch (e) {
+    traceError({
+      req: opts.requestId ?? undefined,
+      worker: "forwardToDoor",
+      place: `${opts.method} ${opts.path}`,
+      event: "door_unreachable",
+      detail: String(e),
+    })
+    return fail(503, "service_unavailable", "That part of the app isn't answering right now. Nothing was changed — try again in a moment.")
+  }
 }

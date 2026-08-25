@@ -29,17 +29,11 @@
 import { readFileSync, readdirSync } from "node:fs"
 import { join } from "node:path"
 
-import { declarationBody } from "./source"
+import { declarationBody, stripComments } from "./source"
 import { describe, expect, it } from "vitest"
 
 /** The shape of a worker's ROUTES table this scan needs. */
 type RouteTable = Record<string, { handler: { name: string }; kind?: string }>
-
-/** Comments are NOT code — see the header. Block comments first; line comments
- * only when the `//` is not part of a `https://` URL. */
-export function stripComments(src: string): string {
-  return src.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/[^\n]*/gm, "$1")
-}
 
 /** Every `export async function NAME` body in a directory, keyed by name. */
 function exportedFunctions(dir: string): Map<string, string> {

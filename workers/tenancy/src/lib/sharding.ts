@@ -91,7 +91,7 @@ export async function checkDatabaseSizes(
       )
       .run()
     console.error(
-      `D1 SIZE ALARM: ${db.name} is at ${db.file_size} bytes (>=80% of cap). Run the module mover.`
+      `D1 SIZE ALARM: ${db.name} is at ${db.file_size} bytes (>=${Math.round((ALERT_THRESHOLD_BYTES / (10 * 1024 ** 3)) * 100)}% of cap). Run the module mover.`
     )
     alerted.push(db.name)
   }

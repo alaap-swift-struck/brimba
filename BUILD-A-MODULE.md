@@ -653,7 +653,7 @@ Beyond the golden path, a module that ships without these turns the build red:
 - **Live listener (R15):** add a `TEAM_RESOURCES` row-level entry in
   `web/lib/live-resources.ts` (or a `SIMPLE_INVALIDATIONS` / reasoned `DEAF_EXEMPT`
   entry) for every resource the module publishes; a paged screen calls
-  `useLiveRefetch`.
+  the same cache key the shell patches (`live-resources` → `use-screen-data`).
 - **Count (R16):** the list door returns an exact `total`; the screen renders the
   badge through `formatCount` and, if it's a sidebar page, a `CollectionHeading`.
 - **Idempotent transitions (R17):** any deactivate/reactivate/status write carries

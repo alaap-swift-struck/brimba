@@ -44,6 +44,31 @@ async function serveObject(bucket: R2Bucket, key: string, request: Request): Pro
   return new Response(object.body, { headers })
 }
 
+/** Percent-decode one object key, or null when the caller's path is malformed.
+ *
+ * A BOUNDARY, not a formality. `decodeURIComponent("%zz")` throws a URIError, and
+ * `/media/*` is deliberately OUTSIDE the surge ceiling (static objects are served
+ * from cache and are not a load the app has to survive). That was harmless while
+ * a throw here produced a bare platform error — and stopped being harmless the
+ * moment a central catch was added above, which turned an anonymous, unlimited,
+ * unauthenticated request into one row written to the shared operations database
+ * per call. At 500 requests a second that is 10 GB in under fifteen hours, into
+ * the one database the size alarm does not watch and the nightly sweep cannot
+ * drain — and on a deployment without the OPS binding, the documented fallback
+ * puts it in the CORE database, which stops sign-in for every tenant.
+ *
+ * A malformed URL is the caller's mistake: 400, recorded nowhere, exactly as
+ * ERROR-HANDLING.md says of 4xx. Found by scaling_review AND error_log_review
+ * independently, in the re-measure of the very pass that introduced it
+ * (2026-08-25) — which is the argument for re-measuring at all. */
+function decodeKey(raw: string): string | null {
+  try {
+    return decodeURIComponent(raw)
+  } catch {
+    return null
+  }
+}
+
 /** The team sections that have a clean TOP-LEVEL url of their own (R20). One
  * entry per `placement: "sidebar"` section in `web/lib/pages.ts` — the check
  * asserts this list and that registry match exactly, in both directions. */
@@ -245,13 +270,17 @@ async function route(request: Request, env: Env, req: string): Promise<Response>
     // live in their own per-team bucket. Same serving shape as /media/* below;
     // just a different bucket, matched first since it's a more specific prefix.
     if (pathname.startsWith("/media/learning/") && request.method === "GET") {
-      return serveObject(env.LEARNING_MEDIA, decodeURIComponent(pathname.slice("/media/learning/".length)), request)
+      const key = decodeKey(pathname.slice("/media/learning/".length))
+      if (key === null) return fail(400, "invalid_path", "That address isn't valid.")
+      return serveObject(env.LEARNING_MEDIA, key, request)
     }
 
     // Uploaded files (profile photos, team logos). URLs carry ?v= for cache
     // busting, so the file itself can be cached hard.
     if (pathname.startsWith("/media/") && request.method === "GET") {
-      return serveObject(env.MEDIA, decodeURIComponent(pathname.slice("/media/".length)), request)
+      const key = decodeKey(pathname.slice("/media/".length))
+      if (key === null) return fail(400, "invalid_path", "That address isn't valid.")
+      return serveObject(env.MEDIA, key, request)
     }
 
     // Deep-link tree: /t/<teamId>/<module>/<id>/… is ONE client-resolved screen.

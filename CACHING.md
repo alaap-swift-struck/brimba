@@ -81,8 +81,11 @@ coarse `SIMPLE_INVALIDATIONS` entry (team meta, screen recipes), or a reasoned
 The `selectable_data` manager was a deaf listener before R15 — its worker pinged
 and nothing heard — so it now has a row-level entry. A server-PAGED screen's rows
 live in page state outside these caches, so the shell fans every team ping (and a
-reconnect) into a bus (`web/lib/live-bus.ts`) and each paged screen re-pulls its
-current page via `useLiveRefetch`.
+reconnect) through the SAME cache keys a paged screen reads. `use-screen-data.ts`
+keys every collection off `live-resources`, and `LoadMore` appends into that key,
+so a page-two row is patched exactly like a page-one row — no subscription needed.
+(A `useLiveRefetch` bus existed until 2026-08-25 and had zero call sites: the law
+named a mechanism nobody used, while the one that worked went unstated.)
 
 ### 4 · Every mutation publishes (structurally can't-forget)
 Every state-changing route broadcasts a change ping — it is **not** per-call
