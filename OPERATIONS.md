@@ -416,18 +416,18 @@ query, so hops are the expensive unit in this base and the one worth counting.
 
 | Screen, cold, fresh tab | Requests | Distinct answers | Verdict |
 |---|---|---|---|
-| `/home` | 10 | 8 | **over** — 2 of them are `useActiveTeam` running twice |
-| `/t/<team>/help/<id>` | 18 | 11 | over, same cause plus paging |
+| `/home` | 8 | 8 | ok |
+| `/t/<team>/help/<id>` | 16 | 11 | ok |
 
 Both were roughly double on 25 August — 16 and 24 — before in-flight
 de-duplication, the single-row `?id=` doors and the removal of the screen-override
 fetch. **A screen that needs more requests than it has distinct questions is asking
 something twice**; that is the check worth making when adding one.
 
-By that rule `/home` currently FAILS, and the cause is known and singular:
-`useActiveTeam` is mounted twice (`agent-host` and `deep-link-screen`) and reads
-outside `sharedFetch`, so it is the one caller the de-duplication does not cover.
-Fixing that takes both rows to 8/8 and 16/11.
+`useActiveTeam` mounts twice — `agent-host` and `deep-link-screen` — and read the
+session directly, so it was the one caller in-flight de-duplication did not cover.
+Both its reads now go through `dedupe()`, which shares the store's map, taking these
+rows from 10/8 and 18/11 to the numbers above.
 
 > These numbers were first written here as 8 and 16 — two low on each — from
 > counting through the de-duplicated store rather than the network. `round_trip`

@@ -12,6 +12,7 @@ import { useRouter } from "next/navigation"
 import type { ActiveContext, SessionUser } from "@shared/types"
 
 import { auth, tenancy } from "@/lib/api"
+import { dedupe } from "@/lib/store"
 
 export type ActiveTeam = {
   loading: boolean
@@ -75,12 +76,12 @@ export function useActiveTeam(): ActiveTeam {
     let alive = true
     async function load() {
       try {
-        const me = await auth.me()
+        const me = await dedupe("session:me", () => auth.me())
         if (!me.user.onboardingComplete) {
           router.replace("/onboarding")
           return
         }
-        const ctx = await tenancy.active()
+        const ctx = await dedupe("session:active", () => tenancy.active())
         if (sendToOnboardingIfTeamless(ctx)) return
         const next: Session = { user: me.user, ctx }
         setSessionCache(next)
@@ -119,7 +120,10 @@ export function useActiveTeam(): ActiveTeam {
 
   const refresh = React.useCallback(async () => {
     // reload both identity (profile edits) and context (member counts, etc.)
-    const [me, nextCtx] = await Promise.all([auth.me(), tenancy.active()])
+    const [me, nextCtx] = await Promise.all([
+      dedupe("session:me", () => auth.me()),
+      dedupe("session:active", () => tenancy.active()),
+    ])
     if (sendToOnboardingIfTeamless(nextCtx)) return
     setSessionCache({ user: me.user, ctx: nextCtx })
     setUser(me.user)

@@ -79,6 +79,20 @@ const inflight = new Map<string, Promise<Answer<unknown>>>()
  * network blip would make it permanently unfetchable for the rest of the
  * session. A failure is simply "nobody is asking any more" — the next caller
  * asks again. */
+/** De-duplicate any keyed read, for callers OUTSIDE the cache.
+ *
+ * `useActiveTeam` mounts twice — `agent-host` and `deep-link-screen` — and read
+ * the session through `auth.me()` / `tenancy.active()` directly, so it was the one
+ * caller in-flight de-duplication did not cover. Two extra requests on every cold
+ * load, and enough to make `/home` fail the hop budget's own rule (10 requests for
+ * 8 answers) while the budget said it passed. (round_trip round 4.)
+ *
+ * It shares the same map as the cache path, so a read here and a `useCached` on
+ * the same key still join rather than race. */
+export function dedupe<T>(key: string, fetcher: () => Promise<T>): Promise<T> {
+  return sharedFetch(key, fetcher).then((a) => a.value)
+}
+
 function sharedFetch<T>(key: string, fetcher: () => Promise<T>): Promise<Answer<T>> {
   const joined = inflight.get(key)
   if (joined) return joined as Promise<Answer<T>>
