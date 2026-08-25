@@ -153,7 +153,22 @@ export default {
       if (def.kind !== "mutation") return await def.handler(request, env)
       return await withIdempotency(request, env.DB, route, () => def.handler(request, env))
     } catch (e) {
-      if (e instanceof GuardError) return fail(e.status, e.code, e.message)
+      // A 5xx GuardError IS an outage, and it was returning without a row.
+      //
+      // `GuardError` carries both refusals and failures. A 403 is the system
+      // working — the person may not do that, and recording it would fill the
+      // table with correct behaviour. But `whoAmI` throws a 503 when AUTH does
+      // not answer, and `whoAmI` is the busiest call in the base: an auth outage
+      // 503s every screen for everyone, and left its only evidence in an absence.
+      // The one incident you would most want a record of produced none.
+      //
+      // So the branch splits on the status, not on the type. (Error-log review,
+      // 2026-08-25.)
+      if (e instanceof GuardError) {
+        if (e.status >= 500)
+          await recordWorkerError(opsDatabase(env), "tenancy", `${request.method} ${new URL(request.url).pathname}`, e, request)
+        return fail(e.status, e.code, e.message)
+      }
       console.error("tenancy worker error:", e)
       // Record the crash in the central error log (core DB) — best-effort,
       // never blocks the response. Clean GuardError refusals never reach here.

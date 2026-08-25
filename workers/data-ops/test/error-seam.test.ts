@@ -86,3 +86,26 @@ describe("error seam: every worker records crashes centrally", () => {
     })
   }
 })
+
+// A 5xx GuardError is an OUTAGE, not a refusal, and must leave a row.
+//
+// `GuardError` carries both. A 403 is the system working — recording it would
+// fill the table with correct behaviour. But `whoAmI` throws 503 when AUTH does
+// not answer, and it is the busiest call in the base: an auth outage 503s every
+// screen for everyone and used to leave its only evidence in an absence. Every
+// central catch returned on `instanceof GuardError` BEFORE reaching the recorder.
+describe("a 5xx refusal is recorded; a 4xx one is not", () => {
+  for (const w of WORKERS) {
+    const src = readFileSync(join(__dirname, `../../${w}/src/index.ts`), "utf8")
+    if (!/instanceof GuardError/.test(src)) continue
+    it(`${w} splits its GuardError branch on the status`, () => {
+      const code = stripComments(src)
+      const branch = code.slice(code.indexOf("instanceof GuardError"), code.indexOf("instanceof GuardError") + 600)
+      expect(
+        branch,
+        `${w} must record a GuardError whose status is 5xx — an outage that returns without a row is the one incident you cannot investigate`
+      ).toMatch(/status\s*>=\s*500/)
+      expect(branch, `${w}'s 5xx branch must reach the recorder`).toMatch(/recordWorkerError/)
+    })
+  }
+})
