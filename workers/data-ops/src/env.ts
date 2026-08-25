@@ -26,8 +26,6 @@ export type Env = {
   // Secrets (wrangler secret put):
   /** API token scoped to Account → D1 → Edit (reach per-team DBs over the REST door). */
   CF_D1_TOKEN?: string
-  /** Shared secret for internal worker-to-worker calls (defense-in-depth). */
-  INTERNAL_KEY?: string
   /** Owner-only key guarding the import-catalog seed/maintenance endpoints. */
   ADMIN_KEY?: string
 

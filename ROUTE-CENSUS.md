@@ -61,7 +61,7 @@ static shell) — behaviour, because the router did not say.
 | data-ops | GET | `/api/data-ops/agent/threads` | `getAgentThreads` | read | requireRight, teamContext |
 | data-ops | GET | `/api/data-ops/agent/usage` | `getAgentUsage` | read | requireRight, teamContext |
 | data-ops | GET | `/api/data-ops/agent/usage-log` | `getAgentUsageLog` | read | requireRight, teamContext |
-| data-ops | GET | `/api/data-ops/health` | `fetch` | — | INTERNAL_KEY |
+| data-ops | GET | `/api/data-ops/health` | `fetch` | — | **none detected** |
 | data-ops | POST | `/api/data-ops/import` | `postImportStart` | housekeeping | requireRight, teamContext |
 | data-ops | POST | `/api/data-ops/import/batch` | `postBatchStart` | housekeeping | requireAnyImportRight, teamContext |
 | data-ops | GET | `/api/data-ops/import/batch` | `getBatch` | read | teamContext |

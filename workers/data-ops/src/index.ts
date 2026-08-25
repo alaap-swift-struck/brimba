@@ -124,7 +124,6 @@ export default {
           ok: true,
           bindings: {
             d1Token: !!env.CF_D1_TOKEN,
-            internalKey: !!env.INTERNAL_KEY,
             ops: !!env.OPS,
             model: !!env.ANTHROPIC_API_KEY,
           },
