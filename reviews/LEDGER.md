@@ -713,3 +713,81 @@ re-filed as findings:
 - **caching the R16 count NOT applied.** It breaks the law.
 - **the secrets vault** — the owner must seal it. It needs a passphrase I must
   never see or handle.
+
+
+---
+
+# PHASE 3 — the re-measure, and what it caught
+
+All sixteen re-scored by agents that did not write the repairs.
+
+| Review | R1 | R2 | Criteria that FELL |
+|---|---|---|---|
+| lean_mean | 89 | **91** | 1 — my new checks grew `rules.test.ts` |
+| activity_log | 82 | **88** | 1 — its own round-1 over-credit, corrected down |
+| architecture | 87 | **89** | 1 — my gateway regression |
+| interfacelessness | 81 | **84** | none |
+| realtime | 80 | **81** | none |
+| base_fork | 77 | **78** | none |
+| spend | 76 | **79** | none |
+| story | 71 | **68** | 4 — three of them mine |
+| security_sentry | 68 | **68** | none (ControlScore rose; the HIGH stayed open) |
+| error_log | 63 | **68** | none |
+| first_run | 62 | **62** | none — nothing of its was repaired |
+| dead_end | 50 | **50** | 1 — my `postScreen` fix left two stale claims |
+| round_trip | 45 | **45** | none |
+| speed | 37 | **39** | none |
+| scaling | 54 | **57** | 1 — my gateway regression |
+| ocean | 60 | **25** | the campaign's own work was not on GitHub |
+
+**The re-measure paid for itself three times over.**
+
+1. **Three reviews independently found the same regression I introduced** — the
+   gateway central catch turned an unauthenticated malformed URL into an unlimited
+   write amplifier, because `/media/*` sits outside the surge ceiling by design.
+   scaling scored it a new blocker; architecture traced the one row that fell to
+   it; error_log filed it as a new HIGH caused by its own round-1 fix.
+2. **security_sentry proved the escalation was still open.** It could not defeat
+   the amplification rule I added — it did not need to. `team_members:create`
+   alone was "invite a plus-address of yourself as Admin and accept". I had closed
+   the wrong door, and only an independent reader looking for the *outcome* rather
+   than the *fix* found it.
+3. **ocean caught that none of this was on GitHub.** Twelve commits, 103 files,
+   20,805 lines, on a branch with no remote, while the owner's stated first
+   priority is that the laptop is expendable.
+
+## Blind checks found: eleven. Two of them written during this campaign.
+
+The eleventh was mine, written in the same commit as the fix it guarded:
+`expect(doc).toMatch(/ops/i)` matched the PRE-fix document thirteen times through
+the worker name `data-ops`. The rule that follows is in `LESSONS.md` and it is the
+campaign's single most transferable finding: **a check is not admissible until you
+have watched it fail.**
+
+## What remains, and who owns it
+
+**Owner only — I cannot do these:**
+
+- **Seal the secrets vault.** It has never existed while four documents say it
+  does. Both repositories are public, so it needs a generated 128-bit-plus
+  passphrase, NOT the memorable one `SECRETS.md` argues for — and two false claims
+  in that document corrected first (the passphrase does cross a process boundary,
+  twice). Then wire `vault:check` into the ship gate; it exits 1 today.
+- **The UI library.** Four reviews are capped by `@swift-struck/ui`: realtime
+  needs a connection-state primitive, first_run and dead_end need an `emptyAction`
+  slot and per-module rights on `PermissionMatrix`, scaling needs virtualisation.
+  None can reach 95 until that library changes.
+- **The 65% / 80% size alarm.** ARCHITECTURE (locked, master) says 80%; the code
+  fires at 65%. The alarm message now derives its own number, so it no longer
+  contradicts itself — but master and code still disagree.
+- **Sign up once on a fresh account.** first_run cannot exceed 91 without it, and
+  reaches 95 with it. No commit can buy that.
+- **`AGENT_FREE_DAILY = 50`** hands every team $24.20/month of inference with no
+  account-wide ceiling. A business decision, not a bug.
+
+**Next code session, in value order:** the screen-override subsystem (finish or
+remove — worth 15 points on dead_end, the largest single move left), prompt
+caching (~$273/month), `scripts/fork.mjs` guarded by a law (base_fork 78 → 95.4),
+the in-flight request de-dup (round_trip's criterion 1 is the gate), retention
+that can remove more than 5,000 rows a night, and the 5xx `GuardError` that still
+reaches no error row.
