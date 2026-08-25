@@ -25,6 +25,10 @@ import {
   setRolePermissions,
 } from "../src/lib/roles"
 import { GuardError } from "../src/lib/permissions"
+import { readdirSync, readFileSync } from "node:fs"
+import { join } from "node:path"
+
+import { declarationBody, stripComments } from "../../../shared/test/source"
 import { TEAM_MODULE_CATALOG } from "../src/team-schema"
 import { assertCanAssignRole } from "../src/lib/roles"
 
@@ -287,4 +291,70 @@ describe("getRolePermissions", () => {
     const res = await getRolePermissions(cfg, guard, "R")
     expect(res.canEdit).toBe(false)
   })
+})
+
+// THE GUARD MUST BE CALLED, NOT MERELY EXIST.
+//
+// Three tests above cover `assertCanAssignRole` in isolation and it survives every
+// attack. But security_sentry round 3 attacked it fourteen ways, could not defeat
+// it, and then found the real hole: **deleting the call from BOTH doors left this
+// worker at 119/119.** A guard nothing invokes is a guard nobody has.
+//
+// The door list is DERIVED, not written down: any handler that writes a role
+// assignment must call it. So a NEW door that assigns a role — a bulk invite, an
+// import path, whatever comes next — fails this the day it is written, rather than
+// the day someone audits it.
+describe("every door that assigns a role calls the guard", () => {
+  const LIB = join(__dirname, "..", "src", "lib")
+  const sources = readdirSync(LIB)
+    .filter((f) => f.endsWith(".ts"))
+    .map((f) => [f, stripComments(readFileSync(join(LIB, f), "utf8"))] as const)
+
+  it("found the library at all", () => {
+    expect(sources.length, "no tenancy lib sources found — this scan has gone blind").toBeGreaterThan(3)
+  })
+
+  for (const [file, src] of sources) {
+    // A door assigns a role if it writes `role_id` or hands one to an invite.
+    for (const m of src.matchAll(/export async function (\w+)/g)) {
+      const body = declarationBody(src, m.index!)
+      // WRITES only. The first version matched `role_id)` and `role_id =`, which
+      // appear in every SELECT and WHERE in these files, so it demanded the guard
+      // from `listMembers` and `getRolePermissions`. A predicate that over-matches
+      // is not the safe direction: it makes the check noisy, and a noisy check
+      // gets loosened rather than fixed.
+      const assigns =
+        /INSERT INTO team_members\b/i.test(body) ||
+        /INSERT INTO invite_index\b/i.test(body) ||
+        // Up to WHERE only — `[^;]*` reached into the WHERE clause, so
+        // `removeMember`'s `... WHERE ... role_id = ?` read as an assignment. A
+        // filter is not a write.
+        /UPDATE team_members SET(?:(?!WHERE)[\s\S])*?\brole_id\s*=/i.test(body)
+      if (!assigns) continue
+      // The doors where a role is assigned but the ASSIGNER is not choosing it.
+      // Each is a reviewed exception with its reason, on the same bargain every
+      // other exemption in this base makes: you may not dodge the rule by quietly
+      // listing a function — you have to say why, here, in writing.
+      const NOT_A_CHOICE: Record<string, string> = {
+        createTeam:
+          "creates a team and makes its creator the admin of it. There is no escalation in becoming admin of a team you just made, and no prior role exists to compare against.",
+        acceptInvite:
+          "the INVITEE accepts. The role was chosen and validated when the invite was CREATED — which does go through the guard — and the acceptor cannot change it.",
+        acceptPendingInvites:
+          "same as acceptInvite, for invites that were waiting when the account was created. The acceptor is not choosing a role.",
+      }
+      if (NOT_A_CHOICE[m[1]]) {
+        it(`${file} → ${m[1]} is a reviewed exception`, () => {
+          expect(NOT_A_CHOICE[m[1]].length, "an exception needs a real reason").toBeGreaterThan(40)
+        })
+        continue
+      }
+      it(`${file} → ${m[1]}`, () => {
+        expect(
+          /assertCanAssignRole\s*\(/.test(body),
+          `${m[1]} writes a role assignment without calling assertCanAssignRole — that is the escalation: create a role, grant it everything, put someone (or a plus-address of yourself) into it`
+        ).toBe(true)
+      })
+    }
+  }
 })

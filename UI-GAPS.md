@@ -36,7 +36,12 @@ collections later. Not urgent.
 | `app-bar` — top bar with a team switcher + profile menu | `web/components/app-shell.tsx` | Every multi-tenant app wants the same switcher + profile pattern; config-driven (brand, switcher items, menu items) it'd be reused everywhere |
 | `pwa-install-prompt` — installable-app pop-up (native `beforeinstallprompt` + iOS "Share → Add to Home Screen" walkthrough, suppress-if-installed, cooldown) | `web/components/install-prompt.tsx` (+ `web/lib/pwa.ts`) | Every PWA on this base wants the same install nudge; config-driven (copy, trigger cadence) it'd drop into any app. Built from the library `Sheet` + `Button` today. |
 
-## Raised 2026-08-25 — from the sixteen-review audit
+## Raised 2026-08-25 — from the sixteen-review audit — **ALL FOUR SHIPPED**
+
+> **Closed the same day, in `@swift-struck/ui` v0.16.0.** Gaps 8, 9 and 10 were
+> built; gap 11 (virtualisation) turned out to have shipped in **v0.10.0** — the
+> audit measured a pinned v0.9.1 and reported a gap that was already closed, which
+> is its own lesson about auditing the version you actually run.
 
 Four library gaps the host cannot work around. Each caps a review's score in the
 app and is unfixable there: `CLAUDE.md` forbids the host from forking the library,

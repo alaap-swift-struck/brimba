@@ -173,7 +173,12 @@ export async function timed(
   const out = new Response(res.body, res)
   out.headers.append("Server-Timing", `${worker};dur=${ms}`)
   out.headers.set(REQUEST_ID_HEADER, req)
-  if (ms >= SLOW_MS) traceError({ req, worker, place, event: "slow", detail: `${ms}ms` })
+  // NOT through traceError: that stamps level "error", and a slow-but-successful
+  // request is not an error. Left as it was, every alerting rule error_log builds
+  // would fire on ordinary large imports, and the first thing anyone does with a
+  // noisy alert is stop reading it. (speed round 3, 2026-08-25.)
+  if (ms >= SLOW_MS)
+    console.warn(JSON.stringify({ level: "warn", event: "slow", req, worker, place, ms }))
   return out
 }
 

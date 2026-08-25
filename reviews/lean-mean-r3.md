@@ -30,12 +30,15 @@ Every number below was produced twice by the same script
 round-2 baseline, extracted with `git ls-tree` + `git show`. The *delta* is therefore trustworthy
 independently of whether my normalisation matches round 2's.
 
-**The tree moved under me, and I am saying so rather than hiding it.** `git status` during this
-review showed four uncommitted files (`package.json`, `package-lock.json`, `web/next-env.d.ts`,
-`web/test/fork.test.ts`) — a concurrent session removing `@swift-struck/ui` from the ROOT
-`package.json` and adding a fork test that explains why. **Everything below is measured against the
-commit**, not the moving tree. If that change lands, Leanness gains a small amount (one duplicate
-dependency declaration removed) and Size gains 28 more test lines.
+**The tree moved under me twice, and I am saying so rather than hiding it.** `git status` during
+this review first showed a concurrent session removing `@swift-struck/ui` from the ROOT
+`package.json` and adding a fork test explaining why; by the time I finished, that had reverted and
+five other files were dirty — including `scripts/route-census.mjs` (+66/−10) and a regenerated
+`ROUTE-CENSUS.md`, i.e. **F-DOWN-2 being partly repaired while I wrote it up.** The uncommitted
+census now finds realtime and gateway and lists `POST /publish` correctly; it still misses 4 of 103
+doors, still skips an unparseable worker silently, and its tripwire is still `> 60` against 99.
+**Everything below is measured against the commit**, not the moving tree. Scoring the tree would
+move Documentation 91 → 92 and the total 92.15 → 92.31, i.e. still **92**.
 
 Unlike rounds 1 and 2, I **did** run tests this round — in a copy of the repo at
 `…/scratchpad/a3-sandbox`, never in the repository. Baselines: `web` rules **29/29**, tenancy

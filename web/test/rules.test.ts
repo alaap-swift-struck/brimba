@@ -858,7 +858,16 @@ describe("RULES — the laws of the base", () => {
     // (security_sentry's own recommendation, 2026-08-25.)
     const { census, render } = await import("../../scripts/route-census.mjs")
     const rows = census()
-    expect(rows.length, "the census found almost no routes — it has gone blind").toBeGreaterThan(60)
+    // The floor tracks reality. It was 60 while the census found 94, so losing a
+    // third of the surface would have passed — and it DID lose two whole workers
+    // before the if-chain shape was added. A floor far below the truth is not a
+    // tripwire, it is a formality. (security_sentry round 3.)
+    expect(rows.length, "the census found far fewer routes than the base has — it has gone blind").toBeGreaterThan(90)
+    for (const w of ["gateway", "realtime", "auth", "mcp"])
+      expect(
+        rows.some((r: { worker: string }) => r.worker === w),
+        `the census found no routes in ${w} — it is blind to that worker's routing shape`
+      ).toBe(true)
     expect(
       render(rows),
       "ROUTE-CENSUS.md is out of date — run `node scripts/route-census.mjs --write`"
@@ -866,14 +875,33 @@ describe("RULES — the laws of the base", () => {
 
     // And the deliberately-open doors are NAMED. A state-changing route with no
     // gate is either a decision someone wrote down, or a hole.
-    const OPEN_BY_DESIGN = new Set(["POST /api/auth/email/start"])
+    const OPEN_BY_DESIGN: Record<string, string> = {
+      "POST /api/auth/email/start":
+        "the front door of authentication — there is no session yet and there cannot be. The code is emailed to the ADDRESS, so asking for one gains nothing, and the hourly mint cap bounds it.",
+      "POST /publish":
+        "realtime's internal fan-out door, reachable ONLY over a service binding: `workers_dev` is false so the worker has no public URL, and the gateway has no route to it (`/publish` is not under `/api/`). Surface minimization IS the gate here — asserted below, because a reason that depends on a config value must be checked against that value.",
+    }
     const ungated = rows
-      .filter((r: { method: string; gates: string[] }) => r.method !== "GET" && r.gates.length === 0)
+      .filter((r: { method: string; gates: string[] }) => r.method !== "GET" && r.method !== "ANY" && r.gates.length === 0)
       .map((r: { method: string; path: string }) => `${r.method} ${r.path}`)
     expect(
-      ungated.filter((r: string) => !OPEN_BY_DESIGN.has(r)),
+      ungated.filter((r: string) => !OPEN_BY_DESIGN[r]),
       "a state-changing route has no gate and is not a named exception"
     ).toEqual([])
+    for (const [route, why] of Object.entries(OPEN_BY_DESIGN))
+      expect(why.length, `${route} needs a real reason, not a placeholder`).toBeGreaterThan(60)
+
+    // `POST /publish`'s exemption RESTS on realtime having no public URL. A reason
+    // that depends on a config value is only as true as that value, so it is
+    // checked here — flip `workers_dev` to true and the exemption stops holding,
+    // loudly, instead of quietly becoming false.
+    for (const w of ["realtime", "auth", "tenancy", "content", "data-ops", "mcp"]) {
+      const cfg = read(join(ROOT, "workers", w, "wrangler.jsonc"))
+      expect(
+        /"workers_dev"\s*:\s*false/.test(cfg),
+        `${w} must not have a public workers.dev URL — only the gateway is public`
+      ).toBe(true)
+    }
   })
 
   it("vault-claims-match-reality: no document may say the vault exists when it does not", () => {

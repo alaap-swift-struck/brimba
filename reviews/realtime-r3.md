@@ -440,6 +440,74 @@ and 6 empirically instead of by inference from source.
 
 ---
 
+## POSTSCRIPT — two commits landed on `main` after this was scored
+
+Scored at `review-campaign` @ **`256d21b`**. While I was writing, that branch was
+fast-forward merged into `main` and two more commits landed. Both touch this
+review, so both are recorded rather than left to the next round.
+
+**`a063702` — "fix(R26): a fork installed a DIFFERENT library than the base it was
+forked from" — addresses my MEDIUM above, and does not close it.** It removes the
+untagged `@swift-struck/ui` from root `package.json` entirely (rather than pinning
+it) and adds a `web/test/fork.test.ts` assertion that every declaring workspace
+pins an exact version. Both manifests are now correct.
+
+**But the lockfile is not, and I proved it in the ocean review's rebuild drill
+an hour later** (`reviews/ocean-r3.md` §2, measured on a real clone of `main`):
+
+```
+package-lock.json:3396  resolved -> …swift-struck-ui.git#675aff89…
+git ls-remote            675aff89… = refs/tags/v0.4.0^{}
+                         364eea79… = refs/tags/v0.16.0^{}
+```
+
+`npm install` obeys the lockfile, so a fresh clone installs **v0.4.0**, which has
+no `connection-status` primitive — and `npm run check` fails with
+`TS2307: Cannot find module '@swift-struck/ui/registry/primitives/connection-status/connection-status'`
+at **`web/lib/realtime.ts:20`** and **`web/components/app-shell.tsx:14`**: the two
+files this review's criterion 8 is scored on.
+
+**This does not change criterion 8's score.** I score repository source, and the
+source is correct: the import path is right, the primitive exists at v0.16.0 (I
+read its bytes), the manifests pin v0.16.0, and `npm update @swift-struck/ui`
+followed by `npm run check` goes green in one command — verified, 8 suites, 640
+tests. The defect is one stale SHA in a lockfile, not in the live layer. It is
+recorded here because criterion 8's repair is the thing that stops resolving, so
+whoever fixes the lockfile should know these two files are why it matters.
+
+`web/test/fork.test.ts` reads the two `package.json` files and never opens
+`package-lock.json`, which is why R26 is green while the install it governs is
+wrong. Full detail and the one-command fix are in `reviews/ocean-r3.md`.
+
+**`812da29` — "perf(scaling): one write cost one expensive read per connected
+session" — lands inside `app-shell.tsx`, and does NOT lower any criterion here.**
+I read it specifically, because scaling's own commit message says it is "the fix
+realtime_review warned would fight the live coverage they just added":
+
+- The `invalidate(\`activity:team:${teamId}\`)` on every ping becomes
+  `queueActivityRefresh(teamId)` — a 1,000 ms **coalesce**, not a debounce. The
+  distinction matters and the claim holds: the feed is append-only, so the single
+  refresh at the end of a burst shows every row the individual refreshes would
+  have. No content is lost, only intermediate renders.
+- **The row-level patches are untouched.** `patchRow`, `TEAM_RESOURCES`, the deps
+  fan-out and `reconcile` are byte-identical. Criteria 1, 2, 4, 5 and 6 are
+  unaffected.
+- **Criterion 3 is unaffected**, and I checked the specific way it could not have
+  been: the reconnect handler calls `invalidate(\`activity:team:${teamId}\`)`
+  **directly**, not through the coalescer, so catch-up after a drop is still
+  immediate.
+- The cost is up to one second of latency on one coarse feed. That is
+  `speed_review`'s ground, not mine, and one second is below what a person reads
+  as delay.
+
+One observation for whoever owns it: `activityTimer` is module-level and is never
+cleared on unmount, so a pending refresh can fire ~1s after the shell is gone.
+`invalidate` on a key nobody is subscribed to is a no-op, so this is harmless —
+but it is the kind of module-level mutable that stops being harmless the day two
+shells can coexist, which is exactly the condition its own comment relies on.
+
+---
+
 ## CEILING
 
 **95 is reachable by changing code.** Nothing here is capped by a platform limit,

@@ -7,7 +7,7 @@ source. It exists because a security sweep once measured 45 state-changing
 routes when there were 61, and scored the app on the 45 it happened to find.
 A reviewer should inherit the surface, not rediscover it.
 
-**94 routes · 58 state-changing · 1 with no gate detected.**
+**99 routes · 60 state-changing · 2 with no gate detected.**
 
 | Worker | Method | Path | Handler | Kind | Gate |
 |---|---|---|---|---|---|
@@ -66,11 +66,16 @@ A reviewer should inherit the surface, not rediscover it.
 | data-ops | GET | `/api/data-ops/import/preview` | `getImportPreview` | read | requireRight, teamContext |
 | data-ops | GET | `/api/data-ops/import/sample` | `getImportSample` | read | teamContext |
 | data-ops | GET | `/api/data-ops/import/targets` | `getImportTargets` | read | teamContext |
+| gateway | POST | `/api/log/client` | `fetch` | — | INTERNAL_KEY |
+| gateway | ANY | `/mcp` | `fetch` | — | **none detected** |
 | mcp | GET | `/api/mcp/health` | `json` | — | **none detected** |
 | mcp | GET | `/api/mcp/tokens` | `getTokens` | — | requireUser |
 | mcp | POST | `/api/mcp/tokens` | `postToken` | — | requireUser |
 | mcp | POST | `/api/mcp/tokens/revoke` | `postRevoke` | — | requireUser |
 | mcp | POST | `/mcp` | `handleMcp` | — | bearer token |
+| realtime | ANY | `/api/realtime` | `fetch` | — | whoAmI |
+| realtime | ANY | `/api/realtime/health` | `fetch` | — | **none detected** |
+| realtime | POST | `/publish` | `fetch` | — | **none detected** |
 | tenancy | GET | `/api/tenancy/active` | `active` | read | whoAmI |
 | tenancy | GET | `/api/tenancy/activity` | `getActivityFeed` | read | requireRight, teamContext |
 | tenancy | GET | `/api/tenancy/admin/db-sizes` | `dbSizes` | read | adminGuard |

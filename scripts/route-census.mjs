@@ -59,7 +59,36 @@ function body(src, from) {
   return src.slice(from, next ? next.index : undefined)
 }
 
-function handlerSource(worker, name) {
+/** The body of ONE `if (pathname …) { … }` branch, brace-matched from its own
+ * test — not the router that contains it.
+ *
+ * Reading the whole router was the second wrong answer this census gave. It made
+ * every inline door look gated, because SOME door in that router is: realtime's
+ * `POST /publish` reported `whoAmI` while having no caller verification at all,
+ * which security_sentry has filed as a standing finding. Under-reporting the
+ * surface was the first wrong answer; over-crediting it is worse, because a
+ * census that says a door is guarded is a reason to stop looking at it. */
+function inlineBranch(src, path) {
+  const re = new RegExp(`(?:url\\.)?pathname (?:===|\\.startsWith\\()\\s*"${path.replace(/[/]/g, "\\/")}"`)
+  const m = re.exec(src)
+  if (!m) return ""
+  const open = src.indexOf("{", m.index)
+  // A one-line branch (`if (x) return y`) has no block — take to end of line.
+  const eol = src.indexOf("\n", m.index)
+  if (open === -1 || open > eol) return src.slice(m.index, eol)
+  let depth = 0
+  let i = open
+  while (i < src.length) {
+    if (src[i] === "{") depth++
+    else if (src[i] === "}" && --depth === 0) return src.slice(m.index, i + 1)
+    i++
+  }
+  return src.slice(m.index)
+}
+
+function handlerSource(worker, name, path) {
+  if (name === "fetch")
+    return inlineBranch(readFileSync(join(ROOT, "workers", worker, "src", "index.ts"), "utf8"), path)
   const dirs = [join(ROOT, "workers", worker, "src", "routes"), join(ROOT, "workers", worker, "src")]
   for (const dir of dirs) {
     let files = []
@@ -95,7 +124,7 @@ export function census() {
       const key = `${method} ${path}`
       if (seen.has(key)) return
       seen.add(key)
-      const src = handlerSource(worker.name, handler)
+      const src = handlerSource(worker.name, handler, path)
       const gates = GATES.filter(([, re]) => re.test(src)).map(([n]) => n)
       rows.push({ worker: worker.name, method, path, handler, kind, gates })
     }
@@ -103,12 +132,31 @@ export function census() {
       add(m[1], m[2], m[3], m[4] ?? "")
     for (const m of index.matchAll(/case "([A-Z]+) ([^"]+)":\s*return (?:await\s+)?(\w+)\(/g))
       add(m[1], m[2], m[3], "")
+    // THE THIRD SHAPE: an if-chain on the pathname. realtime and the gateway route
+    // this way and have no ROUTES table and no switch, so the first census found
+    // NOTHING in either — it shipped a checked document that under-reported the
+    // very attack surface it exists to write down, on the two workers that most
+    // need writing down: the only public one, and the one holding every socket.
+    // Found by lean_mean and security_sentry independently, from opposite sides.
+    for (const m of index.matchAll(
+      /(?:url\.)?pathname (?:===|\.startsWith\()\s*"([^"]+)"\)?(?:\s*&&\s*request\.method === "([A-Z]+)")?/g
+    )) {
+      const path = m[1]
+      if (path === "/api/") continue // the rate-limit prefix guard, not a door
+      // An if-chain door answers inline; name the worker's handler as its own.
+      add(m[2] ?? "ANY", path, "fetch", "")
+    }
   }
   return rows.sort((a, b) => `${a.worker}${a.path}`.localeCompare(`${b.worker}${b.path}`))
 }
 
 export function render(rows) {
-  const mutating = rows.filter((r) => r.method !== "GET")
+  // `ANY` is a router branch with no method test — a WebSocket upgrade, a health
+  // check, a proxy prefix. Counting those as state-changing over-reported the
+  // ungated set, which is the opposite error to the one this census was built to
+  // fix and just as misleading. The first version under-reported by 5 doors; the
+  // second over-reported by 3. Both read as fine.
+  const mutating = rows.filter((r) => r.method !== "GET" && r.method !== "ANY")
   const ungated = mutating.filter((r) => r.gates.length === 0)
   const lines = [
     "# The route census",
@@ -132,11 +180,16 @@ export function render(rows) {
   return lines.join("\n")
 }
 
-const rows = census()
-const out = render(rows)
-if (process.argv.includes("--write")) {
-  writeFileSync(join(ROOT, "ROUTE-CENSUS.md"), out)
-  console.log(`Wrote ROUTE-CENSUS.md — ${rows.length} routes.`)
-} else {
-  console.log(out)
+// CLI only. Importing this module must not print or write — the rules test
+// imports `census`/`render` to compare the committed file against the code, and a
+// module that acts on import turns that into noise at best and a write at worst.
+if (process.argv[1] && process.argv[1].endsWith("route-census.mjs")) {
+  const rows = census()
+  const out = render(rows)
+  if (process.argv.includes("--write")) {
+    writeFileSync(join(ROOT, "ROUTE-CENSUS.md"), out)
+    console.log(`Wrote ROUTE-CENSUS.md — ${rows.length} routes.`)
+  } else {
+    console.log(out)
+  }
 }

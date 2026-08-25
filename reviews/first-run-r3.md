@@ -4,6 +4,16 @@ SCORE: **77/100**   (round 1: 62 · round 2: 62)
 Branch `review-campaign` @ `256d21b`. Read-only: nothing edited but this file.
 Scratch in `scratchpad/d3-*`.
 
+> **Measured at `review-campaign` @ `256d21b`.** While this was being written that
+> branch was fast-forward merged into `main` and two commits landed on top:
+> `a063702` (a lockfile/manifest fix — touches no file scored here) and `812da29`
+> (activity-feed coalescing in `app-shell.tsx` — touches no empty state, no
+> recipe, no first-run path). Every finding and every score below still stands at
+> `812da29`. Separately, the rebuild drill in `reviews/ocean-r3.md` found that a
+> **fresh clone of `main` fails `npm run check`** on a stale lockfile SHA — which
+> sharpens criterion 8 rather than changing it: the cold path has no test, and
+> right now the gate that would have run one is red for an unrelated reason.
+
 **This review is STATIC — but for the first time it is not the only evidence.**
 `reviews/COLD-WALK-2026-08-25.md` records a real cold signup on staging by the
 owner, and criterion 10 finally has something behind it. I did not walk one

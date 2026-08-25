@@ -52,8 +52,16 @@ export const ALERT_THRESHOLD_BYTES = Math.floor(8 * 1024 * 1024 * 1024)
 /** The SHARED database (`<project>-core`, `<project>-core-staging`). It carries
  * every tenant at once, so it is watched on the same schedule and the same
  * threshold — but nothing can move a module out of it. Its alarm means
- * "partition or prune", not "run the mover". */
-const CORE_DB_NAMES = /-core(-staging)?$/
+ * "partition or prune", not "run the mover".
+ *
+ * `-ops` JOINED IT on 2026-08-25. The operations database was outside this filter
+ * and therefore unwatched, while SIX new writers were pointed at it in a single
+ * week — the gateway's central catch, realtime's, the 5xx GuardError branch in
+ * four workers, and the retention shortfall row. It is also the one database an
+ * ANONYMOUS caller can add rows to, through an error path, and the one the module
+ * mover cannot relieve. Watching every database except the one filling fastest is
+ * the shape of an alarm that reports all clear. (Scaling review, round 3.) */
+const CORE_DB_NAMES = /-(core|ops)(-staging)?$/
 const COPY_BATCH = 250
 
 /** Nightly: size every database this project owns, alarm on anything ≥ the

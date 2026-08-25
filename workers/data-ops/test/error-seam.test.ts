@@ -51,9 +51,29 @@ describe("error seam: every worker records crashes centrally", () => {
       // recorder, twenty lines below in the same object, covered for it).
       // A crash on the request path has to be recorded by the request path.
       const code = stripComments(src)
-      const start = code.indexOf("async fetch(")
-      const after = code.indexOf("async scheduled(", start)
-      const entry = start === -1 ? "" : code.slice(start, after === -1 ? undefined : after)
+      // BRACE-MATCHED, not sliced to `async scheduled(`. Only tenancy has a
+      // scheduled handler, so on the other six workers that slice ran to END OF
+      // FILE — the exact fault this suite was rewritten to remove, reintroduced
+      // in the rewrite. (speed/error_log round 3, 2026-08-25.)
+      // From `export default`, because the FIRST `async fetch(` in a file is not
+      // necessarily the worker's: realtime declares a Durable Object with its own
+      // fetch eighty lines above, and anchoring on the first match brace-matched
+      // that one instead — which has no recorder, and correctly said so about the
+      // wrong function.
+      const exported = code.indexOf("export default")
+      const start = exported === -1 ? -1 : code.indexOf("async fetch(", exported)
+      let entry = ""
+      if (start !== -1) {
+        const open = code.indexOf("{", start)
+        let depth = 0
+        let i = open
+        while (i < code.length) {
+          if (code[i] === "{") depth++
+          else if (code[i] === "}" && --depth === 0) break
+          i++
+        }
+        entry = code.slice(start, i + 1)
+      }
       expect(start, `${w} has no fetch handler — this scan has gone blind`).toBeGreaterThan(-1)
       const catches = catchBodies(entry).join("\n")
 
@@ -99,13 +119,18 @@ describe("a 5xx refusal is recorded; a 4xx one is not", () => {
     const src = readFileSync(join(__dirname, `../../${w}/src/index.ts`), "utf8")
     if (!/instanceof GuardError/.test(src)) continue
     it(`${w} splits its GuardError branch on the status`, () => {
+      // ONE regex spanning both halves, not two over a fixed window. The first
+      // version took 600 characters from `instanceof GuardError` and asked
+      // separately for `status >= 500` and for `recordWorkerError` — and the
+      // GENERIC catch's recorder sits inside that window, 292–316 characters
+      // away. So deleting the 5xx branch's own recorder left it GREEN on all four
+      // workers: it was checking that two unrelated things existed near each
+      // other. (error_log round 3, 2026-08-25.)
       const code = stripComments(src)
-      const branch = code.slice(code.indexOf("instanceof GuardError"), code.indexOf("instanceof GuardError") + 600)
       expect(
-        branch,
+        code,
         `${w} must record a GuardError whose status is 5xx — an outage that returns without a row is the one incident you cannot investigate`
-      ).toMatch(/status\s*>=\s*500/)
-      expect(branch, `${w}'s 5xx branch must reach the recorder`).toMatch(/recordWorkerError/)
+      ).toMatch(/status\s*>=\s*500\s*\)?\s*\n?\s*await recordWorkerError\(/)
     })
   }
 })

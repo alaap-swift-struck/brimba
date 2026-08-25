@@ -9,11 +9,19 @@ import type { Env } from "../env"
 
 export async function getMembers(request: Request, env: Env): Promise<Response> {
   const { cfg, guard } = await gated(request, env, "team_members", "read")
-  const members = await listMembers(env, cfg, guard)
-  // ?id=<userId> → just that member (for row-level live patching); same filter
-  // as the list, so a no-longer-active member yields [] and the client drops it.
+  // ?id=<userId> → just that member, read as ONE row rather than filtered out of
+  // the whole list. This is the live re-pull path — called once per watching
+  // client per ping — and it was the last of the five `?id=` doors still loading
+  // the entire collection to hand back a single row, against the largest table in
+  // the base. `oneMember` applies the same active filter, so a no-longer-active
+  // member still yields nothing and the client still drops them, which is the
+  // behaviour the old comment was protecting. (Round-trip review, round 3.)
   const id = new URL(request.url).searchParams.get("id")
-  return json({ members: id ? members.filter((m) => m.userId === id) : members })
+  if (id) {
+    const one = await oneMember(env, cfg, guard, id)
+    return json({ members: one ? [one] : [] })
+  }
+  return json({ members: await listMembers(env, cfg, guard) })
 }
 
 export async function postMemberRole(request: Request, env: Env): Promise<Response> {

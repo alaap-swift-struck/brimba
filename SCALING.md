@@ -63,11 +63,11 @@ request depends on.
 In `workers/tenancy/src/lib/sharding.ts`, in order of reach:
 
 1. **ALARM** — the nightly cron sizes every database this project owns and writes
-   a `db_alerts` row past the threshold. The threshold is **65%** of the 10 GB
+   a `db_alerts` row past the threshold. The threshold is **80%** of the 10 GB
    cap (it was 80%). Relieving a full database means creating one, copying
    millions of rows through the REST door, verifying counts and flipping routing;
    2 GB of headroom is days at a large tenant's growth rate, and that is not
-   enough time to notice, decide and act. 3.5 GB is.
+   enough time to notice, decide and act. 2 GB is.
 2. **MOVER** — `moveModuleToOwnDatabase` relocates one module's tables into a
    dedicated database.
 3. **SPLIT** — `resolveModuleDatabases` + `d1QueryAcross` can read a (team,
@@ -375,7 +375,7 @@ wrong deletes a customer's data. It wants its own design pass.
 |---|---|
 | Indexes matching the real sorts — `help`'s `COALESCE(updated_at, created_at)` expression index, `activity (created_at DESC, id DESC)`, composites for the thread reads | queries |
 | The mover routes reads instead of orphaning them | partitioning |
-| The shared core database is watched at all; threshold 80% → 65% | headroom |
+| The shared core database is watched at all; threshold 80% → 80% | headroom |
 | Retention on the exhaust tables, audit tables off by default | lifecycle |
 | A row ceiling inside a cache entry, not just an entry count | client cache |
 | `Range` requests on `/media/*` — seek and resume instead of restart | storage |

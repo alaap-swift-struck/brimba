@@ -105,8 +105,9 @@ cd ../..
 
 ```bash
 # The exhaust (error_logs and friends) lives AWAY from the records, in its own
-# database bound as OPS. Paste each returned database_id into the five workers
-# that carry an OPS binding.
+# database bound as OPS. Paste each returned database_id into the SIX workers
+# that carry an OPS binding (realtime joined them on 2026-08-25 — it had a DB
+# binding and no OPS one, so its error rows landed in the shared core database).
 npx wrangler d1 create brimba-ops-staging
 npx wrangler d1 create brimba-ops
 
@@ -119,7 +120,7 @@ cd ../..
 
 > **Why this has its own heading.** Until 2026-08-25 this database appeared
 > nowhere in this runbook, and the word "OPS" did not appear in it at all — while
-> five workers shipped an `OPS` binding carrying the ORIGINAL author's database
+> six workers ship an `OPS` binding carrying the ORIGINAL author's database
 > ids. `shared/workers/ops-db.ts` has an `env.OPS ?? env.DB` fallback written for
 > exactly this case, and it is defeated, because the binding arrives *present* and
 > pointing somewhere that is not yours. Worse, `logError` swallows its own

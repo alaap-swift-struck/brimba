@@ -262,7 +262,6 @@ Everything else — reading and writing the actual records — is exposed, and e
 tool forwards to the same gated route the web app posts to.
 
 **`config/screens` was on this list until 2026-08-25 and is now a tool**
-(`set_screen_override`). It was listed as excluded because "it changes what every
 member of the team SEES" — but the door had no caller on ANY surface, so the
 exclusion was describing a subsystem that simply could not be reached rather than a
 decision anyone had made. It reshapes a screen for the whole team, so it **confirms

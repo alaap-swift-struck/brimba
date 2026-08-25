@@ -32,9 +32,46 @@ because the HIGH closed.
 
 ---
 
+> ## LATE NOTE — M1 was PARTLY fixed in the working tree DURING this review
+>
+> Everything below is measured against commit **`256d21b`**, where the census reads
+> **94 routes · 58 state-changing · 1 with no gate**, and where both of my sabotages went
+> undetected. While I was writing, a concurrent session edited `scripts/route-census.mjs`
+> (+66/−10) and regenerated `ROUTE-CENSUS.md`. The uncommitted tree now reports
+> **99 routes · 63 state-changing · 4 with no gate**, and — the part that matters —
+> **`realtime POST /publish` is now listed, correctly, as "none detected".**
+>
+> **M1's worst consequence is therefore closed: the file no longer hides the base's only
+> ungated door.** Three parts of the finding are not:
+>
+> - **Nine doors are still missing, differently.** Gateway contributes 2 rows, not 3 — both
+>   `/media/*` handlers are absent — and the three inline `GET /health` routes in tenancy,
+>   content and data-ops are still unparsed. 99 of 103.
+> - **The silent skip is unchanged.** A worker whose dispatch the parser cannot read still
+>   contributes zero rows and no failure. That is the one rule that makes a census a census.
+> - **The tripwire is unchanged.** `web/test/rules.test.ts:861` still reads
+>   `toBeGreaterThan(60)` — now a floor 39 below the truth, and 3 below the *mutating*
+>   count it does not police at all.
+> - New, and worth a look before it is committed: three `ANY`-method rows (`/mcp`,
+>   `/api/realtime`, `/api/realtime/health`) are counted as state-changing, which is why
+>   "63" and "4 ungated" are both higher than the 60/2 I counted by hand. Two of those four
+>   "ungated" doors are a health check and a WebSocket upgrade. **A census that over-reports
+>   open doors trains its reader to discount it**, which is the same failure as
+>   under-reporting, arriving from the other side.
+>
+> I have deliberately **not** rescored against a moving working tree — the delta table
+> compares two commits. Had I scored the tree, C12 would read 22/25 instead of 21/25 and
+> the total 79.6 instead of 79.5, i.e. still **79**. **M1 stays open at reduced severity**
+> (still MEDIUM: the census remains wrong in both directions and is guarded by a floor).
+
 ## Scope and provenance
 
-- Read at `HEAD = 256d21b`, working tree clean, branch `review-campaign`.
+- Read at `HEAD = 256d21b`, branch `review-campaign`. The tree moved during the review —
+  see the late note above; `ROUTE-CENSUS.md`, `scripts/route-census.mjs`,
+  `shared/workers/trace.ts`, `workers/tenancy/src/lib/sharding.ts` and
+  `workers/tenancy/src/routes/members.ts` were all dirty by the time I finished. **None of
+  my other subjects was touched** — `workers/tenancy/src/lib/{roles,invites,members}.ts`'s
+  guard calls, the gating seams and the media handlers are all byte-identical to the commit.
 - Every sabotage ran in a copy of the repo at `…/scratchpad/a3-sandbox`, restored between
   runs. **I wrote nothing to this repository except this file.** No `--fix`, no `--write`.
 - Baselines in that sandbox: `web` rules 29/29 · tenancy 119/119.
