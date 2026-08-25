@@ -825,8 +825,24 @@ describe("RULES — the laws of the base", () => {
     expect(doc, `BOOTSTRAP must name team migrations up to ${String(team).padStart(4, "0")}`).toContain(
       `\`0001\`…\`${String(team).padStart(4, "0")}\``
     )
-    expect(doc, "BOOTSTRAP must stand up the OPERATIONS database — five workers bind it").toMatch(/ops/i)
+    // NOT `/ops/i` — that was the first version, and it matched the PRE-FIX
+    // document thirteen times through the worker name `data-ops`. A check written
+    // in the same commit as the fix it guards, and never able to fail. Eleventh
+    // of its kind found in this campaign, and the second I wrote myself.
+    // (Base-fork review, round 2, 2026-08-25.)
+    expect(doc, "BOOTSTRAP must CREATE the operations database").toMatch(/d1 create \S*ops/)
+    expect(doc, "BOOTSTRAP must APPLY the ops migrations").toMatch(/migrations apply \S*ops/)
     expect(ops, "db/ops must have migrations for the runbook to apply").toBeGreaterThan(0)
+    // And the binding must declare where those migrations live, or the command
+    // above resolves to wrangler's default directory, which does not exist.
+    for (const w of readdirSync(join(ROOT, "workers"))) {
+      const cfg = join(ROOT, "workers", w, "wrangler.jsonc")
+      if (!existsSync(cfg)) continue
+      const src = read(cfg)
+      if (!src.includes('"OPS"')) continue
+      for (const m of src.matchAll(/\{[^{}]*"binding": "OPS"[^{}]*\}/g))
+        expect(m[0], `${w}'s OPS binding must declare migrations_dir`).toContain("migrations_dir")
+    }
   })
 
   it("root-layout-renders-what-it-imports: an import that goes nowhere is not a mount", () => {

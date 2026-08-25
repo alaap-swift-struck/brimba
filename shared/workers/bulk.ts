@@ -47,8 +47,22 @@ export function requireIdList(value: unknown): string[] {
  * surviving id became one email, sent with an uncapped `Promise.all` — so any
  * holder of `help:read` could address the entire team from one reply, on a door
  * that is not in `HEAVY_PATHS`. (Spend review, 2026-08-25.) */
-export function optionalIdList(value: unknown): string[] {
+export function optionalIdList(value: unknown, max = BULK_IDS_LIMIT): string[] {
   if (value === undefined || value === null) return []
   if (Array.isArray(value) && value.length === 0) return []
-  return requireIdList(value)
+  const ids = requireIdList(value)
+  if (ids.length > max)
+    throw new GuardError(400, "invalid_input", `Too many at once (max ${max}).`)
+  return ids
 }
+
+/** How many people one message may @mention.
+ *
+ * Well under D1's 100-bound-parameter ceiling, and deliberately so. The list is
+ * resolved with a single `IN (…)` lookup that does not chunk, so a list ABOVE
+ * that ceiling throws inside the notify path — the reply saves and nobody is
+ * told, which is worse than refusing, because it looks like it worked. The
+ * general `BULK_IDS_LIMIT` of 512 sits above the window and would not have
+ * closed it. Fifty is also simply more people than anyone means to tag.
+ * (Spend + security reviews, round 2, 2026-08-25.) */
+export const MENTION_LIMIT = 50

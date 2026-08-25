@@ -75,7 +75,7 @@ function decodeKey(raw: string): string | null {
 const MODULE_SHELLS = ["learning", "help"]
 
 import { rateLimit, type RateLimiter } from "../../../shared/workers/rate-limit"
-import { proxyService, requestIdFrom, traceError, REQUEST_ID_HEADER, callService } from "../../../shared/workers/trace"
+import { proxyService, requestIdFrom, timed, traceError, REQUEST_ID_HEADER, callService } from "../../../shared/workers/trace"
 import { ORIGIN_HEADER } from "../../../shared/workers/activity"
 
 type Env = {
@@ -112,7 +112,10 @@ export default {
     // already used a few lines below for the browser's error beacon.
     const requestId = requestIdFrom(request)
     try {
-      return await route(request, env, requestId)
+      // Every response through the one public door carries its own duration.
+      return await timed(requestId, "gateway", `${request.method} ${new URL(request.url).pathname}`, () =>
+        route(request, env, requestId)
+      )
     } catch (e) {
       const place = `${request.method} ${new URL(request.url).pathname}`
       traceError({ req: requestId, worker: "gateway", place, event: "unhandled", detail: String(e) })

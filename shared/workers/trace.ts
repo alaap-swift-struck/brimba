@@ -141,3 +141,42 @@ export async function proxyService(
     )
   }
 }
+
+/** Server-Timing on a response, so a duration EXISTS.
+ *
+ * Before this, nothing in the base was instrumented: zero `Server-Timing`, zero
+ * `performance.now`, zero logged durations across 222 files. The one grep hit for
+ * "duration" was the word *latency* in a comment. So every performance question
+ * — is this slow, did that change help, what does a cold start cost — was
+ * answerable only by argument, and a review could report shape and nothing else.
+ *
+ * It writes the number in two places on purpose. `Server-Timing` puts it in the
+ * browser's own network panel, where anyone on the team can read it without
+ * tooling; the log line puts it beside the request id, where it can be correlated
+ * across the seven workers one click can touch.
+ *
+ * SKIPS 101. A WebSocket upgrade travels through the same handler, and
+ * `new Response(res.body, res)` on a 101 THROWS — a careless version of this
+ * wrapper switches off the live layer for everyone. The one detail worth more
+ * than the rest of the function. */
+export async function timed(
+  req: string,
+  worker: string,
+  place: string,
+  run: () => Promise<Response>
+): Promise<Response> {
+  const started = Date.now()
+  const res = await run()
+  const ms = Date.now() - started
+  // 101 is an upgrade, not a payload — rebuilding it drops the socket.
+  if (res.status === 101) return res
+  const out = new Response(res.body, res)
+  out.headers.append("Server-Timing", `${worker};dur=${ms}`)
+  out.headers.set(REQUEST_ID_HEADER, req)
+  if (ms >= SLOW_MS) traceError({ req, worker, place, event: "slow", detail: `${ms}ms` })
+  return out
+}
+
+/** The line above which a request is worth a log entry on its own. Not an alarm —
+ * a budget, so "slow" is a number someone chose rather than a feeling. */
+export const SLOW_MS = 1_000

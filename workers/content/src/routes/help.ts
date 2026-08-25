@@ -32,7 +32,7 @@ import {
 import { notifyReplyAndMentions } from "../lib/notify"
 import { addStakeholder, listStakeholders } from "../lib/stakeholders"
 import type { Env } from "../env"
-import { optionalIdList } from "../../../../shared/workers/bulk"
+import { MENTION_LIMIT, optionalIdList } from "../../../../shared/workers/bulk"
 
 /** EVERY ticket response is a PAGE (R14) — including the one a mutation returns,
  * so a client re-priming its list from a write still learns where page two
@@ -193,7 +193,7 @@ export async function postHelpReply(request: Request, env: Env): Promise<Respons
   // address the whole team from a single reply. `optionalIdList` bounds it at
   // BULK_IDS_LIMIT and refuses a malformed entry with a clean 400; the author's
   // own id is dropped after, because you cannot @mention yourself.
-  const tagged = optionalIdList(body.taggedUserIds).filter((x) => x !== actor.id)
+  const tagged = optionalIdList(body.taggedUserIds, MENTION_LIMIT).filter((x) => x !== actor.id)
 
   const replyId = await addReply(cfg, guard, actor, body.helpId, replyBody, tagged, false)
   await publishChange(env.REALTIME, guard.teamId, "help_threads", replyId, "add")
