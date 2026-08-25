@@ -7,6 +7,7 @@ import {
   invalidate,
   patchRow,
   primeCache,
+  primeCacheIfCold,
   readCache as peek,
   reconcile,
   useCached,
@@ -65,6 +66,212 @@ describe("primeCache + useCached + invalidate", () => {
       invalidate(key)
     })
     await waitFor(() => expect(result.current.data).toEqual([{ id: "new" }]))
+  })
+})
+
+// IN-FLIGHT DE-DUPLICATION. `cache.has(key)` is still FALSE for every caller
+// while the first fetch is on the wire, so before this every guard in the store
+// was blind for the whole duration of a request: six components wanting
+// `my-perms:<teamId>` sent six identical GETs, nine of the twenty-four a cold
+// help ticket makes (round-trip review, 2026-08-25).
+describe("one question is asked ONCE (in-flight de-duplication)", () => {
+  /** A fetcher whose every call is held open, so a request can be observed
+   * WHILE it is on the wire — which is the entire window this feature exists
+   * for. Returns the recorded calls: `calls.length` is requests sent. */
+  function heldFetcher<T>() {
+    const calls: Array<{ resolve: (v: T) => void; reject: (e: unknown) => void }> = []
+    const fetch = () =>
+      new Promise<T>((resolve, reject) => {
+        calls.push({ resolve, reject })
+      })
+    return { calls, fetch }
+  }
+
+  it("several components mounting on the same key send ONE request", async () => {
+    const key = freshKey()
+    let fetches = 0
+    const fetcher = async () => {
+      fetches++
+      return [{ id: "a" }]
+    }
+    // Six components in ONE commit, exactly like the six `my-perms` callers.
+    const { result } = renderHook(() => [
+      useCached<Row[]>(key, fetcher),
+      useCached<Row[]>(key, fetcher),
+      useCached<Row[]>(key, fetcher),
+      useCached<Row[]>(key, fetcher),
+      useCached<Row[]>(key, fetcher),
+      useCached<Row[]>(key, fetcher),
+    ])
+
+    await waitFor(() => expect(result.current[0].data).toBeDefined())
+    expect(fetches, "six callers, one request").toBe(1)
+    // …and every one of them is served, not just the caller that won the race.
+    for (const q of result.current) expect(q.data).toEqual([{ id: "a" }])
+  })
+
+  it("a caller arriving mid-flight joins the request instead of opening its own", async () => {
+    const key = freshKey()
+    const { calls, fetch } = heldFetcher<Row[]>()
+
+    const first = renderHook(() => useCached<Row[]>(key, fetch))
+    expect(calls).toHaveLength(1) // on the wire, nothing cached yet
+
+    const second = renderHook(() => useCached<Row[]>(key, fetch))
+    expect(calls, "the second caller must await the first answer").toHaveLength(1)
+
+    await act(async () => {
+      calls[0].resolve([{ id: "shared" }])
+    })
+    expect(first.result.current.data).toEqual([{ id: "shared" }])
+    expect(second.result.current.data).toEqual([{ id: "shared" }])
+  })
+
+  it("a PREWARM joins a screen's read rather than replacing its fetcher", async () => {
+    // The prewarm runs from a child effect and the screens that need these keys
+    // read from a parent one, so first-come would hand the key to the prewarm —
+    // whose fetchers do NOT prime the `total:` sidecars the badges render (R16).
+    // A prewarm must therefore ask LAST: join the richer request, never own it.
+    const key = freshKey()
+    let prewarmFetches = 0
+    let screenFetches = 0
+
+    primeCacheIfCold(key, async () => {
+      prewarmFetches++
+      return [{ id: "from-prewarm" }]
+    })
+    const { result } = renderHook(() =>
+      useCached<Row[]>(key, async () => {
+        screenFetches++
+        return [{ id: "from-screen" }]
+      })
+    )
+
+    await waitFor(() => expect(result.current.data).toBeDefined())
+    expect(prewarmFetches, "the prewarm must not open a second request").toBe(0)
+    expect(screenFetches).toBe(1)
+    expect(result.current.data, "the screen's own fetcher is the one that ran").toEqual([
+      { id: "from-screen" },
+    ])
+  })
+
+  it("still fetches when nobody else is asking (a prewarm still warms a cold key)", async () => {
+    const key = freshKey()
+    primeCacheIfCold(key, async () => [{ id: "seeded" }])
+    await waitFor(() => expect(peek(key)).toEqual([{ id: "seeded" }]))
+  })
+})
+
+// TRAP 1. An `invalidate` is a live ping saying "what you hold is out of date".
+// If it left the in-flight entry alone, the answer already on the wire — which
+// PREDATES the change that caused the ping — would be joined by later callers
+// and, worse, would land on top of the row-level patch the ping produced.
+describe("invalidate drops the request on the wire, not just the entry", () => {
+  it("a caller after the ping asks again instead of joining the stale answer", async () => {
+    const key = freshKey()
+    const calls: Array<(v: Row[]) => void> = []
+    const fetch = () => new Promise<Row[]>((resolve) => calls.push(resolve))
+
+    const first = renderHook(() => useCached<Row[]>(key, fetch))
+    expect(calls).toHaveLength(1)
+    first.unmount() // nobody subscribed, so the refetch below is the NEW caller's
+
+    invalidate(key) // a live ping
+    renderHook(() => useCached<Row[]>(key, fetch))
+
+    expect(calls, "the discarded request must not be joined").toHaveLength(2)
+  })
+
+  it("a response already on the wire cannot overwrite the row a live ping patched in", async () => {
+    const key = freshKey()
+    const calls: Array<(v: Row[]) => void> = []
+    const hook = renderHook(
+      () => useCached<Row[]>(key, () => new Promise<Row[]>((resolve) => calls.push(resolve)))
+    )
+    expect(calls).toHaveLength(1) // the list read is on the wire
+
+    // The live ping lands: its dependent keys are invalidated and the changed
+    // row is patched into the cache (CACHING rule 3).
+    await act(async () => {
+      invalidate(key)
+      primeCache(key, [{ id: "a", v: 99 }])
+    })
+
+    // …and only NOW does the request that was already on the wire come back.
+    await act(async () => {
+      calls[0]([{ id: "a", v: 1 }])
+    })
+
+    expect(peek(key), "the stale answer must be discarded, not written").toEqual([
+      { id: "a", v: 99 },
+    ])
+    expect(hook.result.current.data).toEqual([{ id: "a", v: 99 }])
+  })
+
+  it("a row patch is not undone by the list read that was already on the wire", async () => {
+    const key = freshKey()
+    await seedCollection(key, [{ id: "a", v: 1 }])
+    const calls: Array<(v: Row[]) => void> = []
+    const hook = renderHook(
+      () => useCached<Row[]>(key, () => new Promise<Row[]>((resolve) => calls.push(resolve)))
+    )
+    expect(calls).toHaveLength(1) // revalidate-on-mount, still open
+
+    await act(async () => {
+      await patchRow(key, "id", "a", async () => ({ id: "a", v: 99 }))
+    })
+    await act(async () => {
+      calls[0]([{ id: "a", v: 1 }]) // the pre-ping list finally answers
+    })
+
+    expect(peek(key)).toEqual([{ id: "a", v: 99 }])
+    expect(hook.result.current.data).toEqual([{ id: "a", v: 99 }])
+  })
+})
+
+// TRAP 2. A failed request must LEAVE the map. If it stayed, every later caller
+// would join a promise that is already rejected, so one network blip would make
+// the key permanently unfetchable for the rest of the session.
+describe("a rejected request never poisons its key", () => {
+  it("the next caller asks again, and succeeds", async () => {
+    const key = freshKey()
+    let attempts = 0
+    const failing = renderHook(() =>
+      useCached<Row[]>(key, async () => {
+        attempts++
+        throw new Error("network blip")
+      })
+    )
+    await waitFor(() => expect(failing.result.current.error).toBeTruthy())
+    failing.unmount()
+
+    const retry = renderHook(() =>
+      useCached<Row[]>(key, async () => {
+        attempts++
+        return [{ id: "recovered" }]
+      })
+    )
+    await waitFor(() => expect(retry.result.current.data).toEqual([{ id: "recovered" }]))
+    expect(attempts, "the failure was cleared, so the retry was a real request").toBe(2)
+  })
+
+  it("every joined caller sees the failure — none is left waiting for ever", async () => {
+    const key = freshKey()
+    const calls: Array<(e: unknown) => void> = []
+    const fetch = () => new Promise<Row[]>((_resolve, reject) => calls.push(reject))
+
+    const first = renderHook(() => useCached<Row[]>(key, fetch))
+    const second = renderHook(() => useCached<Row[]>(key, fetch))
+    expect(calls).toHaveLength(1)
+
+    await act(async () => {
+      calls[0](new Error("network blip"))
+    })
+
+    expect(first.result.current.error).toBeTruthy()
+    expect(second.result.current.error, "the joiner is told too").toBeTruthy()
+    expect(first.result.current.loading).toBe(false)
+    expect(second.result.current.loading).toBe(false)
   })
 })
 

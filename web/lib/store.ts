@@ -7,6 +7,9 @@
 //     so screens after the first paint with no spinner.
 //   • invalidate(key) drops an entry and tells anyone showing it to refetch —
 //     this is what a live "X changed" ping calls, so data updates on its own.
+//   • and it asks each question ONCE: callers that want the same key while it is
+//     already on the wire share that one request (see `inflight`), so six
+//     components wanting the same permissions cost one GET, not six.
 // No dependency, ~one Map + a subscriber set. Reusable across every screen.
 
 import * as React from "react"
@@ -247,6 +250,9 @@ export async function patchRow(
       next = idx >= 0 ? latest.map((r, i) => (i === idx ? row : r)) : [row, ...latest]
     }
     cacheSet(key, next)
+    // This row is newer than any list already on the wire, so drop that request:
+    // its answer must not land on top of the patch (see `Answer.current`).
+    inflight.delete(key)
     notify(key)
   } catch (e) {
     console.error("patchRow failed; invalidating", key, e)
@@ -284,6 +290,7 @@ export async function reconcile(
       return old && shallowEqualRow(old, row) ? old : row // reuse identity if unchanged
     })
     cacheSet(key, next)
+    inflight.delete(key) // same reason as patchRow: we just fetched newer than the wire
     notify(key)
   } catch (e) {
     console.error("reconcile failed; invalidating", key, e)
@@ -308,7 +315,15 @@ export function useCached<T>(
   const load = React.useCallback(async () => {
     if (!key) return
     try {
-      const value = await fetcherRef.current()
+      // ONE request per key, however many components mount wanting it: a caller
+      // arriving while this key is already on the wire awaits that answer.
+      const { value, current } = await sharedFetch(key, () => fetcherRef.current())
+      // NOT current = something newer landed while we were on the wire (a live
+      // ping's invalidate / row patch / reconnect catch-up). Our answer predates
+      // it, so writing it would undo the update — and an `invalidate` has already
+      // told every subscriber, this one included, to load again, so the key is
+      // never left unsettled by dropping it here.
+      if (!current) return
       cacheSet(key, value)
       if (!aliveRef.current) return
       setData(value)
