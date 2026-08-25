@@ -18,6 +18,7 @@
 // see it), the same reviewed class as auth's session rows. Tool calls themselves
 // mutate nothing here — the REAL doors they forward to publish their own pings.
 
+import { brandSlug } from "../../../shared/brand"
 import { opsDatabase } from "../../../shared/workers/ops-db"
 import { IDEMPOTENCY_HEADER } from "../../../shared/workers/concurrency"
 import { fail, json } from "../../../shared/workers/http"
@@ -65,7 +66,10 @@ async function handleMcp(request: Request, env: Env): Promise<Response> {
       return rpcResult(id, {
         protocolVersion: PROTOCOL_VERSION,
         capabilities: { tools: {} },
-        serverInfo: { name: "brimba-mcp", version: "1.0.0" },
+        // From the ONE brand file (shared/brand.ts), not a second copy of the
+        // name — see the note beside `brandSlug`. scripts/smoke-staging.mjs
+        // asserts this value and must derive it the same way.
+        serverInfo: { name: `${brandSlug}-mcp`, version: "1.0.0" },
         instructions:
           "Brimba's machine surface. Every tool acts AS the token's owner, capped by their live role, inside the token's pinned team only. AI-costed tools (plan_import, agent_chat) draw from the team's assistant quota.",
       })

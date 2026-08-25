@@ -10,6 +10,7 @@ import { adminGuard } from "../../../../shared/workers/gating"
 import { DEFAULT_CATALOG } from "../lib/targets"
 import { seedDefaultCatalog } from "../lib/import"
 import type { Env } from "../env"
+import { requireText, TEXT_LIMITS } from "../../../../shared/workers/validate"
 
 /** POST /api/data-ops/admin/seed-targets — upsert the default import catalog. */
 export async function postSeedTargets(request: Request, env: Env): Promise<Response> {
@@ -45,11 +46,14 @@ export async function postResolveError(request: Request, env: Env): Promise<Resp
   const blocked = adminGuard(request, env)
   if (blocked) return blocked
   const b = (await request.json().catch(() => ({}))) as { id?: string; note?: string }
-  if (!b.id || typeof b.id !== "string") return fail(400, "invalid_input", "id is required.")
+  // Already type-checked; through the seam so the length is capped and an embedded
+  // NUL is STRIPPED rather than reaching a bound parameter, where D1 raises a 500.
+  // (Security round 5.)
+  const id = requireText(b.id, "id", TEXT_LIMITS.short)
   const res = await opsDatabase(env).prepare(
     `UPDATE error_logs SET status = 'resolved', resolved_at = ?, resolution_note = ? WHERE id = ?`
   )
-    .bind(new Date().toISOString(), (b.note ?? "").slice(0, 2000) || null, b.id.slice(0, 40))
+    .bind(new Date().toISOString(), (b.note ?? "").slice(0, 2000) || null, id.slice(0, 40))
     .run()
   return json({ updated: res.meta.changes ?? 0 })
 }

@@ -12,10 +12,37 @@ import type { SelectableValue } from "../../../../shared/types"
 import { GuardError, type MemberGuard } from "./permissions"
 import { EXPORT_HARD_CAP, LIST_HARD_CAP } from "../../../../shared/workers/limits"
 
-type Row = { id: string; type: string; value: string; is_default: number; deactivated_at: string | null }
+// The projection every reader that hands a row to a CLIENT shares. The two
+// timestamps are the row's VERSION (`updatedAt ?? createdAt` — the same fallback
+// `versionPredicate` applies): without them nobody could send `expectedVersion`,
+// so `updateSelectable`'s lost-update guard sat there unreachable and two people
+// renaming the same value silently lost one edit.
+type Row = {
+  id: string
+  type: string
+  value: string
+  is_default: number
+  deactivated_at: string | null
+  created_at: string
+  updated_at: string | null
+}
+const ROW_COLUMNS = "id, type, value, is_default, deactivated_at, created_at, updated_at"
+
+/** What the writers read for themselves — the identity of the row they are about
+ * to change. Narrower than `Row` on purpose: it says what is actually selected
+ * rather than claiming a projection it does not have. */
+type WriteRow = Pick<Row, "id" | "type" | "value" | "is_default">
 
 function toValue(r: Row): SelectableValue {
-  return { id: r.id, type: r.type, value: r.value, isDefault: r.is_default === 1, active: r.deactivated_at == null }
+  return {
+    id: r.id,
+    type: r.type,
+    value: r.value,
+    isDefault: r.is_default === 1,
+    active: r.deactivated_at == null,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at ?? null,
+  }
 }
 
 /** Every dropdown value in the team — ACTIVE first, then deactivated — grouped by
@@ -28,7 +55,7 @@ export async function listSelectable(cfg: D1Rest, guard: MemberGuard): Promise<S
     cfg,
     guard.databaseId,
     // R14 hard cap — never unbounded; move to real paging before this bites.
-    `SELECT id, type, value, is_default, deactivated_at FROM selectable_data ORDER BY type ASC, (deactivated_at IS NULL) DESC, value ASC LIMIT ${LIST_HARD_CAP}`,
+    `SELECT ${ROW_COLUMNS} FROM selectable_data ORDER BY type ASC, (deactivated_at IS NULL) DESC, value ASC LIMIT ${LIST_HARD_CAP}`,
     []
   )
   return rows.map(toValue)
@@ -67,7 +94,7 @@ export async function oneSelectable(
   const rows = await d1Query<Row>(
     cfg,
     guard.databaseId,
-    "SELECT id, type, value, is_default, deactivated_at FROM selectable_data WHERE id = ? LIMIT 1",
+    `SELECT ${ROW_COLUMNS} FROM selectable_data WHERE id = ? LIMIT 1`,
     [id]
   )
   return rows[0] ? toValue(rows[0]) : null
@@ -181,7 +208,7 @@ export async function updateSelectable(
   const v = value.trim()
   if (!v) throw new GuardError(400, "invalid_input", "A dropdown value can't be empty.")
 
-  const rows = await d1Query<Row>(
+  const rows = await d1Query<WriteRow>(
     cfg,
     guard.databaseId,
     "SELECT id, type, value, is_default FROM selectable_data WHERE id = ? AND deactivated_at IS NULL",
@@ -252,7 +279,7 @@ export async function setSelectableActive(
   id: string,
   active: boolean
 ): Promise<boolean> {
-  const rows = await d1Query<Row>(
+  const rows = await d1Query<WriteRow>(
     cfg,
     guard.databaseId,
     "SELECT id, type, value, is_default FROM selectable_data WHERE id = ?",

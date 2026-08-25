@@ -155,9 +155,16 @@ describe("filters narrow the read on the SERVER (R14 stays intact)", () => {
   })
 
   it("paging survives filtering — the cap and the keyset predicate both stand (R14)", async () => {
-    const cursor = Buffer.from(JSON.stringify({ k: "2026-08-10T00:00:00.000Z", id: "z" })).toString(
-      "base64url"
-    )
+    // `btoa` + the URL-safe swap, exactly as `encodeCursor` does it in
+    // shared/workers/paging.ts — NOT `Buffer.from(...).toString("base64url")`.
+    // A worker tsconfig carries only `@cloudflare/workers-types`, so `Buffer` is
+    // not declared here and the file did not typecheck; and a test that builds
+    // its fixture a different way from the code under test is testing its own
+    // encoder rather than the app's.
+    const cursor = btoa(JSON.stringify({ k: "2026-08-10T00:00:00.000Z", id: "z" }))
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "")
     await getActivity(cfg, guard, "team", undefined, undefined, ALLOWED, cursor, { verb: "edited" })
     const page = both().find((c) => !c.sql.includes("COUNT(*)"))!
     expect(page.sql, "the hard cap must stay in the statement").toMatch(/LIMIT \d+/)

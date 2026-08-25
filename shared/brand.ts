@@ -45,6 +45,11 @@ export const brand = {
     ink: "#0a5446",
   },
 
+  /** Hex mirror of the DARK screen tone, for the one surface that cannot take
+   * oklch: the PWA manifest's splash `background_color` (a single colour, not a
+   * pair — the manifest has room for one). Keep it in step with `screen.dark`. */
+  splashHex: "#0f1112",
+
   /** The screen background tone — the SINGLE source for the page surface behind
    * every screen (not the glass/menus on top). Softened off pure white / pure
    * black so no screen ever looks "super white" or "super dark"; the brand glow
@@ -55,3 +60,15 @@ export const brand = {
     dark: "oklch(0.18 0 0)",
   } as AccentPair,
 }
+
+/** The name in SLUG form — lowercase, hyphenated.
+ *
+ * DERIVED, never a second source of truth: `scripts/fork.mjs` slugifies a new
+ * product name with exactly this rule, so anything built from it (worker names,
+ * the MCP server id) agrees with the fork sweep instead of drifting from it.
+ * Read this rather than hardcoding the name a second time — "edit ONLY this
+ * file" is a promise the rest of the app has to keep. */
+export const brandSlug = brand.name
+  .toLowerCase()
+  .replace(/[^a-z0-9]+/g, "-")
+  .replace(/^-|-$/g, "")

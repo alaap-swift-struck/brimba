@@ -65,6 +65,13 @@ export type SelectableValue = {
   /** false = deactivated (retired). The manager shows these greyed with an Activate
    * button; form pickers filter to active. Always present. */
   active: boolean
+  /** The audit block's two timestamps — carried so an editor can send back the
+   * version it was shown (`updatedAt ?? createdAt`, the same fallback
+   * `versionPredicate` applies, so a never-edited row still has a version).
+   * Without these the door's lost-update guard was unreachable from any client:
+   * two people renaming the same value silently lost one edit. */
+  createdAt: string
+  updatedAt: string | null
 }
 
 /** A role's permission matrix as the tenancy worker returns it: the module rows

@@ -23,6 +23,7 @@
 // Best-effort, exactly like `logActivity`: it swallows its own failures so a
 // logging hiccup can never break the change it describes.
 
+import type { OutboundRecorder } from "./error-log"
 import { ulid } from "./id"
 import { publishUserChange } from "./realtime"
 import { traceError } from "./trace"
@@ -47,11 +48,17 @@ type AccountEnv = {
  * Every account-activity write flows through here, so publishing the live event
  * here means email-change, profile, token and any future identity event all
  * update the person's own feed across their devices with no per-call wiring.
+ *
+ * `record` is the OPTIONAL channel to the durable error store, exactly as on
+ * `logActivity` — the reasoning for the callback shape, and for not throttling
+ * it, is written down once beside `recordGap` in `activity.ts`. Omit it and this
+ * behaves precisely as it did.
  */
 export async function logAccountActivity(
   env: AccountEnv,
   userId: string,
-  event: AccountEvent
+  event: AccountEvent,
+  record?: OutboundRecorder
 ): Promise<void> {
   const id = ulid()
   try {
@@ -64,8 +71,17 @@ export async function logAccountActivity(
   } catch (e) {
     // A durable, filterable gap marker rather than a console line — the same
     // contract `logActivity` follows, for the same reason: a silent hole in an
-    // audit trail is worse than a loud one.
+    // audit trail is worse than a loud one. The trace line is for a live tail;
+    // it is kept for about a week, so the row is what still answers the question
+    // a month later.
     traceError({ worker: "account-activity", place: event.type, event: "activity_log_gap", detail: e })
+    if (record) {
+      try {
+        await record(`account_activity ${event.type}`, e instanceof Error ? e : new Error(String(e)))
+      } catch {
+        /* the error store can be down too — recording must never break the request */
+      }
+    }
     return
   }
   if (env.REALTIME) await publishUserChange(env.REALTIME, userId, "account_activity", id, "add")

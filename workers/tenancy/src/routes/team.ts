@@ -72,9 +72,11 @@ export async function switchActiveTeam(request: Request, env: Env): Promise<Resp
   if (!user) return fail(401, "signed_out", "Not signed in.")
 
   const body = (await request.json().catch(() => ({}))) as { teamId?: string }
-  if (!body.teamId) return fail(400, "invalid_input", "teamId is required.")
+  // Through the boundary seam: `if (!body.teamId)` only proved presence, and the
+  // `teamId?: string` above is erased before the request arrives. (Security round 5.)
+  const teamId = requireText(body.teamId, "teamId", TEXT_LIMITS.short)
 
-  const ok = await switchTeam(env, user.id, body.teamId)
+  const ok = await switchTeam(env, user.id, teamId)
   if (!ok) return fail(403, "not_member", "You're not a member of that team.")
   return json(await getActiveContext(env, d1Config(env), user.id))
 }

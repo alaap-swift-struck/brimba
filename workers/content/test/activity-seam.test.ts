@@ -8,7 +8,8 @@
 
 import { describe, expect, it, vi } from "vitest"
 
-import { serverSources, stripComments } from "../../../shared/test/source"
+import { ACTIVITY_GATE_MAP, ACTIVITY_TABLE_EXEMPT } from "../../../shared/rules/registry"
+import { read, ROOT, serverSources, stripComments } from "../../../shared/test/source"
 
 const scripts: string[] = []
 vi.mock("../../../shared/workers/d1-rest", async () => {
@@ -262,6 +263,82 @@ describe("the verbs are a closed set", () => {
     expect(
       ACTIVITY_VERBS.filter((v) => !written.has(v)),
       "these verbs are declared but nothing writes them — either write them or drop them from the set"
+    ).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// R25's LAST CLAUSE: "what is deliberately NOT logged is written down in the
+// same file." That sentence has been in RULES.md since the law was written and
+// nothing checked it, so the list drifted: sixteen write sites were defensible
+// and undocumented, which from the outside is indistinguishable from sixteen
+// somebody forgot. The difference matters at exactly one moment — when a person
+// asks why a change left no trace — and that is the worst moment to have to go
+// and read the source to find out.
+//
+// The subject list is DERIVED, never hand-written here: every table server code
+// writes to, minus every table an activity row is able to NAME. What is left is
+// the set no feed can ever show, and each one has to be accounted for.
+// ---------------------------------------------------------------------------
+
+describe("the not-logged list is complete (R25)", () => {
+  /** Every table written anywhere in worker or shared server code. */
+  const written = () => {
+    const tables = new Map<string, Set<string>>()
+    for (const [path, src] of serverSources())
+      for (const m of stripComments(src).matchAll(
+        /\b(?:INSERT\s+(?:OR\s+\w+\s+)?INTO|UPDATE|DELETE\s+FROM)\s+([A-Za-z_][A-Za-z0-9_]*)\b/gi
+      )) {
+        const t = m[1]
+        if (/^(SET|FROM|INTO)$/i.test(t)) continue
+        if (!tables.has(t)) tables.set(t, new Set())
+        tables.get(t)!.add(path)
+      }
+    return tables
+  }
+
+  /** The stated list, sliced out of the preamble so a table named elsewhere in
+   * the file (the INSERT itself names `activity`) cannot stand in for a reason. */
+  const statedList = () => {
+    const src = read(`${ROOT}/shared/workers/activity.ts`)
+    const from = src.indexOf("WHAT IS DELIBERATELY NOT LOGGED")
+    const to = src.indexOf("THE TWO TABLES.")
+    expect(from, "the not-logged block has been renamed or removed — this check is now blind").toBeGreaterThan(-1)
+    expect(to, "the block's end marker has moved — this check is now blind").toBeGreaterThan(from)
+    return src.slice(from, to)
+  }
+
+  it("finds real write sites — a scan that reads nothing reports all clear", () => {
+    const tables = written()
+    expect(tables.size, "no INSERT/UPDATE/DELETE found in server source at all").toBeGreaterThan(15)
+    expect([...tables.keys()], "the sanity anchor: the log's own writer").toContain("activity")
+  })
+
+  /** A table an activity row can name is, by definition, one a feed can show —
+   * R18 already forces every such table into one of these two registries, so
+   * subtracting them leaves exactly the tables no history will ever mention. */
+  const unloggable = () => {
+    const named = new Set([...Object.keys(ACTIVITY_GATE_MAP), ...Object.keys(ACTIVITY_TABLE_EXEMPT)])
+    return [...written()].filter(([t]) => !named.has(t))
+  }
+
+  it("the subject list is not empty — a check with nothing to check is decoration", () => {
+    // Without this, a registry that happened to name every table would make the
+    // assertion below pass vacuously for ever. It is the exact failure mode this
+    // campaign found fifteen times.
+    expect(unloggable().length, "no unloggable tables derived at all").toBeGreaterThan(10)
+  })
+
+  it("every table no activity row can NAME is accounted for in activity.ts", () => {
+    const list = statedList()
+    const missing: string[] = []
+    for (const [table, where] of unloggable()) {
+      if (new RegExp(`\\b${table}\\b`).test(list)) continue
+      missing.push(`${table} (written by ${[...where].join(", ")})`)
+    }
+    expect(
+      missing,
+      `these tables are written by server code, can never appear in any activity feed, and are not written down in shared/workers/activity.ts — a reader cannot tell "deliberately not logged" from "someone forgot": ${missing.join("; ")}`
     ).toEqual([])
   })
 })

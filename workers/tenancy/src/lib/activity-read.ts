@@ -4,9 +4,12 @@
 // the activity ruleset in ARCHITECTURE.md.
 
 import type { ActivityItem } from "../../../../shared/types"
+import { ACTIVITY_ORIGINS, ACTIVITY_VERBS } from "../../../../shared/workers/activity"
 import { d1Query, type D1Rest } from "../../../../shared/workers/d1-rest"
+import { GuardError } from "../../../../shared/workers/gating"
 import type { MemberGuard } from "./permissions"
 import { decodeCursor, keysetAfter, PAGE_SIZE, toPage, type Page } from "../../../../shared/workers/paging"
+import { optionalText, TEXT_LIMITS } from "../../../../shared/workers/validate"
 
 type ActivityRow = {
   id: string
@@ -33,6 +36,73 @@ export function activityVisibilityClause(
   return { sql: ` WHERE (related_table IS NULL OR related_table IN (${marks}))`, params: allowedTables }
 }
 
+/**
+ * NARROWING THE FEED ON THE SERVER.
+ *
+ * Values arrive as `unknown` and are validated HERE rather than in the route,
+ * because three surfaces call this reader — the screen, the assistant and MCP —
+ * and a filter checked at one door is checked at none. Same reason the scope
+ * itself is re-validated below even though the route already did it.
+ *
+ * Without these, narrowing to "every deactivation the assistant made last week"
+ * meant fetching pages and discarding them in the browser: the client reading
+ * the whole table to show six rows of it.
+ */
+export type ActivityFilters = {
+  /** one of ACTIVITY_VERBS */
+  verb?: unknown
+  /** one of ACTIVITY_ORIGINS — "did the agent do this?" */
+  origin?: unknown
+  /** ISO date or timestamp, inclusive */
+  from?: unknown
+  /** ISO date or timestamp, inclusive — a bare date covers the whole day */
+  to?: unknown
+}
+
+/** A date or a timestamp, and nothing else. `created_at` is written by
+ * `toISOString()`, so it sorts lexicographically and a prefix compares correctly
+ * — which is the whole reason a string range works here at all. */
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?Z?)?$/
+
+/** One of a closed set, or a clean 400. Never trust a request body: these values
+ * reach a WHERE clause, and an unchecked one is at best a filter that silently
+ * matches nothing and at worst a 500 on `.trim` of a number. */
+function oneOf(value: unknown, field: string, allowed: readonly string[]): string | undefined {
+  const clean = optionalText(value, field, TEXT_LIMITS.short)
+  if (clean === undefined) return undefined
+  if (!allowed.includes(clean))
+    throw new GuardError(400, "invalid_input", `${field} must be one of: ${allowed.join(", ")}.`)
+  return clean
+}
+
+function isoBound(value: unknown, field: string, endOfDay: boolean): string | undefined {
+  const clean = optionalText(value, field, TEXT_LIMITS.short)
+  if (clean === undefined) return undefined
+  if (!ISO_DATE.test(clean))
+    throw new GuardError(400, "invalid_input", `${field} must be a date (YYYY-MM-DD) or an ISO timestamp.`)
+  // A bare `to = 2026-08-31` compared against a full timestamp would drop
+  // everything that happened on the 31st after midnight — a filter answering a
+  // different question than the one asked. `from` needs no such help: a bare
+  // date already sorts before every timestamp within it.
+  return endOfDay && clean.length === 10 ? `${clean}T23:59:59.999Z` : clean
+}
+
+/** The validated filter clauses, in the order their params must be bound. */
+function filterClauses(f: ActivityFilters): { clauses: string[]; params: string[] } {
+  const clauses: string[] = []
+  const params: string[] = []
+  const add = (sql: string, value: string | undefined) => {
+    if (value === undefined) return
+    clauses.push(sql)
+    params.push(value)
+  }
+  add("verb = ?", oneOf(f.verb, "verb", ACTIVITY_VERBS))
+  add("origin = ?", oneOf(f.origin, "origin", ACTIVITY_ORIGINS))
+  add("created_at >= ?", isoBound(f.from, "from", false))
+  add("created_at <= ?", isoBound(f.to, "to", true))
+  return { clauses, params }
+}
+
 /** The team's activity, newest first — optionally scoped to one record:
  *  • team   → everything that happened in the team THAT THE CALLER MAY SEE —
  *             the route passes `allowedTables` built from their module rights
@@ -44,7 +114,10 @@ export function activityVisibilityClause(
  *             invite_logs row id (the caller maps invite_index.id → it first)
  *  • record → GENERIC: any module's record, by (`table`, `id`). user/role/invite
  *             are just fixed-`table` aliases of this; `record` lets a NEW module
- *             (help, learning, products…) surface its activity with zero new code. */
+ *             (help, learning, products…) surface its activity with zero new code.
+ *
+ * `filters` narrows any of those by verb, origin and time window — validated
+ * here, ANDed onto the scope, and carried by the COUNT as well as the page. */
 export async function getActivity(
   cfg: D1Rest,
   guard: MemberGuard,
@@ -52,8 +125,12 @@ export async function getActivity(
   id?: string,
   table?: string,
   allowedTables: string[] | null = null,
-  cursor?: string | null
+  cursor?: string | null,
+  filters: ActivityFilters = {}
 ): Promise<Page<ActivityItem> & { total: number }> {
+  // Validated BEFORE the fail-closed checks below, so a bad filter is a clean
+  // 400 rather than an empty page that looks like an honest answer.
+  const filter = filterClauses(filters)
   // FAIL CLOSED. An id-scope with no id used to match NO branch below, leaving the
   // WHERE empty — so `?scope=user` with no `id` returned the entire team's
   // cross-module history, unfiltered, to anyone with team_members:read. That is
@@ -86,6 +163,12 @@ export async function getActivity(
     if (clause.sql) clauses.push(clause.sql.replace(/^\s*WHERE\s*/, ""))
     params.push(...clause.params)
   }
+  // The filters AND on TOP of the scope — they never replace it. Pushed after the
+  // scope clause so the bound values stay in statement order, and into the SAME
+  // arrays, so they ride the COUNT as well as the page: a badge counting rows the
+  // list will not show is the R16 failure this shares its where-clause to avoid.
+  clauses.push(...filter.clauses)
+  params.push(...filter.params)
   const where = clauses.length ? ` WHERE ${clauses.join(" AND ")}` : ""
 
   // R14 GROWING collection: the feed gains a row on EVERY mutation, so it pages by

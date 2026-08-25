@@ -4,7 +4,7 @@
 
 import { fail, json } from "../../../../shared/workers/http"
 import { d1Query } from "../../../../shared/workers/d1-rest"
-import { TEXT_LIMITS, optionalText } from "../../../../shared/workers/validate"
+import { TEXT_LIMITS, optionalText, requireText } from "../../../../shared/workers/validate"
 import { checkDatabaseSizes, moveModuleToOwnDatabase } from "../lib/sharding"
 import { applyMigration, d1Config } from "../lib/teams"
 import { adminGuard } from "../context"
@@ -117,7 +117,12 @@ export async function moveModule(request: Request, env: Env): Promise<Response> 
     module?: string
     tables?: string[]
   }
-  if (!body.teamId || !body.module || !body.tables?.length)
+  // The team id through the boundary seam. `tables` must be a real ARRAY, not just
+  // something with a truthy `.length`: a bare string passed that test and then threw
+  // on `.some(...)` — a 500 on bad input, which is exactly what the seam exists to
+  // stop. (Security round 5.)
+  const teamId = requireText(body.teamId, "teamId", TEXT_LIMITS.short)
+  if (!body.module || !Array.isArray(body.tables) || !body.tables.length)
     return fail(400, "invalid_input", "teamId, module and tables are required.")
   // Table/module names are interpolated into DDL/DML downstream (the script API
   // has no identifier params) — so they must be STRICT SQL identifiers here at
@@ -129,7 +134,7 @@ export async function moveModule(request: Request, env: Env): Promise<Response> 
   const result = await moveModuleToOwnDatabase(
     env,
     d1Config(env),
-    body.teamId,
+    teamId,
     body.module,
     body.tables
   )

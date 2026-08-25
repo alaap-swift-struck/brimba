@@ -34,13 +34,13 @@
 // an activity row; none names its own table.
 //
 // SECRETS AND MACHINERY — nothing points at them and they expire:
-//   • sessions, login codes, email-change codes. Signing in is identity, not a
-//     record change: it goes to `account_activity` in the global database (see
-//     "the two tables" below).
+//   • `sessions`, `login_codes`, `email_change_codes`. Signing in is identity,
+//     not a record change: it goes to `account_activity` in the global database
+//     (see "the two tables" below).
 //
 // LEDGERS AND EXHAUST — each is already its own log; logging a log is noise:
-//   • idempotency keys, error rows, AI-usage rows, and the AI credit BALANCE
-//     (`agent_credits`) those rows draw down.
+//   • `idempotency_keys`, `error_logs`, and the AI meter — `agent_usage`,
+//     `agent_usage_log` and the `agent_credits` balance those rows draw down.
 //   • `email_change_logs` — auth's own audit row for the very event that already
 //     writes an `account_activity` row.
 //   • `activity` and `account_activity` themselves. A trail does not trail itself.
@@ -95,6 +95,7 @@
 // way to do that is in DATA-MODEL.md § "Reading one person's whole history".
 
 import { d1ExecScript, sqlString, type D1Rest } from "./d1-rest"
+import type { OutboundRecorder } from "./error-log"
 import { ulid } from "./id"
 import { traceError } from "./trace"
 
@@ -145,14 +146,24 @@ export type ActivityOrigin = "ui" | "api" | "mcp" | "agent" | "import" | "job"
  * person acting through the app. */
 export const ORIGIN_HEADER = "x-brimba-origin"
 
-const ORIGINS: ActivityOrigin[] = ["ui", "api", "mcp", "agent", "import", "job"]
+/** The closed set, EXPORTED — the reader filters on this column too, and a second
+ * hand-written copy of these six strings is how a filter and a writer drift into
+ * disagreeing about what a valid origin is. */
+export const ACTIVITY_ORIGINS: readonly ActivityOrigin[] = [
+  "ui",
+  "api",
+  "mcp",
+  "agent",
+  "import",
+  "job",
+]
 
 /** Read the origin off a request, defaulting to the app. Validated against the
  * known set: this value reaches a log row, and an unchecked header would let a
  * caller write whatever it liked into the audit trail. */
 export function originFrom(request: { headers: { get(n: string): string | null } }): ActivityOrigin {
   const raw = request.headers.get(ORIGIN_HEADER)?.trim().toLowerCase()
-  return (ORIGINS as string[]).includes(raw ?? "") ? (raw as ActivityOrigin) : "ui"
+  return (ACTIVITY_ORIGINS as readonly string[]).includes(raw ?? "") ? (raw as ActivityOrigin) : "ui"
 }
 
 /**
@@ -246,12 +257,24 @@ function renderChanges(fields: FieldDiff[]): string {
  * swallow stays; the silence does not. A failure now writes a DURABLE, filterable
  * gap marker through the trace seam, carrying the request id, so "is this
  * record's history complete?" has an answer.
+ *
+ * `record` (2026-08-25) is the second half of that. A trace line lives about a
+ * week; after that the hole is still in the history and the only evidence of it
+ * is gone. `record` is the OPTIONAL channel to the owned error store —
+ * `dbRecorder(opsDatabase(env), "activity")` in a database-bound worker. It is a
+ * CALLBACK and not a database handle on purpose: this is the base's most-copied
+ * signature, and taking a `CoreDb` here would both force a required argument
+ * onto two dozen call sites and marry the activity seam to the operations
+ * database. Omit it and this behaves exactly as it did — the no-argument path is
+ * unchanged, and a missing channel means "not recorded", never a crash inside
+ * the error path. (Same reasoning, same shape as `recordOutbound`.)
  */
 export async function logActivity(
   cfg: D1Rest,
   databaseId: string,
   actor: Actor,
-  entry: ActivityEntry
+  entry: ActivityEntry,
+  record?: OutboundRecorder
 ): Promise<void> {
   try {
     const now = new Date().toISOString()
@@ -273,14 +296,39 @@ export async function logActivity(
        );`
     )
   } catch (e) {
-    // THE GAP MARKER. Structured and filterable by `event`, and it carries the
-    // request id like every other trace line — a silent hole in an audit trail is
-    // worse than a loud one, because people trust what they are reading.
-    traceError({
-      worker: "activity",
-      place: `${entry.relatedTable ?? "?"}/${entry.relatedRowId ?? "?"}`,
-      event: "activity_log_gap",
-      detail: e,
-    })
+    // THE GAP MARKER, in both places it needs to be. Structured and filterable by
+    // `event` for a live tail, carrying the request id like every other trace
+    // line — and then DURABLE, because a silent hole in an audit trail is worse
+    // than a loud one and a hole nobody can still see is worse again.
+    const place = `${entry.relatedTable ?? "?"}/${entry.relatedRowId ?? "?"}`
+    traceError({ worker: "activity", place, event: "activity_log_gap", detail: e })
+    await recordGap(record, place, e)
+  }
+}
+
+/**
+ * Hand a logging failure to the durable store, and never let that become a
+ * second failure.
+ *
+ * `account-activity.ts` carries its own five-line copy of this rather than
+ * importing it, and that is deliberate: importing from here would pull `d1-rest`
+ * into the mcp bundle, and mcp holds no `CF_D1_TOKEN` precisely so the externally
+ * reachable worker cannot reach a team database at all. The REASONING is stated
+ * once — here — and pointed at from there.
+ *
+ * NOT throttled, unlike `recordOutbound` — and the difference is the point.
+ * There, a storm writes one fact over and over, so collapsing it loses nothing.
+ * Here, each row names a DIFFERENT record whose history is now incomplete, and
+ * that list IS the repair list: throwing away the duplicates would throw away
+ * the only account of what needs fixing. The volume is bounded by the mutation
+ * rate, which the rate ceilings already bound (SCALING.md §4.6).
+ */
+async function recordGap(record: OutboundRecorder | undefined, place: string, e: unknown): Promise<void> {
+  if (!record) return
+  try {
+    const err = e instanceof Error ? e : new Error(String(e))
+    await record(`activity ${place}`, err)
+  } catch {
+    /* the error store can be down too — recording must never break the request */
   }
 }

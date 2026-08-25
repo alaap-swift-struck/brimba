@@ -27,7 +27,7 @@
 // built-in SQLite, which is what D1 is — so `COALESCE(updated_at, created_at)`
 // is evaluated by a database rather than described by a mock.
 import { DatabaseSync } from "node:sqlite"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const { d1Query, d1ExecScript } = vi.hoisted(() => ({ d1Query: vi.fn(), d1ExecScript: vi.fn() }))
 // Only the NETWORK half of the data door is swapped; `sqlString` stays real, so
@@ -58,7 +58,34 @@ const other = { id: "YOU", email: "you@x.com", name: "You" }
 
 let db: DatabaseSync
 
+/** THE CLOCK IS DRIVEN, NOT OBSERVED.
+ *
+ * The version is `COALESCE(updated_at, created_at)` — an ISO string with
+ * MILLISECOND resolution — so two writes landing inside the same millisecond
+ * carry the SAME version and are indistinguishable to the predicate. In
+ * production every write is a separate HTTP round-trip through the D1 REST door,
+ * so that cannot happen; in a test the whole scenario runs in well under a
+ * millisecond, so it happens almost every time. Letting the real clock decide
+ * would make these tests pass or fail on timing rather than on behaviour — which
+ * is the one thing a guard test must never do. Only `Date` is faked, so promises
+ * and microtasks still run normally. */
+const T0 = Date.UTC(2026, 7, 25, 9, 0, 0)
+let now = T0
+/** Move to a later instant — one actor's write, then the next. */
+function laterInstant(): void {
+  now += 1000
+  vi.setSystemTime(new Date(now))
+}
+
+afterEach(() => {
+  vi.useRealTimers()
+})
+
 beforeEach(() => {
+  now = T0
+  vi.useFakeTimers({ toFake: ["Date"] })
+  vi.setSystemTime(new Date(now))
+
   // The REAL team schema, every migration applied — not a hand-rolled table that
   // could drift from the columns production actually has.
   db = new DatabaseSync(":memory:")
@@ -99,12 +126,14 @@ describe("a dropdown-value rename can reach the lost-update guard", () => {
     expect(versionOf(mine), "the row a caller is shown must carry a version").not.toBeNull()
 
     // You save first. Your version is current, so your write lands.
+    laterInstant()
     await updateSelectable(cfg, guard, other, id, "Photo", versionOf(yours))
     expect(storedValue(id)).toBe("Photo")
 
     // I save second, still holding the version I was shown before your save.
     // THIS is the lost update: without a version the predicate is empty and my
     // stale write wins, wiping your edit with no error to either of us.
+    laterInstant()
     await expect(
       updateSelectable(cfg, guard, actor, id, "Screenshot", versionOf(mine))
     ).rejects.toMatchObject({ status: 409, code: "changed_elsewhere" })
@@ -158,6 +187,7 @@ describe("every door that hands a dropdown value back hands back a usable versio
     const id = await createSelectable(cfg, guard, actor, "File type", "Image file")
     const before = await oneSelectable(cfg, guard, id)
 
+    laterInstant()
     await updateSelectable(cfg, guard, actor, id, "Picture file", versionOf(before))
     const after = await oneSelectable(cfg, guard, id) // exactly what the route returns
 
@@ -165,6 +195,7 @@ describe("every door that hands a dropdown value back hands back a usable versio
     expect(versionOf(after)).not.toBe(versionOf(before))
 
     // A second save with the returned version works…
+    laterInstant()
     await updateSelectable(cfg, guard, actor, id, "Photo", versionOf(after))
     expect(storedValue(id)).toBe("Photo")
     // …and the version from before that save no longer does.

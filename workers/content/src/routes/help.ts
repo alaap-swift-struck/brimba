@@ -78,8 +78,7 @@ export async function getHelp(request: Request, env: Env): Promise<Response> {
 /** GET /api/content/help/thread?id=<ticketId> → the ticket's replies (oldest first). */
 export async function getHelpThread(request: Request, env: Env): Promise<Response> {
   const { cfg, guard } = await gated(request, env, "help", "read")
-  const id = new URL(request.url).searchParams.get("id")
-  if (!id) return fail(400, "invalid_input", "A ticket id is required.")
+  const id = requireText(new URL(request.url).searchParams.get("id"), "A ticket id", TEXT_LIMITS.short)
   // Two independent reads, one wall-clock round trip (see getHelp above).
   const [replies, total] = await Promise.all([listReplies(cfg, guard, id), countReplies(cfg, guard, id)])
   return json({ replies, total })
@@ -105,30 +104,37 @@ export async function postCreateHelp(request: Request, env: Env): Promise<Respon
 /** POST /api/content/help/update — edit a ticket (help:edit). */
 export async function postUpdateHelp(request: Request, env: Env): Promise<Response> {
   const { actor, cfg, guard, body } = await gatedBody<TicketInput & { id?: string; expectedVersion?: string }>(request, env, "help", "edit")
-  if (!body.id) return fail(400, "invalid_input", "id and description are required.")
+  // The id goes through the SAME boundary seam as the text beside it. `if (!body.id)`
+  // only ever proved the field was truthy — a number, an array or an object walked
+  // straight past it into the row lookup, because the `id?: string` above is erased
+  // before the request arrives. (Security round 5.)
+  const id = requireText(body.id, "id", TEXT_LIMITS.short)
   requireText(body.description, "Description", TEXT_LIMITS.long)
-  await updateTicket(cfg, guard, actor, body.id, body, body.expectedVersion)
-  await publishChange(env.REALTIME, guard.teamId, "help", body.id)
+  await updateTicket(cfg, guard, actor, id, body, body.expectedVersion)
+  await publishChange(env.REALTIME, guard.teamId, "help", id)
   // R23: the affected ROW, never the collection. See RULES.md.
-  return json({ updated: await getTicket(cfg, guard, body.id) })
+  return json({ updated: await getTicket(cfg, guard, id) })
 }
 
 /** POST /api/content/help/status — move a ticket along its fixed lifecycle.
  * Gated PURELY by help:edit (every status move, including reopen — no raiser exception). */
 export async function postHelpStatus(request: Request, env: Env): Promise<Response> {
   const { actor, cfg, guard, body } = await gatedBody<{ id?: string; status?: string }>(request, env, "help", "edit")
-  if (!body.id || !body.status || !(HELP_STATUSES as readonly string[]).includes(body.status))
+  const id = requireText(body.id, "id", TEXT_LIMITS.short)
+  // The status stays a membership test — it is checked against a fixed list, which
+  // a non-string can never be a member of.
+  if (!body.status || !(HELP_STATUSES as readonly string[]).includes(body.status))
     return fail(400, "invalid_input", "id and a valid status are required.")
   const status = body.status as HelpStatus
 
-  const ticket = await getTicket(cfg, guard, body.id)
+  const ticket = await getTicket(cfg, guard, id)
   if (!ticket) return fail(404, "help_not_found", "That ticket doesn't exist.")
 
   // R17: already at that status → zero rows moved → no ping, no duplicate history.
-  const changed = await setStatus(cfg, guard, actor, body.id, status)
-  if (changed) await publishChange(env.REALTIME, guard.teamId, "help", body.id)
+  const changed = await setStatus(cfg, guard, actor, id, status)
+  if (changed) await publishChange(env.REALTIME, guard.teamId, "help", id)
   // R23: the affected ROW, never the collection. See RULES.md.
-  return json({ updated: await getTicket(cfg, guard, body.id) })
+  return json({ updated: await getTicket(cfg, guard, id) })
 }
 
 /** POST /api/content/help/bulk-status-by-filter — the SET-shaped bulk: move every
@@ -190,10 +196,10 @@ export async function postHelpReply(request: Request, env: Env): Promise<Respons
     body?: string
     taggedUserIds?: unknown
   }>(request, env, "help", "read")
-  if (!body.helpId) return fail(400, "invalid_input", "helpId and a reply body are required.")
+  const helpId = requireText(body.helpId, "helpId", TEXT_LIMITS.short)
   const replyBody = requireText(body.body, "Reply", TEXT_LIMITS.long)
 
-  const ticket = await getTicket(cfg, guard, body.helpId)
+  const ticket = await getTicket(cfg, guard, helpId)
   if (!ticket) return fail(404, "help_not_found", "That ticket doesn't exist.")
 
   // Untrusted, and CAPPED. A mention is notify-only — never an instruction — and
@@ -205,9 +211,9 @@ export async function postHelpReply(request: Request, env: Env): Promise<Respons
   // after, because you cannot @mention yourself.
   const tagged = optionalIdList(body.taggedUserIds, MENTION_LIMIT).filter((x) => x !== actor.id)
 
-  const replyId = await addReply(cfg, guard, actor, body.helpId, replyBody, tagged, false)
+  const replyId = await addReply(cfg, guard, actor, helpId, replyBody, tagged, false)
   await publishChange(env.REALTIME, guard.teamId, "help_threads", replyId, "add")
-  await publishChange(env.REALTIME, guard.teamId, "help", body.helpId, "edit")
+  await publishChange(env.REALTIME, guard.teamId, "help", helpId, "edit")
   await notifyReplyAndMentions(
     env,
     guard.teamId,
@@ -222,7 +228,7 @@ export async function postHelpReply(request: Request, env: Env): Promise<Respons
   // Reading the new reply back and re-counting the thread are independent.
   const [created, total] = await Promise.all([
     oneReply(cfg, guard, replyId),
-    countReplies(cfg, guard, body.helpId),
+    countReplies(cfg, guard, helpId),
   ])
   return json({ created, total })
 }
@@ -231,8 +237,7 @@ export async function postHelpReply(request: Request, env: Env): Promise<Respons
  * set (raiser + admins + @mentions + manual adds). help:read gates it. */
 export async function getHelpStakeholders(request: Request, env: Env): Promise<Response> {
   const { cfg, guard } = await gated(request, env, "help", "read")
-  const id = new URL(request.url).searchParams.get("id")
-  if (!id) return fail(400, "invalid_input", "A ticket id is required.")
+  const id = requireText(new URL(request.url).searchParams.get("id"), "A ticket id", TEXT_LIMITS.short)
   return json({ stakeholders: await listStakeholders(cfg, env, guard, id) })
 }
 
@@ -241,11 +246,11 @@ export async function getHelpStakeholders(request: Request, env: Env): Promise<R
  * removes anyone. SEAM LAW: this mutation publishes the help row change. */
 export async function postAddStakeholder(request: Request, env: Env): Promise<Response> {
   const { actor, cfg, guard, body } = await gatedBody<{ id?: string; userId?: string }>(request, env, "help", "read")
-  if (!body.id || !body.userId)
-    return fail(400, "invalid_input", "id and userId are required.")
-  const ticket = await getTicket(cfg, guard, body.id)
+  const id = requireText(body.id, "id", TEXT_LIMITS.short)
+  const userId = requireText(body.userId, "userId", TEXT_LIMITS.short)
+  const ticket = await getTicket(cfg, guard, id)
   if (!ticket) return fail(404, "help_not_found", "That ticket doesn't exist.")
-  const stakeholders = await addStakeholder(cfg, env, guard, actor, body.id, body.userId)
-  await publishChange(env.REALTIME, guard.teamId, "help", body.id, "edit")
+  const stakeholders = await addStakeholder(cfg, env, guard, actor, id, userId)
+  await publishChange(env.REALTIME, guard.teamId, "help", id, "edit")
   return json({ stakeholders })
 }

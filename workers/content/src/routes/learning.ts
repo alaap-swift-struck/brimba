@@ -94,25 +94,30 @@ export async function postCreateLearning(request: Request, env: Env): Promise<Re
 
 export async function postUpdateLearning(request: Request, env: Env): Promise<Response> {
   const { actor, cfg, guard, body } = await gatedBody<LearningInput & { id?: string; expectedVersion?: string }>(request, env, "learning", "edit")
-  if (!body.id) return fail(400, "invalid_input", "id and title are required.")
+  // The id goes through the SAME boundary seam as the text beside it. Truthiness
+  // only ever proved the field was present, and the `id?: string` in the type above
+  // is erased before the request arrives — so a number or an object reached the row
+  // lookup unchallenged. (Security round 5.)
+  const id = requireText(body.id, "id", TEXT_LIMITS.short)
   requireText(body.title, "Title", TEXT_LIMITS.short)
-  await updateLearning(cfg, guard, actor, body.id, body, body.expectedVersion)
-  await publishChange(env.REALTIME, guard.teamId, "learning", body.id)
+  await updateLearning(cfg, guard, actor, id, body, body.expectedVersion)
+  await publishChange(env.REALTIME, guard.teamId, "learning", id)
   // R23: the affected ROW, and no count — an edit cannot move a total. See RULES.md.
-  return json({ updated: await oneLearning(cfg, guard, body.id) })
+  return json({ updated: await oneLearning(cfg, guard, id) })
 }
 
 /** Deactivate / reactivate a learning item — never deleted (progress survives).
  * Gated by learning:delete (deactivate is our "delete" in the deactivate model). */
 export async function postSetLearningActive(request: Request, env: Env): Promise<Response> {
   const { actor, cfg, guard, body } = await gatedBody<{ id?: string; active?: boolean }>(request, env, "learning", "delete")
-  if (!body.id || typeof body.active !== "boolean")
+  const id = requireText(body.id, "id", TEXT_LIMITS.short)
+  if (typeof body.active !== "boolean")
     return fail(400, "invalid_input", "id and active are required.")
   // R17: no-op repeat → no ping, no duplicate history (see setLearningActive).
-  const changed = await setLearningActive(cfg, guard, actor, body.id, body.active)
-  if (changed) await publishChange(env.REALTIME, guard.teamId, "learning", body.id)
+  const changed = await setLearningActive(cfg, guard, actor, id, body.active)
+  if (changed) await publishChange(env.REALTIME, guard.teamId, "learning", id)
   // R23: the affected ROW, and no count — an edit cannot move a total. See RULES.md.
-  return json({ updated: await oneLearning(cfg, guard, body.id) })
+  return json({ updated: await oneLearning(cfg, guard, id) })
 }
 
 /** Deactivate / reactivate MANY learning items in one call (the bulk sibling of
@@ -138,10 +143,11 @@ export async function postBulkSetLearningActive(request: Request, env: Env): Pro
  * viewer's done badge. */
 export async function postLearningDone(request: Request, env: Env): Promise<Response> {
   const { cfg, guard, body } = await gatedBody<{ id?: string; done?: boolean }>(request, env, "learning", "read")
-  if (!body.id || typeof body.done !== "boolean")
+  const id = requireText(body.id, "id", TEXT_LIMITS.short)
+  if (typeof body.done !== "boolean")
     return fail(400, "invalid_input", "id and done are required.")
-  await setLearningDone(cfg, guard, body.id, body.done)
-  await publishChange(env.REALTIME, guard.teamId, "learning", body.id, "edit")
+  await setLearningDone(cfg, guard, id, body.done)
+  await publishChange(env.REALTIME, guard.teamId, "learning", id, "edit")
   return json({ ok: true })
 }
 

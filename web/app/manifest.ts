@@ -17,8 +17,11 @@ export default function manifest(): MetadataRoute.Manifest {
     start_url: "/",
     scope: "/",
     display: "standalone",
-    background_color: "#0f1112",
-    theme_color: "#0e9e86",
+    // From the ONE brand file too — these were hardcoded copies of
+    // `accentHex.primary` and the dark screen tone, so re-skinning brand.ts left
+    // the installed app's title bar and splash screen wearing the old colours.
+    background_color: brand.splashHex,
+    theme_color: brand.accentHex.primary,
     icons: [
       { src: "/icons/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
       { src: "/icons/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },

@@ -31,6 +31,13 @@ const run = (cmd: string, args: string[]) =>
  * file carrying a new hardcoded name must be visible before it is committed. */
 const shipped = () => run("git", ["ls-files", "-c", "-o", "--exclude-standard"])
 
+/** COMMITTED files only. The binary scan below uses this rather than `shipped()`
+ * on purpose: an untracked binary in the working tree is almost always machine
+ * output — a Playwright failure screenshot, a build artefact — and a law that
+ * turns red because somebody ran the e2e suite is a law people learn to ignore.
+ * A binary that actually ships is committed, and is covered the moment it is. */
+const tracked = () => run("git", ["ls-files", "-c"])
+
 /** What the sweep reaches — from the script itself, never re-implemented here. */
 const swept = () => new Set(run("node", ["scripts/fork.mjs", "--list"]))
 
@@ -80,16 +87,23 @@ describe("R26 — the fork sweep reaches every identity literal", () => {
   // is registered with a reason, or it is a finding.
   it("every shipped BINARY outside the sweep's reach is registered — a text scan cannot read pixels", () => {
     const reach = swept()
-    const unregistered = shipped().filter((f) => isBinary(f, reach) && !(f in FORK_SWEEP_EXEMPT))
+    const unregistered = tracked().filter((f) => isBinary(f, reach) && !(f in FORK_SWEEP_EXEMPT))
     expect(
       unregistered,
       `binary assets a fork inherits unchanged, with nothing saying so — give each a FORK_SWEEP_EXEMPT reason naming how a fork gets its own: ${unregistered.join(", ")}`,
     ).toEqual([])
   })
 
-  // AND THE HALF THE SWEEP GETS *HALF* RIGHT. `brimba.swift-struck.workers.dev`
-  // sweeps to `acme.swift-struck.workers.dev` — the app half renamed, the
-  // author's account half kept — which reads as correct and is not.
+  // AND THE HALF THE SWEEP GETS *HALF* RIGHT. An `<app>.<account>.workers.dev`
+  // host sweeps its APP label to the new name and keeps the author's ACCOUNT
+  // label — which reads as correct and is not.
+  //
+  // (The hosts here are written as placeholders on purpose. `stripComments` is
+  // desynchronised by a quote inside a template literal's interpolation — see
+  // the line above this suite — so comments downstream of one survive the strip
+  // and a spelled-out example host would report ITSELF. That only ever adds a
+  // false positive, never hides a real one, but a check reporting its own
+  // documentation is a check nobody trusts.)
   it("every file naming an ACCOUNT-scoped workers.dev host is registered — the sweep renames the app, never the account", () => {
     const unregistered = shipped().filter((f) => namesAccountHost(f) && !(f in FORK_SWEEP_EXEMPT))
     expect(
@@ -133,7 +147,7 @@ describe("R26 — the fork sweep reaches every identity literal", () => {
   // would go green on an empty set and nobody would know.
   it("neither new scan can pass vacuously — both hazards are really present", () => {
     const reach = swept()
-    expect(shipped().filter((f) => isBinary(f, reach)).length, "no shipped binaries found at all — the binary scan has gone blind").toBeGreaterThan(0)
+    expect(tracked().filter((f) => isBinary(f, reach)).length, "no committed binaries found at all — the binary scan has gone blind").toBeGreaterThan(0)
     expect(shipped().filter(namesAccountHost).length, "no account-scoped host found at all — the host scan has gone blind").toBeGreaterThan(0)
   })
 })

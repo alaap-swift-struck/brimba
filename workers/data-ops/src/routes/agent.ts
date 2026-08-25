@@ -105,12 +105,15 @@ export async function postGrantCredits(request: Request, env: Env): Promise<Resp
   const blocked = adminGuard(request, env)
   if (blocked) return blocked
   const body = (await request.json().catch(() => ({}))) as { teamId?: string; amount?: number }
+  // The team id through the boundary seam — truthiness let a number or an object
+  // reach both the credit write and the realtime channel name. (Security round 5.)
+  const teamId = requireText(body.teamId, "teamId", TEXT_LIMITS.short)
   const amount = Number(body.amount)
-  if (!body.teamId || !Number.isFinite(amount) || amount <= 0 || Math.trunc(amount) !== amount)
+  if (!Number.isFinite(amount) || amount <= 0 || Math.trunc(amount) !== amount)
     return fail(400, "invalid_input", "teamId and a positive whole amount are required.")
-  const balance = await grantCredits(env, body.teamId, amount)
-  await publishChange(env.REALTIME, body.teamId, "agent_usage")
-  return json({ teamId: body.teamId, balance })
+  const balance = await grantCredits(env, teamId, amount)
+  await publishChange(env.REALTIME, teamId, "agent_usage")
+  return json({ teamId, balance })
 }
 
 /** POST /api/data-ops/agent/chat — run one agent turn (answer, or propose/take action).
@@ -153,11 +156,13 @@ export async function postAgentConfirm(request: Request, env: Env): Promise<Resp
   const { actor, cfg, guard } = await teamContext(request, env)
   await requireRight(cfg, guard, "agent", "create")
   const body = (await request.json().catch(() => ({}))) as { threadId?: string; approve?: boolean }
-  if (!body.threadId || typeof body.approve !== "boolean")
+  // Same 64-char cap the chat door applies to the same field (optionalText above).
+  const threadId = requireText(body.threadId, "Thread", 64)
+  if (typeof body.approve !== "boolean")
     return fail(400, "invalid_input", "threadId and approve are required.")
   // What runs comes from the server's stored proposal (in confirmAndRun), not the
   // client — any client-supplied `calls` are ignored, so nothing un-proposed executes.
-  const opts = { threadId: body.threadId, approve: body.approve, source: "in-app" }
+  const opts = { threadId, approve: body.approve, source: "in-app" }
   if (wantsStream(request))
     return streamRun(env, request, (emit) => confirmAndRun(env, request, cfg, guard, actor, opts, emit))
   return json(await confirmAndRun(env, request, cfg, guard, actor, opts))
@@ -182,7 +187,6 @@ export async function getAgentThreads(request: Request, env: Env): Promise<Respo
 export async function getAgentThread(request: Request, env: Env): Promise<Response> {
   const { cfg, guard } = await teamContext(request, env)
   await requireRight(cfg, guard, "agent", "read")
-  const id = new URL(request.url).searchParams.get("id")
-  if (!id) return fail(400, "invalid_input", "A conversation id is required.")
+  const id = requireText(new URL(request.url).searchParams.get("id"), "A conversation id", 64)
   return json({ messages: await listMessages(cfg, guard, id) })
 }

@@ -349,9 +349,10 @@ export const FORK_SWEEP_EXEMPT: Record<string, string> = {
   "web/public/icons/icon-maskable-512.png": "Generated binary: the Android adaptive (maskable) icon. Redrawn from shared/brand.ts by scripts/gen-icons.mjs, which scripts/fork.mjs runs last.",
   "web/public/icons/apple-touch-icon.png": "Generated binary: the iOS home-screen icon. Redrawn from shared/brand.ts by scripts/gen-icons.mjs, which scripts/fork.mjs runs last.",
 
-  // 2 · The author's Cloudflare account subdomain. `brimba.swift-struck.workers.dev`
-  // sweeps to `acme.swift-struck.workers.dev`: the app half is right and the
-  // account half is still ours. No rename can guess a fork's own subdomain — the
+  // 2 · The author's Cloudflare account subdomain. An `<app>.<account>.workers.dev`
+  // host sweeps its APP label to the new name and keeps the ACCOUNT label: the
+  // first half is right and the second is still ours. No rename can guess a
+  // fork's own subdomain — the
   // same reason fork.mjs BLANKS the account id and the D1 database ids rather
   // than renaming them — so each of these must be pointed at the fork's own
   // account by hand, from BOOTSTRAP.md §2. Documents naming the host are left to

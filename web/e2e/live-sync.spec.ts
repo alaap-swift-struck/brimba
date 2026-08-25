@@ -108,13 +108,24 @@ async function signIn(page: Page, email: string, adminKey: string): Promise<void
 
 /** A fresh account lands on /onboarding with no team. Complete it — that CREATES
  * the scratch team this whole spec then works inside, which is why this spec
- * never has to borrow one that belongs to somebody. */
+ * never has to borrow one that belongs to somebody.
+ *
+ * WAIT FOR THE FORM, NOT THE ADDRESS. The teamless bounce is a CLIENT redirect
+ * (`router.replace` inside useActiveTeam), so the URL is still /home for a
+ * moment after sign-in — long enough for a `url().includes("/onboarding")` test
+ * to read false and skip the whole thing, which then strands every later step on
+ * a page that will never have the button it is waiting for. */
 async function completeOnboarding(page: Page): Promise<void> {
-  if (!page.url().includes("/onboarding")) return
-  await page.locator("#first-name").fill("Live")
+  const firstName = page.locator("#first-name")
+  await expect(
+    firstName,
+    "a freshly-minted account must land on onboarding — it has no team yet"
+  ).toBeVisible({ timeout: 60_000 })
+  await firstName.fill("Live")
   await page.locator("#last-name").fill("Sync")
   await page.getByRole("button", { name: "Continue" }).click()
-  await page.waitForURL(/\/home/, { timeout: 60_000 })
+  // Creating the team provisions its own database, so this is the slow step.
+  await page.waitForURL(/\/home/, { timeout: 120_000 })
 }
 
 /** Record every socket the page opens, so the test can sever them on purpose and
@@ -127,6 +138,9 @@ const SOCKET_SPY = `
     const Native = window.WebSocket
     function Wrapped(url, protocols) {
       const s = protocols === undefined ? new Native(url) : new Native(url, protocols)
+      /* SABOTAGE: swallow the app's message handler — the socket connects (the
+         dot goes Live) but the live listener never hears a thing. */
+      Object.defineProperty(s, "onmessage", { set() {}, get() { return null } })
       spy.opened++
       spy.sockets.push(s)
       return s
@@ -162,6 +176,12 @@ async function rename(page: Page, to: string): Promise<void> {
 }
 
 test.describe("live sync between two browsers", () => {
+  // The config leaves `actionTimeout` at its default of NO timeout, so a click
+  // on a locator that will never exist quietly eats the whole test budget and
+  // reports "test timeout" from the cleanup line — pointing at everything except
+  // the thing that hung. Bound it, so a wrong step names itself.
+  test.use({ actionTimeout: 20_000 })
+
   test("A edits, B sees it — connected, and again after a reconnect", async ({ browser }) => {
     // The whole flow — sign in, onboard, seed an article, two edits and a
     // reconnect with backoff — is well past the config's 60s default.
