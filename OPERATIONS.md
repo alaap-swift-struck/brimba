@@ -247,6 +247,10 @@ It needs the `architecture_blueprint` skill's template
 |---|---|---|
 | `0016_channel_shards` | `teams.shard_count` | the realtime worker reads it on every publish; absent, the lookup fails and every team falls back to one shard (safe, but the valve does nothing) |
 | `0017_idempotency` | `idempotency_keys` | the mutation dispatchers write to it whenever a client sends `Idempotency-Key`; absent, the claim throws and the mutation 500s |
+| `0018_speed_indexes` | two core indexes | the create-team cap counts a user's teams on a door any signed-in person can knock on, and it had no index — so a user-facing request scanned the one table that grows with EVERY tenant |
+| `0019_nightly_state` | `cron_runs`, `db_sizes` | the nightly job's own heartbeat and cursor, and the per-database size meter. The job creates these at runtime if absent, so a missed migration is invisible — which is exactly why they are here: a database built from the migrations must match one built by running |
+
+Applied to production 2026-08-26. Both are additive; neither rewrites a row.
 
 Then `POST /api/tenancy/admin/migrate-teams` (x-admin-key) as usual — team
 migration `0007_scale_indexes` is unchanged from the first pass.
