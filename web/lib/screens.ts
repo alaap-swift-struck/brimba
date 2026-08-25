@@ -336,19 +336,20 @@ export function isScreenRecipe(value: unknown): value is ScreenRecipe {
  * structurally-valid recipe) wins over the in-code base. Defensive — a missing,
  * unparseable, OR shape-incomplete override falls back to the base, so a bad
  * override can never break the screen. */
-export function resolveRecipe(
-  key: string,
-  overrides: Record<string, string> | undefined
-): ScreenRecipe | null {
-  const base = BASE_RECIPES[key] ?? null
-  const raw = overrides?.[key]
-  if (!raw) return base
-  try {
-    const parsed: unknown = JSON.parse(raw)
-    return isScreenRecipe(parsed) ? parsed : base
-  } catch {
-    return base
-  }
+/** The recipe for a screen.
+ *
+ * It used to take a per-team OVERRIDE map and merge it over the base. That
+ * subsystem — a table, a migration, a gate, a validator, a permission row, a
+ * renderer and this merge — had no way to be written to on any surface, so every
+ * team's override map was permanently empty and this function's second argument
+ * was always undefined. The owner decided on 2026-08-25 not to build the missing
+ * caller, so the whole subsystem went rather than gaining one.
+ *
+ * What that bought, beyond the deleted code: one fewer network request on every
+ * screen in the team area, and four permission switches an admin could see and
+ * set that governed nothing. */
+export function resolveRecipe(key: string): ScreenRecipe | null {
+  return BASE_RECIPES[key] ?? null
 }
 
 /** Tune a list recipe's collection chrome to the DATA it's about to show, so we

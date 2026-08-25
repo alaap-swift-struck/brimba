@@ -28,8 +28,6 @@
 //   POST /api/tenancy/invites/revoke       -> revoke ("redact") a pending invite
 //   GET  /api/tenancy/invitations          -> invites I've RECEIVED (any signed-in user)
 //   POST /api/tenancy/invitations/accept   -> accept a received invite (join + switch)
-//   GET  /api/tenancy/config/screens       -> a team's screen-recipe overrides (any member)
-//   POST /api/tenancy/config/screens       -> set a screen override (screens:edit; NO caller today)
 //   POST /api/tenancy/admin/migrate-teams  -> roll team-schema migrations (x-admin-key)
 //   GET  /api/tenancy/admin/db-sizes       -> size every team DB + open alarms
 //   POST /api/tenancy/admin/move-module    -> relocate a heavy module (the mover)
@@ -74,7 +72,6 @@ import {
   postCreateInvite,
   postRevokeInvite,
 } from "./routes/invites"
-import { getScreens, postScreen } from "./routes/config"
 import {
   getSelectable,
   getSelectableExport,
@@ -127,8 +124,6 @@ export const ROUTES: Record<string, { handler: Handler; kind: RouteKind }> = {
   "POST /api/tenancy/invites/revoke": { handler: postRevokeInvite, kind: "mutation" },
   "GET /api/tenancy/invitations": { handler: getReceivedInvitations, kind: "read" },
   "POST /api/tenancy/invitations/accept": { handler: postAcceptInvitation, kind: "mutation" },
-  "GET /api/tenancy/config/screens": { handler: getScreens, kind: "read" },
-  "POST /api/tenancy/config/screens": { handler: postScreen, kind: "mutation" },
   "GET /api/tenancy/selectable": { handler: getSelectable, kind: "read" },
   "GET /api/tenancy/selectable/export": { handler: getSelectableExport, kind: "read" },
   "POST /api/tenancy/selectable": { handler: postCreateSelectable, kind: "mutation" },

@@ -62,7 +62,11 @@ describe("team schema", () => {
       "learning",
       "help",
       "selectable_data",
-      "screens",
+      // "screens" was here until 2026-08-25. Its whole subsystem — a table, a
+      // migration, a gate, a validator, this permission row and a renderer — had
+      // no caller on ANY surface, so every team's override map was permanently
+      // empty while four permission switches an admin could see and set governed
+      // nothing. The owner chose removal over building the missing caller.
       "agent",
     ])
   })

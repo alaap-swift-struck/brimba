@@ -29,10 +29,6 @@ export type ScreenDataInput = {
 }
 
 export function useScreenData({ teamId, enabled, module, recordId, helpScope = "all" }: ScreenDataInput) {
-  // Per-team screen-recipe overrides (config store) — load across the team area.
-  const overridesQ = useCached(enabled ? `screens:${teamId}` : null, () =>
-    tenancy.screenOverrides().then((r) => r.screens)
-  )
   const membersQ = useCached(
     enabled && module === "members" ? `members:${teamId}` : null,
     () => tenancy.members().then((r) => r.members)
@@ -131,7 +127,6 @@ export function useScreenData({ teamId, enabled, module, recordId, helpScope = "
   )
 
   return {
-    overridesQ,
     membersQ,
     rolesQ,
     invitesQ,

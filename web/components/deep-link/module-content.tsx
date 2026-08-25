@@ -53,7 +53,7 @@ type ScreenData = ReturnType<typeof useScreenData>
  * The host owns all of it; this bundle is how it hands the render half a snapshot. */
 export type ModuleContentCtx = Pick<
   ScreenData,
-  | "overridesQ" | "metaQ" | "membersQ" | "rolesQ" | "invitesQ" | "learningQ" | "helpQ" | "helpMineQ" | "totals" | "activityQ" | "inviteAuditQ"
+   | "metaQ" | "membersQ" | "rolesQ" | "invitesQ" | "learningQ" | "helpQ" | "helpMineQ" | "totals" | "activityQ" | "inviteAuditQ"
 > & {
   noAccess: boolean
   enabled: boolean
@@ -88,7 +88,6 @@ export function renderModuleContent(ctx: ModuleContentCtx): React.ReactNode {
     canImport,
     can,
     go,
-    overridesQ,
     metaQ,
     membersQ,
     rolesQ,
@@ -139,7 +138,7 @@ export function renderModuleContent(ctx: ModuleContentCtx): React.ReactNode {
 
     // Team overview ----------------------------------------------------------
     if (module === "team") {
-      const recipe = resolveRecipe("team.detail", overridesQ.data)
+      const recipe = resolveRecipe("team.detail")
       if (!recipe) return <NotFound />
       if (metaQ.data === undefined) return <Skeleton variant="list" lines={3} />
       const data = shapeTeamDetail({
@@ -167,7 +166,7 @@ export function renderModuleContent(ctx: ModuleContentCtx): React.ReactNode {
 
     // Lists ------------------------------------------------------------------
     if (!recordId) {
-      const recipe = resolveRecipe(`${module}.list`, overridesQ.data)
+      const recipe = resolveRecipe(`${module}.list`)
       if (!recipe) return <NotFound />
       if (module === "members") {
         if (membersQ.error) return <LoadError what="members" />
@@ -365,7 +364,7 @@ export function renderModuleContent(ctx: ModuleContentCtx): React.ReactNode {
       if (membersQ.data === undefined) return <Skeleton variant="list" lines={4} />
       const member = membersQ.data.find((m) => m.userId === recordId) ?? null
       if (!member) return <p className="text-muted-foreground text-sm">That member isn&apos;t on this team.</p>
-      let recipe = resolveRecipe("members.detail", overridesQ.data)
+      let recipe = resolveRecipe("members.detail")
       if (!recipe) return <NotFound />
       // You can't change your own role or remove yourself here.
       if (member.isYou) recipe = withoutActions(recipe, ["members.changeRole", "members.remove"])
@@ -377,7 +376,7 @@ export function renderModuleContent(ctx: ModuleContentCtx): React.ReactNode {
       if (invitesQ.data === undefined) return <Skeleton variant="list" lines={4} />
       const invite = invitesQ.data.find((i) => i.id === recordId) ?? null
       if (!invite) return <p className="text-muted-foreground text-sm">That invite no longer exists.</p>
-      let recipe = resolveRecipe("invites.detail", overridesQ.data)
+      let recipe = resolveRecipe("invites.detail")
       if (!recipe) return <NotFound />
       // Revoke only makes sense while the invite is still pending.
       if (invite.status !== "pending") recipe = withoutActions(recipe, ["invites.revoke"])

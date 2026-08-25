@@ -12,7 +12,6 @@ export const TEAM_MODULES = [
   "learning",
   "help",
   "selectable_data",
-  "screens",
   "agent",
 ] as const
 
@@ -26,7 +25,6 @@ const MODULE_LABELS: Record<(typeof TEAM_MODULES)[number], string> = {
   learning: "Learning",
   help: "Help",
   selectable_data: "Dropdown data",
-  screens: "Screens",
   agent: "AI agent",
 }
 

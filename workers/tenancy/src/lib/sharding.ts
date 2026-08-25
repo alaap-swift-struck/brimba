@@ -33,15 +33,20 @@ import {
 import type { Env } from "../env"
 import { logActivity, SYSTEM_ACTOR } from "../../../../shared/workers/activity"
 
-/** 65% of D1's 10 GB per-database cap.
+/** 80% of D1's 10 GB per-database cap — the OWNER'S number, 2026-08-25.
  *
- * It was 80%, which sounds cautious and is not: relieving a full database means
- * creating a database, copying millions of rows through the REST door, verifying
- * counts and flipping routing. 2 GB of headroom is days at the growth rate a
- * large tenant actually has, and you cannot start that work the week you find
- * out. 65% leaves 3.5 GB — long enough to notice, decide and act without it
- * being an incident. (Scaling review, 2026-08-11.) */
-export const ALERT_THRESHOLD_BYTES = Math.floor(6.5 * 1024 * 1024 * 1024)
+ * A code change had moved this to 65% while ARCHITECTURE.md, OPERATIONS.md,
+ * BASE-MANUAL.md and CONVENTIONS.md all still said 80%, and the alarm's own
+ * message said 80% while firing at 65%. The owner settled it: 80% is correct, so
+ * the code moves rather than the four documents.
+ *
+ * What that costs, recorded so it is a decision and not a drift: relieving a full
+ * database means creating one, copying millions of rows through the REST door,
+ * verifying counts and flipping routing. 80% leaves 2 GB of headroom where 65%
+ * left 3.5 GB — days rather than weeks at a large tenant's growth rate. The
+ * mitigation is that the alarm is checked nightly and reported, so 2 GB is a
+ * warning with time in it rather than a surprise. */
+export const ALERT_THRESHOLD_BYTES = Math.floor(8 * 1024 * 1024 * 1024)
 
 /** The SHARED database (`<project>-core`, `<project>-core-staging`). It carries
  * every tenant at once, so it is watched on the same schedule and the same

@@ -154,7 +154,6 @@ export function DeepLinkScreen() {
   // Per-module data — cache-first + null-keyed (a screen fetches only the modules
   // it shows). Lifted into one hook so the host reads as "fetch, then render".
   const {
-    overridesQ,
     membersQ,
     rolesQ,
     invitesQ,
@@ -447,7 +446,7 @@ export function DeepLinkScreen() {
         <CountedTabs badged={showTabs && sectionCounts[section] !== undefined}>
           {renderModuleContent({
             noAccess, enabled, perms, can, module, recordId, teamId, canImport, go,
-            overridesQ, metaQ, membersQ, rolesQ, roles, invitesQ, learningQ, helpQ, totals,
+            metaQ, membersQ, rolesQ, roles, invitesQ, learningQ, helpQ, totals,
             activityQ, inviteAuditQ, teamName, active, rights, onAction, onIntent,
             sectionPath, helpScope, setHelpScope, myUserId, query, helpMineQ,
           })}

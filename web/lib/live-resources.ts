@@ -245,6 +245,4 @@ export const TEAM_RESOURCES: Record<
 export const SIMPLE_INVALIDATIONS: Record<string, (teamId: string) => string[]> = {
   // Team name/logo — the shell also refreshes the active context (see app-shell).
   team: (t) => [`team-meta:${t}`],
-  // Per-team screen-recipe overrides (was a deaf publisher before R15).
-  screens: (t) => [`screens:${t}`],
 }

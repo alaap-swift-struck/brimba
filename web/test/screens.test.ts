@@ -29,35 +29,17 @@ describe("isScreenRecipe", () => {
 })
 
 describe("resolveRecipe", () => {
-  it("returns the base for a known key with no overrides", () => {
-    expect(resolveRecipe("members.detail", undefined)).toBe(BASE_RECIPES["members.detail"])
-    expect(resolveRecipe("members.detail", {})).toBe(BASE_RECIPES["members.detail"])
+  // The per-team OVERRIDE map is gone (owner decision, 2026-08-25): the whole
+  // subsystem — table, migration, gate, validator, permission row, renderer and
+  // merge — had no caller on any surface, so every team's map was permanently
+  // empty and this function's second argument was always undefined. What remains
+  // is the lookup, and the two cases that ever mattered.
+  it("returns the base recipe for a known key", () => {
+    expect(resolveRecipe("members.detail")).toBe(BASE_RECIPES["members.detail"])
   })
 
-  it("returns a valid override over the base", () => {
-    const override = { ...minimalRecipe, type: "detail" }
-    const resolved = resolveRecipe("members.detail", {
-      "members.detail": JSON.stringify(override),
-    })
-    expect(resolved).not.toBe(BASE_RECIPES["members.detail"])
-    expect(resolved?.type).toBe("detail")
-  })
-
-  it("falls back to the base for a malformed (non-recipe) override", () => {
-    const resolved = resolveRecipe("members.detail", {
-      "members.detail": JSON.stringify({ type: "detail" }), // missing arrays + binding
-    })
-    expect(resolved).toBe(BASE_RECIPES["members.detail"])
-  })
-
-  it("falls back to the base for invalid JSON", () => {
-    const resolved = resolveRecipe("members.detail", { "members.detail": "{not json" })
-    expect(resolved).toBe(BASE_RECIPES["members.detail"])
-  })
-
-  it("returns null for an unknown key with no base", () => {
-    expect(resolveRecipe("nope.nothere", undefined)).toBeNull()
-    expect(resolveRecipe("nope.nothere", {})).toBeNull()
+  it("returns null for a key with no base", () => {
+    expect(resolveRecipe("nope.nothere")).toBeNull()
   })
 })
 
