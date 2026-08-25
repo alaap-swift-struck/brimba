@@ -91,10 +91,20 @@ respect:
 
 ## 2 · The list cache doubles as the detail data source
 
-**The trap.** A record-detail screen has no "get one record" fetch. It reads the
-one record **out of the cached list**. So if you trim a column out of a list
-`SELECT` to make the list "lean," you can silently blank a field on the detail
-screen (or the agent's reading copy).
+**The trap.** A record-detail screen reads its record **out of the cached list**
+rather than fetching it. So if you trim a column out of a list `SELECT` to make
+the list "lean," you can silently blank a field on the detail screen (or the
+agent's reading copy).
+
+**Amended 2026-08-25 — this stopped being purely a trade-off when help became a
+PAGED collection under R14.** A record beyond the loaded page is simply absent
+from the cache, so the detail screen said *"That ticket no longer exists"* about a
+ticket that does. `help-detail.tsx` now falls back to the single-row door when —
+and only when — the list genuinely lacks the record, so the common path still
+costs nothing. **Any collection that becomes paged needs the same fallback**, or
+its deep links break silently for everything past page one. The rule below still
+holds for everything else; it is now "reads from the list cache FIRST", not
+"has no get-one fetch".
 
 **Why.** The client cache is keyed by collection (`learning:<teamId>`,
 `help:<teamId>`, members, …). A detail screen subscribes to that **same key**

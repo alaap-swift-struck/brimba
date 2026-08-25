@@ -32,10 +32,15 @@ import type { Env } from "../env"
 
 export async function getLearning(request: Request, env: Env): Promise<Response> {
   const { cfg, guard } = await gated(request, env, "learning", "read")
-  const items = await listLearning(cfg, guard)
-  const id = new URL(request.url).searchParams.get("id") // ?id= → one item
+  // ?id= is a LOOKUP, not a filtered page — one row through the single-row reader,
+  // rather than loading the whole capped collection and calling .find(). This door
+  // is the LIVE RE-PULL, called once per watching client per ping, so it was the
+  // more expensive of the two paths R23 was meant to fix.
+  const id = new URL(request.url).searchParams.get("id")
+  const one = id ? await oneLearning(cfg, guard, id) : null
+  const items = id ? [] : await listLearning(cfg, guard)
   // R16: the exact server total rides every list response (badges never use rows.length).
-  return json({ learning: id ? items.filter((l) => l.id === id) : items, total: await countLearning(cfg, guard) })
+  return json({ learning: id ? (one ? [one] : []) : items, total: await countLearning(cfg, guard) })
 }
 
 /** GET /api/content/learning/export — the team's articles as a CSV download.

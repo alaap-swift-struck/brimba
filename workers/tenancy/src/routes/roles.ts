@@ -33,10 +33,17 @@ export async function getMyPerms(request: Request, env: Env): Promise<Response> 
 export async function getRoles(request: Request, env: Env): Promise<Response> {
   const { cfg, guard } = await teamContext(request, env)
   await requireRight(cfg, guard, "member_roles", "read")
-  const roles = await listRoles(env, cfg, guard)
-  const id = new URL(request.url).searchParams.get("id") // ?id= → one role
+  // ?id= is a LOOKUP, not a filtered page — one row through the single-row reader,
+  // rather than loading the whole capped collection and calling .find(). This door
+  // is the LIVE RE-PULL, called once per watching client per ping, so it was the
+  // more expensive of the two paths R23 was meant to fix.
+  const id = new URL(request.url).searchParams.get("id")
+  const one = id ? await oneRole(env, cfg, guard, id) : null
   // R16: every list response carries the exact server total — badges never use rows.length.
-  return json({ roles: id ? roles.filter((r) => r.id === id) : roles, total: await countRoles(cfg, guard) })
+  return json({
+    roles: id ? (one ? [one] : []) : await listRoles(env, cfg, guard),
+    total: await countRoles(cfg, guard),
+  })
 }
 
 /** GET /api/tenancy/roles/export — the team's roles as a CSV download carrying

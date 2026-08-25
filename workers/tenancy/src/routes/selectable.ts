@@ -24,9 +24,18 @@ import type { Env } from "../env"
 
 export async function getSelectable(request: Request, env: Env): Promise<Response> {
   const { cfg, guard } = await gated(request, env, "selectable_data", "read")
-  const values = await listSelectable(cfg, guard)
-  const id = new URL(request.url).searchParams.get("id") // ?id= → one value (row-level live re-pull)
-  return json({ values: id ? values.filter((v) => v.id === id) : values, total: await countSelectable(cfg, guard) })
+  // ?id= is a LOOKUP, not a filtered page. It reads ONE row through the same
+  // single-row reader a mutation returns, rather than loading the whole capped
+  // collection and calling .find() on it — which is the fault R23 was written to
+  // remove, surviving on the OTHER path. This door is the LIVE RE-PULL: it is
+  // called once per watching client per ping, so it was the more expensive of the
+  // two. (Round-trip review, round 2, 2026-08-25.)
+  const id = new URL(request.url).searchParams.get("id")
+  const one = id ? await oneSelectable(cfg, guard, id) : null
+  return json({
+    values: id ? (one ? [one] : []) : await listSelectable(cfg, guard),
+    total: await countSelectable(cfg, guard),
+  })
 }
 
 /** GET /api/tenancy/selectable/export — the team's dropdown values as a full-field

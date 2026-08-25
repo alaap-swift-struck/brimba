@@ -18,10 +18,19 @@ import type { Env } from "../env"
 
 export async function getInvites(request: Request, env: Env): Promise<Response> {
   const { cfg, guard } = await gated(request, env, "team_members", "read")
-  const invites = await listInvites(env, cfg, guard)
-  const id = new URL(request.url).searchParams.get("id") // ?id= → one invite
+  // ?id= is a LOOKUP, not a filtered page. It reads ONE row through the same
+  // single-row reader a mutation returns, rather than loading the whole capped
+  // collection and calling .find() on it — which is the fault R23 was written to
+  // remove, surviving on the OTHER path. This door is the LIVE RE-PULL: it is
+  // called once per watching client per ping, so it was the more expensive of the
+  // two. (Round-trip review, round 2, 2026-08-25.)
+  const id = new URL(request.url).searchParams.get("id")
   // R16: the exact server total rides every list response (badges never use rows.length).
-  return json({ invites: id ? invites.filter((i) => i.id === id) : invites, total: await countInvites(env, guard) })
+  const one = id ? await oneInvite(env, cfg, guard, id) : null
+  return json({
+    invites: id ? (one ? [one] : []) : await listInvites(env, cfg, guard),
+    total: await countInvites(env, guard),
+  })
 }
 
 export async function postCreateInvite(request: Request, env: Env): Promise<Response> {
