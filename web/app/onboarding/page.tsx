@@ -21,10 +21,13 @@ import { Spinner } from "@swift-struck/ui/registry/primitives/spinner/spinner"
 import { toast } from "@swift-struck/ui/registry/primitives/sonner/sonner"
 import { defaultFieldConfig } from "@swift-struck/ui/lib/config"
 
+import { LogOut } from "lucide-react"
+
 import { ApiFailure, auth, tenancy } from "@/lib/api"
 import { BrandMark } from "@/components/brand-mark"
 import { personInitials } from "@/lib/identity"
 import { fileToDataUrl } from "@/lib/image"
+import { clearAllFormDrafts } from "@/lib/use-form-draft"
 
 const firstNameField = { ...defaultFieldConfig, label: "First name", required: true }
 const lastNameField = { ...defaultFieldConfig, label: "Last name", required: true }
@@ -35,6 +38,12 @@ export default function OnboardingPage() {
   const [lastName, setLastName] = React.useState("")
   const [photo, setPhoto] = React.useState<string | undefined>()
   const [busy, setBusy] = React.useState(false)
+  // Why setting up the team failed, kept ON THE SCREEN. A toast was the whole
+  // recovery story here, and a toast is gone in four seconds — which left a
+  // person on the one page in the app with no way off it, holding no reason and
+  // no next move. This page is a hard gate (a teamless user is sent straight
+  // back to it), so a dead end here is the end of the road.
+  const [failure, setFailure] = React.useState<string | null>(null)
 
   React.useEffect(() => {
     let alive = true
@@ -77,6 +86,7 @@ export default function OnboardingPage() {
   async function finish(e: React.FormEvent) {
     e.preventDefault()
     setBusy(true)
+    setFailure(null)
     try {
       await auth.updateProfile({ firstName, lastName, imageDataUrl: photo })
       await tenancy.bootstrap()
@@ -84,11 +94,29 @@ export default function OnboardingPage() {
       // identity (session, active team, live channel), so this is a HARD nav.
       softNavigate("/home")
     } catch (err) {
-      toast.error(
-        err instanceof ApiFailure ? err.message : "Something went wrong. Try again."
+      setFailure(
+        err instanceof ApiFailure ? err.message : "Something went wrong on our side."
       )
       setBusy(false)
     }
+  }
+
+  /** The second way forward when setting up the team keeps failing: leave, and
+   * come back to a clean sign-in. Pressing Continue again retries with the SAME
+   * session; this starts a fresh one — and it is the only exit from a page that
+   * otherwise has none. A FULL load, not a soft one: signing out must leave no
+   * in-memory identity behind, which is exactly how the shell handles a forced
+   * sign-out too. */
+  async function startOver() {
+    setBusy(true)
+    try {
+      await auth.logout()
+    } catch {
+      // Already signed out, or the network is down — either way, the place to be
+      // is the sign-in screen, so go there regardless.
+    }
+    clearAllFormDrafts() // one person's unsaved drafts never leak to the next
+    window.location.assign("/login")
   }
 
   if (checking) {
@@ -144,6 +172,36 @@ export default function OnboardingPage() {
                 disabled={busy}
               />
             </Field>
+
+            {/* Setting up the team failed. Say so plainly, say what is safe
+              * (their details are kept), and offer BOTH ways forward: try again
+              * with Continue just below, or leave and come back to a clean
+              * sign-in. Before this, the only thing here was a toast. */}
+            {failure && (
+              <div role="alert" className="animate-rise flex flex-col gap-3 rounded-xl border p-4">
+                <div>
+                  <p className="text-destructive text-sm font-medium">
+                    We couldn&apos;t finish setting up your team.
+                  </p>
+                  <p className="text-muted-foreground mt-1 text-sm">{failure}</p>
+                  <p className="text-muted-foreground mt-2 text-sm">
+                    Your name and photo are saved, so there&apos;s nothing to type again.
+                    Press Continue to try once more — and if it keeps happening, sign out
+                    and start again.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full gap-1.5"
+                  disabled={busy}
+                  onClick={() => void startOver()}
+                >
+                  <LogOut className="size-4" />
+                  Sign out and start again
+                </Button>
+              </div>
+            )}
 
             <Button
               type="submit"

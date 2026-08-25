@@ -55,6 +55,9 @@ and screens are written) → the reference docs below as you need them →
 [OPERATIONS.md](OPERATIONS.md) to ship.
 - **[SCALING.md](SCALING.md)** — the two axes (how much data, how many requests), the live platform ceilings, what breaks first, and the plans for the two that need a human decision.
 - **[BASE-IMPROVEMENTS.md](BASE-IMPROVEMENTS.md)** — the running record of what each review found and changed, including what BREAKS for a fork already on the base.
+- **[CHANGELOG.md](CHANGELOG.md)** — what shipped, by date, newest first — and what each milestone BREAKS for a fork already built on the base.
+- **[ROUTE-CENSUS.md](ROUTE-CENSUS.md)** — every door in the app with the gate it opens with, GENERATED from the source (`node scripts/route-census.mjs --write`). Never edit it by hand; a reviewer should inherit the surface, not rediscover it.
+- **[COSTS.md](COSTS.md)** — what running the base actually costs: every price read off the vendor's own page with the date it was read, against one stated shape of use. Change a price, a quota, a model or a scheduled job, and this changes in the same commit.
 - **[mcp-quickstart.md](mcp-quickstart.md)** — the short version of MCP.md: connect an outside tool in a few steps.
 - **[AGENTS.md](AGENTS.md)** — the pointer file agents read on entry.
 - **[AGENT-MODULES-PLAN.md](AGENT-MODULES-PLAN.md)** — the design record for the agent + modules build (SHIPPED; kept because live docs cite it).
@@ -64,10 +67,14 @@ and screens are written) → the reference docs below as you need them →
 **[BOOTSTRAP.md](BOOTSTRAP.md)** — the day-zero, command-by-command runbook that takes
 a fresh Cloudflare account to a live staging + production Brimba. It is the concrete
 answer to "with only these docs and the repo, could I recreate the base?" — yes: run
-that list. For the **one-command** version, the base ships its own build skill in
-**[skills/new-app/](skills/new-app/SKILL.md)** — install it (`cp -R skills/new-app
-~/.claude/skills/new-app`) and tell Claude Code "new app" to stand up a fresh, branded,
-deployed fork automatically (see [skills/README.md](skills/README.md)).
+that list. For the **one-command** version, tell Claude Code "new app" — the
+`new-app` skill stands up a fresh, branded, deployed fork automatically. The skill
+lives with the maintainer's tooling (`~/.claude/skills/new-app/SKILL.md`), not in
+this repository, which is why nothing here links to it. What DOES live here is the
+mechanism it drives: **`node scripts/fork.mjs <new-name>`** renames the whole base
+— sources, configs, docs and the tests that pin the literals — in one command, and
+`npm run check` stays green afterwards. That is Law **R26**; see
+[RULES.md](RULES.md).
 
 **The rulebook — what governs the base (read before you change it).** Every rule for
 modifying, recreating, or building on Brimba lives in one of these, and each is
@@ -178,9 +185,10 @@ npm run dev        # http://localhost:3000
 ```
 
 **`npm run check` is the gate**, and it is the one command to run before any
-commit. Green looks like eight suites passing and no TypeScript output — 518
-tests today, in about 13 seconds. From a bare `git clone`, install plus check is
-roughly 25 seconds.
+commit. Green looks like eight suites passing and no TypeScript output — the full
+suite, ~13s. (No test count is written here on purpose: a hand-maintained one is
+wrong within a week, and the number the run prints is always right.) From a bare
+`git clone`, install plus check is roughly 25 seconds.
 
 > Do **not** use `npx tsc --noEmit` on its own. There is no root `tsconfig.json`
 > — each workspace has its own — so that command finds no inputs, prints the

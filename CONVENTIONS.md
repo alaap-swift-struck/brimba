@@ -112,13 +112,32 @@ export default {
     const { pathname } = new URL(request.url)
     const route = `${request.method} ${pathname}`
     try {
-      if (route === "GET /api/content/health") return json({ ok: true })
+      // A health check that can only ever say "yes" is not a health check: it
+      // answers with the BOOLEANS for the bindings this worker needs, never a
+      // value and never which secret is missing (the door is unauthenticated).
+      if (route === "GET /api/content/health")
+        return json({
+          ok: true,
+          bindings: { d1Token: !!env.CF_D1_TOKEN, internalKey: !!env.INTERNAL_KEY, ops: !!env.OPS },
+        })
       const def = ROUTES[route]
       if (!def) return fail(404, "not_found", "No such content action.")
-      return await def.handler(request, env)
+      // A mutation goes through `withIdempotency` so a client that retries a
+      // dropped POST with the same `Idempotency-Key` replays the first outcome
+      // instead of writing twice. No header → a pass-through that costs nothing.
+      if (def.kind !== "mutation") return await def.handler(request, env)
+      return await withIdempotency(request, env.DB, route, () => def.handler(request, env))
     } catch (e) {
-      if (e instanceof GuardError) return fail(e.status, e.code, e.message)
+      // A 5xx GuardError IS an outage and must leave a row; a 403 is the system
+      // working, and recording it would fill the table with correct behaviour.
+      // So the branch splits on the STATUS, not on the type.
+      if (e instanceof GuardError) {
+        if (e.status >= 500)
+          await recordWorkerError(opsDatabase(env), "content", route, e, request)
+        return fail(e.status, e.code, e.message)
+      }
       console.error("content worker error:", e)
+      await recordWorkerError(opsDatabase(env), "content", route, e, request)
       const message = e instanceof Error ? e.message : ""
       if (message.startsWith("cloud_key_missing:"))
         return fail(503, "cloud_key_missing", `${brand.name}'s cloud key isn't set up yet — content is paused.`)
@@ -143,8 +162,9 @@ The rules that follow from this:
     json({ error, message } satisfies ApiError, status)
   ```
 - **The catch never leaks internals.** An unexpected throw logs the real error server-side
-  (`console.error`) and returns a generic `500 internal` with a warm, user-safe message.
-  A missing cloud key is the one special-cased operator condition. This mirrors the
+  (`console.error`), RECORDS it through `recordWorkerError` so it lands in the central
+  error store, and returns a generic `500 internal` with a warm, user-safe message. A
+  missing cloud key is the one special-cased operator condition. This mirrors the
   never-swallow rule in [ERROR-HANDLING.md](ERROR-HANDLING.md).
 
 ### `GuardError` is the currency of failure
@@ -176,11 +196,20 @@ async scheduled(_controller, env): Promise<void> {
   try {
     const result = await checkDatabaseSizes(env, d1Config(env))
     console.log(`size check: ${result.checked} team DBs, ${result.alerted.length} alarm(s)`)
+    // …the rest of the nightly work (retention, shard counts, orphaned uploads)
   } catch (e) {
+    // LAW R12: unattended work has no user watching, so a swallowed failure would be
+    // invisible — record it to the error store, not just the console.
     console.error("nightly size check failed:", e)
+    await recordWorkerError(opsDatabase(env), "tenancy", "cron/size-check", e)
   }
 },
 ```
+
+**`console.error` alone is not enough, and this is a law, not a preference.** A cron
+failure has nobody watching it, so the only trace it can leave is a row: `recordWorkerError`
+(through `opsDatabase(env)`) is what R12 checks for, and a `scheduled` handler that only
+logs to the console turns the build red.
 
 Only add a cron when there's real housekeeping — `content` has none, and says so in a
 comment rather than shipping an empty stub.
@@ -463,6 +492,29 @@ The actor comes from `teamContext`'s `actor` (`{ id, email, name }`) — store t
 and name too, not just the id, so history reads without a join even if the user record
 later changes.
 
+**Four of those columns are FORENSIC, and are deliberately never surfaced.** Only the
+`*_name` columns are read: `creator_name`, `editor_name` and `deactivator_name` feed the
+Overview audit block and the CSV exports. `editor_id`, `editor_email`, `deactivator_id`
+and `deactivator_email` are written on every edit and deactivate and read by **no query
+in the base** — the only statement that touches them is the module mover's verbatim
+row copy, which carries them along rather than looking at them. The same is true of the
+`email_change_logs` table: `workers/auth/src/lib/email-change.ts` writes a row on every
+verified email change and nothing anywhere reads it.
+
+That is not dead weight and it is not an oversight, so do not "clean it up". A display
+name is what a person changed it to and is not an identifier; an id and the address on
+the account at the time are what let someone reconstruct, months later and possibly for
+a regulator or a lawyer, exactly which account made a change — after the person has been
+renamed, has changed their email, or has left. **A record written for the day you need to
+prove something has to be written before you know you need it.** They are stamped by the
+same `actor` every write already has, so they cost one column each and no extra read.
+
+They stay off every screen. If a future requirement ever calls for showing who edited or
+deactivated something beyond what the audit block already says, it must show the
+person's **name** — never their id or their email address. Putting an email on a record
+detail hands every member of the team a directory of everyone's addresses, which is a
+disclosure decision, not a formatting one.
+
 ### Log it to the activity feed
 
 Every meaningful write also appends one row to the team's `activity` table via the *one*
@@ -667,7 +719,7 @@ the build red:
   `housekeeping` deny-list drifts from the reviewed set.
 - **`workers/content/test/validate.test.ts`** — locks the boundary-validation contract
   (non-string / blank / over-long / NUL → clean 400) so the 500 bugs can't return.
-- **`web/test/rules.test.ts`** — the UI + registry laws (record-detail tabs, `FormShell`,
+- **`web/test/rules/`** (split by dimension: `worker` / `ui` / `doors` / `activity` / `live` / `count` / `meta` / `doc-facts`) — the UI + registry laws (record-detail tabs, `FormShell`,
   `TabsView`, one generic activity path, glossary well-formed, `registry-integrity`).
 
 A law without a passing check is not a law — you cannot add one to `RULES.md` and the
@@ -694,12 +746,30 @@ code that does the job, and keep `npm run check` green.
 ## Navigating after the identity changes
 
 Ordinary in-app navigation is a SOFT transition — the one-shell engine swaps the screen
-and the URL without a reload (CACHING.md "Navigation never reloads"). But a transition
-that changes **who is signed in** is different: sign-in, sign-out, and the moment
-onboarding creates the first team. Those use `softNavigate()` from `web/lib/nav.ts`,
-which performs a real document navigation, because the whole shell — session, active
-team, live channel, every cache — must re-initialise for the new identity. A client-side
-`router.replace()` there carries the previous identity's state across.
+and the URL without a reload (CACHING.md "Navigation never reloads"). That is what
+`softNavigate()` in `web/lib/nav.ts` is for, and it is worth being precise about what it
+does, because it is easy to read backwards: it hands the path to the mounted deep-link
+shell's History-API `go()` so the shell **survives**, and only falls back to a real
+`window.location.assign` when no host is mounted (a pre-auth screen, or the very first
+paint). It is the soft bus, not the hard one.
+
+**A transition that changes who is signed in must not go through it.** The whole shell —
+session, active team, live channel, every cache — has to re-initialise for the new
+identity, and `softNavigate` is built to keep it alive. So the identity transitions use
+something else, and it differs by case:
+
+- **Signing out** (`web/components/profile-menu.tsx`) clears the form drafts, then
+  `router.replace("/login")` — the deep-link shell is left behind and the login page
+  mounts fresh.
+- **The teamless / not-onboarded / session-lost bounces** (`web/lib/use-active-team.ts`)
+  do the same: clear the cached session, then `router.replace("/onboarding")` or
+  `"/login"`.
+- **A FORCED sign-out** — the live layer says this device's session is gone
+  (`web/components/app-shell.tsx`) — is the one true hard navigation:
+  `window.location.assign("/login")`. Nothing of the old identity may survive it, and a
+  full document load is the only way to be certain.
+
+Adding a new identity transition means picking one of those three, never `softNavigate`.
 
 A hard navigation is also structurally immune to a failure mode a soft one has: the
 client router fetches an RSC payload for the target route, and if that fetch fails it

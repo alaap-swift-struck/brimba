@@ -39,6 +39,27 @@ export const MAX_ENTRIES = 500
 // is the least likely to be wanted again.
 export const MAX_ROWS_PER_ENTRY = 2000
 
+// A SHORT FRESHNESS WINDOW. Mounting used to revalidate UNCONDITIONALLY, so
+// opening a record and pressing back re-read the whole collection you had been
+// looking at a second earlier — the same answer, bought twice, on every hop.
+//
+// It is deliberately A FEW SECONDS. Live pings are what keep this cache honest
+// (CACHING rule 3), and a longer window would quietly promote the cache itself to
+// the freshness mechanism — which is the realtime layer's job, and would trade a
+// saved round-trip for a stale screen. Five seconds only suppresses the refetch
+// for a hop quick enough that no ping could plausibly have been missed inside it.
+export const REVALIDATE_AFTER_MS = 5_000
+
+// …AND A CEILING ON THAT TRUST. "Recently written" includes a row PATCHED in by a
+// live ping, so a tab left open all day can ride single-row patches for hours and
+// never re-read the collection as a whole — and anything that went missing
+// outside a reconnect catch-up would sit there unnoticed. Past this age the next
+// mount does a FULL read however recently a row was patched in.
+//
+// Generous ON PURPOSE: hours, not minutes. Make it small and it undoes cache-first
+// for every ordinary session; it exists for the long-running tab, not the usual one.
+export const MAX_AGE_MS = 4 * 60 * 60 * 1000
+
 // "Used" means WRITTEN — fetched, primed or patched — not read. Every read in
 // this app comes from a MOUNTED component, and a mounted component's key is
 // already unevictable, so ordering by reads would buy nothing and would mean
@@ -48,6 +69,18 @@ export const MAX_ROWS_PER_ENTRY = 2000
 // delete+set moves a key to the young end, and eviction takes from the old end.)
 const cache = new Map<string, unknown>()
 const subscribers = new Map<string, Set<() => void>>()
+
+/** WHEN each entry last changed, which is two different questions:
+ *  • `written` — the last write of ANY kind (a fetch, a prime, a row patch).
+ *    Answers "is this so fresh that a mount need not ask again" (REVALIDATE_AFTER_MS).
+ *  • `fetched` — the last time the WHOLE entry came from the server. Answers "has
+ *    this been kept alive on row patches so long that it deserves a real re-read"
+ *    (MAX_AGE_MS). One stamp could not answer both: patches keep `written` young
+ *    for ever, which is exactly the case the max age exists for.
+ *
+ * Kept in LOCKSTEP with `cache` — every key dropped there is dropped here too, or
+ * this map becomes the unbounded growth the ceiling above exists to prevent. */
+const stamps = new Map<string, { written: number; fetched: number }>()
 
 /** What a shared request hands back. `current` is the important half: it says
  * whether this answer is still the one the cache wants. Anything that learns
@@ -129,7 +162,12 @@ function evictable(key: string): boolean {
  * succeeds: if every older entry is pinned (an unusually busy screen), we go
  * OVER the ceiling rather than blank something a user is looking at — a soft
  * ceiling that is always right beats a hard one that is sometimes wrong. */
-function cacheSet(key: string, value: unknown): void {
+function cacheSet(key: string, value: unknown, full = false): void {
+  const now = Date.now()
+  // `full` = this value is the WHOLE entry, straight from the server (a list read
+  // or a reconnect catch-up), so it resets the max-age clock. A row patch or a
+  // primed mutation result is a write but NOT a full read, and leaves it running.
+  stamps.set(key, { written: now, fetched: full ? now : (stamps.get(key)?.fetched ?? now) })
   cache.delete(key) // re-insert at the young end (this is the "touch")
   // Trim a runaway collection from its OLD end. Paged lists are newest-first and
   // append downwards, so the rows past the ceiling are the ones scrolled furthest
@@ -142,12 +180,40 @@ function cacheSet(key: string, value: unknown): void {
   if (cache.size <= MAX_ENTRIES) return
   for (const k of cache.keys()) {
     if (cache.size <= MAX_ENTRIES) break
-    if (evictable(k)) cache.delete(k) // silent: no notify, so nothing refetches
+    if (evictable(k)) {
+      cache.delete(k) // silent: no notify, so nothing refetches
+      stamps.delete(k) // lockstep — an entry's stamp must never outlive the entry
+    }
   }
+}
+
+/** Should a MOUNT re-read this key? Yes when we hold nothing at all, when the last
+ * write is older than the short window, or when the entry has been kept alive on
+ * row patches past the max age without a full read. */
+function staleOnMount(key: string): boolean {
+  if (!cache.has(key)) return true
+  const s = stamps.get(key)
+  if (!s) return true
+  const now = Date.now()
+  return now - s.written >= REVALIDATE_AFTER_MS || now - s.fetched >= MAX_AGE_MS
 }
 
 function notify(key: string) {
   subscribers.get(key)?.forEach((fn) => fn())
+}
+
+/** A PREWARM IS A PAINT, NOT A READ. Seeding fills a cold key so the first tap
+ * shows content instead of a skeleton — but the prewarm's fetchers are
+ * deliberately THINNER than the screens' own: they do not prime the `total:`
+ * sidecars the count badges render (R16). Leaving the entry UNSTAMPED is what
+ * keeps the two honest — the screen still does its own, richer read on mount,
+ * because the freshness window must never let a seed stand in for one. Without
+ * this, entering a team and tapping a section inside the window showed the rows
+ * and a blank badge. */
+function seedCache(key: string, value: unknown): void {
+  cacheSet(key, value)
+  stamps.delete(key)
+  notify(key)
 }
 
 /** Subscribe to a key's changes; returns the unsubscribe. The ONE place
@@ -166,6 +232,9 @@ function subscribeKey(key: string, fn: () => void): () => void {
 /** Drop a cached entry and tell anyone showing it to refetch (live refresh). */
 export function invalidate(key: string): void {
   cache.delete(key)
+  // …and its freshness stamps, so a re-populated key can never inherit the age of
+  // the entry a live ping just threw away.
+  stamps.delete(key)
   // AND the request on the wire, which is now stale by the same argument that
   // just dropped the entry. Two failures this prevents, both real: a caller
   // arriving after the ping would otherwise JOIN an answer that predates the
@@ -229,7 +298,7 @@ export function primeCacheIfCold<T>(key: string, fetcher: () => Promise<T>): voi
       .then(({ value, current }) => {
         // Re-check: a real fetch (useCached) or live patch may have landed while we
         // were in flight — don't clobber it with our (now possibly stale) result.
-        if (current && !cache.has(key)) primeCache(key, value)
+        if (current && !cache.has(key)) seedCache(key, value)
       })
       .catch(() => {
         /* a prewarm miss is silent — the screen fetches on mount as usual */
@@ -303,7 +372,7 @@ export async function reconcile(
       const old = prevById.get(row[idField])
       return old && shallowEqualRow(old, row) ? old : row // reuse identity if unchanged
     })
-    cacheSet(key, next)
+    cacheSet(key, next, true) // a catch-up IS a full read — it resets the max age
     inflight.delete(key) // same reason as patchRow: we just fetched newer than the wire
     notify(key)
   } catch (e) {
@@ -338,7 +407,7 @@ export function useCached<T>(
       // told every subscriber, this one included, to load again, so the key is
       // never left unsettled by dropping it here.
       if (!current) return
-      cacheSet(key, value)
+      cacheSet(key, value, true) // a real read of the whole entry — reset the max age
       if (!aliveRef.current) return
       setData(value)
       setError(null)
@@ -379,7 +448,11 @@ export function useCached<T>(
       setData(undefined)
       setLoading(true)
     }
-    void load() // revalidate-on-mount (first load / navigation / team switch)
+    // Revalidate on mount (first load / navigation / team switch) — but NOT for an
+    // entry written moments ago. A tap into a record and a press of back used to
+    // re-read the collection every time, and `refresh()` is still there for a
+    // caller that genuinely wants to ask again regardless.
+    if (staleOnMount(key)) void load()
 
     const unsubscribe = subscribeKey(key, sync)
     return () => {

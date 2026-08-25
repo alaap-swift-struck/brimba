@@ -14,8 +14,10 @@ import type { RateLimiter } from "./rate-limit"
 import type { SessionUser } from "../types"
 import { d1Query, type D1Rest } from "./d1-rest"
 import { fail } from "./http"
-import { callService, REQUEST_ID_HEADER } from "./trace"
+import { callService, REQUEST_ID_HEADER, requestIdFrom, traceHop } from "./trace"
 import { originFrom, type Actor } from "./activity"
+import { dbRecorder } from "./error-log"
+import { opsDatabase } from "./ops-db"
 
 /** The slice of a worker Env the gating needs. Every domain worker's Env
  * structurally satisfies this (the AUTH binding + the core DB + the Cloudflare
@@ -23,6 +25,10 @@ import { originFrom, type Actor } from "./activity"
 export type GatingEnv = {
   AUTH: Fetcher
   DB: D1Database
+  /** The operations database, when this worker has one (ARCHITECTURE §1a). Named
+   * here so `d1ConfigFrom` can hand the data door a place to record a failed call
+   * to Cloudflare; absent → `opsDatabase` falls back to `DB` exactly as before. */
+  OPS?: D1Database
   CF_ACCOUNT_ID: string
   CF_D1_TOKEN?: string
   ADMIN_KEY?: string
@@ -60,13 +66,30 @@ export class GuardError extends Error {
 }
 
 /** The Cloudflare D1 REST config from a worker env (team DBs are reached over the
- * REST door). Throws cloud_key_missing if the token isn't set yet. */
-export function d1ConfigFrom(env: GatingEnv): D1Rest {
+ * REST door). Throws cloud_key_missing if the token isn't set yet.
+ *
+ * THE ONE PLACE A `D1Rest` IS BUILT, which is why the two optional halves of the
+ * door are wired here rather than at fifty call sites:
+ *
+ *   • `recordFailure` — where a failed call to Cloudflare gets RECORDED. A
+ *     NATIVE write to the operations database, deliberately: recording a
+ *     REST-door outage back through the REST door is the loop the throttle in
+ *     `recordOutbound` exists to bound.
+ *   • `trace` — the per-request tally of what the door cost. Per-request because
+ *     this function runs once per request; the id makes the spans line up with
+ *     the `timed()` line for the same click.
+ */
+export function d1ConfigFrom(env: GatingEnv, request?: Request): D1Rest {
   if (!env.CF_D1_TOKEN)
     throw new Error(
       "cloud_key_missing: the Cloudflare D1 token isn't set yet, so team databases can't be reached."
     )
-  return { accountId: env.CF_ACCOUNT_ID, apiToken: env.CF_D1_TOKEN }
+  return {
+    accountId: env.CF_ACCOUNT_ID,
+    apiToken: env.CF_D1_TOKEN,
+    recordFailure: dbRecorder(opsDatabase(env), "d1-rest"),
+    trace: { req: request ? requestIdFrom(request) : undefined, spans: [] },
+  }
 }
 
 /**
@@ -169,15 +192,26 @@ export async function moduleDatabase(
  * Cloudflare config, and a validated guard for your ACTIVE team. Throws
  * GuardError (mapped to a response centrally) on any failure. */
 export async function teamContext(request: Request, env: GatingEnv): Promise<TeamCtx> {
+  // THE THREE HOPS BEFORE ANY WORK, each timed — because they are three very
+  // different costs that look identical from outside: a service binding (same-colo
+  // RPC), a native D1 binding read (in-colo), and, once `requireRight` runs, an
+  // HTTPS round trip to api.cloudflare.com. Attributing a slow gated request to
+  // the right one of those is the whole difference between "auth is the tax" and
+  // "the data door is the tax". (Speed diagnosis, 2026-08-25.)
+  const req = requestIdFrom(request)
+  const startedWho = Date.now()
   const user = await whoAmI(request, env)
+  traceHop({ req, worker: "gating", op: "whoAmI:auth-binding", ms: Date.now() - startedWho })
   if (!user) throw new GuardError(401, "signed_out", "Not signed in.")
 
   // whoAmI already carries the active team (auth /me reads it fresh from the
   // users row) — no need for a second native-DB read for the same value.
   if (!user.currentTeamId) throw new GuardError(409, "no_team", "No active team.")
 
-  const cfg = d1ConfigFrom(env)
+  const cfg = d1ConfigFrom(env, request)
+  const startedMember = Date.now()
   const guard = await requireMember(env, user.id, user.currentTeamId)
+  traceHop({ req, worker: "gating", op: "requireMember:core-DB", ms: Date.now() - startedMember })
 
   // THE PER-TENANT SURGE CEILING, here rather than at the gateway — because
   // here is the first point the team is KNOWN. A team-scoped call carries no

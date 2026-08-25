@@ -146,7 +146,10 @@ export async function analyzeBatch(env: Env, files: AnalyzeFile[]): Promise<Impo
       { role: "system", content: `${SYSTEM}\n\nTarget tables:\n${catalogPrompt()}` },
       { role: "user", content: filesPrompt(files) },
     ]
-    const reply = await selectModel(env).complete(messages, [])
+    // "import": this prompt is small and NOT the agent's cached prefix, so it reports a
+    // cache miss every time. Naming the caller keeps that guaranteed miss out of the
+    // agent's hit rate instead of quietly dragging it down.
+    const reply = await selectModel(env).complete(messages, [], "import")
     const raw = parseSteps(reply.text)
     if (!raw) return buildFallbackPlan(files)
     return adaptPlan(files, raw)

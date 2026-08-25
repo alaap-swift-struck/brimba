@@ -127,11 +127,17 @@ tabs: [
 ]
 ```
 
-Recipes are **overridable per team at runtime**: a team's JSON override (from the
-config store) wins over the in-code base. `resolveRecipe()` merges override-over-base
-and — critically — is **defensive**: a missing, unparseable, or shape-incomplete
-override falls back to the base via `isScreenRecipe()`, so a bad override can never
-blank a screen team-wide.
+Recipes live **in code, one shipped default for every team**. `resolveRecipe(key)`
+is a plain lookup in `BASE_RECIPES` — it hands back that recipe, or `null` when the
+key has none (roles detail, for instance, which is bespoke). Changing a screen means
+changing its recipe here and shipping.
+
+Recipes used to be overridable per team at runtime, from a config store. That whole
+subsystem — a table, a migration, a gate, a validator, a permission row, a renderer
+and the merge — had no surface anywhere that could write an override, so every team's
+map was permanently empty. The owner removed it on 2026-08-25 rather than build the
+missing half, which also bought one fewer network request on every screen in the team
+area. If per-team screens ever come back, they come back with the door that writes them.
 
 ### 2b. Not engine-expressible → a host-composed component
 
@@ -213,7 +219,7 @@ code. The UI laws:
 | **R6** | Product terms live in **ONE glossary** — the app speaks one dictionary. | `glossary-wellformed` |
 | **R7** | Every form dialog persists its draft per session (**`useFormDraft`**). | `forms-persist-drafts` |
 | **R8** | Every team collection tab derives its **count from its loaded rows** (declares a `countCacheKey`). | `tab-counts-derived` |
-| **R20** | Every navigable destination **resolves in a fresh tab** — a page source AND the gateway's module shell, both derived from the nav registries. | `static-destinations` |
+| **R20** | Every navigable destination **resolves in a fresh tab** — a page source, the client's `TOP_LEVEL_MODULES`, AND the gateway's module shell: three lists in three workspaces, all derived from the nav registries. | `static-destinations` |
 | **R22** | **Creating a master record through a form opens that record** — in the shared form seam, not per screen. | `create-opens-record` |
 
 (`R1` and `R5` are the arch/data laws — mutations publish a live change; activity is
@@ -230,7 +236,7 @@ and the check verifies exactly that, reading the source for the two library name
 
 ```ts
 // web/test/rules.test.ts
-for (const c of RECORD_DETAIL_COMPONENTS) {          // ["help-detail", "learning-detail"]
+for (const c of RECORD_DETAIL_COMPONENTS) {          // ["help-detail", "learning-detail", "role-detail"]
   const src = read(join(WEB, "components", `${c}.tsx`))
   expect(src, `${c} must use library TabsView`).toContain("TabsView")
   expect(src, `${c} must render an ActivityFeed (the Activity tab)`).toContain("ActivityFeed")
@@ -272,9 +278,11 @@ action**. `FormShell` (`web/components/form-shell.tsx`) is that layout, assemble
 library primitives. The check asserts each form dialog imports it:
 
 ```ts
-// web/test/rules.test.ts — FORM_DIALOGS is the enforced list
-for (const d of FORM_DIALOGS) {                       // help-form-dialog, learning-form-dialog,
-  const src = read(join(WEB, "components", `${d}.tsx`))//  role-form-dialog, invite-dialog, team-edit-dialog
+// web/test/rules.test.ts — FORM_DIALOGS is the enforced list: help-form-dialog,
+// learning-form-dialog, role-form-dialog, invite-dialog, team-edit-dialog,
+// selectable-form-dialog
+for (const d of FORM_DIALOGS) {
+  const src = read(join(WEB, "components", `${d}.tsx`))
   expect(src, `${d} must use FormShell`).toContain("form-shell")
 }
 ```

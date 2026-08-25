@@ -290,9 +290,43 @@ export async function setRolePermissions(
   const sheet = (rows: PermRow[]) => new Map(rows.map((r) => [r.module, r]))
   const mineBy = sheet(mine)
   const nowBy = sheet(current)
+
+  /**
+   * OMITTED KEEPS, EXPLICIT WRITES — the update-door rule, applied per module.
+   *
+   * This door writes a row for EVERY module in the catalogue, so a `value` that
+   * named one module used to zero the other six. The UI never noticed: its
+   * matrix always posts all seven. `set_role_permissions` is reachable from the
+   * assistant and from MCP, where "give this role learning access" is naturally
+   * answered with a one-key object — and that call silently stripped every other
+   * right the role held. (Same class as the learning update door, 2026-08-25.)
+   *
+   * `undefined` (the module is absent from `value`) means LEAVE IT ALONE; an
+   * explicit RightSet — including one that is all-false — is a real instruction
+   * and still revokes. That distinction is the whole fix, so it is `undefined`
+   * that is tested for, never a loose null check.
+   *
+   * ONE function computes it, read by both the amplification check below and the
+   * statements built after it, so the rights we VET can never drift from the
+   * rights we WRITE.
+   */
+  const effective = (moduleKey: string): RightSet => {
+    const sent = value?.[moduleKey]
+    if (sent !== undefined) return normalizeRights(sent)
+    const stored = nowBy.get(moduleKey)
+    return normalizeRights(
+      stored && {
+        read: stored.can_read === 1,
+        create: stored.can_create === 1,
+        edit: stored.can_edit === 1,
+        delete: stored.can_delete === 1,
+      }
+    )
+  }
+
   const amplified: string[] = []
   for (const m of TEAM_MODULE_CATALOG) {
-    const want = normalizeRights(value?.[m.key])
+    const want = effective(m.key)
     for (const right of ["read", "create", "edit", "delete"] as const) {
       const adding = want[right] && nowBy.get(m.key)?.[`can_${right}`] !== 1
       if (adding && mineBy.get(m.key)?.[`can_${right}`] !== 1)
@@ -307,7 +341,7 @@ export async function setRolePermissions(
     )
 
   const statements = TEAM_MODULE_CATALOG.map((m) => {
-    const n = normalizeRights(value?.[m.key])
+    const n = effective(m.key)
     const bit = (b: boolean) => (b ? 1 : 0)
     return `INSERT INTO role_permissions (id, role_id, module, can_read, can_create, can_edit, can_delete)
 VALUES (${sqlString(ulid())}, ${sqlString(roleId)}, ${sqlString(m.key)}, ${bit(n.read)}, ${bit(n.create)}, ${bit(n.edit)}, ${bit(n.delete)})

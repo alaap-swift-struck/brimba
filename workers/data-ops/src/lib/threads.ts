@@ -8,7 +8,8 @@ import { d1ExecScript, d1Query, sqlString, type D1Rest } from "../../../../share
 import { ulid } from "../../../../shared/workers/id"
 import { GuardError, type MemberGuard } from "../../../../shared/workers/gating"
 import type { AgentMessage, AgentThread } from "../../../../shared/types"
-import { LIST_HARD_CAP, THREAD_HARD_CAP } from "../../../../shared/workers/limits"
+import { THREAD_HARD_CAP } from "../../../../shared/workers/limits"
+import { decodeCursor, keysetAfter, PAGE_SIZE, toPage, type Page } from "../../../../shared/workers/paging"
 
 type ThreadRow = { id: string; title: string | null; last_message_at: string | null; created_at: string }
 type MsgRow = {
@@ -45,15 +46,52 @@ function toMessage(r: MsgRow): AgentMessage {
   }
 }
 
-/** The caller's own saved conversations, newest activity first. */
-export async function listThreads(cfg: D1Rest, guard: MemberGuard): Promise<AgentThread[]> {
+/** The order conversations are read in: most recent activity first, falling back to
+ * when the thread was created (a thread whose first turn hasn't landed yet). Named
+ * ONCE because the cursor predicate and the ORDER BY must be the same expression —
+ * if they drift, paging skips rows and nobody notices until someone's history has a
+ * hole in it. */
+const THREAD_ORDER = "COALESCE(last_message_at, created_at)"
+
+/** The caller's own saved conversations, newest activity first — ONE PAGE (R14).
+ *
+ * This was `LIMIT 1000`. A cap is an honest refusal, and it is the right answer for a
+ * collection that stops growing — roles, dropdown values. `agent_threads` gains a row
+ * every time someone starts a chat and loses one never, so the cap was a promise to go
+ * blind later: the person's own oldest conversations would sit in the database, listed
+ * nowhere, reachable by nothing. Keyset, never OFFSET — see shared/workers/paging.ts
+ * for why offset paging duplicates rows under concurrent writes. (Scaling review,
+ * 2026-08-25.) */
+export async function listThreads(
+  cfg: D1Rest,
+  guard: MemberGuard,
+  cursor?: string | null
+): Promise<Page<AgentThread>> {
+  const pos = decodeCursor(cursor)
+  const after = keysetAfter(pos, THREAD_ORDER)
   const rows = await d1Query<ThreadRow>(
     cfg,
     guard.databaseId,
-    `SELECT id, title, last_message_at, created_at FROM agent_threads WHERE creator_id = ? ORDER BY COALESCE(last_message_at, created_at) DESC LIMIT ${LIST_HARD_CAP}`, // R14 hard cap
+    // LIMIT is PAGE_SIZE + 1 — the extra row is how hasMore is known (R14).
+    `SELECT id, title, last_message_at, created_at FROM agent_threads
+     WHERE creator_id = ?${after.sql ? ` AND ${after.sql}` : ""}
+     ORDER BY ${THREAD_ORDER} DESC, id DESC LIMIT ${PAGE_SIZE + 1}`,
+    [guard.userId, ...after.params]
+  )
+  const page = toPage(rows, PAGE_SIZE, (r) => [r.last_message_at ?? r.created_at, r.id])
+  return { ...page, rows: page.rows.map(toThread) }
+}
+
+/** R16: how many conversations the caller actually has — an exact server COUNT(*),
+ * asked separately because a page's length now only ever says "up to fifty". */
+export async function countThreads(cfg: D1Rest, guard: MemberGuard): Promise<number> {
+  const rows = await d1Query<{ total: number }>(
+    cfg,
+    guard.databaseId,
+    "SELECT COUNT(*) AS total FROM agent_threads WHERE creator_id = ?", // aggregate: one row by construction (R14)
     [guard.userId]
   )
-  return rows.map(toThread)
+  return rows[0]?.total ?? 0
 }
 
 /** Every message in a thread, oldest first. Throws 404 if the thread isn't the

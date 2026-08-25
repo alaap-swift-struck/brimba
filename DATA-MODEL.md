@@ -57,7 +57,7 @@ Dropped: all transformer/onboarding-JSON/tab-view/device columns.
 that case; with no `image_url`, show initials (or a placeholder avatar when even
 initials aren't derivable).
 
-**Who owns this row (2026-08-18).** Two workers write here, which is normally the
+**Who owns this row (2026-08-12).** Two workers write here, which is normally the
 start of a bug — so the split is stated rather than left to be discovered:
 
 | column(s) | written by | why |
@@ -154,7 +154,7 @@ later against this same balance (the grant action is the seam). Lives in the
 global core DB so the gate can spend a unit without opening a team database.
 
 ### agent_usage_log — KEEP (BUILT 2026-07-01; now in the OPERATIONS db — `db/ops/0001`)
-> MOVED to the OPERATIONS database 2026-08-18 — `db/ops/0001_operations.sql`. Nothing joins to it, so it left the shared core database to stop crowding out identity and membership against D1's 10 GB cap. Reached through `opsDatabase(env)`, which falls back to the core database when no `OPS` binding is present. See SCALING.md §4.9.
+> MOVED to the OPERATIONS database 2026-08-12 — `db/ops/0001_operations.sql`. Nothing joins to it, so it left the shared core database to stop crowding out identity and membership against D1's 10 GB cap. Reached through `opsDatabase(env)`, which falls back to the core database when no `OPS` binding is present. See SCALING.md §4.9.
 
 Purpose: the usage TRAIL behind the panel's "where did my credits go" view.
 Real data: `id`, `team_id`, `actor_id`, `actor_name`, `created_at`, `credits`
@@ -198,7 +198,7 @@ short-lived, never slid), so a token can never act outside the team it was
 created for.
 
 ### error_logs — KEEP (BUILT 2026-07-03; now in the OPERATIONS db — `db/ops/0001`)
-> MOVED to the OPERATIONS database 2026-08-18 — `db/ops/0001_operations.sql`. Nothing joins to it, so it left the shared core database to stop crowding out identity and membership against D1's 10 GB cap. Reached through `opsDatabase(env)`, which falls back to the core database when no `OPS` binding is present. See SCALING.md §4.9.
+> MOVED to the OPERATIONS database 2026-08-12 — `db/ops/0001_operations.sql`. Nothing joins to it, so it left the shared core database to stop crowding out identity and membership against D1's 10 GB cap. Reached through `opsDatabase(env)`, which falls back to the core database when no `OPS` binding is present. See SCALING.md §4.9.
 
 Purpose: the central error store (ERROR-HANDLING.md) — one row per UNEXPECTED
 failure (worker crash or client-side error), never a clean GuardError refusal.
@@ -271,7 +271,7 @@ is stated once in `shared/workers/activity.ts` (LAW R25).
 Real data: audit block + `type`, `value`, `is_default`. Per-team dropdown
 values, seeded from Base v3 defaults on team creation.
 
-**Owner: tenancy** (2026-08-18). It holds every deliberate write — create, edit,
+**Owner: tenancy** (2026-08-12). It holds every deliberate write — create, edit,
 retire, the bulk twin, and the seed on team creation — and the dropdown
 management screens are its doors. **content** appends here too, in exactly one
 place: `learning.ts` auto-creates a `Learning category` value when an author types
@@ -372,7 +372,7 @@ these rows are a record of intent, never a separate set of powers.
   data_import_sessions, agent_threads, agent_messages (per-team `0004_modules`).
   **Since:** agent_usage_log (BUILT 2026-07-01) and error_logs (the central error
   store, BUILT 2026-07-03) — both created in core, both MOVED to the operations
-  database 2026-08-18 (`db/ops/0001`),
+  database 2026-08-12 (`db/ops/0001`),
   data_import_batches (per-team `0006_import_batches`, the agentic multi-file
   import, BUILT 2026-07-04).
 - **To build (tables)**: selectable_data_types (the only remaining one) — the

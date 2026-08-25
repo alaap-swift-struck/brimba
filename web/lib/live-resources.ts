@@ -182,7 +182,12 @@ export const TEAM_RESOURCES: Record<
     idField: "id",
     fetchOne: (id) => tenancy.role(id),
     fetchList: (t) => listFetch.roles(t),
-    deps: (t, id) => [`my-perms:${t}`, `role-perms:${id}`],
+    // `activity:record:member_roles:` was missing: a role's row and its access
+    // rights refreshed live, but the Activity tab RIGHT BESIDE THEM did not — so
+    // two admins editing one role each saw only their own history until they
+    // navigated away and back. R2 gives every record an Activity tab; R15 is what
+    // makes it true a second time.
+    deps: (t, id) => [`my-perms:${t}`, `role-perms:${id}`, `activity:record:member_roles:${id}`],
   },
   invites: {
     key: (t) => `invites:${t}`,
@@ -210,6 +215,19 @@ export const TEAM_RESOURCES: Record<
     idField: "id",
     fetchOne: (id) => contentApi.learningOne(id),
     fetchList: (t) => listFetch.learning(t),
+    // This entry had no `deps` at all, which cost two live screens:
+    //
+    // `learning-one:` — the article detail reads the LIST cache when it holds the
+    // record and this single-row key otherwise, which is every deep link and every
+    // fresh tab. `patchRow` above only touches the list, so on that path the ping
+    // landed on a key nobody was reading and the screen sat still.
+    //
+    // `activity:record:learning:` — the Activity tab beside it. Help has always
+    // refreshed its record feed on a ping and learning never did, so "who changed
+    // this, and when" went stale under a teammate's edit. An article is the one
+    // record a whole team reads at once, so that is the version of this bug most
+    // people would actually meet.
+    deps: (_t, id) => [`learning-one:${id}`, `activity:record:learning:${id}`],
   },
   // Help tickets — row-level live. A status change / new reply (postHelpReply
   // pings `help` too) patches just that ticket in the cached "all" set.
@@ -230,12 +248,20 @@ export const TEAM_RESOURCES: Record<
     // until they navigated away and back, and the reply-count badge was stale with
     // it. An exemption that describes a mechanism has to name a mechanism that
     // exists. (Realtime review, 2026-08-25.)
+    //
+    // `help-one:` is the same shape of gap one layer down: the ticket detail
+    // reads the loaded list when it holds the ticket and this single-row key
+    // otherwise — a deep link, a fresh tab, or (since R14 paged this list) any
+    // ticket past the loaded page, which is an ordinary case now rather than a
+    // rare one. `patchRow` only reaches the list, so without this the ping
+    // arrived and the open ticket did not move.
     deps: (t, id) => [
       `activity:record:help:${id}`,
       `help-stakeholders:${id}`,
       `help-mine:${t}`,
       `help-thread:${id}`,
       `total:help-thread:${id}`,
+      `help-one:${id}`,
     ],
   },
 }
@@ -245,4 +271,15 @@ export const TEAM_RESOURCES: Record<
 export const SIMPLE_INVALIDATIONS: Record<string, (teamId: string) => string[]> = {
   // Team name/logo — the shell also refreshes the active context (see app-shell).
   team: (t) => [`team-meta:${t}`],
+  // Import history. A batch has no row-shaped cache — the import screen reads the
+  // whole summary list under one key — so a ping just drops it and the next read
+  // refetches. TEAM-wide is right: `listBatchSummaries` is deliberately team
+  // visible (who imported what, into which tables, with the totals), unlike the
+  // working batch, which stays creator-scoped.
+  //
+  // NOTE: nothing publishes `data_import_batches` yet, so this listener is ready
+  // and idle. The worker half is one line beside the publishes already in
+  // workers/data-ops/src/routes/import.ts — until it lands, an import's progress
+  // is invisible to everyone (the runner included) until someone refreshes.
+  data_import_batches: (t) => [`import-batches:${t}`],
 }

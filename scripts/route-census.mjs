@@ -1,22 +1,30 @@
 // THE ROUTE CENSUS — every door this app has, derived from the code.
 //
 // Why this exists. On 12 August a security sweep measured "45/45 state-changing
-// routes gated" and scored 99/100. There are 61. The sixteen it never saw were
-// all of auth's POST doors, all of mcp's, realtime's publish door and the gateway
-// beacon — and the one route in the base with no caller check at all was in that
-// missing set. The score was not wrong because the reading was careless; it was
-// wrong because every reviewer has to REDISCOVER the surface, and each one
-// discovers a slightly different surface.
+// routes gated" and scored 99/100. The doors it never saw were all of auth's POST
+// doors, all of mcp's, realtime's publish door and the gateway beacon — and the
+// one route in the base with no caller check at all was in that missing set. The
+// score was not wrong because the reading was careless; it was wrong because
+// every reviewer has to REDISCOVER the surface, and each one discovers a slightly
+// different surface.
 //
 // So the surface is written down, generated from the source, and checked. The next
 // review inherits it instead of guessing at it. (security_sentry, 2026-08-25 —
 // its own words: "the durable fix isn't a higher score, it's a committed route
 // census".)
 //
+// THIS HEADER NO LONGER STATES A TOTAL, and that is deliberate. It used to say
+// "There are 61"; the rules test said 58 in its own prose; a review said 61
+// again — three hand-typed counts, none of them the number this script actually
+// produces, each free to drift on its own. A count maintained by hand in three
+// places is three chances to be wrong and no way to tell which one is. The only
+// place the number lives is the generated ROUTE-CENSUS.md, and the rules test
+// compares it door-for-door.
+//
 //   node scripts/route-census.mjs          print it
 //   node scripts/route-census.mjs --write  update ROUTE-CENSUS.md
 
-import { readdirSync, readFileSync, writeFileSync } from "node:fs"
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -49,7 +57,50 @@ const GATES = [
   ["TEST_LOGIN_KEY", /TEST_LOGIN_KEY/],
   ["emailed code", /login_codes|code_hash/i],
   ["bearer token", /verifyToken|Bearer|requireToken/],
+  // A PROXY DOES NO WORK, so it has no gate of its own — it hands the caller's
+  // own Request to a worker whose every door is enumerated in this same census
+  // and checked individually. That is a real, checkable safety property and it
+  // deserves a name: `**none detected**` on the gateway's branches would be six
+  // permanent false alarms, and a census nobody believes is a census nobody
+  // reads. The property is only true while the door behind it is in the census,
+  // which is why the rules test asserts EVERY worker directory has rows.
+  //
+  // `return <call>(env.<BINDING>` — the branch's whole body is the handover.
+  // NOT a bare mention of a binding: the client-error beacon calls
+  // `callService(env.AUTH, …/me)` to VERIFY a session before recording, which is
+  // the opposite of proxying, and labelling it "proxied" would put a sentence
+  // into a generated security document that is not true.
+  [
+    "proxied",
+    /return\s+(?:proxyService|forwardToDoor)\s*\(|return\s+[A-Za-z_$][\w$]*\(\s*env\.(?:AUTH|TENANCY|CONTENT|DATAOPS|MCP|REALTIME)\b/,
+  ],
 ]
+
+/** Does this test OPEN its own `if`, or is it one clause of a wider condition?
+ *
+ * `pathname === "/mcp"` appears twice in the gateway: once as the door, and once
+ * thirty lines above inside the rate limiter's `|| ` chain. The first was read as
+ * the second — so the census concluded the JSON-RPC door forwards nothing — and
+ * the guard's other clauses were enumerated as doors that do not exist. A clause
+ * of a wider condition is a guard that happens to mention a path. */
+const opensIf = (src, at) => /if\s*\($/.test(src.slice(Math.max(0, at - 8), at))
+
+/** Does this branch carry a caller's non-GET request onward?
+ *
+ * A methoded route answers this with its method. An `ANY` branch — a router arm
+ * with no method test at all — does not, and "exclude ANY" is how `ANY /mcp`
+ * became invisible to the one check that asks whether a door is gated: the
+ * JSON-RPC endpoint the whole external machine surface arrives through, a door
+ * that takes POSTs all day, classified as neither read nor write because the
+ * ROUTER never mentions a method. Not "found ungated" — unclassifiable.
+ *
+ * So an `ANY` branch is classified by BEHAVIOUR. Handing the request object to
+ * another worker forwards its POSTs by construction; answering inline with a
+ * literal (a health probe) or serving a static asset does not. Both errors this
+ * census has already made are still avoided: `/t/` and the health branches stay
+ * out of the state-changing set, and `/mcp` joins it. */
+const FORWARDS_REQUEST =
+  /proxyService\s*\(|forwardToDoor\s*\(|\.fetch\(\s*request\b|\(\s*env\.(?:AUTH|TENANCY|CONTENT|DATAOPS|MCP|REALTIME)\b/
 
 /** One top-level declaration's body, bounded by the next one. */
 function body(src, from) {
@@ -59,44 +110,81 @@ function body(src, from) {
   return src.slice(from, next ? next.index : undefined)
 }
 
-/** The body of ONE `if (pathname …) { … }` branch, brace-matched from its own
- * test — not the router that contains it.
+/** The body of ONE inline branch, brace-matched from its own test — not the
+ * router that contains it.
  *
  * Reading the whole router was the second wrong answer this census gave. It made
  * every inline door look gated, because SOME door in that router is: realtime's
  * `POST /publish` reported `whoAmI` while having no caller verification at all,
  * which security_sentry has filed as a standing finding. Under-reporting the
  * surface was the first wrong answer; over-crediting it is worse, because a
- * census that says a door is guarded is a reason to stop looking at it. */
-function inlineBranch(src, path) {
-  const re = new RegExp(`(?:url\\.)?pathname\\s*(?:===\\s*|\\.startsWith\\()\\s*"${path.replace(/[/]/g, "\\/")}"`)
-  const m = re.exec(src)
-  if (!m) return ""
-  const open = src.indexOf("{", m.index)
-  // A one-line branch (`if (x) return y`) has no block — take to end of line.
-  const eol = src.indexOf("\n", m.index)
-  if (open === -1 || open > eol) return src.slice(m.index, eol)
+ * census that says a door is guarded is a reason to stop looking at it.
+ *
+ * Two tests reach an inline door: `pathname === "/x"` (and `.startsWith`), and
+ * `route === "GET /x"` — the `${method} ${pathname}` form three workers use for
+ * their health probe. The second was unknown here, so those three doors were not
+ * in the census at all. */
+function inlineBranch(src, path, method) {
+  // Escape the whole path, not just its slashes. A `.` in a route would
+  // otherwise match any character — the quiet way a scanner reads the wrong
+  // branch and reports its gate.
+  const p = path.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")
+  const re = new RegExp(
+    `(?:url\\.)?pathname\\s*(?:===\\s*|\\.startsWith\\()\\s*"${p}"` +
+      (method && method !== "ANY" ? `|\\broute\\s*===\\s*"${method} ${p}"` : ""),
+    "g"
+  )
+  // THE RIGHT BRANCH, not the first mention — see `opensIf`.
+  const all = [...src.matchAll(re)]
+  if (all.length === 0) return ""
+  const m = all.find((x) => opensIf(src, x.index)) ?? all[0]
+
+  // The end of the `if (…)` test: from the start of its line, the offset where
+  // paren depth falls back to zero.
+  let i = src.lastIndexOf("\n", m.index) + 1
+  let parens = 0
+  let started = false
+  for (; i < src.length; i++) {
+    if (src[i] === "(") {
+      parens++
+      started = true
+    } else if (src[i] === ")" && --parens === 0 && started) break
+  }
+  // A BLOCK body: brace-match it.
+  const rest = src.slice(i + 1)
+  const lead = rest.match(/^\s*/)[0]
+  if (rest[lead.length] === "{") {
+    let depth = 0
+    for (let j = i + 1 + lead.length; j < src.length; j++) {
+      if (src[j] === "{") depth++
+      else if (src[j] === "}" && --depth === 0) return src.slice(m.index, j + 1)
+    }
+    return src.slice(m.index)
+  }
+  // A BARE body — one statement, which may WRAP (`return proxyService(env.X,\n
+  // request, { … })`). Ending it at the first newline read only the test and
+  // reported the door ungated. It ends at the first newline where nothing is
+  // still open.
   let depth = 0
-  let i = open
-  while (i < src.length) {
-    if (src[i] === "{") depth++
-    else if (src[i] === "}" && --depth === 0) return src.slice(m.index, i + 1)
-    i++
+  for (let j = i + 1; j < src.length; j++) {
+    const c = src[j]
+    if (c === "(" || c === "{" || c === "[") depth++
+    else if (c === ")" || c === "}" || c === "]") depth--
+    else if (c === "\n" && depth <= 0 && j > i + 1 + lead.length) return src.slice(m.index, j)
   }
   return src.slice(m.index)
 }
 
-function handlerSource(worker, name, path) {
+function handlerSource(worker, name, path, method) {
   if (name === "fetch")
-    return inlineBranch(readFileSync(join(ROOT, "workers", worker, "src", "index.ts"), "utf8"), path)
+    return inlineBranch(readFileSync(join(ROOT, "workers", worker, "src", "index.ts"), "utf8"), path, method)
   const dirs = [join(ROOT, "workers", worker, "src", "routes"), join(ROOT, "workers", worker, "src")]
   for (const dir of dirs) {
-    let files = []
-    try {
-      files = readdirSync(dir).filter((f) => f.endsWith(".ts"))
-    } catch {
-      continue
-    }
+    // `existsSync`, not a swallowed throw: not every worker has a `src/routes`
+    // directory, which is a fact to test for — while a directory that exists and
+    // cannot be READ is a fault, and must not look like a worker with no routes.
+    if (!existsSync(dir)) continue
+    const files = readdirSync(dir).filter((f) => f.endsWith(".ts"))
     for (const f of files) {
       const src = readFileSync(join(dir, f), "utf8")
       for (const marker of [`export async function ${name}`, `async function ${name}(`]) {
@@ -112,26 +200,51 @@ export function census() {
   const rows = []
   for (const worker of readdirSync(join(ROOT, "workers"), { withFileTypes: true })) {
     if (!worker.isDirectory()) continue
-    let index = ""
-    try {
-      index = readFileSync(join(ROOT, "workers", worker.name, "src", "index.ts"), "utf8")
-    } catch {
-      continue
-    }
+    // NO try/catch. A worker directory with no readable `src/index.ts` used to be
+    // skipped in silence, which is the one failure mode this census cannot
+    // afford: it does not report an error, it reports a SMALLER NUMBER — and a
+    // smaller number reads exactly like a passing run. Every previous wrong
+    // answer this file has given had that shape. Let it throw.
+    const index = readFileSync(join(ROOT, "workers", worker.name, "src", "index.ts"), "utf8")
     // Both dispatch shapes in this base: a declarative ROUTES table, and auth's switch.
     const seen = new Set()
     const add = (method, path, handler, kind) => {
       const key = `${method} ${path}`
       if (seen.has(key)) return
       seen.add(key)
-      const src = handlerSource(worker.name, handler, path)
+      const src = handlerSource(worker.name, handler, path, method)
       const gates = GATES.filter(([, re]) => re.test(src)).map(([n]) => n)
-      rows.push({ worker: worker.name, method, path, handler, kind, gates })
+      // Behaviour, not method — see FORWARDS_REQUEST. A methoded route says so
+      // itself; an `ANY` branch is asked what it DOES with the request.
+      const changes = method === "ANY" ? FORWARDS_REQUEST.test(src) : method !== "GET"
+      rows.push({ worker: worker.name, method, path, handler, kind, gates, changes })
     }
     for (const m of index.matchAll(/"([A-Z]+) ([^"]+)": \{ handler: (\w+)(?:, kind: "(\w+)")?/g))
       add(m[1], m[2], m[3], m[4] ?? "")
-    for (const m of index.matchAll(/case "([A-Z]+) ([^"]+)":\s*return (?:await\s+)?(\w+)\(/g))
-      add(m[1], m[2], m[3], "")
+    // THE SWITCH SHAPE — the label first, its body second. This used to be one
+    // pattern demanding `return` IMMEDIATELY after the colon, and on 2026-08-25
+    // auth's and mcp's health doors each grew an explanatory comment between the
+    // two and disappeared from the census. Two doors gone, no error, just a
+    // smaller number — the same failure this file keeps making in a new costume.
+    // The exact door-for-door comparison in the rules test is what surfaced it;
+    // the floor it replaced (`> 90`) would have shrugged at both.
+    for (const m of index.matchAll(/case "([A-Z]+) ([^"]+)":/g)) {
+      // The arm runs to the next label. Line comments are dropped so a `return`
+      // written in prose cannot be mistaken for the handler.
+      const after = index.slice(m.index + m[0].length)
+      const end = after.search(/\n\s*(?:case "|default:)/)
+      const arm = (end === -1 ? after : after.slice(0, end)).replace(/\/\/[^\n]*/g, "")
+      const call = /return (?:await\s+)?(\w+)\(/.exec(arm)
+      add(m[1], m[2], call ? call[1] : "fetch", "")
+    }
+    // THE FOURTH SHAPE: `if (route === "GET /api/<worker>/health")`, answered
+    // inline ABOVE the ROUTES-table lookup so a health probe needs no entry in
+    // it. Three workers do this — content, data-ops and tenancy — and the census
+    // saw none of them, because it knew the table, the switch and the pathname
+    // if-chain, and this is a fifth thing. Small doors, but the point of a census
+    // is that the number is the number: a surface written down with three doors
+    // missing is a surface a reviewer will trust and be wrong about.
+    for (const m of index.matchAll(/\broute === "([A-Z]+) ([^"]+)"/g)) add(m[1], m[2], "fetch", "")
     // THE THIRD SHAPE: an if-chain on the pathname. realtime and the gateway route
     // this way and have no ROUTES table and no switch, so the first census found
     // NOTHING in either — it shipped a checked document that under-reported the
@@ -147,6 +260,11 @@ export function census() {
     )) {
       const path = m[1]
       if (path === "/api/") continue // the rate-limit prefix guard, not a door
+      // …and neither is any other clause of that guard. It grew a `/media/` arm,
+      // which the census promptly reported as a door — `ANY /media/`, a
+      // duplicate of the real `GET /media/` two hundred lines below, invented out
+      // of a rate-limit condition. A door OPENS an `if`.
+      if (!opensIf(index, m.index)) continue
       // An if-chain door answers inline; name the worker's handler as its own.
       add(m[2] ?? "ANY", path, "fetch", "")
     }
@@ -156,11 +274,18 @@ export function census() {
 
 export function render(rows) {
   // `ANY` is a router branch with no method test — a WebSocket upgrade, a health
-  // check, a proxy prefix. Counting those as state-changing over-reported the
-  // ungated set, which is the opposite error to the one this census was built to
-  // fix and just as misleading. The first version under-reported by 5 doors; the
-  // second over-reported by 3. Both read as fine.
-  const mutating = rows.filter((r) => r.method !== "GET" && r.method !== "ANY")
+  // check, a proxy prefix. Counting all of those as state-changing over-reported
+  // the ungated set, which is the opposite error to the one this census was built
+  // to fix and just as misleading. The first version under-reported by 5 doors;
+  // the second over-reported by 3. Both read as fine.
+  //
+  // So the third version stopped counting `ANY` at all — and that quietly made
+  // `ANY /mcp` unclassifiable: the JSON-RPC door the entire external machine
+  // surface arrives through, excluded from the gate question by a filter written
+  // to be careful. `r.changes` asks each branch what it DOES instead (see
+  // FORWARDS_REQUEST), so a door is counted on its behaviour, not on what the
+  // router happened to say.
+  const mutating = rows.filter((r) => r.changes)
   const ungated = mutating.filter((r) => r.gates.length === 0)
   const lines = [
     "# The route census",
@@ -168,11 +293,18 @@ export function render(rows) {
     "**Generated — do not edit by hand.** `node scripts/route-census.mjs --write`.",
     "",
     "Every door this app has, with the gate each one opens with, derived from the",
-    "source. It exists because a security sweep once measured 45 state-changing",
-    "routes when there were 61, and scored the app on the 45 it happened to find.",
-    "A reviewer should inherit the surface, not rediscover it.",
+    "source. It exists because a security sweep once counted 45 state-changing",
+    "routes, scored the app on the 45 it happened to find, and never saw the rest —",
+    "including the one door with no caller check at all. A reviewer should inherit",
+    "the surface, not rediscover it. The count above is the only one: it is",
+    "generated, and the rules test compares this table to the code door for door.",
     "",
     `**${rows.length} routes · ${mutating.length} state-changing · ${ungated.length} with no gate detected.**`,
+    "",
+    "A route whose method reads `ANY` is a router branch with no method test. It",
+    "counts as state-changing when its branch carries non-GET requests onward (a",
+    "proxy, a socket upgrade) and not when it answers inline (a health probe, a",
+    "static shell) — behaviour, because the router did not say.",
     "",
     "| Worker | Method | Path | Handler | Kind | Gate |",
     "|---|---|---|---|---|---|",

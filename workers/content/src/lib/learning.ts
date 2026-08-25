@@ -230,16 +230,22 @@ export async function countLearning(cfg: D1Rest, guard: MemberGuard): Promise<nu
   return rows[0]?.n ?? 0
 }
 
-/** Fields a create / update accepts (the editable surface). */
+/** Fields a create / update accepts (the editable surface).
+ *
+ * The optional fields are `| null` because an EDIT body is PARTIAL and the two
+ * callers say two different things: the machine surface (agent / MCP) OMITS a
+ * field it does not mean to touch, while the web form SENDS null for a box a
+ * person actually cleared (`body: values.body || null`). Typing them as
+ * `string | undefined` said the second caller did not exist. */
 export type LearningInput = {
   title?: string
-  category?: string
-  description?: string
-  contentType?: string
-  contentLink?: string
-  body?: string
-  sequence?: number
-  required?: boolean
+  category?: string | null
+  description?: string | null
+  contentType?: string | null
+  contentLink?: string | null
+  body?: string | null
+  sequence?: number | null
+  required?: boolean | null
 }
 
 /** Create a learning item. Title is required; everything else is optional. A
@@ -333,15 +339,53 @@ export async function updateLearning(
   const before = await learningOrThrow(cfg, guard, id)
   const title = requireText(input.title, "Title", TEXT_LIMITS.short)
 
-  const category = optionalText(input.category, "Category", TEXT_LIMITS.short) ?? null
-  if (category) await ensureCategory(cfg, guard, actor, category)
+  // AN OMITTED FIELD IS NOT AN EMPTY ONE — the distinction this whole block turns on.
+  //
+  // `undefined` means the caller never mentioned the field, so it KEEPS what is
+  // stored. `null` (or "") means the field was PRESENT and empty, so it really
+  // does clear. Both callers depend on that split: tool-catalog's `opt()` drops
+  // an unmentioned key so JSON.parse here yields undefined, while the web form
+  // sends an explicit null for a box a person cleared.
+  //
+  // Every content column below used to be written unconditionally, so
+  // `update_learning` — which requires only id + title and is marked
+  // agent.confirm: false — turned "rename this article" into an unconfirmed wipe
+  // of its body, category, link and type. `== null`, which the two guarded
+  // fields used, cannot express the split either: it reads the person who
+  // cleared a field and the machine that never named it as the same caller.
+  // (Correctness review, round 5.)
+  const sentCategory = optionalText(input.category, "Category", TEXT_LIMITS.short) ?? null
+  // Pick-or-create runs only on a category the caller actually SENT: doing it for
+  // a preserved one would re-create a retired dropdown value, and write its birth
+  // row, on an edit that never touched the category.
+  if (sentCategory) await ensureCategory(cfg, guard, actor, sentCategory)
+  const category = input.category === undefined ? before.category : sentCategory
 
-  const contentType = optionalText(input.contentType, "Content type", TEXT_LIMITS.short) ?? null
+  const contentType =
+    input.contentType === undefined
+      ? before.content_type
+      : optionalText(input.contentType, "Content type", TEXT_LIMITS.short) ?? null
   // Through the boundary seam FIRST (NUL strip + length cap — a NUL reaching D1
   // is a 500, and every sibling field on this same statement already does it),
   // then the XSS scrub. Two different jobs; both are required.
-  const body = safeBody(optionalText(input.body, "Body", TEXT_LIMITS.long))
-  const description = optionalText(input.description, "Description", TEXT_LIMITS.long) ?? previewFromBody(body)
+  const body =
+    input.body === undefined
+      ? before.content_body
+      : safeBody(optionalText(input.body, "Body", TEXT_LIMITS.long))
+  const contentLink =
+    input.contentLink === undefined
+      ? before.content_link
+      : safeLink(optionalText(input.contentLink, "Link", TEXT_LIMITS.link))
+  // Description is DERIVED from the body (the form merged them); an explicit one
+  // — an import's, say — wins. So it follows the BODY: when neither was sent, the
+  // stored description is still the right one, and re-deriving would overwrite an
+  // explicitly imported description with an excerpt of the body.
+  const description =
+    input.description !== undefined || input.body !== undefined
+      ? optionalText(input.description, "Description", TEXT_LIMITS.long) ?? previewFromBody(body)
+      : before.content_description
+  const sequence = input.sequence === undefined ? before.sequence : intOr(input.sequence, 0)
+  const required = input.required === undefined ? before.is_required === 1 : input.required === true
 
   const now = new Date().toISOString()
   // RETURNING turns the write into its own answer: no rows came back means
@@ -349,30 +393,31 @@ export async function updateLearning(
   const landed = await d1Query<{ id: string }>(
     cfg,
     guard.databaseId,
-    `UPDATE learning SET category = ${sqlString(category)}, content_title = ${sqlString(title)}, content_description = ${sqlString(description)}, content_type = ${sqlString(contentType)}, content_link = ${sqlString(safeLink(optionalText(input.contentLink, "Link", TEXT_LIMITS.link)))}, content_body = ${sqlString(body)}, sequence = ${input.sequence == null ? before.sequence : intOr(input.sequence, 0)}, is_required = ${input.required == null ? before.is_required : input.required ? 1 : 0}, updated_at = ${sqlString(now)}, editor_id = ${sqlString(actor.id)}, editor_email = ${sqlString(actor.email)}, editor_name = ${sqlString(actor.name)} WHERE id = ${sqlString(id)}${versionPredicate(expectedVersion)} RETURNING id`
+    `UPDATE learning SET category = ${sqlString(category)}, content_title = ${sqlString(title)}, content_description = ${sqlString(description)}, content_type = ${sqlString(contentType)}, content_link = ${sqlString(contentLink)}, content_body = ${sqlString(body)}, sequence = ${sequence}, is_required = ${required ? 1 : 0}, updated_at = ${sqlString(now)}, editor_id = ${sqlString(actor.id)}, editor_email = ${sqlString(actor.email)}, editor_name = ${sqlString(actor.name)} WHERE id = ${sqlString(id)}${versionPredicate(expectedVersion)} RETURNING id`
   )
   assertNotConflicted(landed.length, expectedVersion)
 
+  // Every `to` is the value that was actually WRITTEN above, never the raw
+  // incoming one. The Link row used to read `safeLink(input.contentLink)` — the
+  // one field whose diff was computed a second, different way from its own SET —
+  // so a preserved link was reported as cleared: history describing a change that
+  // never happened, which is worse than no history at all.
   const diff = [
     { label: "Title", from: before.content_title, to: title },
     { label: "Category", from: before.category, to: category },
     { label: "Description", from: before.content_description, to: description },
     { label: "Type", from: before.content_type, to: contentType },
-    { label: "Link", from: before.content_link, to: safeLink(input.contentLink) },
+    { label: "Link", from: before.content_link, to: contentLink },
     { label: "Body", from: before.content_body, to: body, hideValues: true },
     // Sequence and Required were absent from this diff AND defaulted in the SET
     // above, so an edit that omitted them wrote 0/false over a real value and
     // recorded nothing about it. A learning item quietly stopped being required
     // and quietly moved to the front of the order. (Dead-end review, 2026-08-25.)
-    {
-      label: "Order",
-      from: String(before.sequence),
-      to: String(input.sequence == null ? before.sequence : intOr(input.sequence, 0)),
-    },
+    { label: "Order", from: String(before.sequence), to: String(sequence) },
     {
       label: "Required",
       from: before.is_required ? "Yes" : "No",
-      to: (input.required == null ? before.is_required === 1 : input.required) ? "Yes" : "No",
+      to: required ? "Yes" : "No",
     },
   ]
   const changes = describeChanges(diff)

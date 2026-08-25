@@ -20,28 +20,59 @@ async function teamName(env: Env, teamId: string): Promise<string> {
   return row?.name ?? "your team"
 }
 
-/** Send one branded email through the auth worker (it owns the Resend key). */
-async function send(
+/**
+ * THE one door out of this worker to a mailbox — a pre-built body straight to
+ * auth, which owns the Resend key.
+ *
+ * IT ANSWERS WHETHER THE MAIL ACTUALLY WENT, and that is not decoration. This
+ * call used to discard its response entirely, while auth's `/internal/send-email`
+ * returns `{ sent: false }` — a clean 200 — whenever `RESEND_API_KEY` is unset.
+ * For the notices below that is survivable: the action they describe already
+ * happened and is already in activity. For anything whose ABSENCE is meant to
+ * carry information (the nightly error digest: no mail = a clean night) it is
+ * fatal, because an unconfigured mailer then looks exactly like a healthy
+ * system. So the truth comes back, and a caller that needs it can check it.
+ *
+ * TRUE only when auth answered AND confirmed the send. A `null` from
+ * `callService` (auth never answered), a non-2xx, an unparseable body and an
+ * explicit `{ sent: false }` are all FALSE — the caller cannot tell them apart
+ * because for a caller there is no difference: the mail did not go.
+ */
+export async function sendMail(
   env: Env,
   to: string,
   subject: string,
-  content: Pick<BrandedEmail, "heading" | "intro" | "footnote">
-): Promise<void> {
-  const { html, text } = brandedEmail(content)
+  body: { html: string; text: string }
+): Promise<boolean> {
   // Bounded and guarded. Email is best-effort by design — every caller already
   // wraps this in a try/catch so a mail failure never fails the write it describes
   // — but "best-effort" without a timeout still means a wedged mail hop holds the
   // user's request open for as long as the platform allows.
-  await callService(
+  const res = await callService(
     env.AUTH,
     "https://auth/internal/send-email",
     {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-internal-key": env.INTERNAL_KEY ?? "" },
-      body: JSON.stringify({ to, subject, html, text }),
+      body: JSON.stringify({ to, subject, html: body.html, text: body.text }),
     },
     { worker: "tenancy", place: "send-email" }
   )
+  if (!res || !res.ok) return false
+  const answer = (await res.json().catch(() => null)) as { sent?: boolean } | null
+  return answer?.sent === true
+}
+
+/** Send one BRANDED email — the same template every transactional mail uses, so
+ * they all look identical. A thin wrapper over `sendMail`: one door, one place
+ * that knows the internal key and the timeout. */
+async function send(
+  env: Env,
+  to: string,
+  subject: string,
+  content: Pick<BrandedEmail, "heading" | "intro" | "footnote">
+): Promise<boolean> {
+  return sendMail(env, to, subject, brandedEmail(content))
 }
 
 /** A member's role was changed by someone else. */

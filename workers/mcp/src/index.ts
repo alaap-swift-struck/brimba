@@ -91,6 +91,10 @@ async function handleMcp(request: Request, env: Env): Promise<Response> {
       return rpcResult(id, {
         content: [{ type: "text", text: out.text }],
         isError: !out.ok,
+        // Say it in the RESULT, not only inside the text a program won't read: a
+        // capped payload is a partial answer, and a caller that can't tell will
+        // treat it as the whole one.
+        ...(out.truncated ? { truncated: true } : {}),
       })
     }
     default:
@@ -177,7 +181,9 @@ export default {
         case "POST /api/mcp/tokens/revoke":
           return await postRevoke(request, env)
         case "GET /api/mcp/health":
-          return json({ ok: true })
+          // BOOLEANS ONLY — unauthenticated door. Whether a binding is
+          // configured, never what it holds and never which one is missing.
+          return json({ ok: true, bindings: { ops: !!env.OPS, internalKey: !!env.INTERNAL_KEY } })
         default:
           return fail(404, "not_found", "No such MCP action.")
       }

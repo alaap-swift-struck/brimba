@@ -34,7 +34,7 @@ export const str = (input: Record<string, unknown>, key: string): string => {
 }
 /** THE LOST-UPDATE GUARD, for a machine caller.
  *
- * Four edit doors take `expectedVersion` — the `updated_at` the caller was shown —
+ * Five edit doors take `expectedVersion` — the `updated_at` the caller was shown —
  * and refuse to land on a row that has moved on since. The web client sends it.
  * No tool exposed it or forwarded it, so a machine edit ALWAYS won a concurrent
  * race: the assistant or an outside integration would silently overwrite a change
@@ -44,11 +44,16 @@ export const str = (input: Record<string, unknown>, key: string): string => {
  * Optional, because a machine caller that genuinely has not read the row first
  * cannot supply one, and refusing every such edit would break more than it fixes.
  * Supplying it is how a caller opts INTO the protection the UI gets by default.
- * (Interfacelessness review, 2026-08-25.) */
-const VERSION_FIELD = { expectedVersion: S }
-const version = (input: Record<string, unknown>): string | undefined => opt(input, "expectedVersion")
+ * (Interfacelessness review, 2026-08-25.)
+ *
+ * EXPORTED for the agent-only tools: `update_team` sits on a door that takes the
+ * guard, and being declared in a different file was the whole reason it didn't
+ * offer it. The pair travels together on purpose — expose the field without
+ * forwarding it and a caller believes it's protected when it isn't. */
+export const VERSION_FIELD = { expectedVersion: S }
+export const version = (input: Record<string, unknown>): string | undefined => opt(input, "expectedVersion")
 
-/** A REQUIRED boolean body field.
+/** A REQUIRED boolean body field — THE one coercion guard both surfaces share.
  *
  * The three `set_*_active` tools used to build `active: i.active === true`. That
  * reads as a coercion and behaves as a decision: an OMITTED field is `undefined`,
@@ -59,8 +64,14 @@ const version = (input: Record<string, unknown>): string | undefined => opt(inpu
  * already invented a value for it.
  *
  * Throwing here puts that 400 back within reach. (Interfacelessness review,
- * 2026-08-25.) */
-const bool = (input: Record<string, unknown>, key: string): boolean => {
+ * 2026-08-25.)
+ *
+ * EXPORTED because the agent-only tools need the same guard: `mark_learning_done`
+ * built `done: i.done === true` in its own file and so kept the old behaviour a
+ * fortnight after the shared ones were fixed — one required boolean out of four
+ * still inventing a value, which is how a divergence hides. A guard that lives in
+ * one place and is reachable from both is the only kind that can't drift. */
+export const bool = (input: Record<string, unknown>, key: string): boolean => {
   const v = input[key]
   if (typeof v !== "boolean")
     throw new GuardError(400, "invalid_input", `"${key}" must be true or false — it was ${v === undefined ? "not given" : JSON.stringify(v)}.`)

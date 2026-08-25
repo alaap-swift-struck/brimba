@@ -1,8 +1,20 @@
 # Agent + Modules — the build plan (LOCKED 2026-06-22; Phases 1–4 DONE 2026-06-23)
 
-> **Status: SHIPPED (Phases 1–4).** Kept because OPERATIONS.md and DATA-MODEL.md
-> cite it for the two deferred hooks (help attachments, agent auto-draft). For how
-> the agent works TODAY, read MCP.md + EDGE-CASES §4–5; this file is the *why*.
+> **Status: a design record. Every phase shipped; the whole build has been live on
+> production since 2026-07-03** (the external `mcp` worker followed on 2026-07-07).
+> Nothing below is outstanding work except the four deferred hooks listed under
+> *Remaining work*, which is why OPERATIONS.md, DATA-MODEL.md and
+> `workers/tenancy/src/team-schema.ts` still cite this file.
+>
+> **Where the truth lives now:** BASE-MANUAL.md and EDGE-CASES.md §4–5 for how the
+> agent works, MCP.md for the external machine surface, AGENTIC-IMPORT.md for the
+> import, OPERATIONS.md for the deploy. This file is the *why*, and where a detail
+> below disagrees with those, they win.
+>
+> **One phase-1 detail has since been undone:** the `screens` permission module
+> added in Phase 1 was removed on 2026-08-25 along with the whole per-team screen
+> override subsystem — see SCREEN-ENGINE-PLAN.md. `TEAM_MODULES` is seven modules
+> today, not eight.
 
 The next big build on top of the shipped base: **learning + help + data import + the
 AI agent + MCP**, as ONE continuous build on branch `agent-modules`, green at every
@@ -11,10 +23,10 @@ decisions** behind this live in the design memory (two Q&A passes); this doc is 
 ordered BUILD MAP. Don't relitigate decisions — see the design notes; ask only at a
 genuine new fork.
 
-**STATUS (2026-06-23):** Phases **1–4 are DONE** and green on branch `agent-modules`
-(the seven workers are on disk; learning + help + import + the in-app AI agent + the
-UI wiring all shipped). **Phase 5 (quality + docs + ship) is IN PROGRESS** — these
-docs are being reconciled now. **Still remaining:** ~~the external `mcp` worker~~ (SHIPPED 2026-07-07) — a few small deferred hooks may remain (listed at the end).
+**STATUS:** all five phases are done. Phases 1–4 landed 2026-06-23 (learning, help,
+import, the in-app AI agent and the UI wiring); Phase 5 (quality, docs, ship)
+finished with the first production rollout on 2026-07-03; the external `mcp` worker
+followed on 2026-07-07. What remains is the four deferred hooks listed at the end.
 
 > **HISTORICAL PLAN — where a detail below disagrees with the shipped truth, the
 > manual wins** (BASE-MANUAL.md + EDGE-CASES.md). Details superseded since this
@@ -49,6 +61,7 @@ docs are being reconciled now. **Still remaining:** ~~the external `mcp` worker~
 - **Permission matrix** — add `screens` + `agent` to `TEAM_MODULES` + labels + seed
   (Admin full; others: agent read+create [use it], no screens, no edit/delete history
   beyond own). Import has NO key — gated by the target table's `create` right.
+  _`screens` was removed again on 2026-08-25 (see the banner); `agent` stayed._
 - **Shared types** for every new entity.
 - Gate: `npm run check` green.
 
@@ -80,11 +93,11 @@ credit-based quota gate (free 25/day + purchasable balance) ; agent-vs-human + s
 audit ; saved threads in its own `agent_threads`/`agent_messages` tables ; a step cap +
 multi-step stop-and-report.
 
-**3C — `workers/mcp` (separate piece) — ~~REMAINING~~ **SHIPPED 2026-07-07**.** personal access tokens (hashed,
-shown-once, revocable, pinned to one team, live role-check) → bridged to a real
-session ; the OPT-IN tool catalog (only tagged actions) ; abuse bounded by the quota.
-NOT yet on disk (the gateway already exposes the in-app agent; this is the EXTERNAL
-machine surface).
+**3C — `workers/mcp` (separate piece) — SHIPPED 2026-07-07.** Personal access tokens
+(hashed, shown-once, revocable, pinned to one team, live role-check) → bridged to a
+real session ; the OPT-IN tool catalog (only tagged actions) ; abuse bounded by the
+quota. This is the EXTERNAL machine surface, alongside the in-app agent the gateway
+already exposed. Developer guide: MCP.md.
 
 Gate: green + tests (token gating, confirm rule, fence, quota, tool catalog).
 
@@ -94,29 +107,32 @@ Gate: green + tests (token gating, confirm rule, fence, quota, tool catalog).
   ticket detail — all via the screen engine + the new library components. (Help
   attachments + the temporary-view recipes the agent generates are deferred — below.)
 
-### Phase 5 — Quality + docs + ship — IN PROGRESS
+### Phase 5 — Quality + docs + ship — DONE (production 2026-07-03)
 - Playwright e2e for the new flows ; lean-mean ≥92 ; story-check clean ; adversarial
   review of the diff → fix ; reconcile ARCHITECTURE/DATA-MODEL/CACHING/OPERATIONS/
   README (this pass) ; ONE `/ship-staging`. Owner tests, then gates production (apply
   new core 0008/0009/0010 + team `0004_modules` migs first; realtime-FIRST deploy
   order).
 
-## Remaining work (after Phases 1–4)
-- **The external `mcp` worker** (Phase 3C above) — ~~not yet on disk~~ **SHIPPED 2026-07-07** (`workers/mcp`).
+## Remaining work — the four hooks still deferred
 - **Help attachments** — the `brimba-help-media` bucket is bound, but the upload hook
   isn't wired.
 - **The agent's auto first-draft help reply** — the `cheapText` seam exists; the
   auto-draft-on-new-ticket hook is deferred.
 - **The agent driving imports via chat** — import works as its own wizard; letting the
   agent run the import flow conversationally is deferred.
-- **The agent generating temporary-view recipes** — deferred.
+- **The agent generating temporary-view recipes** — deferred, and further away than
+  it was: the per-team recipe store this would have written into was removed on
+  2026-08-25 (SCREEN-ENGINE-PLAN.md).
 
 ## New infra (BUILT 2026-06-23, except as noted)
 - **R2 buckets**: `brimba-help-media`, `brimba-learning-media` (+ `-staging`), per-team
   key prefixes, bound to the content worker. (No `brimba-import-media` — CSV text is
   uploaded into the import session, not R2.)
-- **Workers**: `content` + `data-ops` BUILT ; `mcp` **BUILT 2026-07-07** (gateway stays the
-  single public door; it routes the in-app agent +, later, the external MCP surface).
-- Deploy order extends the realtime-first rule: realtime → auth → tenancy → content →
-  data-ops → gateway (anything a binder needs must exist first; data-ops binds
-  content + tenancy). The `mcp` worker slots in before the gateway when it lands.
+- **Workers**: `content` + `data-ops` BUILT ; `mcp` **BUILT 2026-07-07** (the gateway
+  stays the single public door; it routes both the in-app agent and the external MCP
+  surface).
+- Deploy order extends the realtime-first rule, and with `mcp` landed it is the seven
+  the deploy scripts run today: realtime → auth → tenancy → content → data-ops → mcp
+  → gateway (anything a binder needs must exist first; data-ops binds content +
+  tenancy). OPERATIONS.md owns this order.

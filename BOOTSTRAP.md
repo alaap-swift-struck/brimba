@@ -23,7 +23,8 @@ end with a live base you can sign into and build on.
 
 ## 0 · Prerequisites (once per machine)
 
-- **Node 20+** and **npm**.
+- **Node 24+** and **npm 11+** — `package.json` `engines` requires both, and
+  `.nvmrc` pins 24. An older Node fails the `npm install` a few steps below.
 - **A Cloudflare account on the Workers Paid plan** (Durable Objects need Paid).
 - **Wrangler** (comes via `npx wrangler` — no global install needed).
 - **A domain** on Cloudflare if you want custom URLs; otherwise the free
@@ -127,7 +128,7 @@ cd ../..
 > failure, so a fresh environment that skipped this step looks completely healthy
 > and records nothing at all. (Base-fork + story reviews, 2026-08-25.)
 
-The current core migrations are `0001`–`0017` (users, teams, team_members, the
+The current core migrations are `0001`–`0018` (users, teams, team_members, the
 email-change security records, account activity, the import catalog, and the three
 agent quota tables `agent_usage` / `agent_credits` / `agent_usage_log`, plus the
 central error log `error_logs`). DATA-MODEL.md
@@ -135,7 +136,7 @@ lists every table. **Migrations are additive — never edit an applied one.**
 
 > **Per-team databases are NOT created here.** Each team's database is created at
 > runtime when the team is created (`applyTeamSchema` runs the `TEAM_MIGRATIONS` from
-> `workers/tenancy/src/team-schema.ts` — `0001`…`0008` today). You only apply *team-schema* migrations to
+> `workers/tenancy/src/team-schema.ts` — `0001`…`0009` today). You only apply *team-schema* migrations to
 > *existing* teams later, via the migrate-teams robot (§7).
 
 ---

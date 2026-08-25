@@ -160,8 +160,11 @@ describe("cutoffFor", () => {
 // A partial sweep that reports like a complete one is exactly how the ceiling
 // this replaces stayed invisible.
 describe("the retention sweep", () => {
+  // `housekeeping.ts`, not `sharding.ts`: the retention and orphan sweeps were
+  // split out of it once it reached 862 lines doing two unrelated jobs. Sharding
+  // decides WHERE data lives; this decides what may be thrown away.
   const src = stripComments(
-    readFileSync(join(__dirname, "..", "src", "lib", "sharding.ts"), "utf8")
+    readFileSync(join(__dirname, "..", "src", "lib", "housekeeping.ts"), "utf8")
   )
   // ONE declaration each, comments removed — so a comment promising a loop
   // cannot satisfy the check that the loop is there.
@@ -171,8 +174,8 @@ describe("the retention sweep", () => {
   it("reads the two functions it is about", () => {
     // The blindness guard. Rename either and this suite fails loudly instead of
     // asserting nothing at all against an empty string.
-    expect(fn, "sweep() not found in sharding.ts").toContain("DELETE FROM")
-    expect(run, "runRetention() not found in sharding.ts").toContain("sweep(")
+    expect(fn, "sweep() not found in housekeeping.ts").toContain("DELETE FROM")
+    expect(run, "runRetention() not found in housekeeping.ts").toContain("sweep(")
   })
 
   it("LOOPS the delete until a short batch, instead of one statement a night", () => {
@@ -260,7 +263,7 @@ describe("the retention sweep", () => {
 // article has an object no row points at YET), and a reference read that FAILS
 // CLOSED (an empty reference set must never be read as "delete everything").
 describe("the orphaned-upload sweep", () => {
-  const src = readFileSync(join(__dirname, "..", "src", "lib", "sharding.ts"), "utf8")
+  const src = readFileSync(join(__dirname, "..", "src", "lib", "housekeeping.ts"), "utf8")
   // ONE declaration, not the rest of the file. `slice(indexOf(...))` read every
   // function BELOW this one too, so an assertion could be satisfied by unrelated
   // code further down and this suite would never know. (See shared/test/source.ts.)
@@ -334,7 +337,49 @@ describe("the orphaned-upload sweep", () => {
   it("runs on the nightly pass", () => {
     const cron = readFileSync(join(__dirname, "..", "src", "index.ts"), "utf8")
     const scheduled = cron.slice(cron.indexOf("async scheduled"))
-    expect(scheduled).toMatch(/await sweepOrphanedUploads\(env, d1Config\(env\)\)/)
+    // The sweep now takes a resume cursor as a third argument, so this matches
+    // the CALL and not its exact arity — the assertion is "it runs nightly",
+    // and pinning the argument list made an unrelated signature change look
+    // like the sweep had been removed from the cron.
+    expect(scheduled).toMatch(/await sweepOrphanedUploads\(env, d1Config\(env\)/)
+  })
+
+  it("walks ONE PAGE of teams a night, and remembers where it stopped", () => {
+    // The read had no LIMIT: every ready team, each costing a paged database
+    // read and an R2 listing, inside one invocation with a 10,000-subrequest
+    // ceiling — measured to die partway through at roughly 3,333 teams, with
+    // the teams at the end of the list silently never swept. A cursor makes the
+    // nightly cost constant and turns "never" into "on a rota".
+    expect(src, "the team read must be bounded").toMatch(/ORPHAN_TEAMS_PER_NIGHT = [\d_]+/)
+    expect(fn, "the team read must resume from the cursor, in id order").toMatch(/id > \?/)
+    expect(fn).toMatch(/ORDER BY id LIMIT \$\{ORPHAN_TEAMS_PER_NIGHT\}/)
+    // A short page means the rota finished, so the cursor must CLEAR — otherwise
+    // the sweep parks on the last team id and never visits anyone again.
+    expect(
+      fn,
+      "a short page must reset the cursor, or the rota runs once and stops for ever"
+    ).toMatch(/length < ORPHAN_TEAMS_PER_NIGHT \? ""/)
+
+    // And the cursor must be saved BEFORE anything that can throw after it —
+    // a step that fails every night would otherwise pin the rota to page one.
+    const cron = readFileSync(join(__dirname, "..", "src", "index.ts"), "utf8")
+    const scheduled = cron.slice(cron.indexOf("async scheduled"))
+    expect(scheduled).toMatch(/noteSweepCursor\(env, orphans\.nextCursor\)/)
+    expect(
+      scheduled.indexOf("noteSweepCursor"),
+      "the cursor must be persisted before the digest, not after it"
+    ).toBeLessThan(scheduled.indexOf("buildErrorDigest"))
+  })
+
+  it("ships the storage meter's retention IN THE SAME PASS that writes it", () => {
+    // A growth meter with no retention is a differently-shaped growth problem.
+    // The window belongs in CORE_RETENTION eventually (there is a TODO saying
+    // so), but it must never be absent in the meantime.
+    expect(src, "the meter must declare a window").toMatch(/DB_SIZES_RETAIN_DAYS = \d+/)
+    expect(fn, "the meter must record what a team still stores").toMatch(/INSERT INTO db_sizes/)
+    expect(fn, "and prune itself, or the meter becomes the growth").toMatch(
+      /DELETE FROM db_sizes WHERE at < \?/
+    )
   })
 })
 

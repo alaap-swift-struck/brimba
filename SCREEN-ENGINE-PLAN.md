@@ -1,8 +1,28 @@
 # Screen Engine + Team Management — the plan
 
-> **Status: SHIPPED.** This is the design record for the screen engine, kept because
-> live docs still cite its sections (SEARCH.md, ROADMAP §Navigation). For how the
-> engine works TODAY, read UI-CONVENTIONS.md + CACHING.md; this file is the *why*.
+> **Status: a design record — partly shipped, partly removed. Not a live spec.**
+> This is the *why* behind the screen engine, kept because live docs still cite its
+> sections (SEARCH.md, ROADMAP §Navigation). For how the engine works TODAY, read
+> UI-CONVENTIONS.md §2 and CACHING.md.
+>
+> **Shipped and still true:** the recipe schema, the engine, the `/t/<teamId>/
+> <module>/<id>` deep-link record spine and its URL grammar (§10).
+>
+> **Removed on 2026-08-25 — the per-team recipe override store.** No surface
+> anywhere could write an override, so every team's map was permanently empty; the
+> owner chose to remove the subsystem rather than build the missing half. Gone with
+> it: `GET/POST /api/tenancy/config/screens`, `workers/tenancy/src/lib/screens-config.ts`,
+> the `screens` permission module, the agent and MCP tool, the web api client, and
+> the override merge inside `resolveRecipe` — which is now a plain lookup in
+> `BASE_RECIPES`, one shipped default for every team. So the store row in §2, all of
+> §5, the config tables in §6, the config worker in §8-A, §8-G, the `config.*`
+> actions in §9 and the store references in §10 describe a layer that no longer
+> exists. Read them as history.
+>
+> **One thing did survive the removal:** the per-team `screens` TABLE. Migrations
+> are append-only, so `0002_screens` stays in `TEAM_MIGRATIONS` and every team still
+> carries an empty table nothing reads or writes. Same for any `role_permissions`
+> row an existing team holds for the retired `screens` module.
 
 The blueprint for Brimba's runtime, config-driven screen system (our own lean
 "mini-Glide") and the first feature built on it: home + team management
@@ -21,16 +41,19 @@ This plan's phases map to shipped milestones as follows:
 
 - **M1 — deep-link foundation + member detail via engine: SHIPPED.** §8-A
   (foundation) + the §10 record-spine deep links + first record detail.
-- **M2 — per-team screen-recipe config store: SHIPPED** — but it lives in the
-  **TENANCY worker** at `GET/POST /api/tenancy/config/screens`; the planned
-  `workers/config` (§2/§5/§10) was folded into tenancy. There is no separate
-  config worker.
+- **M2 — per-team screen-recipe config store: SHIPPED, then REMOVED 2026-08-25.**
+  It shipped in the **TENANCY worker** at `GET/POST /api/tenancy/config/screens`
+  (the planned `workers/config` in §2/§5/§10 was folded into tenancy; there was
+  never a separate config worker). It was removed in full because nothing could
+  write an override — see the banner at the top of this file.
 - **M3 — members/roles/invites lists + detail + actions on `/t` URLs, the
   section switcher, and collapsing breadcrumbs: SHIPPED.** §8-B…F. The role
   permission grid is currently **host-composed** (no engine recipe block yet).
-- **Phase 3 / §8-G (custom-screen capability + live config editing) — NOT yet
-  built.** The recipe store and engine exist; runtime authoring/editing of a
-  bespoke screen by an admin or agent is the remaining work.
+- **Phase 3 / §8-G (custom-screen capability + live config editing) — never built,
+  and no longer planned.** It was the half that would have written an override, and
+  its absence is exactly why the store was removed on 2026-08-25. The engine and the
+  base recipes remain; runtime authoring does not. Should it ever come back, it comes
+  back with the door that writes it.
 
 The old `/settings/team` + `/settings/team/member` routes are RETIRED;
 top-level `/members` and `/roles` are thin redirects to `/t/<teamId>/members`
@@ -204,8 +227,12 @@ Decided with the user; do not relitigate without them.
   lists onto the library `List`, adopt the library search/filters. Phase 3 =
   custom-screen + live config editing. Then full cross-device test + audits.
 - **Engine/recipe UI conventions (locked 2026-06-21).** _Count badges_ — when a
-  tab/section leads with a collection it shows a count = **what the collection
-  displays**, compacted (`6` / `189` / `1.18M` via `abbreviateCount`) and
-  **HIDDEN when 0**. _Concept icons_ — one distinct lucide icon per concept,
+  tab/section leads with a collection it shows a count, compacted and **HIDDEN
+  when 0**. _SUPERSEDED by Law R16:_ the number is an exact server `COUNT(*)`, not
+  what the collection displays — a capped list's length is a ceiling, not a total —
+  and it renders through the one `formatCount` seam (`web/lib/format-count.ts`):
+  `6` · `189` · `1.1m`, floored at every magnitude so a badge never over-claims.
+  The `abbreviateCount` named here was real when this was written and was replaced
+  by `formatCount` when R16 landed. _Concept icons_ — one distinct lucide icon per concept,
   centralised in `web/lib/pages.ts` `CONCEPT_ICON`, reused at page / section-tab
   / button level (one icon per concept, everywhere).

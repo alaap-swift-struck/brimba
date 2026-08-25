@@ -29,10 +29,13 @@ trick as the swappable AI-import interface).
   table) — forwards it to auth's `/internal/log-error` (INTERNAL_KEY-guarded), so
   the error also lands in the central store below.
 - **Workers** `console.error` in their `catch` blocks → observability, AND every
-  core-bound worker's central catch calls `recordWorkerError(env.DB, …)`
-  (`shared/workers/error-log.ts`) so the crash lands in the store below —
-  machine-checked by `workers/data-ops/test/error-seam.test.ts`, so a worker
-  can't quietly stop recording. `GuardError`s map to clean 4xx and are NEVER
+  database-bound worker's central catch calls `recordWorkerError(opsDatabase(env), …)`
+  (`shared/workers/error-log.ts`, `shared/workers/ops-db.ts`) so the crash lands in
+  the store below. Always `opsDatabase(env)`, never a named binding: the table
+  lives in the operations database now, and `opsDatabase` falls back to the core
+  one when no `OPS` binding exists, so a fork that has not created one still
+  records. This is machine-checked by `workers/data-ops/test/error-seam.test.ts`,
+  so a worker can't quietly stop recording. `GuardError`s map to clean 4xx and are NEVER
   logged (an expected refusal is not an error); unexpected errors become a
   generic 500 (never leak internals to the user).
 
@@ -48,11 +51,20 @@ One table per
 environment (staging and production errors never mix), cross-team by design
 (system health is global; `team_id`/`user_id` are optional context).
 
-- **Captured per row:** `id`, `at`, `source` (auth / tenancy / content /
-  data-ops / web), `place` (the route `POST /api/…`, or the client's `where`),
-  `message`, `stack` (capped), `team_id` / `user_id` / `url` when known, and the
-  resolve-workflow fields: `status` (`open` → `resolved`), `resolved_at`,
-  `resolution_note`.
+- **Captured per row:** `id`, `at`, `source`, `place` (the route `POST /api/…`, or
+  the client's `where`), `message`, `stack` (capped), `team_id` / `user_id` / `url`
+  when known, `request_id`, and the resolve-workflow fields: `status` (`open` →
+  `resolved`), `resolved_at`, `resolution_note`.
+- **The sources — eight of them: all seven workers, plus the browser.** `auth`,
+  `tenancy`, `realtime`, `gateway`, `content`, `data-ops` and `mcp` each record
+  from their own central catch; `web` is the browser's beacon
+  (`POST /api/log/client`, which the gateway verifies is signed in before it
+  forwards). Six of the seven workers call `recordWorkerError(opsDatabase(env), …)`
+  directly. The gateway is the exception on purpose: it is the busiest worker and
+  the only public one, so rather than give it a database handle of its own it posts
+  to auth's `/internal/log-error`, which writes the same table. A worker with no
+  central catch, or one that catches without recording, fails the `error-seam`
+  suite (`workers/data-ops/test/error-seam.test.ts`).
 - **NOT captured:** clean `GuardError` refusals (4xx — working as designed).
   Recording is best-effort by contract — a logging hiccup never changes a
   response.

@@ -31,6 +31,12 @@
 // not a bound, it is a bug — see `proxyService`.
 
 import { ulid } from "./id"
+// A SIBLING PAIR, not a layering mistake: error-log.ts takes `traceError` from
+// here and this file takes the outbound recorder from there. Both are function
+// declarations called at request time, never at module-evaluation time, so the
+// cycle resolves cleanly in every bundler the base uses. The alternative was a
+// third module holding one throttle, which is more file than the fault is worth.
+import { recordOutbound, type OutboundRecorder } from "./error-log"
 
 /** The header the id travels on. `x-request-id` is the de-facto standard, so an
  * inbound one from a load balancer or a client is honoured rather than replaced. */
@@ -122,16 +128,34 @@ export async function callService(
  * bound. What it does add is the guard: a worker that is down or not deployed used
  * to surface as an unhandled rejection and a bare platform 500 with no body, which
  * is indistinguishable from a bug in the app.
+ *
+ * `opts.record` is OPTIONAL and is where the 503 gets RECORDED. Without it a
+ * downstream outage is invisible the moment the log buffer rolls: the person got
+ * a 503, the console line died within the day, and the one store with history and
+ * a resolve workflow never heard about it.
+ *
+ * A CALLBACK, NOT A DATABASE HANDLE. The only caller of this function is the
+ * gateway, and the gateway binds no database on purpose (it is the busiest and
+ * only public worker; it records through auth's `/internal/log-error` door
+ * instead). A `CoreDb` parameter here would have had no caller able to supply it
+ * — a seam with a plausible shape and nothing on the other end. So this file
+ * stays ignorant of HOW anyone records and the caller passes its own channel.
  */
 export async function proxyService(
   binding: { fetch(request: Request): Promise<Response> },
   request: Request,
-  opts: { req?: string; worker: string; place: string }
+  opts: { req?: string; worker: string; place: string; record?: OutboundRecorder }
 ): Promise<Response> {
   try {
     return await binding.fetch(request)
   } catch (e) {
     traceError({ req: opts.req, worker: opts.worker, place: opts.place, event: "downstream_unreachable", detail: e })
+    // THROTTLED, through the same one-row-per-minute guard the data door uses. A
+    // worker that is down fails every request that reaches it, so an unthrottled
+    // row per 503 would make the error store the second casualty of the outage —
+    // and the ten-thousandth row says nothing the first one did not. The ones held
+    // back are counted and reported on the next row that gets through.
+    await recordOutbound(opts.record, opts.worker, opts.place, "upstream", e)
     return new Response(
       JSON.stringify({
         error: "service_unavailable",
@@ -158,12 +182,25 @@ export async function proxyService(
  * SKIPS 101. A WebSocket upgrade travels through the same handler, and
  * `new Response(res.body, res)` on a 101 THROWS — a careless version of this
  * wrapper switches off the live layer for everyone. The one detail worth more
- * than the rest of the function. */
+ * than the rest of the function.
+ *
+ * `ctx` is OPTIONAL and exists for the SLOW line only. A warning that names the
+ * route and the milliseconds cannot be reproduced: the same route is instant for
+ * one customer and slow for another, and it is almost always the number of ROWS
+ * that explains which. Optional and trailing because the busiest caller — the
+ * gateway — is a proxy that never resolves a team, so requiring it would force
+ * every call site to invent a value it does not have. */
 export async function timed(
   req: string,
   worker: string,
   place: string,
-  run: () => Promise<Response>
+  run: () => Promise<Response>,
+  ctx?: {
+    /** the tenant this request was for, when the caller has a guard in hand */
+    team?: string
+    /** how many rows the work touched — the usual explanation for the duration */
+    rows?: number
+  }
 ): Promise<Response> {
   const started = Date.now()
   const res = await run()
@@ -178,10 +215,64 @@ export async function timed(
   // would fire on ordinary large imports, and the first thing anyone does with a
   // noisy alert is stop reading it. (speed round 3, 2026-08-25.)
   if (ms >= SLOW_MS)
-    console.warn(JSON.stringify({ level: "warn", event: "slow", req, worker, place, ms }))
+    console.warn(
+      JSON.stringify({
+        level: "warn",
+        event: "slow",
+        req,
+        worker,
+        place,
+        ms,
+        // A TEAM ID IN A SHARED LOG STORE IS TENANT METADATA — a deliberate,
+        // named trade. It tells anyone who can read the logs which customer was
+        // affected, and it is the only thing that makes a slow request
+        // reproducible ("this route is slow" is not a bug report; "this route is
+        // slow for that team, at that row count" is). Omitted entirely when the
+        // caller has none, so the line never gains an empty key.
+        ...(ctx?.team ? { team: ctx.team } : {}),
+        ...(ctx?.rows === undefined ? {} : { rows: ctx.rows }),
+      })
+    )
   return out
 }
 
 /** The line above which a request is worth a log entry on its own. Not an alarm —
  * a budget, so "slow" is a number someone chose rather than a feeling. */
 export const SLOW_MS = 1_000
+
+/**
+ * WHERE A SLOW REQUEST SPENT ITS TIME — the number `timed()` cannot give you.
+ *
+ * `timed` says a request took 900ms. It cannot say whether that was one hop or
+ * five, nor which. A gated team read is made of hops of three very different
+ * costs: a service binding to auth (same-colo RPC), a native `env.DB` read
+ * (in-colo D1 binding), and a call through the D1 REST door — a real HTTPS
+ * request to api.cloudflare.com. Until this existed, the three were
+ * indistinguishable from outside, so "the app is slow" could be argued about but
+ * not attributed.
+ *
+ * ONE LINE PER HOP, above a budget. Below `HOP_SLOW_MS` a hop is doing what it is
+ * supposed to and a line about it would be noise on every request in the system —
+ * the data door alone is on every team read. Above it, the line names the hop and
+ * its cost beside the request id, so the seven workers one click touches can be
+ * reassembled in the order they actually ran.
+ *
+ * NOT `traceError`: a slow hop that succeeded is not an error, and stamping it
+ * as one is how alerting rules get switched off (same reasoning as `timed`).
+ */
+export const HOP_SLOW_MS = 0 /* DIAGNOSTIC RUN — restore to 250 */
+
+export function traceHop(fields: {
+  req?: string
+  /** which seam made the call — "d1-rest", "gating", … */
+  worker: string
+  /** WHAT was called, never WITH WHAT. A verb and a table ("SELECT role_permissions"),
+   * never SQL text and never a bound value: this reaches a log line. */
+  op: string
+  ms: number
+  /** how many attempts the hop actually took, when it retried */
+  tries?: number
+}): void {
+  if (fields.ms < HOP_SLOW_MS) return
+  console.warn(JSON.stringify({ level: "warn", event: "hop", ...fields }))
+}

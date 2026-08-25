@@ -385,7 +385,7 @@ wrong deletes a customer's data. It wants its own design pass.
 |---|---|
 | Indexes matching the real sorts — `help`'s `COALESCE(updated_at, created_at)` expression index, `activity (created_at DESC, id DESC)`, composites for the thread reads | queries |
 | The mover routes reads instead of orphaning them | partitioning |
-| The shared core database is watched at all; threshold 80% → 80% | headroom |
+| The shared core database is watched at all; the alarm threshold restored to 80% after the code had drifted to 65% | headroom |
 | Retention on the exhaust tables, audit tables off by default | lifecycle |
 | A row ceiling inside a cache entry, not just an entry count | client cache |
 | `Range` requests on `/media/*` — seek and resume instead of restart | storage |

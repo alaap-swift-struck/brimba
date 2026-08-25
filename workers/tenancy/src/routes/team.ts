@@ -20,7 +20,7 @@ import {
   updateTeamDetails,
 } from "../lib/teams"
 import { MAX_TEAMS_PER_USER, numberVar } from "../../../../shared/workers/limits"
-import { gatedBody } from "../../../../shared/workers/route"
+import { gated, gatedBody } from "../../../../shared/workers/route"
 import { teamContext, toActor, whoAmI } from "../context"
 import type { Env } from "../env"
 
@@ -205,8 +205,22 @@ export async function getActivityFeed(request: Request, env: Env): Promise<Respo
   return feed((await getActivity(cfg, guard, scope, id, undefined, null, cursor)))
 }
 
-/** The active team's Overview metadata (any member may read it). */
+/**
+ * The active team's Overview metadata, behind `teams:read`.
+ *
+ * It used to open with a bare `teamContext`, which proves MEMBERSHIP and nothing
+ * more — so the `teams:read` right was enforced only by the screen recipe that
+ * hides the Overview in the browser. A caller who skipped the UI (curl, the
+ * assistant, MCP — all of which reach this same door) read team data their role
+ * had never been granted. A gate that lives in the client is not a gate.
+ *
+ * Safe to demand because the seed grants it: `buildTeamSeed` writes a `teams`
+ * permission row for every seeded role — all four rights for Admin, read for
+ * Viewer — so a brand-new owner opens their own Overview on day one. Locked by
+ * test/team-meta-gate.test.ts, which checks the gate AND the seed together,
+ * because either one alone is a bug.
+ */
 export async function getTeamMetaFeed(request: Request, env: Env): Promise<Response> {
-  const { guard } = await teamContext(request, env)
+  const { guard } = await gated(request, env, "teams", "read")
   return json(await getTeamMeta(env, guard.teamId))
 }

@@ -209,14 +209,20 @@ export async function countReplies(cfg: D1Rest, guard: MemberGuard, ticketId: st
   return rows[0]?.n ?? 0
 }
 
-/** Fields a create / update accepts. */
+/** Fields a create / update accepts.
+ *
+ * The optional fields are `| null` because an EDIT body is PARTIAL and the two
+ * callers say two different things: the machine surface (agent / MCP) OMITS a
+ * field it does not mean to touch, while a form SENDS null for a box a person
+ * actually cleared. Typing them as `string | undefined` said the second caller
+ * did not exist. */
 export type TicketInput = {
   description?: string
-  helpType?: string
-  screenRecordingLink?: string
-  sourceScreen?: string
-  sourceRelatedTable?: string
-  sourceRelatedRowId?: string
+  helpType?: string | null
+  screenRecordingLink?: string | null
+  sourceScreen?: string | null
+  sourceRelatedTable?: string | null
+  sourceRelatedRowId?: string | null
 }
 
 /** Raise a ticket. Description is required; everything else optional. Opens in the
@@ -264,26 +270,51 @@ export async function updateTicket(
   const before = await ticketOrThrow(cfg, guard, id)
   const description = requireText(input.description, "Description", TEXT_LIMITS.long)
 
+  // AN OMITTED FIELD IS NOT AN EMPTY ONE — see the same block in lib/learning.ts.
+  //
+  // `undefined` means the caller never mentioned the field, so it KEEPS what is
+  // stored; `null` (or "") means it was PRESENT and empty, so it really clears.
+  // These three were written unconditionally, so `update_help_ticket` — which
+  // requires only id + description and is marked agent.confirm: false — turned
+  // "reword this ticket" into an unconfirmed wipe of its type and the reporter's
+  // screen recording. The web form never sends `sourceScreen` at all, so every
+  // edit through the app was also erasing which screen the ticket was raised
+  // from. (Correctness review, round 5.)
+  const helpType =
+    input.helpType === undefined
+      ? before.help_type
+      : optionalText(input.helpType, "Type", TEXT_LIMITS.short) ?? null
+  const screenRecordingLink =
+    input.screenRecordingLink === undefined
+      ? before.screen_recording_link
+      : optionalText(input.screenRecordingLink, "Screen recording link", TEXT_LIMITS.link) ?? null
+  const sourceScreen =
+    input.sourceScreen === undefined
+      ? before.source_screen
+      : optionalText(input.sourceScreen, "Source", TEXT_LIMITS.short) ?? null
+
   const now = new Date().toISOString()
   // RETURNING turns the write into its own answer: no rows came back means
   // the predicate did not match, i.e. someone else changed this row first.
   const landed = await d1Query<{ id: string }>(
     cfg,
     guard.databaseId,
-    `UPDATE help SET help_type = ${sqlString((optionalText(input.helpType, "Type", TEXT_LIMITS.short) ?? null))}, description = ${sqlString(description)}, screen_recording_link = ${sqlString((optionalText(input.screenRecordingLink, "Screen recording link", TEXT_LIMITS.link) ?? null))}, source_screen = ${sqlString((optionalText(input.sourceScreen, "Source", TEXT_LIMITS.short) ?? null))}, updated_at = ${sqlString(now)}, editor_id = ${sqlString(actor.id)}, editor_email = ${sqlString(actor.email)}, editor_name = ${sqlString(actor.name)} WHERE id = ${sqlString(id)}${versionPredicate(expectedVersion)} RETURNING id`
+    `UPDATE help SET help_type = ${sqlString(helpType)}, description = ${sqlString(description)}, screen_recording_link = ${sqlString(screenRecordingLink)}, source_screen = ${sqlString(sourceScreen)}, updated_at = ${sqlString(now)}, editor_id = ${sqlString(actor.id)}, editor_email = ${sqlString(actor.email)}, editor_name = ${sqlString(actor.name)} WHERE id = ${sqlString(id)}${versionPredicate(expectedVersion)} RETURNING id`
   )
   assertNotConflicted(landed.length, expectedVersion)
 
+  // Every `to` is the value actually WRITTEN above — a preserved field must not
+  // be reported as cleared.
   const diff = [
-    { label: "Type", from: before.help_type, to: optionalText(input.helpType, "Type", TEXT_LIMITS.short) ?? null },
+    { label: "Type", from: before.help_type, to: helpType },
     { label: "Description", from: before.description, to: description },
     {
       label: "Screen recording",
       from: before.screen_recording_link,
-      to: optionalText(input.screenRecordingLink, "Screen recording link", TEXT_LIMITS.link) ?? null,
+      to: screenRecordingLink,
       hideValues: true,
     },
-    { label: "Source", from: before.source_screen, to: optionalText(input.sourceScreen, "Source", TEXT_LIMITS.short) ?? null },
+    { label: "Source", from: before.source_screen, to: sourceScreen },
   ]
   const changes = describeChanges(diff)
   await logActivity(cfg, guard.databaseId, actor, {
@@ -425,10 +456,26 @@ export async function bulkSetStatusByFilter(
   const changed = changedRows.length
   if (changed > 0)
     // ONE activity row for the set — history says what happened, not per-row noise.
+    // A 500-ticket resolve must NOT become 500 rows in the fastest-growing table
+    // in the team database; that trades a readable record for a scaling problem.
+    //
+    // But the row still has to be FINDABLE, and it was not. Without `verb` it was
+    // invisible to "every status change this month" — the very query the verb
+    // column exists to answer — and it is the only status move in the module that
+    // omitted it, so the closed set looked complete while this door wrote outside
+    // it. Without `relatedRowId` it reached no record's own Activity tab either,
+    // so a ticket resolved in bulk showed a ticket that resolved itself.
+    //
+    // A set of many has no single row to hang off, and inventing one would be a
+    // lie. A set of ONE does — and "resolve the three open bugs" landing on one
+    // ticket is the ordinary case, not the edge — so the id rides along exactly
+    // when it is true. (Activity-log review, round 5.)
     await logActivity(cfg, guard.databaseId, actor, {
       type: `Help tickets ${toStatus === "resolved" ? "resolved" : "updated"} (bulk)`,
+      verb: "status",
       description: `${actor.name} set ${changed} support ticket${changed === 1 ? "" : "s"}${filter.helpType ? ` of type "${filter.helpType}"` : ""}${filter.status ? ` from ${filter.status.replace("_", " ")}` : ""} to ${toStatus.replace("_", " ")}`,
       relatedTable: "help",
+      relatedRowId: changed === 1 ? changedRows[0].id : undefined,
     })
   return { matched, changed }
 }

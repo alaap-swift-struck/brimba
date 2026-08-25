@@ -146,6 +146,13 @@ const MCP_ONLY: McpTool[] = [
     binding: "DATAOPS",
     method: "POST",
     path: "/api/data-ops/agent/confirm",
+    // `approve` KEEPS its coercion, unlike every other required boolean here (which
+    // now goes through bool() and refuses an omitted value). An omitted `approve`
+    // falls to FALSE — decline — and that is the one direction where inventing a
+    // value is safe: nothing is written, nothing is lost, and the caller is told
+    // plainly that the action was left alone. The `active`/`done` booleans had to
+    // change because their invented value CHANGED A RECORD; a missing approval
+    // changing nothing is the outcome you'd want anyway.
     buildBody: (i) => ({ threadId: i.threadId, approve: i.approve === true }),
   },
 ]
@@ -175,7 +182,7 @@ export async function forwardTool(
   /** The trace id of the /mcp request this tool call arrived on, so one machine
    * call and the doors it fans out to share an id in the logs. */
   requestId?: string | null
-): Promise<{ ok: boolean; text: string }> {
+): Promise<{ ok: boolean; text: string; truncated: boolean }> {
   const res = await forwardToDoor(env[tool.binding], {
     path: tool.path,
     method: tool.method,
@@ -187,6 +194,19 @@ export async function forwardTool(
     body: tool.buildBody ? tool.buildBody(input) : {},
   })
   const raw = await res.text()
-  const text = raw.length > MAX_RESULT_CHARS ? `${raw.slice(0, MAX_RESULT_CHARS)}\n…(truncated)` : raw
-  return { ok: res.ok, text }
+  // TRUNCATION IS A FACT ABOUT THE ANSWER, so it rides the answer.
+  //
+  // The cap was silent: a cut payload came back with `ok: true` and a "…(truncated)"
+  // line the caller had to notice inside the text — which a program never does. It
+  // would parse what arrived (or fail to, on half a JSON array) and treat a partial
+  // export as the whole team's records. A person reading the same reply in a chat
+  // client sees the note; a script doesn't, and the script is the whole point of this
+  // surface. So the flag is structured, beside the text, where a caller can branch on
+  // it. Still `ok` — the door answered, and half an export is worth more than an
+  // error — but never silently. (Scaling review, 2026-08-25.)
+  const truncated = raw.length > MAX_RESULT_CHARS
+  const text = truncated
+    ? `${raw.slice(0, MAX_RESULT_CHARS)}\n…(truncated at ${MAX_RESULT_CHARS} characters — this is NOT the whole result)`
+    : raw
+  return { ok: res.ok, text, truncated }
 }

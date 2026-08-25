@@ -37,7 +37,11 @@ Which account a project folder is wired to can be confirmed with the
 | `brimba-ops` / `brimba-ops-staging` | `error_logs` + `agent_usage_log` (SCALING.md §4.9) |
 | `team-<ulid>` (one per team) | everything a team owns |
 
-Buckets: `brimba-media`, `brimba-learning-media`, and their `-staging` twins.
+Buckets — **three**, and their `-staging` twins: `brimba-media` (profile and
+account media, bound by auth, tenancy and the gateway), `brimba-learning-media`
+(learning attachments, bound by tenancy, content and the gateway), and
+`brimba-help-media` (help-ticket attachments, bound by content). Create all three
+per environment: miss the last one and Help attachments have nowhere to land.
 
 ## Domains and DNS
 
@@ -55,7 +59,7 @@ DNS records, because that is the one part of this list nothing else can infer.
 | What | Where it comes from |
 |---|---|
 | core schema | `db/core/*.sql` via `wrangler d1 migrations apply` |
-| operations schema | `db/ops/0001_operations.sql` |
+| operations schema | every file in `db/ops/` in order — `0001_operations.sql`, `0002_error_request_id.sql` today |
 | per-team schema | created at team birth by the tenancy worker (`team-schema.ts`) |
 | import catalogue | seeded through the owner endpoint — BOOTSTRAP.md; self-heals against the code, so a fresh environment is never empty |
 

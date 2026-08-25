@@ -27,9 +27,9 @@ shared notes). Substitute your real name everywhere you see `notes` / `note`.
 | Layer | File(s) | What you add |
 |---|---|---|
 | 1. Table + migration | `workers/tenancy/src/team-schema.ts` | a `CREATE TABLE`, appended as a new `TEAM_MIGRATIONS` entry |
-| 2. Register + permissions | same file — `TEAM_MODULES`, `MODULE_LABELS`, `buildTeamSeed` | one module key, one label, seed rows for the two default roles |
+| 2. Register + permissions | `shared/team-modules.ts` — `TEAM_MODULES`, `MODULE_LABELS`, `MODULE_RIGHTS_BY_MODULE` (+ `buildTeamSeed` in `team-schema.ts`, usually untouched) | one module key, one label, its real rights; the two default roles seed themselves |
 | 3. Worker handler | `workers/content/src/{routes,lib}/notes.ts` + `index.ts` `ROUTES` | gated CRUD → validate → audit → activity → `publishChange` |
-| 4. Web client + screen | `web/lib/api.ts`, `web/lib/screens.ts`, `web/lib/pages.ts`, `web/components/deep-link/shape.ts`, `deep-link-screen.tsx` | api wrapper, a list recipe, a nav section, a shaper, wiring |
+| 4. Web client + screen | `web/lib/api.ts`, `web/lib/screens.ts`, `web/lib/pages.ts`, `web/components/deep-link/shape.ts`, `web/lib/use-screen-data.ts`, `web/lib/use-screen-actions.ts`, `web/components/deep-link/module-content.tsx`, `deep-link-screen.tsx` | api wrapper, a list recipe, a nav section, a shaper, the cache-first read, the create handler, the render branches, the count wiring |
 | 5. Record detail | `web/components/note-detail.tsx` | Overview + Activity tabs (Law R2) — the filename MUST equal the string you register in `RECORD_DETAIL_COMPONENTS` (the R2 check reads `web/components/<that-string>.tsx` off disk) |
 | 6. Tests | the existing seam/rule tests + `shared/rules/registry.ts` | register the detail component; the tests then force you to comply |
 
@@ -118,15 +118,19 @@ the whole story — no per-table binding, no wrangler migration file.
 
 **Permissions are the spine.** A module the matrix doesn't know about can't be
 gated, so the server would refuse every request. Registering is three edits, all in
-`team-schema.ts`, all beside each other.
+**`shared/team-modules.ts`**, all beside each other. (`team-schema.ts` re-exports
+`TEAM_MODULES` so tenancy code keeps one habitual import site, but the list itself
+lives in shared: data-ops builds the import and export permission columns from the
+same file, so the matrix a Roles screen shows and the matrix a CSV carries can
+never drift apart.)
 
 ### 2a. Add the module key
 
 ```ts
-// TEAM_MODULES (team-schema.ts) — one row per module
+// TEAM_MODULES (shared/team-modules.ts) — one row per module
 export const TEAM_MODULES = [
   "teams", "team_members", "member_roles", "learning", "help",
-  "selectable_data", "screens", "agent",
+  "selectable_data", "agent",
   "notes",                       // ← new
 ] as const
 ```
@@ -147,7 +151,26 @@ const MODULE_LABELS: Record<(typeof TEAM_MODULES)[number], string> = {
 `TEAM_MODULE_CATALOG` (the matrix rows) is derived from these two — one source for
 both the worker gate and the Roles UI.
 
-### 2c. Seed the two default roles
+### 2c. Say which rights the module actually has
+
+`MODULE_RIGHTS_BY_MODULE` (same file) is keyed off `TEAM_MODULES` too, so
+TypeScript forces this edit as well. It narrows the four rights down to the ones a
+door really opens on. A right left out renders "—" in the grid, instead of an off
+switch that enforces nothing:
+
+```ts
+const MODULE_RIGHTS_BY_MODULE: Record<(typeof TEAM_MODULES)[number], readonly ModuleRight[]> = {
+  // …
+  notes: ["read", "create", "edit", "delete"],   // ← new; list only the rights a door gates on
+}
+```
+
+The rule for editing it: a right belongs in a module's list when a door opens on it
+(`requireRight` / `gated` / `gatedBody` with that pair), or when a screen recipe's
+`gate` genuinely hides something on it. Ship a door for a right that isn't listed
+here and the door is gated by a switch nobody can turn on.
+
+### 2d. Seed the two default roles
 
 `buildTeamSeed` (team-schema.ts) writes the starter permission sheet every new
 team gets: **Admin** (full) and **Viewer** (read-only). The loop already iterates
@@ -400,9 +423,11 @@ export const notesListRecipe: ScreenRecipe = {
 Register it in `BASE_RECIPES` under `"notes.list"` (screens.ts), and map the URL
 segment to its permission module in `MODULE_PERMISSION` (screens.ts) — for a
 content module the segment *is* the module: `notes: "notes"`. Each facet `field`
-must be a real column on the *shaped* rows (next step). A team can override any
-recipe at runtime; `resolveRecipe` merges override-over-base defensively, so a bad
-override can never blank the screen.
+must be a real column on the *shaped* rows (next step). `resolveRecipe(key)` is a
+plain lookup in `BASE_RECIPES`, so the recipe you register here is the one every
+team gets — there is no per-team override (that subsystem was removed on
+2026-08-25; see UI-CONVENTIONS.md §2a). Changing a screen means changing its
+recipe and shipping.
 
 > The **detail** screen for Learning has no engine block (its Article body + Done
 > toggle are bespoke), so it's a host-composed component, not a recipe — see Layer 5.
@@ -430,40 +455,51 @@ export function shapeNotesList(items: Note[]): ScreenData {
 }
 ```
 
-### 4e. Wire it into the resolver (`deep-link-screen.tsx`)
+### 4e. Wire it into the host
 
-`deep-link-screen.tsx` is the one shell backing the whole `/t/*` tree. Add a
-**cache-first read**, then a list branch and a detail branch, mirroring Learning
-(deep-link-screen.tsx, :606, :739).
+The `/t/*` tree is backed by one shell in three parts, and a new module touches all
+three. `web/lib/use-screen-data.ts` holds the cache-first reads;
+`web/components/deep-link/module-content.tsx` is the render switch (the list branch
+and detail branch for each module); `web/components/deep-link-screen.tsx` is the
+routing, state, effects and dialogs host that ties them together. Mirror Learning
+through each one — and refer to things by name, not by line number, because the
+line moves and the name does not.
 
-- **Cache-first read** with `useCached(key, fetcher)` (`web/lib/store.ts`): it
-  returns cached data instantly and revalidates in the background, and a live ping
-  patches the one row in place. Key by team so a team switch re-fetches:
+- **Cache-first read** with `useCached(key, fetcher)` (`web/lib/store.ts`), added to
+  `useScreenData`: it returns cached data instantly and revalidates in the
+  background, and a live ping patches the one row in place. Key by team so a team
+  switch re-fetches, and fetch through a `listFetch` entry
+  (`web/lib/live-resources.ts`) so the collection's exact `total:` sidecar is primed
+  by the same load:
 
   ```ts
   const notesQ = useCached(enabled && module === "notes" ? `notes:${teamId}` : null,
-    () => contentApi.notes().then((r) => r.notes))
+    () => listFetch.notes(teamId as string))
   ```
 
-  The cache-key prefix (`notes`) is exactly the `countCacheKey` from 4b; add it to
-  `loadedByCacheKey` (deep-link-screen.tsx) so the tab badge is derived from the
-  same rows the screen shows.
+  The cache-key prefix (`notes`) is exactly the `countCacheKey` from 4b. The number
+  on the badge, though, is **not** the loaded rows' length — a capped list's length
+  is a ceiling, not a total (Law R16). Add the exact total your list door returns to
+  `totalByCacheKey` (deep-link-screen.tsx); the badge renders it through
+  `formatCount`.
 
-- **List branch** — shape, apply `withDataDrivenCollection` (hides dead search/facets
-  when there are no rows), render `<ScreenRenderer>` inside a `SectionWithCreate`
-  gated by `can("notes", "create")`.
+- **List branch** (module-content.tsx) — shape, apply `withDataDrivenCollection`
+  (hides dead search/facets when there are no rows), render `<ScreenRenderer>`
+  inside a `SectionWithCreate` gated by `can("notes", "create")`.
 
-- **Detail branch** — delegate to your bespoke component: `if (module === "notes")
-  return <NoteDetailScreen teamId={teamId} noteId={recordId} />`.
+- **Detail branch** (module-content.tsx) — delegate to your bespoke component:
+  `if (module === "notes") return <NoteDetailScreen teamId={teamId} noteId={recordId} />`.
 
-- **Create handler** — a small `createNote` callback that calls the api, then
-  **`primeCache(\`notes:${teamId}\`, next)`** so the new row appears instantly for
-  the actor (everyone else gets the realtime ping). See `createLearning`
-  (deep-link-screen.tsx).
+- **Create handler** — a small `createNote` callback in
+  `web/lib/use-screen-actions.ts` that calls the api, folds the ONE returned row
+  into the cache with `applyCreated({ listKey, created, total, totalCacheKey })`,
+  and returns `created?.id` so `FormShell` opens the new record (R22). See
+  `createLearning`, which is the exact template.
 
-**The cache/live contract in one line:** the mutating call primes the actor's cache
-with the fresh list; other devices get the `publishChange` ping → re-pull the one
-changed row. Never refetch the whole collection on a change. (CACHING.md.)
+**The cache/live contract in one line:** the mutating door returns the affected row
+(R21 for a create, R23 for an edit or a status move) and the actor's client patches
+that one row into its cache; other devices get the `publishChange` ping and re-pull
+the one changed row. Nobody refetches the whole collection on a change. (CACHING.md.)
 
 ---
 
@@ -548,10 +584,11 @@ LAYER 1 — table + migration  (workers/tenancy/src/team-schema.ts)
 [ ] Deactivate-not-delete: a deactivated_at column, NO DELETE anywhere
 [ ] Indexes for the columns you filter/join on
 
-LAYER 2 — register + permissions  (same file)
+LAYER 2 — register + permissions  (shared/team-modules.ts)
 [ ] Add the module key to TEAM_MODULES
 [ ] Add its label to MODULE_LABELS (TS forces this)
-[ ] buildTeamSeed already seeds it (Admin 1111 / Viewer 1000) — only touch for a special Viewer default
+[ ] Add its real rights to MODULE_RIGHTS_BY_MODULE (TS forces this too) — only rights a door gates on
+[ ] buildTeamSeed (team-schema.ts) already seeds it (Admin 1111 / Viewer 1000) — only touch for a special Viewer default
 
 LAYER 3 — worker handler  (workers/content/src/{lib,routes}/<module>.ts + index.ts)
 [ ] Add the shared type to shared/types.ts; shape DB rows → it (toX mapper)
@@ -562,6 +599,7 @@ LAYER 3 — worker handler  (workers/content/src/{lib,routes}/<module>.ts + inde
 [ ] logActivity(...) with relatedTable/relatedRowId on state changes
 [ ] Route handlers: teamContext → requireRight(module, right) → validate → lib → publishChange → json
 [ ] CREATE door returns the CREATED ROW, never the list: json({ created: await one<Module>(...), total }) — R21
+[ ] EDIT / STATUS / DEACTIVATE door returns the AFFECTED ROW, never the list: json({ updated, total? }) — R23
 [ ] publishChange(env.REALTIME, teamId, "<module>", id, op) after EVERY mutation (R1); one ping per row for bulk
 [ ] Add each route to ROUTES with kind read | mutation | housekeeping
 
@@ -570,13 +608,15 @@ LAYER 4 — web client + screen
 [ ] web/lib/pages.ts: add the TeamSection (+ countCacheKey if a collection tab, R8) + CONCEPT_ICON
 [ ] web/lib/screens.ts: add <module>ListRecipe, BASE_RECIPES["<module>.list"], MODULE_PERMISSION
 [ ] web/components/deep-link/shape.ts: add shape<Module>List (name/detail + facet columns)
-[ ] deep-link-screen.tsx: useCached read (key "<module>:${teamId}") + list branch + detail branch
-[ ] deep-link-screen.tsx: add the cache key to loadedByCacheKey (R8 badge); create handler primes the cache
+[ ] web/lib/use-screen-data.ts: useCached read (key "<module>:${teamId}") via a web/lib/live-resources.ts listFetch entry
+[ ] web/components/deep-link/module-content.tsx: the list branch + the detail branch
+[ ] deep-link-screen.tsx: add the door's exact total to totalByCacheKey (R8 picks the tab, R16 owns the number)
+[ ] web/lib/use-screen-actions.ts: create handler folds the created row in with applyCreated + returns created?.id (R21/R22)
 [ ] (a SIDEBAR section? R20 — THREE lists, all three or it 404s/reloads:)
       [ ] web/app/<segment>/[[...rest]]/page.tsx        — or /<segment> 404s in a fresh tab
       [ ] MODULE_SHELLS in workers/gateway/src/index.ts — or /<segment>/<id> 404s in a fresh tab
       [ ] TOP_LEVEL_MODULES in web/components/deep-link/route.ts — or soft nav RELOADS the page
-[ ] After a create, patch the row in via applyCreated(...) — never re-pull the list (R21)
+[ ] After an edit/status/deactivate, fold the returned row in via applyUpdated(...) — a null row means drop it (R23)
 
 LAYER 5 — record detail  (web/components/<module>-detail.tsx)
 [ ] Bespoke detail renders TabsView + Overview (DescriptionList via auditItems) + Activity (ActivityFeed) — R2
@@ -636,7 +676,7 @@ state.
   existing worker; the library is lego you assemble, not fork. (CLAUDE.md.)
 ```
 
-## The hardening checklist (R13–R22 — a new module must satisfy these)
+## The hardening checklist (R13–R26 — a new module must satisfy these)
 Beyond the golden path, a module that ships without these turns the build red:
 
 - **Import story (R13):** declare a `TargetDef` in `workers/data-ops/src/lib/targets.ts`
@@ -677,3 +717,23 @@ Beyond the golden path, a module that ships without these turns the build red:
   with `if (!createdId)` — the navigation IS the close. If the table genuinely
   shouldn't open (an accessory row with no detail screen), say so in
   `CREATE_OPENS_RECORD_EXEMPT` with the reason.
+- **A mutation returns the affected ROW (R23):** every edit, status and deactivate
+  door answers `{ updated, total? }` — never the collection. The client folds it in
+  with `applyUpdated`; a NULL row is the answer, not a miss, and means the record
+  left the list, so drop it. Derived from the `edit` and `delete` gates, so your
+  doors are covered the moment they are gated. A count (`{ updated, skipped }` from
+  a bulk) or a bare `{ ok: true }` is fine — what is banned is the collection.
+- **A bulk twin, or a written reason (R24):** every single-record write door either
+  has a bulk twin or says in `shared/workers/bulk-doors.ts` why it cannot — and
+  every twin declares whether its rows may run TOGETHER or must run IN ORDER.
+  Deciding is what's mandatory: a door missing from that file fails the check.
+  Say IN ORDER when a row's result depends on the row before it.
+- **A whole life in the activity table (R25):** created, edited, deactivated,
+  reactivated — a master record is never hard-deleted, so deactivation is death and
+  it is logged like the rest. The rule is stated in exactly one place,
+  `shared/workers/activity.ts`; point at it rather than restating it. The table is
+  append-only — nothing in the request path may update or delete an activity row.
+- **The name stays sweepable (R26):** anything your module ships that carries the
+  product name must be a file `scripts/fork.mjs` already rewrites, so a fork renames
+  the whole base in one command and `npm run check` stays green. A file the sweep
+  can't reach needs the sweep taught its type, not an excuse.

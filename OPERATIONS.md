@@ -30,7 +30,7 @@ The /clean_slate skill reads this. DESTRUCTIVE — wipes data back to empty.
 | gateway (`workers/gateway`) | brimba-staging | brimba | The front door: serves web/out (marks `/_next/static/**` immutable) + routes /api/* (incl. the /api/realtime WebSocket) via service bindings |
 | auth (`workers/auth`) | brimba-auth-staging | brimba-auth | Login (strict email codes only), sessions, users |
 | realtime (`workers/realtime`) | brimba-realtime-staging | brimba-realtime | The live switchboard: one `TeamChannel` Durable Object per **channel** fans out row-level `{resource,id,op}` pings over WebSockets. TWO channel scopes — `team:<id>` (per active team) and `user:<id>` (per signed-in user) — so each open browser holds two sockets; idle channels hibernate (≈ free). Binds AUTH + the core DB (to gate connections); holds no app data |
-| tenancy (`workers/tenancy`) | brimba-tenancy-staging | brimba-tenancy | Members/roles/invites/config: team membership, role permissions, invitations + the nightly team-DB sizing cron + the per-team screen-recipe config store (served at GET/POST `/api/tenancy/config/screens`). UPDATED 2026-06-21: the planned `workers/config` worker was folded into tenancy — there is NO separate config worker |
+| tenancy (`workers/tenancy`) | brimba-tenancy-staging | brimba-tenancy | Members/roles/invites: team membership, role permissions, invitations, per-team dropdown values + the nightly team-DB sizing cron + the team-DB migration and sharding admin endpoints. UPDATED 2026-06-21: the planned `workers/config` worker was folded into tenancy — there is NO separate config worker. UPDATED 2026-08-25: the per-team screen-recipe config store (`GET/POST /api/tenancy/config/screens`) was DELETED — screen recipes are code (`web/lib/screens.ts`), not rows |
 | content (`workers/content`) | brimba-content-staging | brimba-content | BUILT 2026-06-23. The team-DB content modules: **Learning** (how-to items + per-user "mark done" progress) + **Help** (team-wide tickets + threaded replies, fixed status lifecycle). Routes `/api/content/*`. Binds AUTH + REALTIME + the core DB (gating) + two R2 buckets (`LEARNING_MEDIA`, `HELP_MEDIA`). No cron |
 | mcp (`workers/mcp`) | brimba-mcp-staging | brimba-mcp | BUILT 2026-07-07. The external machine surface: personal access tokens (core `mcp_tokens`) bridged to team-pinned sessions (auth `/internal/mcp-session`), exposing the gated doors as MCP tools over JSON-RPC at `/mcp` (+ token management at `/api/mcp/tokens*`). Binds AUTH + TENANCY + CONTENT + DATAOPS + the core DB. Secret: `INTERNAL_KEY` (same value as auth/tenancy/content/gateway). No cron |
 | data-ops (`workers/data-ops`) | brimba-data-ops-staging | brimba-data-ops | BUILT 2026-06-23. **CSV import** — the 3-stage single-target session AND the agentic multi-file **batch** import (analyze → plan → ordered run with foreign-key resolution; AGENTIC-IMPORT.md), both INSERT-ONLY + act-as-user through the gated create endpoints — plus full-field CSV **export** (`/api/content/learning/export`, `/api/tenancy/roles/export`) + **the AI agent** (swappable model, act-as-user executor, confirm rule, identity blocks, fenced data, step cap, saved threads, credit quota). Routes `/api/data-ops/*`. Binds AUTH + REALTIME + CONTENT + TENANCY + the Workers AI binding (`AI`) + the core DB. No cron |
@@ -42,7 +42,7 @@ The /clean_slate skill reads this. DESTRUCTIVE — wipes data back to empty.
 
 Deploy order when several change: **realtime → auth → tenancy → content → data-ops → mcp → gateway** (root scripts do this — realtime FIRST because every other worker service-binds it: auth/tenancy/content/data-ops publish change pings, the gateway routes the WebSocket. Deploying a binder before its target fails with "Worker not found" — this bit us on the first production deploy, when `brimba-realtime` didn't exist yet; FIXED 2026-06-22). content and data-ops slot in before the gateway because the gateway routes `/api/content/*` and `/api/data-ops/*` to them, and **data-ops binds CONTENT + TENANCY** (so both must exist before data-ops). **COLD-START (a genuinely fresh account — every `new-app` fork):** realtime also binds AUTH, so `realtime → auth` and `auth → realtime` form a cycle; the very first deploy dies with **`code 10143`** ("Worker not found" for the not-yet-deployed side). This is NOT a "usually auth already exists" footnote — on a fresh account NEITHER exists. Break it once: in `workers/realtime/wrangler.jsonc` **temporarily remove the AUTH service binding**, run `npm run deploy:*` (realtime deploys, then auth, …), then **restore the binding and redeploy realtime**. Do it on staging AND production. (A future improvement automates this in the deploy script — BASE-IMPROVEMENTS.) The realtime worker defines the `TeamChannel` Durable Object (a one-time `migrations` tag in its wrangler.jsonc; no team-DB migration involved — the DO holds no app data). Durable Objects need the Workers Paid plan.
 A nightly cron (03:10 UTC, tenancy worker) sizes every team DB and alarms at 80% of the 10GB cap.
-New migrations must be applied to BOTH databases before deploying workers that need them. The agent-modules build (2026-06-23) adds **core migrations 0008 (`importable_databases`) / 0009 (`agent_usage`) / 0010 (`agent_credits`)**, the credit-usage view (2026-07-01) adds **0011 (`agent_usage_log` — the per-command "why" trail)**, the error store (2026-07-03) adds **0012 (`error_logs` — the central error log, ERROR-HANDLING.md)**, and the MCP front desk (2026-07-07) adds **0013 (`mcp_tokens` + `sessions.team_pin`)** — WITHOUT 0013 the whole MCP surface hits a missing table — and the honest usage log (2026-08-04) adds **0014 (`agent_usage_log.kind` — action rows team-visible, prompt rows the author's; WITHOUT it every usage write fails its best-effort insert, so the log silently stops filling)** — apply them to `brimba-core` + `brimba-core-staging` (same command as below, any of the core-bound workers can run it; 0011 is applied on staging, production is owner-gated) — and the **team-schema migrations `0004_modules`** (learning, learning_progress, help, help_threads, data_import_sessions, agent_threads, agent_messages) **… `0006_import_batches`** (the agentic multi-file import shell, AGENTIC-IMPORT.md) — rolled to every team DB via `POST /api/tenancy/admin/migrate-teams` (x-admin-key). Apply BOTH before deploying content/data-ops.
+New migrations must be applied to BOTH databases before deploying workers that need them. The agent-modules build (2026-06-23) adds **core migrations 0008 (`importable_databases`) / 0009 (`agent_usage`) / 0010 (`agent_credits`)**, the credit-usage view (2026-07-01) adds **0011 (`agent_usage_log` — the per-command "why" trail)**, the error store (2026-07-03) adds **0012 (`error_logs` — the central error log, ERROR-HANDLING.md)**, and the MCP front desk (2026-07-07) adds **0013 (`mcp_tokens` + `sessions.team_pin`)** — WITHOUT 0013 the whole MCP surface hits a missing table — and the honest usage log (2026-08-04) adds **0014 (`agent_usage_log.kind` — action rows team-visible, prompt rows the author's; WITHOUT it every usage write fails its best-effort insert, so the log silently stops filling)** — apply them to `brimba-core` + `brimba-core-staging` (same command as below, any of the core-bound workers can run it; 0011 is applied on staging, production is owner-gated) — and the **team-schema migrations** — the `TEAM_MIGRATIONS` list in `workers/tenancy/src/team-schema.ts` IS the list (`0001_team_base` … `0009_speed_indexes` today; never hand-count it, read it), of which `0004_modules` adds learning, learning_progress, help, help_threads, data_import_sessions, agent_threads and agent_messages, `0006_import_batches` the agentic multi-file import shell (AGENTIC-IMPORT.md), and `0007_scale_indexes` / `0008_activity_origin` / `0009_speed_indexes` the scale, audit and speed rounds — rolled to every team DB via `POST /api/tenancy/admin/migrate-teams` (x-admin-key, and see the resumable loop below). Apply BOTH before deploying content/data-ops.
 
 ## Secrets (set once per env, never in git)
 
@@ -141,12 +141,52 @@ both owner-only:
 - **core `0015_scale_indexes`** — the sorts and retention sweeps the core database
   needs, plus `teams.moved_modules` (the counter the request path reads to find a
   relocated module). Apply with the usual core-migration step in BOOTSTRAP.md.
+- **core `0018_speed_indexes`** — two indexes the core database's own hot reads
+  need: the create-team cap, which counted a caller's teams by scanning the whole
+  `teams` table on a door any signed-in person can knock on, and the nightly shard
+  recount. Same core-migration step.
 - **team `0007_scale_indexes`** — the indexes that match the sorts each team
   database actually issues. Rolled to existing teams by
   `POST /api/tenancy/admin/migrate-teams` (x-admin-key), same as any team migration.
+- **team `0009_speed_indexes`** — one composite for the agent's own thread list
+  (filter by creator AND sort by newest activity, which no single-column index
+  could serve), plus the retirement of the two indexes it absorbs. Same
+  migrate-teams roll — and see the resumable loop below.
 
-Neither adds, removes or rewrites a row. They create indexes and one defaulted
-column, so they are safe to apply while the app is serving.
+None of them adds, removes or rewrites a row. They create indexes and one defaulted
+column, so they are safe to apply while the app is serving. Dropping an index is as
+additive as adding one: an index is derived data, rebuilt by re-running the
+migration, and no row is touched.
+
+### Rolling a team migration to every team — the loop, not one call
+
+`POST /api/tenancy/admin/migrate-teams` (x-admin-key) rolls every migration a team
+is missing to that team's database. It is **safe to re-run**: each team's own
+`_migrations` table is read first and only the missing versions are applied, so a
+repeat call on an up-to-date fleet does nothing.
+
+**Drive it as a loop, not a single call.** One call walks ONE PAGE of teams — 50,
+in team-id order — and answers with `done` and `nextAfter`. While `done` is false,
+call again passing `?after=<nextAfter>`. One request per page keeps each one inside
+the worker's time limit however many teams exist, and makes an interrupted roll
+resumable rather than a restart:
+
+```
+curl -s -X POST "$BASE/api/tenancy/admin/migrate-teams" -H "x-admin-key: $ADMIN_KEY"
+# -> { "ok": true, "done": false, "nextAfter": "<teamId>", "teamsChecked": 50, "teamsMigrated": 7 }
+
+curl -s -X POST "$BASE/api/tenancy/admin/migrate-teams?after=<teamId>" -H "x-admin-key: $ADMIN_KEY"
+# repeat until "done": true, at which point "nextAfter" is null
+```
+
+The paging is **keyset, in id order**, so pages tile exactly once — no overlap and
+no gap even while teams are being created underneath the loop. A SHORT page is what
+means "that was all of them", and `nextAfter` is null once done, so a caller cannot
+loop for ever on a cursor that never clears.
+
+**If it stops partway**, resume from the last `nextAfter` you saw. Teams already
+migrated are skipped on the next pass regardless, so resuming from too far back
+costs time, never correctness.
 
 ## Secrets
 
@@ -241,7 +281,7 @@ The raise is one-way; see SCALING.md §3.
 
 ---
 
-## Scaling round 3 (2026-08-18) — the operations database
+## Scaling round 3 (2026-08-12) — the operations database
 
 **A new D1 per environment**, already created:
 
@@ -255,10 +295,20 @@ The raise is one-way; see SCALING.md §3.
 ```
 npx wrangler d1 create <project>-ops
 npx wrangler d1 execute <project>-ops --remote --file ../../db/ops/0001_operations.sql
+npx wrangler d1 execute <project>-ops --remote --file ../../db/ops/0002_error_request_id.sql
 ```
 
-Then put the returned id in the `OPS` binding of auth / tenancy / content /
-data-ops / mcp, in BOTH the top-level and `env.staging` blocks.
+Apply **every** file in `db/ops/` in order — `0001…0002` today. BOOTSTRAP.md §3
+does the same thing with `wrangler d1 migrations apply`, which picks them all up
+on its own; the two `execute` lines above are the equivalent when you are standing
+one database up by hand.
+
+Then put the returned id in the `OPS` binding of **all SIX workers that carry
+one** — auth / tenancy / realtime / content / data-ops / mcp — in BOTH the
+top-level and `env.staging` blocks. (realtime joined on 2026-08-25: it had a `DB`
+binding and no `OPS` one, so its error rows were landing in the shared core
+database. The gateway is NOT in this list — it binds no database at all and
+records through auth's `/internal/log-error`.)
 
 **Moving the existing rows** — copy, verify, then delete, in that order:
 
@@ -394,20 +444,69 @@ Numbers, not opinions. `node scripts/timings.mjs` reads them off real responses 
 every worker reports its own duration in a `Server-Timing` header beside the
 request id — and exits non-zero if any operation is over budget.
 
+**When to run it.** After anything that could touch the request path: a worker
+deploy, a new or changed endpoint, an index or migration, a caching or paging
+change — and as part of the ship gate, alongside `npm run check`. It takes about a
+minute (five runs per probe).
+
+```
+node scripts/timings.mjs                  # staging, all probes
+node scripts/timings.mjs --production     # public probes only — by design
+node scripts/timings.mjs --url https://…  # somewhere else
+```
+
+- **Budgets are per CLASS of operation, not per URL** — `read` 400 ms, `write`
+  600 ms, `delete` 500 ms, `bulk` 1500 ms, in `CLASS_BUDGET`. A probe inherits its
+  class's number, so a newly added endpoint has a line to answer to the day it
+  arrives instead of being unmeasured until somebody remembers it. A genuine
+  exception overrides with its own `budget`.
+- **It keeps a history** in `timings.json` (the last 50 runs, counted by run so a
+  run is never half-kept). Each row is compared with the previous run against the
+  SAME target, so the output has a "vs last" column, and anything more than **25%
+  slower than last time** is called out by name even when it is still inside
+  budget. Commit the file — the trend is the point.
+- **The authenticated probes need `TEST_LOGIN_KEY`** set on staging — the same
+  staging-only secret the smoke test signs in with. Without it they are skipped and
+  you are back to measuring health checks.
+- **It refuses to measure production, and that is the feature.** One authenticated
+  probe RAISES A REAL TICKET, and this base has no delete door, so "don't run this
+  against production" could not be left as a sentence in a comment. Three
+  independent locks enforce it: `POST /api/auth/admin/test-login` refuses outright
+  when `ENVIRONMENT` is production, so no session can be minted there whatever the
+  script believes; the script checks the target **by host**, so an explicit
+  `--url https://…` at the production host is caught too and refused before a
+  single request is sent; and sign-in is hard-wired to one fixed scratch address
+  belonging to no person, so even a write that somehow escaped lands in the scratch
+  team it makes for itself. `--production` therefore runs the public probes only,
+  by design. To measure the real request path, measure staging.
+
 Before 2026-08-25 nothing in this base was instrumented: zero `Server-Timing`,
 zero `performance.now`, zero logged durations across 222 files. Every performance
 question was answerable only by argument.
 
-| Operation | Budget | Measured (staging, 25 Aug) | Server's own |
-|---|---|---|---|
-| Cold page load | 800 ms | 83 ms median | — (static asset) |
-| `auth/health` | 200 ms | 117 ms median | 4 ms |
-| `realtime/health` | 200 ms | 152 ms median | 9 ms |
-| `mcp/health` | 200 ms | 105 ms median | 5 ms |
+> **The numbers that used to sit here are withdrawn, and the conclusion drawn from
+> them was wrong.** This table read "every operation is inside budget" and "the
+> workers answer in 4–9 ms" on the strength of four probes — the static page and
+> the `auth`, `realtime` and `mcp` health checks. **All four return a literal
+> `{ok:true}` without opening a database.** None of them crosses the path a real
+> request takes (gateway → worker → auth → the D1 REST door), so the slowest and
+> most interesting hop in the system was the one hop no number existed for. When
+> the first probes that DO cross it were added, they came back **over budget** —
+> server-side, not network. A document that says "fast" on the strength of a health
+> check is not a measurement; it is a health check with a claim attached.
+>
+> **`node scripts/timings.mjs` is the live source. Run it and read its output —
+> do not read a number from this page.** The real figures for `members list`,
+> `one ticket by id` and `raise a ticket` are being diagnosed as this is written
+> and will move; they will be filled in here once they settle. Until then this
+> section states the shape of the problem and nothing about its size.
 
-**Read the two columns together.** The workers answer in 4–9 ms; the rest of every
-round trip is network between you and the edge. So a slow-feeling app is almost
-never slow code here — check the hop count first (below), then the budget.
+**Read a round trip and the server's own duration together** when you do run it.
+The script prints both: the round trip includes the network from wherever you ran
+it, and `server` does not. A gap between them is distance; a large `server` number
+is the app's own work, and that is the one that needs a fix rather than a CDN.
+Check the hop count too (below) — a screen asking the same question twice is a
+different fault from a slow answer.
 
 ### The hop budget
 
@@ -429,7 +528,13 @@ session directly, so it was the one caller in-flight de-duplication did not cove
 Both its reads now go through `dedupe()`, which shares the store's map, taking these
 rows from 10/8 and 18/11 to the numbers above.
 
-> These numbers were first written here as 8 and 16 — two low on each — from
-> counting through the de-duplicated store rather than the network. `round_trip`
-> round 4 re-counted independently and caught it. A budget nobody re-derives is a
-> claim, and a budget that says you pass when you fail is worse than none.
+> **These digits have been right, then wrong, then right again — read the history
+> before you trust them.** 8 and 16 were first written here from counting through
+> the de-duplicated store rather than the network, when the real figures were 10
+> and 18. `round_trip` round 4 re-counted independently, caught the miscount, and
+> the table was corrected to 10 and 18 and marked **over**. The `useActiveTeam`
+> fix above then genuinely removed those two requests, so the table reads 8 and 16
+> once more — this time earned. Same digits, opposite reasons. **Re-count against
+> the network panel, never against the store**, and if you cannot, say so rather
+> than copy these forward: a budget nobody re-derives is a claim, and a budget that
+> says you pass when you fail is worse than none.

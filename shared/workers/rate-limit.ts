@@ -35,6 +35,10 @@ export type RateLimitEnv = {
   USER_LIMITER?: RateLimiter
   /** The tighter ceiling for the EXPENSIVE doors — see HEAVY_PATHS. */
   HEAVY_LIMITER?: RateLimiter
+  /** The SEPARATE budget for `/media/*` object reads — see the media branch in
+   * `rateLimit`. Its own namespace on purpose: a picture must not cost an API
+   * request. */
+  MEDIA_LIMITER?: RateLimiter
 }
 
 /**
@@ -94,9 +98,39 @@ export function tooManyRequests(): Response {
  * load; one that takes the app DOWN when its own dependency wobbles has
  * inverted its purpose. The cost of failing open is a surge that gets through —
  * the cost of failing closed is an outage caused by the safety feature.
+ *
+ * Which is why EVERY ceiling is asked here, inside this one try/catch, and none
+ * of them inline at the call site. An `await limiter.limit()` written straight
+ * into the gateway's route table sits inside the CENTRAL catch instead, so a
+ * wobbling limiter stops being a no-op and becomes a 500 plus one recorded
+ * error row per request — on `/media/*`, the anonymous unauthenticated path,
+ * that is the amplification the gateway's `decodeKey` comment exists to prevent.
+ * A new ceiling belongs in this function, not beside it.
  */
 export async function rateLimit(request: Request, env: RateLimitEnv): Promise<Response | null> {
   try {
+    const { pathname } = new URL(request.url)
+    // MEDIA GETS ITS OWN BUDGET, and spends nothing from the app's.
+    //
+    // It needs a ceiling at all because it is NOT the cached, worker-free path
+    // it reads like: `run_worker_first` lists `/media/*`, so the worker runs and
+    // R2 is read on EVERY request. `immutable` only helps a browser that already
+    // holds the object — a cold client, a `?v=` bust, or anyone with curl misses
+    // it entirely, unauthenticated and as fast as they can ask.
+    //
+    // But it must NOT come out of the per-caller API budget. One how-to article
+    // with fifty images is a single page view; charged against USER_LIMITER it
+    // would spend fifty of that caller's 600, and a media-heavy screen could
+    // starve the app's own calls until the app looked broken to the very person
+    // loading it. So this branch RETURNS rather than falling through: a picture
+    // must not cost an API request.
+    if (pathname.startsWith("/media/")) {
+      if (env.MEDIA_LIMITER) {
+        const { success } = await env.MEDIA_LIMITER.limit({ key: `m:${callerKey(request)}` })
+        if (!success) return tooManyRequests()
+      }
+      return null
+    }
     if (env.USER_LIMITER) {
       const { success } = await env.USER_LIMITER.limit({ key: callerKey(request) })
       if (!success) return tooManyRequests()
@@ -104,7 +138,7 @@ export async function rateLimit(request: Request, env: RateLimitEnv): Promise<Re
     // The expensive doors carry a second, tighter ceiling. A caller must pass
     // BOTH: the ordinary one bounds how often they knock at all, this bounds how
     // often they knock somewhere costly.
-    if (env.HEAVY_LIMITER && isHeavyPath(new URL(request.url).pathname)) {
+    if (env.HEAVY_LIMITER && isHeavyPath(pathname)) {
       const { success } = await env.HEAVY_LIMITER.limit({ key: `h:${callerKey(request)}` })
       if (!success) return tooManyRequests()
     }

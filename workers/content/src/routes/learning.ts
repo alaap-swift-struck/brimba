@@ -37,10 +37,18 @@ export async function getLearning(request: Request, env: Env): Promise<Response>
   // is the LIVE RE-PULL, called once per watching client per ping, so it was the
   // more expensive of the two paths R23 was meant to fix.
   const id = new URL(request.url).searchParams.get("id")
-  const one = id ? await oneLearning(cfg, guard, id) : null
-  const items = id ? [] : await listLearning(cfg, guard)
+  // The rows and the COUNT are two unrelated questions for the team database, so
+  // they are asked at the same time. Every d1Query is a real HTTPS request to the
+  // D1 REST door — the genuinely expensive hop here, unlike the same-colo service
+  // bindings — and awaiting them in a row bought nothing but a second one. This
+  // door is the LIVE RE-PULL, once per watching client per ping, so it paid that
+  // twice on every change anyone made. (Round-trip review, 2026-08-25.)
+  const [rows, total] = await Promise.all([
+    id ? oneLearning(cfg, guard, id).then((one) => (one ? [one] : [])) : listLearning(cfg, guard),
+    countLearning(cfg, guard),
+  ])
   // R16: the exact server total rides every list response (badges never use rows.length).
-  return json({ learning: id ? (one ? [one] : []) : items, total: await countLearning(cfg, guard) })
+  return json({ learning: rows, total })
 }
 
 /** GET /api/content/learning/export — the team's articles as a CSV download.
@@ -79,7 +87,9 @@ export async function postCreateLearning(request: Request, env: Env): Promise<Re
   // R21: the CREATED ROW, not the collection. Shipping the whole list back to add
   // one row contradicts row-level live-sync (CACHING rule 3) and the paging rule,
   // and left the caller unable to learn the new id without a follow-up search.
-  return json({ created: await oneLearning(cfg, guard, id), total: await countLearning(cfg, guard) })
+  // Reading the new row back and re-counting are independent — one round trip.
+  const [created, total] = await Promise.all([oneLearning(cfg, guard, id), countLearning(cfg, guard)])
+  return json({ created, total })
 }
 
 export async function postUpdateLearning(request: Request, env: Env): Promise<Response> {

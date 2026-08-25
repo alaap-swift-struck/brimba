@@ -362,6 +362,41 @@ CREATE INDEX IF NOT EXISTS idx_activity_verb
   ON activity (verb, created_at DESC, id DESC);
 `,
   },
+  {
+    // SPEED: the assistant's own thread list, and two indexes that stopped
+    // earning their keep. Found by the speed review, 2026-08-25.
+    //
+    // 0007 gave agent_threads an index for the FILTER (creator_id) and a separate
+    // one for the SORT (newest activity first). The list door does both at once —
+    // your threads, most recent first — and no single index could serve it, so
+    // every read seeked on creator and then built a temporary b-tree to sort what
+    // it found. One composite does both in a single b-tree walk.
+    //
+    // Dropping an index is as additive as adding one: an index is derived data,
+    // rebuilt by re-running the migration, and no row is touched. Same as 0007,
+    // which retired three filter-only indexes its composites had absorbed.
+    version: "0009_speed_indexes",
+    sql: `
+-- YOUR CONVERSATIONS, NEWEST FIRST: the one list door for agent_threads
+-- (workers/data-ops/src/lib/threads.ts, listThreads) filters by creator and sorts
+-- by the same COALESCE expression 0007 indexed on its own.
+CREATE INDEX IF NOT EXISTS idx_agent_threads_mine
+  ON agent_threads (creator_id, COALESCE(last_message_at, created_at) DESC);
+-- …which makes the filter-only index redundant: creator_id is the composite's
+-- leading column, so every query that reached for this one now reaches for that.
+DROP INDEX IF EXISTS idx_agent_threads_creator;
+
+-- HELP — same story, one migration later. idx_help_mine_recent (0007) leads with
+-- creator_id, so the My-tickets scope uses the composite and this one goes unread.
+DROP INDEX IF EXISTS idx_help_creator;
+
+-- DELIBERATELY KEPT: idx_help_status. It looks like the same case, but it is not
+-- — idx_help_recent does not contain \`status\` at all, so it cannot stand in.
+-- The bulk-move-by-filter door counts tickets by status facet
+-- (workers/content/src/lib/help.ts, bulkSetStatusByFilter), and that count reads
+-- straight off this index; without it the door scans a table that grows for ever.
+`,
+  },
 ]
 
 export type Actor = { id: string; email: string; name: string }

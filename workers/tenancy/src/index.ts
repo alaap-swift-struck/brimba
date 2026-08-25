@@ -32,7 +32,10 @@
 //   GET  /api/tenancy/admin/db-sizes       -> size every team DB + open alarms
 //   POST /api/tenancy/admin/move-module    -> relocate a heavy module (the mover)
 //   GET  /api/tenancy/health
-//   cron (nightly)                         -> the 80% size alarms
+//   cron (nightly)                         -> size alarms, retention, shard
+//                                             splits, the orphan sweep, the
+//                                             account-wide AI spend alarm, and
+//                                             the error digest email
 
 import { brand } from "../../../shared/brand"
 import { opsDatabase } from "../../../shared/workers/ops-db"
@@ -40,7 +43,18 @@ import { withIdempotency } from "../../../shared/workers/concurrency"
 import { fail, json } from "../../../shared/workers/http"
 import { recordWorkerError } from "../../../shared/workers/error-log"
 import { GuardError } from "./lib/permissions"
-import { checkDatabaseSizes, recomputeShardCounts, runRetention, sweepOrphanedUploads } from "./lib/sharding"
+import { buildErrorDigest } from "./lib/error-digest"
+import { sendMail } from "./lib/notify"
+import { runRetention, sweepOrphanedUploads } from "./lib/housekeeping"
+import {
+  checkAccountAiSpend,
+  checkDatabaseSizes,
+  ensureNightlyTables,
+  noteCronHeartbeat,
+  noteSweepCursor,
+  recomputeShardCounts,
+  sweepCursor,
+} from "./lib/sharding"
 import { d1Config } from "./lib/teams"
 import type { Env } from "./env"
 import {
@@ -180,9 +194,14 @@ export default {
     }
   },
 
-  /** Nightly cron: the 80% database-size alarms (locked sharding machinery). */
+  /** Nightly cron: the 80% database-size alarms (locked sharding machinery),
+   * retention, the live-channel split, the orphan sweep, the account-wide AI
+   * spend alarm — and, last, the DIGEST that is the only thing here a person
+   * ever sees. */
   async scheduled(_controller, env): Promise<void> {
     try {
+      // The job's own bookkeeping tables, on first run. No-op every night after.
+      await ensureNightlyTables(env)
       const result = await checkDatabaseSizes(env, d1Config(env))
       console.log(
         `size check: ${result.checked} database(s) watched, ${result.alerted.length} alarm(s)`
@@ -198,13 +217,68 @@ export default {
       // Object storage was the last thing here growing with nothing watching it:
       // a file picked, then replaced, stays in the bucket for ever with nothing
       // linking to it and no screen that would ever show it to you.
-      const orphans = await sweepOrphanedUploads(env, d1Config(env))
-      console.log(`uploads: ${orphans.deleted} orphan(s) removed of ${orphans.scanned} scanned`)
+      // ONE PAGE OF TEAMS, resuming where last night stopped — the walk used to
+      // be O(every tenant) inside a single invocation with a hard subrequest
+      // ceiling. The cursor is saved IMMEDIATELY, before anything below can
+      // throw, or a step that fails every night would pin the rota to page one
+      // and starve every team behind it.
+      const orphans = await sweepOrphanedUploads(env, d1Config(env), await sweepCursor(env))
+      await noteSweepCursor(env, orphans.nextCursor)
+      console.log(
+        `uploads: ${orphans.deleted} orphan(s) removed of ${orphans.scanned} scanned across ${orphans.teams} team(s)`
+      )
+      // The only limit in the base that sees the WHOLE account rather than one
+      // team — a hundred tenants each inside their own quota is still a hundred
+      // times the cost, and nothing else would notice.
+      const spend = await checkAccountAiSpend(env)
+      console.log(`ai spend: ${spend.used}/${spend.cap} unit(s) account-wide today`)
+
+      // THE DIGEST — last, so it reports on everything above, including anything
+      // they just recorded. Built BEFORE tonight's heartbeat is written, because
+      // it checks that heartbeat to find out whether last night's run happened.
+      //
+      // NULL MEANS A CLEAN NIGHT AND NOTHING IS SENT. The absence of the email
+      // IS the all-clear — which only works if a failure to SEND is loud, so an
+      // undeliverable digest records an error rather than returning quietly.
+      const digest = await buildErrorDigest(env)
+      if (digest) {
+        const to = env.OPS_ALERT_EMAIL?.trim()
+        if (!to) {
+          await recordWorkerError(
+            opsDatabase(env),
+            "tenancy",
+            "cron/nightly-digest",
+            new Error("there is an error digest to send but OPS_ALERT_EMAIL is not set — nobody is being told")
+          )
+        } else if (!(await sendMail(env, to, digest.subject, digest))) {
+          // The bug this exists to prevent: auth answers 200 with { sent: false }
+          // when RESEND_API_KEY is unset. Combined with "silence means a clean
+          // night", a digest that never sends is INDISTINGUISHABLE from a healthy
+          // system — so the one thing that must never be silent is this.
+          await recordWorkerError(
+            opsDatabase(env),
+            "tenancy",
+            "cron/nightly-digest",
+            new Error(`the nightly error digest could not be delivered to ${to} — the mailer is not configured or refused it, so no alert is reaching anyone`)
+          )
+        }
+      }
+
+      // THE HEARTBEAT, written last so it means "the whole pass completed".
+      // Without it a cron that stops firing is invisible: it raises no error and
+      // its silence looks exactly like a quiet night.
+      await noteCronHeartbeat(env)
     } catch (e) {
       // LAW R12: unattended work has no user watching, so a swallowed failure would be
       // invisible — record it to the error store, not just the console.
-      console.error("nightly size check failed:", e)
-      await recordWorkerError(opsDatabase(env), "tenancy", "cron/size-check", e)
+      //
+      // `cron/nightly`, not `cron/size-check`: this one try now covers sizing,
+      // retention, shard counts, the orphan sweep, the spend alarm and the
+      // digest, and filing a digest failure under the size check would send
+      // whoever reads it to the wrong place. The place IS the signature the
+      // digest groups by, so a wrong one is a wrong diagnosis every night.
+      console.error("nightly job failed:", e)
+      await recordWorkerError(opsDatabase(env), "tenancy", "cron/nightly", e)
     }
   },
 } satisfies ExportedHandler<Env>

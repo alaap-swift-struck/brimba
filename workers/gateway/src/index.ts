@@ -47,15 +47,23 @@ async function serveObject(bucket: R2Bucket, key: string, request: Request): Pro
 /** Percent-decode one object key, or null when the caller's path is malformed.
  *
  * A BOUNDARY, not a formality. `decodeURIComponent("%zz")` throws a URIError, and
- * `/media/*` is deliberately OUTSIDE the surge ceiling (static objects are served
- * from cache and are not a load the app has to survive). That was harmless while
- * a throw here produced a bare platform error — and stopped being harmless the
- * moment a central catch was added above, which turned an anonymous, unlimited,
- * unauthenticated request into one row written to the shared operations database
- * per call. At 500 requests a second that is 10 GB in under fifteen hours, into
- * the one database the size alarm does not watch and the nightly sweep cannot
- * drain — and on a deployment without the OPS binding, the documented fallback
- * puts it in the CORE database, which stops sign-in for every tenant.
+ * `/media/*` is anonymous and unauthenticated: nobody has to sign in to knock
+ * here. That was harmless while a throw produced a bare platform error — and
+ * stopped being harmless the moment a central catch was added above, which
+ * turned an unlimited request into one row written to the shared operations
+ * database per call. At 500 requests a second that is 10 GB in under fifteen
+ * hours, into the one database the size alarm does not watch and the nightly
+ * sweep cannot drain — and on a deployment without the OPS binding, the
+ * documented fallback puts it in the CORE database, which stops sign-in for
+ * every tenant.
+ *
+ * `/media/*` now also sits INSIDE the surge ceiling, on its own budget (see the
+ * guard in `route`). That is the other half of the same fault and neither half
+ * replaces the other: the ceiling bounds how fast the door can be knocked on,
+ * this 400 keeps a caller's own malformed URL from being recorded at all. The
+ * rate was the part the round that wrote this comment left undone, on a premise
+ * — that these objects are cache-served and cost the worker nothing — that
+ * `run_worker_first` had already made false.
  *
  * A malformed URL is the caller's mistake: 400, recorded nowhere, exactly as
  * ERROR-HANDLING.md says of 4xx. Found by scaling_review AND error_log_review
@@ -90,10 +98,12 @@ type Env = {
   LEARNING_MEDIA: R2Bucket
   /** shared secret for auth's /internal/* doors (same value as auth/tenancy/content). */
   INTERNAL_KEY?: string
-  /** Surge ceilings — per caller and per team. Optional: absent in a fork that
-   * has not enabled them, in `wrangler dev`, and in tests. */
+  /** Surge ceilings — per caller, per expensive door, per media read, per team.
+   * Optional: absent in a fork that has not enabled them, in `wrangler dev`, and
+   * in tests. */
   USER_LIMITER?: RateLimiter
   HEAVY_LIMITER?: RateLimiter
+  MEDIA_LIMITER?: RateLimiter
   TEAM_LIMITER?: RateLimiter
 }
 
@@ -119,27 +129,39 @@ export default {
     } catch (e) {
       const place = `${request.method} ${new URL(request.url).pathname}`
       traceError({ req: requestId, worker: "gateway", place, event: "unhandled", detail: String(e) })
-      await callService(
-        env.AUTH,
-        "https://internal/internal/log-error",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "x-internal-key": env.INTERNAL_KEY ?? "" },
-          body: JSON.stringify({
-            source: "gateway",
-            place,
-            message: e instanceof Error ? e.message : String(e),
-            stack: e instanceof Error ? e.stack : undefined,
-            url: request.url,
-            requestId,
-          }),
-        },
-        { req: requestId, worker: "gateway", place: "catch/record" }
-      )
+      await sendErrorRow(env, { place, e, url: request.url, requestId })
       return fail(500, "internal", "Something went wrong on our side. Try again.")
     }
   },
 } satisfies ExportedHandler<Env>
+
+/** The gateway's ONE way of putting a row in the error store. It has no database
+ * binding of its own — deliberately, the busiest worker in the base stays thin —
+ * so every row it writes goes through AUTH's internal door. Both the central
+ * catch and the downstream-failure recorder below come through here, because two
+ * copies of this body is how the two drift apart. */
+async function sendErrorRow(
+  env: Env,
+  row: { place: string; e: unknown; url: string; requestId: string }
+): Promise<void> {
+  await callService(
+    env.AUTH,
+    "https://internal/internal/log-error",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-internal-key": env.INTERNAL_KEY ?? "" },
+      body: JSON.stringify({
+        source: "gateway",
+        place: row.place,
+        message: row.e instanceof Error ? row.e.message : String(row.e),
+        stack: row.e instanceof Error ? row.e.stack : undefined,
+        url: row.url,
+        requestId: row.requestId,
+      }),
+    },
+    { req: row.requestId, worker: "gateway", place: "catch/record" }
+  )
+}
 
 async function route(request: Request, env: Env, req: string): Promise<Response> {
   {
@@ -174,10 +196,26 @@ async function route(request: Request, env: Env, req: string): Promise<Response>
     // THE SURGE CEILING, at the one public door. Everything below is bounded in
     // SIZE (list caps, import ceilings, upload caps, the AI quota); this is the
     // only thing that bounds RATE. It sits above the routing table so a new
-    // route cannot be added outside it, and it deliberately covers /api/* only:
-    // static assets and /media/* are served from cache and are not a load the
-    // app has to survive. (Scaling review, 2026-08-11 — see SCALING.md.)
-    if (pathname.startsWith("/api/") || pathname === "/mcp") {
+    // route cannot be added outside it.
+    //
+    // It covers /media/* TOO, on a budget of its own. It did not until
+    // 2026-08-25, on the stated grounds that static objects "are served from
+    // cache and are not a load the app has to survive" — and both halves of that
+    // were wrong. `run_worker_first` lists /media/*, so this worker runs and R2
+    // is read on every single request; and `immutable` only helps a browser that
+    // already holds the object, which a cold client, a ?v= bust and an attacker
+    // by definition do not. That left the one anonymous, unauthenticated,
+    // unlimited door in the base — the 500 req/s hazard `decodeKey` describes
+    // below, where the previous round bounded the RECORDING and not the RATE.
+    //
+    // Genuinely static screens and /_next/static/** are still exempt, and
+    // correctly so: they are NOT in `run_worker_first`, so the asset layer
+    // answers them and this worker never runs.
+    //
+    // The ceiling itself lives in the shared seam, not here — see the fail-open
+    // note on `rateLimit`. (Scaling review, 2026-08-11; /media/* 2026-08-25 —
+    // see SCALING.md.)
+    if (pathname.startsWith("/api/") || pathname === "/mcp" || pathname.startsWith("/media/")) {
       const limited = await rateLimit(request, env)
       if (limited) return limited
     }
@@ -188,8 +226,17 @@ async function route(request: Request, env: Env, req: string): Promise<Response>
     // app. It now returns a clean 503 that says which part is unwell. There is
     // deliberately no timeout here: this path carries the agent's streamed reply,
     // and an abort would truncate a legitimate long answer.
+    // A downstream worker that is down returns a clean 503 — but until 2026-08-25
+    // it left NO row behind, so an outage was visible for a week in a log tail and
+    // then gone. `record` is a callback rather than a database handle precisely
+    // because this worker has no database: the recorder posts through AUTH, the
+    // same door the central catch uses, and `proxyService` throttles it to one row
+    // per place per minute so an outage cannot write a row per failed request.
+    const record = (place: string, e: unknown) =>
+      sendErrorRow(env, { place, e, url: request.url, requestId: req })
+
     const p = (b: { fetch(r: Request): Promise<Response> }, worker: string) =>
-      proxyService(b, traced, { req, worker, place: `${request.method} ${pathname}` })
+      proxyService(b, traced, { req, worker, place: `${request.method} ${pathname}`, record })
 
     if (pathname.startsWith("/api/auth/")) return p(env.AUTH, "auth")
     if (pathname.startsWith("/api/tenancy/")) return p(env.TENANCY, "tenancy")
@@ -206,7 +253,7 @@ async function route(request: Request, env: Env, req: string): Promise<Response>
     // path is the right trade — it is a single long-lived connection, not a hop in
     // a chain, so there is nothing to correlate it with anyway.
     if (pathname.startsWith("/api/realtime"))
-      return proxyService(env.REALTIME, request, { req, worker: "realtime", place: "ws" })
+      return proxyService(env.REALTIME, request, { req, worker: "realtime", place: "ws", record })
 
     // Client error beacon → console (Cloudflare observability, live tails) AND
     // the central error_logs table via auth's internal door, so a crash on a

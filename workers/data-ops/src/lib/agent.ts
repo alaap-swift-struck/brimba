@@ -137,7 +137,7 @@ async function failureWrapUp(model: Model, convo: ChatMessage[], tools: ToolSpec
       "team admin can grant it or do it for them). Do not call any tools.",
   }
   try {
-    const reply = await model.complete([...convo, ask], tools)
+    const reply = await model.complete([...convo, ask], tools, "agent")
     const text = reply.text?.trim()
     if (text) return text
   } catch {
@@ -397,13 +397,18 @@ async function runPlanLoop(
         // First delta of a NEW model turn gets the blank-line separator when earlier
         // text already streamed (e.g. a lead-in before steps, then the wrap-up after).
         let first = true
-        reply = await model.stream!(convo, tools, (d) => {
-          emit!({ t: "text", d: (first && spoke ? "\n\n" : "") + d })
-          first = false
-          spoke = true
-        })
+        reply = await model.stream!(
+          convo,
+          tools,
+          (d) => {
+            emit!({ t: "text", d: (first && spoke ? "\n\n" : "") + d })
+            first = false
+            spoke = true
+          },
+          "agent"
+        )
       } else {
-        reply = await model.complete(convo, tools)
+        reply = await model.complete(convo, tools, "agent")
       }
     } catch (e) {
       // A model/runtime hiccup becomes a friendly, saved turn — never an uncaught 500.

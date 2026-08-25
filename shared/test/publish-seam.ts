@@ -24,7 +24,40 @@ import { declarationBody, read, stripComments } from "./source"
 
 type RouteTable = Record<string, { handler: { name: string }; kind?: string }>
 
-const PUBLISH_RE = /publish(Change|UserChange|SignOut)\s*\(/
+// A PUBLISH THAT IS NOT WAITED ON IS NOT A PUBLISH.
+//
+// The old pattern was `/publish(Change|UserChange|SignOut)\s*\(/` — the call and
+// nothing about what happens to the promise it returns. That matched all three
+// of these identically:
+//
+//     await publishChange(…)             guaranteed
+//     ctx.waitUntil(publishChange(…))    guaranteed — the runtime holds the
+//                                        isolate open until it settles
+//     publishChange(…)                   FIRE AND FORGET — the isolate finishes
+//                                        with the response and the platform
+//                                        cancels the in-flight fetch
+//
+// The third one leaves every other person's screen stale while the check that
+// exists to prevent exactly that stays green, and it is one deleted keyword away
+// from either of the first two. So the seam now reads the DISPOSITION, not the
+// call, and the bare form is named and failed below.
+const PUBLISH_RE = /(?:await\s+|ctx\.waitUntil\(\s*)publish(?:Change|UserChange|SignOut)\s*\(/
+
+/** Every publish call in a body, however it is disposed of. */
+const ANY_PUBLISH_RE = /publish(?:Change|UserChange|SignOut)\s*\(/g
+
+/** The publish calls in a body that are NEITHER awaited nor handed to
+ * `ctx.waitUntil(...)` — i.e. the ones the runtime is free to cancel. Named
+ * individually so a failure says which call, not just which file. */
+function barePublishes(body: string): string[] {
+  const bare: string[] = []
+  for (const m of body.matchAll(ANY_PUBLISH_RE)) {
+    const before = body.slice(0, m.index)
+    if (/await\s+$/.test(before) || /ctx\.waitUntil\(\s*$/.test(before)) continue
+    bare.push(m[0].replace(/\s*\($/, ""))
+  }
+  return bare
+}
 
 /** Every `export async function NAME` body in a directory, keyed by name —
  * through the shared reader, so one declaration means one body. */
@@ -94,6 +127,37 @@ export function describePublishSeam(opts: {
         const indirect = indirectPublishers.some((fn) => new RegExp(`\\b${fn}\\s*\\(`).test(body!))
         expect(direct || indirect, `${route} must publish (directly or via a lib publisher)`).toBe(true)
       }
+    })
+
+    it("never fires a publish and forgets it — every one is awaited or held by waitUntil", () => {
+      // The gap the disposition-blind regex left. A route CAN satisfy "it
+      // publishes" and still not publish: `publishChange(…)` on its own returns a
+      // promise nobody holds, the handler returns its response, the isolate
+      // finishes, and the platform cancels the fetch that was on its way to the
+      // realtime worker. Everyone else's screen stays stale — the exact failure
+      // LAW R1 exists to prevent — and the old check called it a pass.
+      //
+      // Both guaranteed forms are accepted, because they are genuinely
+      // equivalent for this purpose: `await` blocks the response on it,
+      // `ctx.waitUntil()` lets the response go first and keeps the isolate alive
+      // until the ping lands. What is refused is the bare call.
+      const offenders: string[] = []
+      for (const [route, def] of Object.entries(routes)) {
+        const body = routeFns.get(def.handler.name)
+        if (!body) continue // absence is the previous test's job to report
+        for (const call of barePublishes(body))
+          offenders.push(`${route} (${def.handler.name}) calls ${call}(…) without await or ctx.waitUntil`)
+      }
+      // The lib publishers are on the same hook: an indirect chain that fires and
+      // forgets is no more delivered than a direct one.
+      for (const fn of indirectPublishers)
+        for (const call of barePublishes(libFns.get(fn) ?? ""))
+          offenders.push(`${fn}() calls ${call}(…) without await or ctx.waitUntil`)
+
+      expect(
+        offenders,
+        `a fire-and-forget publish is cancelled when the isolate finishes, so the ping never arrives:\n  ${offenders.join("\n  ")}`
+      ).toEqual([])
     })
 
     it("the indirect lib publishers really do publish (so the chain is honest)", () => {

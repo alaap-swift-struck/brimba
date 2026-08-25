@@ -5,14 +5,14 @@
 // real endpoint it calls (act-as-user), so it can never exceed the caller's rights.
 
 import { opsDatabase } from "../../../../shared/workers/ops-db"
-import { fail, json } from "../../../../shared/workers/http"
+import { fail, json, pagedJson } from "../../../../shared/workers/http"
 import { optionalText, requireText, TEXT_LIMITS } from "../../../../shared/workers/validate"
 import { publishChange } from "../../../../shared/workers/realtime"
 import { GuardError, adminGuard, requireRight, teamContext } from "../../../../shared/workers/gating"
 import { recordWorkerError } from "../../../../shared/workers/error-log"
 import { getQuota, grantCredits, readUsageLog } from "../lib/credits"
 import { confirmAndRun, runChat, type Emit } from "../lib/agent"
-import { listMessages, listThreads } from "../lib/threads"
+import { countThreads, listMessages, listThreads } from "../lib/threads"
 import type { ChatOutcome, StreamEvent } from "../../../../shared/types"
 import type { Env } from "../env"
 
@@ -163,11 +163,19 @@ export async function postAgentConfirm(request: Request, env: Env): Promise<Resp
   return json(await confirmAndRun(env, request, cfg, guard, actor, opts))
 }
 
-/** GET /api/data-ops/agent/threads — the caller's saved conversations. */
+/** GET /api/data-ops/agent/threads — the caller's saved conversations, ONE PAGE.
+ *
+ * R14: conversations grow with use, so this answers with the full paged contract —
+ * the rows, the exact total, hasMore, and the opaque cursor to hand back for the next
+ * page. Page one is what an omitted `cursor` means, so a client that never sends one
+ * still gets exactly what it got before. The count and the page are two unrelated
+ * questions for the team database, so they're asked at the same time. */
 export async function getAgentThreads(request: Request, env: Env): Promise<Response> {
   const { cfg, guard } = await teamContext(request, env)
   await requireRight(cfg, guard, "agent", "read")
-  return json({ threads: await listThreads(cfg, guard) })
+  const cursor = new URL(request.url).searchParams.get("cursor")
+  const [page, total] = await Promise.all([listThreads(cfg, guard, cursor), countThreads(cfg, guard)])
+  return pagedJson("threads", { ...page, total })
 }
 
 /** GET /api/data-ops/agent/thread?id= — one conversation's messages. */

@@ -35,7 +35,7 @@ import { formatActivityWhen } from "@/lib/format"
 import { RichText } from "@/components/rich-text"
 import { usePermissions } from "@/lib/perms"
 import { applyUpdated } from "@/lib/live-resources"
-import { primeCache, useCached } from "@/lib/store"
+import { primeCache, readCache, useCached, useCachedValue } from "@/lib/store"
 
 // Show the linked resource IN-APP. We pick the player by the content-type keyword
 // first (the team's own label, e.g. "Video file"), then fall back to the URL's
@@ -61,10 +61,24 @@ function LearningMedia({ url, contentType }: { url: string; contentType: string 
 }
 
 export function LearningDetailScreen({ teamId, learningId }: { teamId: string; learningId: string }) {
-  const learningQ = useCached<Learning[]>(`learning:${teamId}`, () =>
-    content.learning().then((r) => r.learning)
+  // ONE RECORD IS READ AS ONE RECORD. This screen used to FETCH the whole
+  // collection and `.find()` the article it wanted — every article's full body,
+  // pulled to render one of them, on a screen that shows exactly one.
+  //
+  // The list cache stays the first answer, because walking in from the collection
+  // means the row is already in hand and costs nothing: `useCachedValue` READS
+  // that cache (and re-renders when live-sync patches it) but never FETCHES it.
+  // Everything else — a deep link, a fresh tab, a shared URL — asks the single-row
+  // door, which shares the list's own projection so a lone row can never differ in
+  // shape from a listed one. `null` key means no request, so neither path pays for
+  // the other. (Round-trip review, 2026-08-25.)
+  const listKey = `learning:${teamId}`
+  const oneKey = `learning-one:${learningId}`
+  const fromList = useCachedValue<Learning[]>(listKey)?.find((l) => l.id === learningId) ?? null
+  const oneQ = useCached<Learning | null>(fromList ? null : oneKey, () =>
+    content.learningOne(learningId)
   )
-  const item = learningQ.data?.find((l) => l.id === learningId) ?? null
+  const item = fromList ?? oneQ.data ?? null
 
   const activityQ = useCached<ActivityItem[]>(`activity:record:learning:${learningId}`, () =>
     tenancy.recordActivity("learning", learningId)
@@ -88,13 +102,24 @@ export function LearningDetailScreen({ teamId, learningId }: { teamId: string; l
   const [busyDone, setBusyDone] = React.useState(false)
   const [busyActive, setBusyActive] = React.useState(false)
 
+  /** Fold a change into WHICHEVER cache is holding this article — the list (walked
+   * in from the collection) or the single-row entry (a deep link, where the list
+   * was never read). Each only if LOADED, the same "nothing visible to patch" rule
+   * `patchRow` follows; before the single-row path existed, the list was the only
+   * possible answer. */
   function patchItem(next: Partial<Learning>) {
-    const cur = learningQ.data
-    if (!cur) return
-    primeCache(
-      `learning:${teamId}`,
-      cur.map((l) => (l.id === learningId ? { ...l, ...next } : l))
-    )
+    const list = readCache<Learning[]>(listKey)
+    if (list)
+      primeCache(listKey, list.map((l) => (l.id === learningId ? { ...l, ...next } : l)))
+    const one = readCache<Learning | null>(oneKey)
+    if (one) primeCache(oneKey, { ...one, ...next })
+  }
+
+  /** The same fold for the ONE row a mutation door hands back (R23): a whole row,
+   * or `null` meaning the record left the list. */
+  async function applyRow(updated: Learning | null) {
+    await applyUpdated({ listKey, id: learningId, row: updated })
+    if (readCache(oneKey) !== undefined) primeCache(oneKey, updated)
   }
 
   async function toggleDone() {
@@ -122,7 +147,7 @@ export function LearningDetailScreen({ teamId, learningId }: { teamId: string; l
       expectedVersion: item?.updatedAt ?? item?.createdAt ?? null,
     })
     // R23: the door hands back ONE row — patch it in (CACHING rule 3).
-    await applyUpdated({ listKey: `learning:${teamId}`, id: learningId, row: updated })
+    await applyRow(updated)
     invalidateActivity()
     toast.success("Article updated.")
   }
@@ -138,7 +163,7 @@ export function LearningDetailScreen({ teamId, learningId }: { teamId: string; l
     setBusyActive(true)
     try {
       const { updated } = await content.setLearningActive(learningId, activeNext)
-      await applyUpdated({ listKey: `learning:${teamId}`, id: learningId, row: updated })
+      await applyRow(updated)
       invalidateActivity()
       toast.success(activeNext ? "Article activated." : "Article deactivated.")
     } catch (err) {
@@ -148,8 +173,13 @@ export function LearningDetailScreen({ teamId, learningId }: { teamId: string; l
     }
   }
 
-  if (learningQ.error) return <p className="text-destructive text-sm">Couldn&apos;t load the article.</p>
-  if (learningQ.data === undefined) return <Skeleton variant="list" lines={4} />
+  // The single-row read is the only thing that can be in flight: with the article
+  // in hand from the list cache there is nothing to wait for. `undefined` is
+  // "still asking", `null` is the door's answer that it is gone — without that
+  // distinction a deep-linked article flashes "doesn't exist" mid-read.
+  if (!item && oneQ.error)
+    return <p className="text-destructive text-sm">Couldn&apos;t load the article.</p>
+  if (!item && oneQ.data === undefined) return <Skeleton variant="list" lines={4} />
   if (!item) return <p className="text-muted-foreground text-sm">That article doesn&apos;t exist.</p>
 
   const overviewItems = [

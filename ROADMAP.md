@@ -1,12 +1,19 @@
 # Roadmap — members, roles & settings build-out (Phase C)
 
-> **Where things stand (2026-07-02).** Everything below SHIPPED, and a whole
-> further era shipped after it: learning + help + CSV import + the streaming AI
-> agent co-pilot (branch `agent-modules`, staging). This file is the Phase-C
-> HISTORY + its still-open tail (see "Remaining"); for the current system read
-> README.md → BASE-MANUAL.md, and for what's next: the owner's staging verdict,
-> ~~the external `mcp` worker~~ (BUILT 2026-07-07 — ARCHITECTURE.md), the two deferred perf
-> wins (EDGE-CASES.md), and the `lean-mean-report.md` fix list.
+> **Where things stand (2026-08-25). This file is HISTORY.** Everything below
+> shipped, and so did the era after it. Learning, help, CSV import and the
+> streaming AI agent co-pilot went **live on production on 2026-07-03** — the
+> base's first production rollout — and the `agent-modules` branch that carried
+> them was merged and deleted long ago; nothing is waiting on staging. After that
+> came the external `mcp` worker (2026-07-07), the seven fork findings with laws
+> R20–R22 (2026-08-11), two scaling passes, and the operations database
+> (2026-08-12).
+>
+> **Read [CHANGELOG.md](CHANGELOG.md) for what shipped when**, README.md →
+> BASE-MANUAL.md for the system as it stands, and BASE-IMPROVEMENTS.md for what
+> each review found and changed. What is kept here is the Phase-C record and its
+> still-open tail — see "Remaining", which is the only part of this file that is
+> not yet done.
 
 Decided 2026-06-13 with the user. Built **sequentially, phase by phase**, each
 shipped to staging. This file is the contract — keep the seams stable so phases
@@ -114,8 +121,10 @@ Then the Foundation phase (below) resumes.
 
 **Product rules locked 2026-06-21 (apply to Members / Member roles / Invites):**
 - **Count badges:** when a section/tab leads with a collection (Members, Invites,
-  …) it shows a count = what the collection displays, compacted via
-  `abbreviateCount` (6 / 189 / 1.18M), HIDDEN when 0.
+  …) it shows a count, HIDDEN when 0. *(Superseded in the detail: the count is now
+  an exact server `COUNT(*)` through the one `formatCount` seam,
+  `web/lib/format-count.ts`, per Law R16 — not the collection's loaded length, and
+  not the `abbreviateCount` helper named here, which was never built.)*
 - **CONCEPT_ICON vocabulary:** one distinct lucide icon per concept, centralised in
   `web/lib/pages.ts`, reused at page / section-tab / button level.
 - **Block at every step:** the `?panel` / `?confirm` overlays (e.g. invite, role
@@ -137,9 +146,11 @@ Then the Foundation phase (below) resumes.
   - **SUPERSEDED 2026-06-21 → screen-engine adoption SHIPPED (M1/M2/M3).** The team
     area moved off `/settings/team/*` onto the engine at `/t/<teamId>/<module>/<id>`
     (see SCREEN-ENGINE-PLAN §10). **M1:** deep-link foundation + member detail via
-    engine. **M2:** per-team screen-recipe config store, served by the TENANCY
-    worker at `GET/POST /api/tenancy/config/screens` (there is NO separate
-    `workers/config` worker — that planned worker was folded into tenancy). **M3:**
+    engine. **M2:** a per-team screen-recipe config store, served by the TENANCY
+    worker at `GET/POST /api/tenancy/config/screens` (there was NO separate
+    `workers/config` worker — that planned worker was folded into tenancy).
+    **M2 was DELETED on 2026-08-25** — the store and its routes are gone, and
+    screen recipes are code (`web/lib/screens.ts`), not rows. **M3:**
     members / roles / invites lists + detail + actions migrated onto the engine at
     `/t` URLs, team Overview, the section switcher, and collapsing breadcrumbs. The
     role permission grid is host-composed (no engine block yet). `/members` `/roles`
@@ -184,12 +195,15 @@ Then the Foundation phase (below) resumes.
 - **Activity + metadata:** one reusable writer logs created/edited/role-changed/
   invite/removed events to each team's `activity` table; a read endpoint
   (`GET /api/tenancy/activity?scope=team|user|role|invite`) + `GET /api/tenancy/team-meta`;
-  reusable `MetadataOverview` + `ActivityFeed`; team-detail **Overview** + **Activity**
+  a reusable Overview block + `ActivityFeed`; team-detail **Overview** + **Activity**
   tabs and a **member-detail dialog** (Overview + Activity). Email-change flow live.
+  *(The Overview block was called `MetadataOverview` while this was being planned;
+  what shipped is a `DescriptionList` built from `auditItems()` in
+  `web/lib/audit-overview.ts` — no component of that name exists.)*
 
 ## Remaining (for the next session)
 
-1. **Role detail Overview/Activity** — reuse `MetadataOverview` + `ActivityFeed`
+1. **Role detail Overview/Activity** — reuse the Overview block + `ActivityFeed`
    (scope=role) on the selected role in the Member-roles tab (the endpoint + both
    components already support it — small wiring job).
 2. **One-row-three-places (optional polish):** to show a member-role-change on the

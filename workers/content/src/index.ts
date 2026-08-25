@@ -99,7 +99,22 @@ export default {
     const route = `${request.method} ${pathname}`
 
     try {
-      if (route === "GET /api/content/health") return json({ ok: true })
+      // A health check that can only ever say "yes" is not a health check. This
+      // returned `{ ok: true }` unconditionally, so a worker deployed without
+      // CF_D1_TOKEN — which means every team-database read and write 503s —
+      // reported itself perfectly healthy, and the smoke run agreed. That is the
+      // exact failure BOOTSTRAP.md warns about: a fresh environment that skipped
+      // a secret looks fine until a person clicks something.
+      //
+      // BOOLEANS ONLY, and deliberately. This door is UNAUTHENTICATED, so it may
+      // say whether a thing is configured and nothing else — never a value,
+      // never a length, never which secret is the missing one. "Configured /
+      // not configured" is all an operator needs and all an attacker gets.
+      if (route === "GET /api/content/health")
+        return json({
+          ok: true,
+          bindings: { d1Token: !!env.CF_D1_TOKEN, internalKey: !!env.INTERNAL_KEY, ops: !!env.OPS },
+        })
       const def = ROUTES[route]
       if (!def) return fail(404, "not_found", "No such content action.")
       // A client may send `Idempotency-Key` on a mutation to make it safe to

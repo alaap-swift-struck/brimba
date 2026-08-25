@@ -1,9 +1,11 @@
 import { act, renderHook, waitFor } from "@testing-library/react"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import {
+  MAX_AGE_MS,
   MAX_ENTRIES,
   MAX_ROWS_PER_ENTRY,
+  REVALIDATE_AFTER_MS,
   invalidate,
   patchRow,
   primeCache,
@@ -215,7 +217,13 @@ describe("invalidate drops the request on the wire, not just the entry", () => {
     const hook = renderHook(
       () => useCached<Row[]>(key, () => new Promise<Row[]>((resolve) => calls.push(resolve)))
     )
-    expect(calls).toHaveLength(1) // revalidate-on-mount, still open
+    // The seed landed a moment ago, so the freshness window means the MOUNT does
+    // not re-ask. What this test needs is a list read IN FLIGHT when the patch
+    // lands — not the particular thing that opened it.
+    act(() => {
+      hook.result.current.refresh()
+    })
+    expect(calls, "the list read is on the wire").toHaveLength(1)
 
     await act(async () => {
       await patchRow(key, "id", "a", async () => ({ id: "a", v: 99 }))
@@ -226,6 +234,120 @@ describe("invalidate drops the request on the wire, not just the entry", () => {
 
     expect(peek(key)).toEqual([{ id: "a", v: 99 }])
     expect(hook.result.current.data).toEqual([{ id: "a", v: 99 }])
+  })
+})
+
+// THE FRESHNESS WINDOW. Mounting used to revalidate UNCONDITIONALLY, so opening a
+// record and pressing back re-read the collection you had been looking at a second
+// earlier — the same answer, bought twice, on every hop. The window is deliberately
+// a FEW SECONDS: live pings are what keep this cache honest (CACHING rule 3), so it
+// may only cover a hop too quick for a ping to have been missed inside it.
+describe("a mount does not re-ask for something that just arrived", () => {
+  /** Drive `Date.now` for the age-dependent cases. Asserting that the FETCHER RAN
+   * is synchronous (renderHook flushes the effect), so the clock is restored
+   * before anything has to await — no faked clock is ever left under `waitFor`. */
+  function atTime(ms: number) {
+    return vi.spyOn(Date, "now").mockReturnValue(ms)
+  }
+
+  it("skips the revalidation when the entry was written moments ago", async () => {
+    const key = freshKey()
+    let fetches = 0
+    const fetcher = async () => {
+      fetches++
+      return [{ id: "a" }]
+    }
+
+    const first = renderHook(() => useCached<Row[]>(key, fetcher))
+    await waitFor(() => expect(first.result.current.data).toBeDefined())
+    expect(fetches).toBe(1)
+    first.unmount()
+
+    // Straight back to the screen you just left.
+    const second = renderHook(() => useCached<Row[]>(key, fetcher))
+    expect(second.result.current.data, "painted from cache, instantly").toEqual([{ id: "a" }])
+    expect(fetches, "inside the window the hop costs nothing").toBe(1)
+  })
+
+  it("asks again once the window has passed", async () => {
+    const key = freshKey()
+    let fetches = 0
+    const fetcher = async () => {
+      fetches++
+      return [{ id: "a" }]
+    }
+    const first = renderHook(() => useCached<Row[]>(key, fetcher))
+    await waitFor(() => expect(first.result.current.data).toBeDefined())
+    first.unmount()
+
+    const clock = atTime(Date.now() + REVALIDATE_AFTER_MS + 1)
+    const second = renderHook(() => useCached<Row[]>(key, fetcher))
+    expect(fetches, "past the window, a mount revalidates as it always did").toBe(2)
+    clock.mockRestore()
+    await waitFor(() => expect(second.result.current.data).toEqual([{ id: "a" }]))
+  })
+
+  it("re-reads a long-lived entry that live patches kept looking fresh", async () => {
+    // The case MAX_AGE_MS exists for. A tab open all day rides live pings, and
+    // every patch re-stamps the entry as "just written" — so the short window on
+    // its own would mean the collection is never read whole again, and anything
+    // missed outside a reconnect would sit there unnoticed for hours.
+    const key = freshKey()
+    let fetches = 0
+    const fetcher = async () => {
+      fetches++
+      return [{ id: "a", v: 1 }]
+    }
+    const first = renderHook(() => useCached<Row[]>(key, fetcher))
+    await waitFor(() => expect(first.result.current.data).toBeDefined())
+    first.unmount()
+    expect(fetches).toBe(1)
+
+    // Hours later a ping patches one row in, so the entry is "written" right now.
+    const clock = atTime(Date.now() + MAX_AGE_MS + 1_000)
+    await patchRow(key, "id", "a", async () => ({ id: "a", v: 2 }))
+    const second = renderHook(() => useCached<Row[]>(key, fetcher))
+    expect(fetches, "a patch cannot keep an entry young for ever").toBe(2)
+    clock.mockRestore()
+    await waitFor(() => expect(second.result.current.data).toBeDefined())
+  })
+
+  it("a PREWARM paints but never stands in for the screen's own read", async () => {
+    // The prewarm's fetchers are deliberately thinner than the screens' — they do
+    // not prime the `total:` sidecars the count badges render (R16). If a seed
+    // counted as a read, entering a team and tapping a section inside the window
+    // would show the rows and a blank badge.
+    const key = freshKey()
+    primeCacheIfCold(key, async () => [{ id: "seeded" }])
+    await waitFor(() => expect(peek(key)).toEqual([{ id: "seeded" }]))
+
+    let screenFetches = 0
+    const { result } = renderHook(() =>
+      useCached<Row[]>(key, async () => {
+        screenFetches++
+        return [{ id: "real" }]
+      })
+    )
+    expect(result.current.data, "painted from the seed — no skeleton").toEqual([{ id: "seeded" }])
+    expect(screenFetches, "…and the screen's own, richer read still runs").toBe(1)
+    await waitFor(() => expect(result.current.data).toEqual([{ id: "real" }]))
+  })
+
+  it("an explicit refresh() always asks, window or not", async () => {
+    const key = freshKey()
+    let fetches = 0
+    const fetcher = async () => {
+      fetches++
+      return [{ id: "a" }]
+    }
+    const { result } = renderHook(() => useCached<Row[]>(key, fetcher))
+    await waitFor(() => expect(result.current.data).toBeDefined())
+    expect(fetches).toBe(1)
+
+    await act(async () => {
+      result.current.refresh()
+    })
+    expect(fetches, "the window is for mounts; asking on purpose still asks").toBe(2)
   })
 })
 

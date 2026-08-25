@@ -56,8 +56,13 @@ export async function getHelp(request: Request, env: Env): Promise<Response> {
   // One ticket by id is a LOOKUP, not a page — answer it directly rather than
   // filtering a page (which could legitimately not contain it once paged).
   if (id) {
-    const one = await getTicket(cfg, guard, id)
-    const counts = await countTickets(cfg, guard)
+    // The row and the counts are two unrelated questions for the team database,
+    // so they are asked at the same time. Every d1Query is a real HTTPS request
+    // to the D1 REST door — the genuinely expensive hop here, unlike the
+    // same-colo service bindings — and awaiting them in a row bought nothing but
+    // a second one. `ticketPage` below already worked this way. (Round-trip
+    // review, 2026-08-25.)
+    const [one, counts] = await Promise.all([getTicket(cfg, guard, id), countTickets(cfg, guard)])
     return pagedJson(
       "tickets",
       { rows: one ? [one] : [], total: counts.total, hasMore: false, nextCursor: null },
@@ -75,7 +80,9 @@ export async function getHelpThread(request: Request, env: Env): Promise<Respons
   const { cfg, guard } = await gated(request, env, "help", "read")
   const id = new URL(request.url).searchParams.get("id")
   if (!id) return fail(400, "invalid_input", "A ticket id is required.")
-  return json({ replies: await listReplies(cfg, guard, id) , total: await countReplies(cfg, guard, id) })
+  // Two independent reads, one wall-clock round trip (see getHelp above).
+  const [replies, total] = await Promise.all([listReplies(cfg, guard, id), countReplies(cfg, guard, id)])
+  return json({ replies, total })
 }
 
 /** POST /api/content/help — raise a ticket (help:create). */
@@ -90,8 +97,9 @@ export async function postCreateHelp(request: Request, env: Env): Promise<Respon
   // R21: the CREATED ROW, not page one of the collection. Handing a paged screen
   // its first page on every create is the exact thing R14 exists to stop — the
   // caller patches this one row into whichever scope it is showing.
-  const counts = await countTickets(cfg, guard)
-  return json({ created: await getTicket(cfg, guard, id), total: counts.total, mineTotal: counts.mineTotal })
+  // Reading the new row back and re-counting are independent — one round trip.
+  const [created, counts] = await Promise.all([getTicket(cfg, guard, id), countTickets(cfg, guard)])
+  return json({ created, total: counts.total, mineTotal: counts.mineTotal })
 }
 
 /** POST /api/content/help/update — edit a ticket (help:edit). */
@@ -191,8 +199,10 @@ export async function postHelpReply(request: Request, env: Env): Promise<Respons
   // Untrusted, and CAPPED. A mention is notify-only — never an instruction — and
   // each one becomes an email, so an uncounted list let any `help:read` holder
   // address the whole team from a single reply. `optionalIdList` bounds it at
-  // BULK_IDS_LIMIT and refuses a malformed entry with a clean 400; the author's
-  // own id is dropped after, because you cannot @mention yourself.
+  // MENTION_LIMIT (50 — NOT the general BULK_IDS_LIMIT of 512, which sits above
+  // D1's bound-parameter ceiling and so would not have closed the hole) and
+  // refuses a malformed entry with a clean 400; the author's own id is dropped
+  // after, because you cannot @mention yourself.
   const tagged = optionalIdList(body.taggedUserIds, MENTION_LIMIT).filter((x) => x !== actor.id)
 
   const replyId = await addReply(cfg, guard, actor, body.helpId, replyBody, tagged, false)
@@ -209,7 +219,12 @@ export async function postHelpReply(request: Request, env: Env): Promise<Respons
   // R21 again, one level down: a reply is a create too. The thread grows with
   // use, so returning all of it to add one message is the same defect at a
   // smaller scale — the caller appends this message to the loaded thread.
-  return json({ created: await oneReply(cfg, guard, replyId), total: await countReplies(cfg, guard, body.helpId) })
+  // Reading the new reply back and re-counting the thread are independent.
+  const [created, total] = await Promise.all([
+    oneReply(cfg, guard, replyId),
+    countReplies(cfg, guard, body.helpId),
+  ])
+  return json({ created, total })
 }
 
 /** GET /api/content/help/stakeholders?id=<ticketId> — the full derived ∪ added

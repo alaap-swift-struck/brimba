@@ -63,7 +63,16 @@ export default {
         case "POST /api/auth/logout":
           return await logout(request, env)
         case "GET /api/auth/health":
-          return json({ ok: true })
+          // BOOLEANS ONLY. This door is unauthenticated, so it may say whether a
+          // binding is configured and never what it holds — no values, and no
+          // naming of which secret is missing. Until 2026-08-25 it answered a
+          // bare `ok: true` whatever state the worker was in, so a deployment
+          // with no email key and no operations database reported itself
+          // perfectly healthy right up until someone tried to sign in.
+          return json({
+            ok: true,
+            bindings: { ops: !!env.OPS, internalKey: !!env.INTERNAL_KEY, email: !!env.RESEND_API_KEY },
+          })
         // Internal: other workers send branded emails THROUGH auth (it owns the
         // Resend key). NOT under /api/ — the gateway never routes it publicly;
         // only a service binding (env.AUTH.fetch) can reach it.
@@ -155,6 +164,13 @@ async function internalLogError(request: Request, env: Env): Promise<Response> {
     message?: string
     stack?: string
     url?: string
+    // The gateway and the browser beacon have BOTH always sent this, and this
+    // door has always dropped it on the floor — so `request_id` was NULL on
+    // every row that came through here, which is every gateway crash and every
+    // error a person's browser reported. The one column that lets you follow a
+    // single click across seven workers, missing from exactly the rows where
+    // following it matters most.
+    requestId?: string
   }
   if (b.message)
     await logError(opsDatabase(env), {
@@ -163,6 +179,7 @@ async function internalLogError(request: Request, env: Env): Promise<Response> {
       message: b.message,
       stack: b.stack,
       url: b.url,
+      requestId: b.requestId,
     })
   return new Response(null, { status: 204 })
 }

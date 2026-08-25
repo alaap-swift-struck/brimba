@@ -5,9 +5,105 @@
 // ONE file — which is also where sharding routing plugs in (see
 // workers/tenancy/src/lib/sharding.ts for the routing + mover machinery).
 
+import { recordOutbound, type OutboundKind, type OutboundRecorder } from "./error-log"
+import { traceHop } from "./trace"
+
 export type D1Rest = {
   accountId: string
   apiToken: string
+  /**
+   * OPTIONAL: how to record a failed call to Cloudflare (see `recordOutbound`,
+   * which owns the one-row-per-minute throttle in front of it).
+   *
+   * A CHANNEL, NOT A DATABASE HANDLE — for two reasons. It keeps this file
+   * ignorant of how any particular worker records, and it keeps the recording OFF
+   * the door that is failing: a core-bound worker passes `dbRecorder(opsDatabase(env), …)`,
+   * which writes to the operations/core database over a NATIVE binding, not back
+   * through this REST API. Recording a REST-door outage through the REST door
+   * would be the self-amplifying loop the throttle exists to bound.
+   *
+   * Optional so a config can still be built without one: absent → the typed throw
+   * below still names the integration, the endpoint and the kind, so whoever
+   * catches it can record it instead.
+   */
+  recordFailure?: OutboundRecorder
+  /**
+   * OPTIONAL per-request tally of what this door cost.
+   *
+   * THE MEASUREMENT THE BASE DID NOT HAVE. `timed()` reports that a request took
+   * 900ms; it cannot say that 770ms of that was four HTTPS round trips to
+   * api.cloudflare.com, because from outside the worker a REST round trip and an
+   * in-colo binding read look identical. The tally rides on the config because the
+   * config is ALREADY built once per request (`d1ConfigFrom`) and ALREADY threaded
+   * to every query — so it is a correct per-request accumulator with no globals,
+   * which a module-level one could not be (a Worker isolate serves many requests
+   * at once and would interleave them).
+   */
+  trace?: D1Trace
+}
+
+/** ONE call through the door, and what it cost. `op` is a verb and a table —
+ * never SQL text and never a bound value, because these reach a log line. */
+export type D1Span = { op: string; ms: number; tries: number }
+
+/** The per-request tally. `req` is the trace id, so the spans line up with the
+ * `timed()` line and with every other worker's view of the same click. */
+export type D1Trace = { req?: string; spans: D1Span[] }
+
+/** The total this door cost a request, and how many trips it took. The pair is
+ * the whole diagnosis: 4 × 190ms is a round-trip problem, 1 × 760ms is a query
+ * problem, and they are indistinguishable from a single number. */
+export function d1Cost(cfg: D1Rest): { calls: number; ms: number } {
+  const spans = cfg.trace?.spans ?? []
+  return { calls: spans.length, ms: spans.reduce((n, s) => n + s.ms, 0) }
+}
+
+/** A short, log-SAFE name for a statement: its verb and the table it names. The
+ * SQL itself is never logged — a WHERE clause carries values, and values are the
+ * customer's data. */
+function sqlLabel(sql: string): string {
+  const s = sql.replace(/\s+/g, " ").trim()
+  const verb = (s.match(/^[A-Za-z]+/)?.[0] ?? "SQL").toUpperCase()
+  const table = s.match(/\b(?:FROM|INTO|UPDATE)\s+([A-Za-z_][A-Za-z0-9_]*)/i)?.[1] ?? ""
+  return table ? `${verb} ${table}` : verb
+}
+
+/** The name this door records under. One string, so every row about Cloudflare's
+ * D1 API groups together rather than under whichever worker happened to call. */
+const INTEGRATION = "cloudflare-d1"
+
+/**
+ * What a failed call to the D1 REST door throws.
+ *
+ * It carries the three facts a recorder needs — which integration, which
+ * endpoint, what KIND of failure — so a caller does not have to re-derive them by
+ * pattern-matching an error message. A rotated token and a Cloudflare outage
+ * produce the same `Error` today and need entirely different people.
+ */
+export class OutboundError extends Error {
+  constructor(
+    message: string,
+    public integration: string,
+    public endpoint: string,
+    public kind: OutboundKind
+  ) {
+    super(message)
+    this.name = "OutboundError"
+  }
+}
+
+/** Record the failure, then throw it. One exit for both ways this door gives up
+ * (a 4xx that will never come good, and a retry loop that ran out), so neither
+ * can be the one that forgets. Recording is best-effort and never throws. */
+async function failOutbound(
+  cfg: D1Rest,
+  path: string,
+  message: string,
+  kind: OutboundKind
+): Promise<never> {
+  const err = new OutboundError(message, INTEGRATION, path, kind)
+  await recordOutbound(cfg.recordFailure, INTEGRATION, path, kind, err)
+  throw err
 }
 
 type CfResponse<T> = {
@@ -23,11 +119,43 @@ async function cf<T>(
   cfg: D1Rest,
   path: string,
   body?: unknown,
-  method: "GET" | "POST" | "DELETE" = body === undefined ? "GET" : "POST"
+  method: "GET" | "POST" | "DELETE" = body === undefined ? "GET" : "POST",
+  /** verb + table, for the span and the log line. Never the SQL. */
+  op = "REST",
+): Promise<T> {
+  // EVERY EXIT IS TIMED, including the ones that throw — a door that gave up
+  // after three attempts and 45 seconds is the single most useful duration this
+  // file could report, and a `finally` is the only way it cannot be forgotten
+  // when someone adds a fourth exit.
+  const started = Date.now()
+  let tries = 0
+  try {
+    return await cfAttempts<T>(cfg, path, body, method, () => tries++)
+  } finally {
+    const ms = Date.now() - started
+    cfg.trace?.spans.push({ op, ms, tries })
+    traceHop({ req: cfg.trace?.req, worker: "d1-rest", op, ms, tries })
+  }
+}
+
+async function cfAttempts<T>(
+  cfg: D1Rest,
+  path: string,
+  body: unknown,
+  method: "GET" | "POST" | "DELETE",
+  countAttempt: () => void
 ): Promise<T> {
   let lastError: Error = new Error("unreachable")
+  let lastKind: OutboundKind = "upstream"
   for (let attempt = 0; attempt <= RETRIES; attempt++) {
-    if (attempt > 0) await new Promise((r) => setTimeout(r, 250 * attempt))
+    countAttempt()
+    // JITTERED backoff, not a flat one. A D1 blip does not fail one worker, it
+    // fails every worker holding a request at that instant — and a fixed
+    // `250 * attempt` wakes all of them at the same millisecond, so the
+    // recovering service is hit by the whole herd at once and blips again. The
+    // spread (half to one-and-a-half of the slot) is what breaks the lock-step;
+    // the average wait is unchanged.
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 250 * attempt * (0.5 + Math.random())))
     let res: Response
     try {
       res = await fetch(`${API}/accounts/${cfg.accountId}${path}`, {
@@ -44,21 +172,32 @@ async function cf<T>(
     } catch (e) {
       // Network hiccup — worth retrying.
       lastError = e instanceof Error ? e : new Error(String(e))
+      // A blown `AbortSignal.timeout` arrives as an AbortError (TimeoutError on
+      // some runtimes): a dependency that is SLOW, which is a different thing to
+      // watch than a dependency that is broken.
+      lastKind = lastError.name === "AbortError" || lastError.name === "TimeoutError" ? "timeout" : "upstream"
       continue
     }
     if (res.status >= 500) {
       lastError = new Error(`Cloudflare D1 API ${res.status} on ${path}`)
+      lastKind = "upstream"
       continue
     }
     const data = (await res.json()) as CfResponse<T>
     if (!res.ok || !data.success) {
-      // 4xx = our request is wrong — retrying won't help, fail loudly.
+      // 4xx = our request is wrong — retrying won't help, fail loudly. 401/403 is
+      // the one worth naming separately: it is almost always a rotated or
+      // mis-scoped CF_D1_TOKEN, which no amount of waiting fixes and which needs
+      // a person, not an alert.
       const msg = data.errors?.map((e) => e.message).join("; ") || res.statusText
-      throw new Error(`Cloudflare D1 API failed: ${msg}`)
+      const kind: OutboundKind = res.status === 401 || res.status === 403 ? "credential" : "upstream"
+      await failOutbound(cfg, path, `Cloudflare D1 API failed: ${msg}`, kind)
     }
     return data.result
   }
-  throw lastError
+  // Never resolves — `failOutbound` records and then throws. Returned rather
+  // than awaited so TypeScript sees this branch produce a value of type `never`.
+  return failOutbound(cfg, path, lastError.message, lastKind)
 }
 
 /** Create a brand-new D1 database; returns its database id. */
@@ -103,7 +242,9 @@ export async function d1Query<Row = Record<string, unknown>>(
   const result = await cf<{ results: Row[] }[]>(
     cfg,
     `/d1/database/${databaseId}/query`,
-    { sql, params }
+    { sql, params },
+    "POST",
+    sqlLabel(sql)
   )
   return result[0]?.results ?? []
 }
@@ -139,7 +280,7 @@ export async function d1ExecScript(
   databaseId: string,
   script: string
 ): Promise<void> {
-  await cf(cfg, `/d1/database/${databaseId}/query`, { sql: script })
+  await cf(cfg, `/d1/database/${databaseId}/query`, { sql: script }, "POST", sqlLabel(script))
 }
 
 /** Escape a value for inlining into a seed/copy script ('' doubling). Only

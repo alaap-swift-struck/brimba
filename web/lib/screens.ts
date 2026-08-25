@@ -7,7 +7,12 @@
 // module is the friendly URL segment used in the deep-link grammar
 // (/t/<teamId>/<module>/<id>).
 
-import type { RecipeAction, RecipeField, ScreenRecipe } from "@swift-struck/ui/lib/recipe"
+import type {
+  RecipeAction,
+  RecipeField,
+  ScreenQuery,
+  ScreenRecipe,
+} from "@swift-struck/ui/lib/recipe"
 import {
   defaultCollectionConfig,
   defaultFieldConfig,
@@ -23,26 +28,39 @@ function field(column: string, label: string): RecipeField {
   return { column, type: "text", field: { ...defaultFieldConfig, label } }
 }
 
-/** WHY NO `emptyAction` YET (v0.16.0 shipped the slot; this is not an oversight).
+/** THE WAY OUT OF AN EMPTY SCREEN — `emptyAction`, and the dispatch behind it.
  *
  * `ScreenRecipe.emptyAction` names one of the recipe's OWN `actions` by id, and
- * the engine renders it as an `ActionButton` that fires `onAction(action.id)`.
- * The host's ONE dispatcher (`deep-link-screen.tsx`'s `onAction` switch) knows
- * exactly four ids — `members.changeRole`, `members.remove`, `invites.revoke`,
- * `team.edit` — and has no default branch. None of them is a create.
+ * the engine renders it inside the empty state as an `ActionButton` that fires
+ * `onAction(action.id)`. Because it is one of the recipe's own actions it is
+ * GATED like any other: a viewer without the create right is not invited to
+ * press a button their role would refuse.
  *
- * So a `create` action declared here TODAY renders a button that does nothing:
- * a dead end on the one screen a brand-new team is guaranteed to meet, which is
- * worse than the plain empty state it replaced. The slot lands the moment the
- * host gains a case per create (`go(sectionPath, { panel: "add", module })` —
- * the same call `SectionWithCreate.onCreate` already makes), and not before.
+ * The half that has to exist FIRST is the host's dispatch. `deep-link-screen`'s
+ * one `onAction` switch used to know exactly four ids — `members.changeRole`,
+ * `members.remove`, `invites.revoke`, `team.edit` — and had no default branch,
+ * so a create id declared here rendered a button that did nothing: a dead end on
+ * the one screen a brand-new team is guaranteed to meet, which is worse than the
+ * plain empty state it replaced. The default branch resolves the id through
+ * `createPanelFor` below, so the two halves cannot drift apart.
  *
- * Until then the copy below carries the load: every empty state says what the
- * screen WILL hold rather than naming an absence, in words that are true for a
- * viewer as well as an admin (a sentence telling someone to press a button their
- * role hides is its own small dead end — the gated `emptyAction` is precisely
- * the fix for that, which is why it is worth waiting for rather than faking).
- */
+ * The empty TEXT still carries its own weight: it says what the screen WILL hold
+ * rather than naming an absence, so it reads correctly for the viewer who sees
+ * no button at all. */
+
+/** The add-panel a `<module>.create` action id opens — the ONE place that maps a
+ * recipe's create action to a URL, so the recipes here and the host's dispatcher
+ * can never disagree about what a button does.
+ *
+ * The module comes from the id's prefix, not from the recipe it sits on: the
+ * Members list's way out is an INVITE (`invites.create`), because inviting is
+ * how a person joins a team. Anything that isn't a create resolves to null and
+ * opens nothing, rather than a blank panel. */
+export function createPanelFor(actionId: string): ScreenQuery | null {
+  const [module, verb] = actionId.split(".")
+  if (verb !== "create" || !module) return null
+  return { panel: "add", module }
+}
 
 /** A list collection config with Layer-1 (client-side, in-memory) search ON —
  * the library search/filters have landed (SEARCH.md · UI-GAPS #7), so every
@@ -145,7 +163,18 @@ export const membersListRecipe: ScreenRecipe = {
   binding: { module: "members" },
   gate: { module: "team_members", right: "read" },
   fields: [field("name", "Member"), field("detail", "Details")],
-  actions: [],
+  // The way out is an INVITE, not a "new member": a person joins a team by
+  // accepting one, so `invites.create` is the id (see createPanelFor) and
+  // team_members:create is the right that governs it.
+  actions: [
+    {
+      id: "invites.create",
+      label: "Invite",
+      action: "invites.create",
+      gate: { module: "team_members", right: "create" },
+    },
+  ],
+  emptyAction: "invites.create",
   collection: listCollection("Everyone on your team appears here, with the role each one holds.", "Search members…", [
     { field: "role", label: "Role", control: "select" },
   ]),
@@ -210,7 +239,15 @@ export const rolesListRecipe: ScreenRecipe = {
   binding: { module: "roles" },
   gate: { module: "member_roles", right: "read" },
   fields: [field("name", "Role"), field("detail", "Details")],
-  actions: [],
+  actions: [
+    {
+      id: "roles.create",
+      label: "New role",
+      action: "roles.create",
+      gate: { module: "member_roles", right: "create" },
+    },
+  ],
+  emptyAction: "roles.create",
   collection: listCollection("A role decides what a member can see and do. Your team's roles appear here.", "Search roles…", [
     { field: "state", label: "Status", control: "select" },
   ]),
@@ -227,7 +264,15 @@ export const invitesListRecipe: ScreenRecipe = {
   binding: { module: "invites" },
   gate: { module: "team_members", right: "read" },
   fields: [field("email", "Email"), field("detail", "Details")],
-  actions: [],
+  actions: [
+    {
+      id: "invites.create",
+      label: "Invite",
+      action: "invites.create",
+      gate: { module: "team_members", right: "create" },
+    },
+  ],
+  emptyAction: "invites.create",
   collection: listCollection("Invites you send appear here, so you can see who hasn't joined yet.", "Search invites…", [
     { field: "status", label: "Status", control: "select" },
   ]),
@@ -289,7 +334,15 @@ export const learningListRecipe: ScreenRecipe = {
   binding: { module: "learning" },
   gate: { module: "learning", right: "read" },
   fields: [field("name", "Article"), field("detail", "Details")],
-  actions: [],
+  actions: [
+    {
+      id: "learning.create",
+      label: "New article",
+      action: "learning.create",
+      gate: { module: "learning", right: "create" },
+    },
+  ],
+  emptyAction: "learning.create",
   collection: listCollection("Your team's how-to articles appear here, ready for anyone to read.", "Search learning…", [
     { field: "category", label: "Category", control: "select" },
     { field: "state", label: "Status", control: "select" },
@@ -309,7 +362,15 @@ export const helpListRecipe: ScreenRecipe = {
   binding: { module: "help" },
   gate: { module: "help", right: "read" },
   fields: [field("name", "Ticket"), field("detail", "Details")],
-  actions: [],
+  actions: [
+    {
+      id: "help.create",
+      label: "Raise ticket",
+      action: "help.create",
+      gate: { module: "help", right: "create" },
+    },
+  ],
+  emptyAction: "help.create",
   collection: listCollection(
     "Questions and requests your team raises appear here, each with its status.",
     "Search tickets…",

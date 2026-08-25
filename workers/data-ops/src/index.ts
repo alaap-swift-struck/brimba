@@ -107,7 +107,19 @@ export default {
     const route = `${request.method} ${pathname}`
 
     try {
-      if (route === "GET /api/data-ops/health") return json({ ok: true })
+      // BOOLEANS ONLY — the door is unauthenticated, so it says whether a binding
+      // is configured and never what it holds. A bare `ok: true` reported a
+      // worker with no D1 token and no model key as perfectly healthy.
+      if (route === "GET /api/data-ops/health")
+        return json({
+          ok: true,
+          bindings: {
+            d1Token: !!env.CF_D1_TOKEN,
+            internalKey: !!env.INTERNAL_KEY,
+            ops: !!env.OPS,
+            model: !!env.ANTHROPIC_API_KEY,
+          },
+        })
       const def = ROUTES[route]
       if (!def) return fail(404, "not_found", "No such data-ops action.")
       // A client may send `Idempotency-Key` on a mutation to make it safe to

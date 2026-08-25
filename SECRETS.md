@@ -10,9 +10,9 @@ that exists only in a gitignored `.dev.vars` file exists in exactly one place in
 the universe, and that place is a laptop.
 
 Losing them means: no staging smoke, no catalog reseed, and — the sharp one — no
-way to redeploy `auth`, `tenancy` or `content` with an `INTERNAL_KEY` matching
-the one already live, because they authenticate to each other with it. The three
-workers would start refusing each other.
+way to redeploy `auth`, `tenancy`, `content`, `gateway` or `mcp` with an
+`INTERNAL_KEY` matching the one already live, because they authenticate to each
+other with it. The five workers would start refusing each other.
 
 ---
 
@@ -89,7 +89,7 @@ to paste anywhere.
 | `CF_D1_TOKEN` | tenancy, content, data-ops | same account token |
 | `ADMIN_KEY` | auth, tenancy, data-ops | owner-only endpoints |
 | `TEST_LOGIN_KEY` | auth — **staging only** | the smoke's sign-in door |
-| `ANTHROPIC_API_KEY` | data-ops, content | optional; without it the agent uses the keyless fallback |
+| `ANTHROPIC_API_KEY` | data-ops | optional; without it the agent uses the keyless fallback |
 | `APP_ORIGIN` / `PUBLIC_APP_URL` | auth, tenancy | not secret, but environment-specific |
 
 `TEST_LOGIN_KEY` must **never** be set on production. Whoever holds it can sign

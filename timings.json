@@ -1,0 +1,338 @@
+[
+  {
+    "date": "2026-08-25T17:04:23.408Z",
+    "target": "https://brimba-staging.swift-struck.workers.dev",
+    "op": "cold page load",
+    "class": "read",
+    "median": 157,
+    "server": null
+  },
+  {
+    "date": "2026-08-25T17:04:23.408Z",
+    "target": "https://brimba-staging.swift-struck.workers.dev",
+    "op": "auth health",
+    "class": "read",
+    "median": 146,
+    "server": 4
+  },
+  {
+    "date": "2026-08-25T17:04:23.408Z",
+    "target": "https://brimba-staging.swift-struck.workers.dev",
+    "op": "realtime health",
+    "class": "read",
+    "median": 84,
+    "server": 2
+  },
+  {
+    "date": "2026-08-25T17:04:23.408Z",
+    "target": "https://brimba-staging.swift-struck.workers.dev",
+    "op": "mcp health",
+    "class": "read",
+    "median": 146,
+    "server": 5
+  },
+  {
+    "date": "2026-08-25T17:04:23.408Z",
+    "target": "https://brimba-staging.swift-struck.workers.dev",
+    "op": "members list",
+    "class": "read",
+    "median": 1044,
+    "server": 876
+  },
+  {
+    "date": "2026-08-25T17:04:23.408Z",
+    "target": "https://brimba-staging.swift-struck.workers.dev",
+    "op": "one ticket by id",
+    "class": "read",
+    "median": 1053,
+    "server": 694
+  },
+  {
+    "date": "2026-08-25T17:04:23.408Z",
+    "target": "https://brimba-staging.swift-struck.workers.dev",
+    "op": "raise a ticket",
+    "class": "write",
+    "median": 1054,
+    "server": 1128
+  },
+  {
+    "date": "2026-08-25T17:04:54.340Z",
+    "target": "https://brimba-staging.swift-struck.workers.dev",
+    "op": "cold page load",
+    "class": "read",
+    "median": 97,
+    "server": null
+  },
+  {
+    "date": "2026-08-25T17:04:54.340Z",
+    "target": "https://brimba-staging.swift-struck.workers.dev",
+    "op": "auth health",
+    "class": "read",
+    "median": 75,
+    "server": 2
+  },
+  {
+    "date": "2026-08-25T17:04:54.340Z",
+    "target": "https://brimba-staging.swift-struck.workers.dev",
+    "op": "realtime health",
+    "class": "read",
+    "median": 188,
+    "server": 5
+  },
+  {
+    "date": "2026-08-25T17:04:54.340Z",
+    "target": "https://brimba-staging.swift-struck.workers.dev",
+    "op": "mcp health",
+    "class": "read",
+    "median": 104,
+    "server": 3
+  },
+  {
+    "date": "2026-08-25T17:04:54.340Z",
+    "target": "https://brimba-staging.swift-struck.workers.dev",
+    "op": "members list",
+    "class": "read",
+    "median": 813,
+    "server": 735
+  },
+  {
+    "date": "2026-08-25T17:04:54.340Z",
+    "target": "https://brimba-staging.swift-struck.workers.dev",
+    "op": "one ticket by id",
+    "class": "read",
+    "median": 928,
+    "server": 783
+  },
+  {
+    "date": "2026-08-25T17:04:54.340Z",
+    "target": "https://brimba-staging.swift-struck.workers.dev",
+    "op": "raise a ticket",
+    "class": "write",
+    "median": 1570,
+    "server": 1429
+  },
+  {
+    "date": "2026-08-25T17:06:20.906Z",
+    "target": "https://brimba-staging.swift-struck.workers.dev",
+    "op": "cold page load",
+    "class": "read",
+    "median": 88,
+    "server": null
+  },
+  {
+    "date": "2026-08-25T17:06:20.906Z",
+    "target": "https://brimba-staging.swift-struck.workers.dev",
+    "op": "auth health",
+    "class": "read",
+    "median": 77,
+    "server": 2
+  },
+  {
+    "date": "2026-08-25T17:06:20.906Z",
+    "target": "https://brimba-staging.swift-struck.workers.dev",
+    "op": "realtime health",
+    "class": "read",
+    "median": 91,
+    "server": 3
+  },
+  {
+    "date": "2026-08-25T17:06:20.906Z",
+    "target": "https://brimba-staging.swift-struck.workers.dev",
+    "op": "mcp health",
+    "class": "read",
+    "median": 79,
+    "server": 6
+  },
+  {
+    "date": "2026-08-25T17:06:20.906Z",
+    "target": "https://brimba-staging.swift-struck.workers.dev",
+    "op": "members list",
+    "class": "read",
+    "median": 834,
+    "server": 1056
+  },
+  {
+    "date": "2026-08-25T17:06:20.906Z",
+    "target": "https://brimba-staging.swift-struck.workers.dev",
+    "op": "one ticket by id",
+    "class": "read",
+    "median": 876,
+    "server": 801
+  },
+  {
+    "date": "2026-08-25T17:06:20.906Z",
+    "target": "https://brimba-staging.swift-struck.workers.dev",
+    "op": "raise a ticket",
+    "class": "write",
+    "median": 1575,
+    "server": 1364
+  },
+  {
+    "date": "2026-08-25T17:09:00.061Z",
+    "target": "https://brimba-staging.swift-struck.workers.dev",
+    "op": "cold page load",
+    "class": "read",
+    "median": 166,
+    "server": null
+  },
+  {
+    "date": "2026-08-25T17:09:00.061Z",
+    "target": "https://brimba-staging.swift-struck.workers.dev",
+    "op": "auth health",
+    "class": "read",
+    "median": 165,
+    "server": 3
+  },
+  {
+    "date": "2026-08-25T17:09:00.061Z",
+    "target": "https://brimba-staging.swift-struck.workers.dev",
+    "op": "realtime health",
+    "class": "read",
+    "median": 210,
+    "server": 2
+  },
+  {
+    "date": "2026-08-25T17:09:00.061Z",
+    "target": "https://brimba-staging.swift-struck.workers.dev",
+    "op": "mcp health",
+    "class": "read",
+    "median": 160,
+    "server": 2
+  },
+  {
+    "date": "2026-08-25T17:09:00.061Z",
+    "target": "https://brimba-staging.swift-struck.workers.dev",
+    "op": "members list",
+    "class": "read",
+    "median": 1055,
+    "server": 1083
+  },
+  {
+    "date": "2026-08-25T17:09:00.061Z",
+    "target": "https://brimba-staging.swift-struck.workers.dev",
+    "op": "one ticket by id",
+    "class": "read",
+    "median": 856,
+    "server": 641
+  },
+  {
+    "date": "2026-08-25T17:09:00.061Z",
+    "target": "https://brimba-staging.swift-struck.workers.dev",
+    "op": "raise a ticket",
+    "class": "write",
+    "median": 1202,
+    "server": 777
+  },
+  {
+    "date": "2026-08-25T17:10:06.660Z",
+    "target": "https://brimba-staging.swift-struck.workers.dev",
+    "op": "cold page load",
+    "class": "read",
+    "median": 92,
+    "server": null
+  },
+  {
+    "date": "2026-08-25T17:10:06.660Z",
+    "target": "https://brimba-staging.swift-struck.workers.dev",
+    "op": "auth health",
+    "class": "read",
+    "median": 96,
+    "server": 4
+  },
+  {
+    "date": "2026-08-25T17:10:06.660Z",
+    "target": "https://brimba-staging.swift-struck.workers.dev",
+    "op": "realtime health",
+    "class": "read",
+    "median": 104,
+    "server": 4
+  },
+  {
+    "date": "2026-08-25T17:10:06.660Z",
+    "target": "https://brimba-staging.swift-struck.workers.dev",
+    "op": "mcp health",
+    "class": "read",
+    "median": 97,
+    "server": 3
+  },
+  {
+    "date": "2026-08-25T17:10:06.660Z",
+    "target": "https://brimba-staging.swift-struck.workers.dev",
+    "op": "members list",
+    "class": "read",
+    "median": 900,
+    "server": 770
+  },
+  {
+    "date": "2026-08-25T17:10:06.660Z",
+    "target": "https://brimba-staging.swift-struck.workers.dev",
+    "op": "one ticket by id",
+    "class": "read",
+    "median": 943,
+    "server": 874
+  },
+  {
+    "date": "2026-08-25T17:10:06.660Z",
+    "target": "https://brimba-staging.swift-struck.workers.dev",
+    "op": "raise a ticket",
+    "class": "write",
+    "median": 1586,
+    "server": 1454
+  },
+  {
+    "date": "2026-08-25T17:21:49.164Z",
+    "target": "https://brimba-staging.swift-struck.workers.dev",
+    "op": "cold page load",
+    "class": "read",
+    "median": 218,
+    "server": null
+  },
+  {
+    "date": "2026-08-25T17:21:49.164Z",
+    "target": "https://brimba-staging.swift-struck.workers.dev",
+    "op": "auth health",
+    "class": "read",
+    "median": 215,
+    "server": 2
+  },
+  {
+    "date": "2026-08-25T17:21:49.164Z",
+    "target": "https://brimba-staging.swift-struck.workers.dev",
+    "op": "realtime health",
+    "class": "read",
+    "median": 97,
+    "server": 2
+  },
+  {
+    "date": "2026-08-25T17:21:49.164Z",
+    "target": "https://brimba-staging.swift-struck.workers.dev",
+    "op": "mcp health",
+    "class": "read",
+    "median": 236,
+    "server": 2
+  },
+  {
+    "date": "2026-08-25T17:21:49.164Z",
+    "target": "https://brimba-staging.swift-struck.workers.dev",
+    "op": "members list",
+    "class": "read",
+    "median": 1093,
+    "server": 851
+  },
+  {
+    "date": "2026-08-25T17:21:49.164Z",
+    "target": "https://brimba-staging.swift-struck.workers.dev",
+    "op": "one ticket by id",
+    "class": "read",
+    "median": 855,
+    "server": 837
+  },
+  {
+    "date": "2026-08-25T17:21:49.164Z",
+    "target": "https://brimba-staging.swift-struck.workers.dev",
+    "op": "raise a ticket",
+    "class": "write",
+    "median": 1069,
+    "server": 726
+  }
+]

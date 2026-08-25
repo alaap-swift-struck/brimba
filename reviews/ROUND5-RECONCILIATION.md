@@ -77,6 +77,32 @@ before any repair began, and the decision is binding for the round.
 | **error_log** wants `/health` to report its bindings; **security** notes `/health` is unauthenticated | Booleans only. Never a value, never the name of a missing secret |
 | **lean_mean** wants `reviews/` untracked; **ocean** wants everything recoverable | A pushed tag satisfies both completely. `git checkout <tag>` restores all 63 reports |
 
+### Settled during the round: two repairs refused by the agent asked to make them
+
+Both of these were scheduled, investigated, and then declined **by the agent
+holding the file** — which is the protocol working exactly as intended. Neither
+is re-opened.
+
+**The `COUNT(*)` skip on paged reads (scaling, −3.9 points).** The plan was sound
+and the client-side risk turned out to be imaginary: the page-one total lives in
+a separate, subscribed, non-evictable sidecar and provably survives. It was
+refused for three different reasons found in the source. `shared/workers/http.ts`
+declares `pagedJson`'s `total` as a non-optional number, and so does the web
+client's `PagedResponse`. More importantly, `shared/workers/tool-catalog.ts`
+promises the agent and MCP surfaces "ONE page plus the exact `total`" — and those
+callers get the raw body with no sidecar to fall back on. Page two would hand a
+model no total and invite it to count its own rows, which is the precise Law R16
+failure the count seam exists to prevent. **Scaling keeps the full scan and loses
+the points.** A cached counter is the real fix and it needs its own design pass.
+
+**Trimming the fat list projection (round_trip, −4.2 points).** `EDGE-CASES.md`
+warns against blind trimming and it was right, but not for the reason written
+down. The learning detail screen reads the LIST cache and renders `item.body`,
+and the edit dialog seeds itself from the same object — so a trimmed list would
+not merely render blank, it would feed an empty body back through the update
+door and **destroy the article**. Three other paths refill the same cache key.
+**Refused. Round_trip keeps the fat payload.**
+
 ### Settled: do NOT do it
 
 | Proposal | Why it was refused |
@@ -107,3 +133,42 @@ That is the whole answer to *"how do you stop one review undoing another"*:
 measure before touching, make every gap declare its blast radius, settle the
 collisions centrally and in writing, partition by file, and re-measure with
 people who did not do the work.
+
+---
+
+## 5 · The best thing round 5 found was not a score
+
+While declining to trim a list projection, the agent holding
+`workers/content/src/lib/learning.ts` read the update door properly and found a
+live data-loss path.
+
+The door writes `content_body`, `category`, `content_link` and `content_type`
+**unconditionally**. Two fields in the same function — `sequence` and
+`is_required` — are guarded, which is what marks it as a slip rather than a
+decision. Meanwhile the agent tool `update_learning` requires only `id` and
+`title`, and is marked `confirm: false` because renaming something is not
+dangerous.
+
+Put together: **ask the assistant to rename an article and it silently destroys
+the article's body, its category, its link and its type.** No confirmation, no
+error, no activity row saying what was lost. `update_help_ticket` has the same
+shape.
+
+The fix is the distinction between *absent* and *empty*: a field the caller
+omitted means "leave it alone"; a field explicitly set to null means "clear it".
+`=== undefined` can tell those apart and `== null` cannot — which is why the two
+"guarded" fields were also subtly wrong, unable to clear a value on purpose.
+
+Three things are worth keeping from this:
+
+1. **A defect of this class is rarely alone.** Every update door in every worker
+   was swept for the same shape as soon as this one was confirmed.
+2. **The machine surface is where a slip becomes a disaster.** A web form posts
+   every field, so it never triggered this. Only a caller that omits fields —
+   the agent, the MCP surface — reaches it, and that caller is the one nobody
+   watches.
+3. **The score never would have found it.** No rubric asks "does update preserve
+   omitted fields". It surfaced because a repair was refused thoughtfully instead
+   of being applied mechanically, and someone read the surrounding code on the
+   way past. That is an argument for the review campaign, and against trusting
+   any number it produces.

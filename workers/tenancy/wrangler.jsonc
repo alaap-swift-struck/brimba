@@ -29,9 +29,15 @@
     "CF_ACCOUNT_ID": "af3f1bf82aa34512f4f6630091358439",
     // The public web origin the SPA is served on — used for links in outbound
     // emails (invite CTA). NOT request-derived, so agent-sent invites are correct.
-    "PUBLIC_APP_URL": "https://brimba.swift-struck.workers.dev"
+    "PUBLIC_APP_URL": "https://brimba.swift-struck.workers.dev",
+    // Where the nightly error digest goes. A VAR and not a secret: it is an
+    // address, and it belongs somewhere an owner can read it. Mail arrives ONLY
+    // on a night that recorded errors — silence is the all-clear — so this
+    // mailbox must be one somebody actually reads.
+    "OPS_ALERT_EMAIL": "ops@swiftstruck.com"
   },
-  // Nightly 80%-size alarms (03:10 UTC) — the locked sharding machinery.
+  // Nightly (03:10 UTC): size alarms, retention, channel splits, the cursored
+  // orphan sweep, the account-wide AI spend alarm, and the error digest.
   "triggers": { "crons": ["10 3 * * *"] },
   "env": {
     "staging": {
@@ -57,7 +63,11 @@
       "vars": {
         "CF_ACCOUNT_ID": "af3f1bf82aa34512f4f6630091358439",
         // The public staging web origin — used for invite-email links.
-        "PUBLIC_APP_URL": "https://brimba-staging.swift-struck.workers.dev"
+        "PUBLIC_APP_URL": "https://brimba-staging.swift-struck.workers.dev",
+        // Staging digests go to the same mailbox on purpose: a staging error is
+        // still an error somebody wants to hear about, and the subject line
+        // carries the environment through the app name.
+        "OPS_ALERT_EMAIL": "ops@swiftstruck.com"
       },
       "triggers": { "crons": ["10 3 * * *"] }
     }

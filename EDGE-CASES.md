@@ -208,8 +208,7 @@ bindings with a **placeholder host** (`https://internal…`). Any user-facing li
 baked from `new URL(request.url)` on that path would point at the dead host.
 
 **The rule.** **Outbound links in email must use `PUBLIC_APP_URL`, never the
-request host.** `sendInvite` in `workers/tenancy/src/lib/invites.ts` (lines
-200–213):
+request host.** From `createInvite` in `workers/tenancy/src/lib/invites.ts`:
 
 ```ts
 // PUBLIC_APP_URL MUST win — an agent-sent invite hits tenancy over a service
@@ -279,8 +278,8 @@ input-aware toggles):
 |---|---|---|
 | **Pause for a yes/no panel** | the destructive acts — `remove_member`, `revoke_invite` — plus `set_role_active` / `set_learning_active` / `set_dropdown_active` **only when deactivating** (`active !== true`) | It removes/withdraws access, or switches an existing record OFF. Reversible, but destructive-feeling — the app double-checks, exactly as the red UI action does. |
 | **Pause for a yes/no panel (privilege writes)** | DERIVED — every write gated on `member_roles:` or `team_members:` (today: `create_role`, `update_role`, `set_role_active`, `set_role_permissions`, `set_member_role`, `remove_member`, `invite_member`, `revoke_invite`) | They decide WHO CAN DO WHAT, and the model reaches them while reading team data an attacker can author. A silent one is a silent privilege escalation. Derived, so the next such tool is covered the day it lands. |
-| **Confirm-with-a-count** | `bulk_set_help_status`, `bulk_set_learning_active`, `run_import_batch` | High-blast: "Set 12 tickets to resolved" / a whole imported file is confirmed by the count before it runs. |
-| **Run straight away** | every OTHER constructive write — `update_role`, `update_team`, `create_dropdown_value`, `update_dropdown_value`, the (re)activations, and all single content edits | Ordinary re-gated + reversible + audited CRUD; the server gates each call, so no panel. |
+| **Confirm-with-a-count** | `bulk_set_help_status`, `bulk_set_learning_active`, `bulk_set_dropdown_active`, `set_help_status_by_filter` (the real write; its `dryRun` counting pass is a read and runs free), `run_import_batch` | High-blast: "Set 12 tickets to resolved" / a whole imported file is confirmed by the count before it runs. |
+| **Run straight away** | every OTHER constructive write — `update_team`, `create_dropdown_value`, `update_dropdown_value`, the (re)activations of an article or dropdown value, and all single content edits | Ordinary re-gated + reversible + audited CRUD; the server gates each call, so no panel. **`update_role` is NOT here** — it is a privilege write and pauses, per the row above. |
 
 The system prompt (`agent.ts`) tells the model **not** to also ask in
 chat for a confirmed action — the app shows one yes/no panel, and a chat-level
@@ -335,9 +334,10 @@ while an async IIFE writes to the writable side (`streamRun`).
   `use-agent-chat.tsx`. Locked by `workers/data-ops/test/stream.test.ts`
   ("a pause-for-confirm outcome → confirm (carrying the thread id …)").
 
-- **Disable proxy buffering.** The response sets
-  `Cache-Control: no-cache, no-transform` and **`X-Accel-Buffering: no`** (lines
-  58–66). Without the latter, an intermediary buffers the whole body and the
+- **Disable proxy buffering.** The response the streaming branch returns sets
+  `Cache-Control: no-cache, no-transform` and **`X-Accel-Buffering: no`**
+  (`workers/data-ops/src/routes/agent.ts`, the header block on the streamed
+  `Response`). Without the latter, an intermediary buffers the whole body and the
   "live" deltas arrive all at once at the end. Keep both headers.
 
 - **Every error is a friendly event, never a raw 500.** The `catch` in
@@ -384,10 +384,11 @@ the token budget trying to feed it everything.
   `history.slice(-MAX_HISTORY)`. The **full** thread stays in the DB
   (audit + panel rehydration); only the recent slice is sent as context. So
   cost/context is bounded, but "the model saw the whole thread" is false.
-- Only **user + assistant text** is replayed across requests (`replayable`,
-). Intermediate `tool_use`/`tool_result` pairs live **within a
-  single loop** and are dropped from cross-request history — pairing them across
-  turns breaks provider APIs.
+- Only **user + assistant text** is replayed across requests (`replayable` in
+  `workers/data-ops/src/lib/agent.ts`, applied wherever a thread's history is
+  turned into a model conversation). Intermediate `tool_use`/`tool_result` pairs
+  live **within a single loop** and are dropped from cross-request history —
+  pairing them across turns breaks provider APIs.
 - Tool results are handed back **fenced as DATA**, capped at 2000 chars
   (`fence`), never as instructions — a big list can't blow context,
   and data can't smuggle in a prompt.
@@ -476,10 +477,10 @@ paths already route through it. They don't.
 **Why.** Sharding was built up front (a locked decision) as a relief valve:
 **alarm** (nightly size check) → **mover** (relocate a module to its own DB) →
 **split** (merged reads across shards). But today every module hot-read queries
-`guard.databaseId` **directly** — `listLearning`, `listHelp`, `listMembers`,
-`listRoles`, `listSelectable` all call `d1Query(cfg, guard.databaseId, …)`, not
-`queryModule`. Grep confirms: no hot read path imports `queryModule` /
-`resolveModuleDatabases` / `d1QueryAcross`.
+`guard.databaseId` **directly** — `listLearning`, `listTickets` (the help list),
+`listMembers`, `listRoles`, `listSelectable` all call
+`d1Query(cfg, guard.databaseId, …)`, not `queryModule`. Grep confirms: no hot
+read path imports `queryModule` / `resolveModuleDatabases` / `d1QueryAcross`.
 
 **The rules.**
 
@@ -599,9 +600,16 @@ self-heals for real users.
 deployed HTML and check the asset URLs it actually references, then open a new tab. If
 the fresh tab is clean, you are looking at version skew, not a regression.
 
-One real rule did come out of it, on its own merits: **transitions that change who is
-signed in are hard navigations** (`softNavigate` in `web/lib/nav.ts`) — sign-in, sign-out,
-and onboarding creating the first team. The whole shell (session, active team, live
-channel, caches) must re-initialise for the new identity, which a soft `router.replace`
-does not do. Ordinary in-app navigation stays soft. See CONVENTIONS "Navigating after the
-identity changes".
+One real rule did come out of it, on its own merits: **a transition that changes who is
+signed in must never go through the soft-navigation bus.** The whole shell (session,
+active team, live channel, caches) has to re-initialise for the new identity, and
+`softNavigate` in `web/lib/nav.ts` is built to do the opposite — it hands the path to
+the mounted deep-link shell's History-API `go()` so the shell survives, and only falls
+back to a real `window.location.assign` when no host is mounted (pre-auth, or the very
+first paint). So the identity transitions leave it alone: signing out
+(`profile-menu.tsx`) and the teamless / not-onboarded / session-lost bounces
+(`use-active-team.ts`) call `router.replace(…)`, which leaves the shell behind for a
+freshly-mounted destination page, and the FORCED sign-out the live layer triggers
+(`app-shell.tsx`) is a real document load, `window.location.assign("/login")` — the one
+place a full reload is the point. Ordinary in-app navigation stays soft, through
+`softNavigate`. See CONVENTIONS "Navigating after the identity changes".

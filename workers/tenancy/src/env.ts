@@ -20,6 +20,18 @@ export type Env = {
   /** The public WEB origin the SPA is served on (the gateway's public URL),
    *  used for links in outbound emails. Set per env in wrangler vars. */
   PUBLIC_APP_URL?: string
+  /** Where the nightly error digest is sent. A VAR, not a secret — it is an
+   *  address, so it lives in wrangler.jsonc where an owner can see and change it
+   *  per environment. Unset means the digest has nowhere to go, which is a
+   *  MISCONFIGURATION and is recorded as one: to switch the digest off, remove
+   *  the cron trigger, not the address. */
+  OPS_ALERT_EMAIL?: string
+  /** Account-wide AI units per day past which the nightly job raises an alarm.
+   *  Optional — the code default (sharding.ts) applies when unset. Every other
+   *  AI limit in the base is per-team; this is the only one that sees the whole
+   *  account, so it is the only thing standing between "every tenant is inside
+   *  its quota" and a bill nobody predicted. */
+  ACCOUNT_AI_DAILY_ALARM?: string
 
   // Secrets (wrangler secret put):
   /** API token scoped to Account → D1 → Edit. Without it, team databases
