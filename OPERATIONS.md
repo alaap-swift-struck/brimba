@@ -387,3 +387,39 @@ above. It takes about three minutes.
 **R2 objects** — not versioned. An overwritten or swept object is gone. The
 nightly orphan sweep only removes objects no record references and only after a
 seven-day grace period (SCALING.md §4.7), so the exposure is bounded.
+
+## Performance budgets
+
+Numbers, not opinions. `node scripts/timings.mjs` reads them off real responses —
+every worker reports its own duration in a `Server-Timing` header beside the
+request id — and exits non-zero if any operation is over budget.
+
+Before 2026-08-25 nothing in this base was instrumented: zero `Server-Timing`,
+zero `performance.now`, zero logged durations across 222 files. Every performance
+question was answerable only by argument.
+
+| Operation | Budget | Measured (staging, 25 Aug) | Server's own |
+|---|---|---|---|
+| Cold page load | 800 ms | 83 ms median | — (static asset) |
+| `auth/health` | 200 ms | 117 ms median | 4 ms |
+| `realtime/health` | 200 ms | 152 ms median | 9 ms |
+| `mcp/health` | 200 ms | 105 ms median | 5 ms |
+
+**Read the two columns together.** The workers answer in 4–9 ms; the rest of every
+round trip is network between you and the edge. So a slow-feeling app is almost
+never slow code here — check the hop count first (below), then the budget.
+
+### The hop budget
+
+A round trip to a per-team database is a REST call over the network, not a local
+query, so hops are the expensive unit in this base and the one worth counting.
+
+| Screen, cold, fresh tab | Requests | Distinct answers |
+|---|---|---|
+| `/home` | 8 | 8 |
+| `/t/<team>/help/<id>` | 16 | 11 |
+
+Both were roughly double this on 25 August — 16 and 24 — before in-flight
+de-duplication, the single-row `?id=` doors and the removal of the screen-override
+fetch. **A screen that needs more requests than it has distinct questions is
+asking something twice**; that is the check worth making when adding one.
