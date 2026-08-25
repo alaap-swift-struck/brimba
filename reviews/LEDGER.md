@@ -863,3 +863,55 @@ Not asserted — run, and the exit codes recorded.
 | Production holds nothing | queried `brimba-core` and `brimba-ops` | 0 users, 0 teams, 0 error rows |
 
 **27 commits · 162 files · 646 tests · gate green · everything on GitHub.**
+
+
+---
+
+# FINAL SCORES — measured by agents that wrote none of the repairs
+
+| Review | R1 | R2 | R3 | **Final** | Move |
+|---|---|---|---|---|---|
+| ocean | 60 | 25 | 90 | **94** | +34 |
+| lean_mean | 89 | 91 | 92 | **93** | +4 |
+| activity_log | 82 | 88 | 89 | **89** | +7 |
+| architecture | 87 | 89 | 89 | **89** | +2 |
+| interfacelessness | 81 | 84 | 88 | **88** | +7 |
+| realtime | 80 | 81 | 86 | **86** | +6 |
+| security_sentry | 68 | 68 | 79 | **83** | +15 |
+| base_fork | 77 | 78 | 83 | **83** | +6 |
+| spend | 76 | 79 | 81 | **81** | +5 |
+| first_run | 62 | 62 | 77 | **77** | +15 |
+| dead_end | 50 | 50 | 70 | **70** | +20 |
+| error_log | 63 | 68 | 70 | **70** | +7 |
+| story | 71 | 68 | 68 | **68** (72 at HEAD) | −3 |
+| scaling | 54 | 57 | 63 | **66** | +12 |
+| round_trip | 45 | 45 | 62 | **62** | +17 |
+| speed | 37 | 39 | 45 | **55** | +18 |
+
+**Average 67 → 78. Nothing at 95. Nothing above 94.**
+
+That is the honest result and it should not be dressed up. Sixteen reviews found
+far more than one campaign could close, and the closing itself kept generating
+work: every re-measure found faults in the repairs before it, four of them in
+checks written that same day by the person who wrote the rule against them.
+
+## Ceilings that are not code
+
+Named by the reviews themselves, so the next session does not spend effort on them:
+
+| Review | Cap | Why |
+|---|---|---|
+| ocean | 96 | one author — the Avelino truck-factor row, worth exactly 2 points, permanently |
+| scaling | 90 | a ping carries no row data (locked), so every client must read; and the shared core DB the mover cannot relieve |
+| speed | 84 | `ctx.waitUntil` declined — it would keep R1's check green while changing behaviour |
+| round_trip | 78 | the gateway→auth hop IS the permission spine |
+| security | 92 | `/media/*` outside the surge ceiling, by design |
+| story | 88 from words | three criteria need commits, not prose |
+| lean_mean | 90 while `reviews/` is tracked | 26,473 lines, 0.86× the product source |
+| first_run | 95 | reached only because somebody actually signed up |
+
+## The one thing still owed by the owner
+
+**Seal the vault.** `npm run vault:save`, with a GENERATED passphrase from a
+password manager — both repositories are public. Four documents now say plainly
+that it does not exist yet, and a check keeps them honest.
